@@ -1,0 +1,183 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7208 - in trunk/rts: Game Sim/MoveTypes	System
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7208%20-%20in%20trunk/rts%3A%20Game%20Sim/MoveTypes%0A%09System&In-Reply-To=%3C20081220150335.A7633472C%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001976.html">
+   <LINK REL="Next"  HREF="001978.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7208 - in trunk/rts: Game Sim/MoveTypes	System</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7208%20-%20in%20trunk/rts%3A%20Game%20Sim/MoveTypes%0A%09System&In-Reply-To=%3C20081220150335.A7633472C%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r7208 - in trunk/rts: Game Sim/MoveTypes	System">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Dec 20 16:03:35 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001976.html">[Taspring-linux-commit] r7207 - trunk/rts/Sim/Weapons
+</A></li>
+        <LI>Next message: <A HREF="001978.html">[Taspring-linux-commit] r7209 - in trunk/rts: Game Sim/Units
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1977">[ date ]</a>
+              <a href="thread.html#1977">[ thread ]</a>
+              <a href="subject.html#1977">[ subject ]</a>
+              <a href="author.html#1977">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: jk
+Date: 2008-12-20 16:03:34 +0100 (Sat, 20 Dec 2008)
+New Revision: 7208
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Sim/MoveTypes/TAAirMoveType.cpp
+   trunk/rts/System/myMath.cpp
+   trunk/rts/System/myMath.h
+Log:
+ * forgot to mention that commit 7162 also adds a new UnitDef tag: cobfilename
+   It allows to share 1 cob between multiple UnitDefs, this should make autocreation of new UnitDefs with lua much easier.
+ * fixed /reloadcob
+ * fixed air drifting (-&gt; the imperator in THIS)
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-12-20 14:05:20 UTC (rev 7207)
++++ trunk/rts/Game/Game.cpp	2008-12-20 15:03:34 UTC (rev 7208)
+@@ -4640,12 +4640,16 @@
+ 		return;
+ 	}
+ 	const UnitDef* udef = unitDefHandler-&gt;GetUnitByName(unitName);
+-	const CCobFile* oldScript = GCobEngine.GetScriptAddr(udef-&gt;cobFilename);
++	if (udef==NULL) {
++		logOutput.Print(&quot;Unknown unit name&quot;);
++		return;
++	}
++	const CCobFile* oldScript = GCobEngine.GetScriptAddr(&quot;scripts/&quot; + udef-&gt;cobFilename);
+ 	if (oldScript == NULL) {
+ 		logOutput.Print(&quot;Unknown cob script: %s&quot;, udef-&gt;cobFilename.c_str());
+ 		return;
+ 	}
+-	CCobFile* newScript = &amp;GCobEngine.ReloadCobFile(udef-&gt;cobFilename);
++	CCobFile* newScript = &amp;GCobEngine.ReloadCobFile(&quot;scripts/&quot; + udef-&gt;cobFilename);
+ 	int count = 0;
+ 	for (int i = 0; i &lt; MAX_UNITS; i++) {
+ 		CUnit* unit = uh-&gt;units[i];
+
+Modified: trunk/rts/Sim/MoveTypes/TAAirMoveType.cpp
+===================================================================
+--- trunk/rts/Sim/MoveTypes/TAAirMoveType.cpp	2008-12-20 14:05:20 UTC (rev 7207)
++++ trunk/rts/Sim/MoveTypes/TAAirMoveType.cpp	2008-12-20 15:03:34 UTC (rev 7208)
+@@ -308,30 +308,31 @@
+ }
+ 
+ 
+-
+ // Move the unit around a bit..
+ void CTAAirMoveType::UpdateHovering()
+ {
++	#define NOZERO(x) std::max(x,0.0001f)
++
+ 	const float driftSpeed = fabs(owner-&gt;unitDef-&gt;dlHoverFactor);
+ 	float3 deltaVec = goalPos - owner-&gt;pos;
+ 	float3 deltaDir = float3(deltaVec.x, 0, deltaVec.z);
+-	const float l   = deltaDir.Length2D();
+-	deltaDir       /= std::max(l,0.0001f);
+-	float moveFactor  = math::sqrt(std::max(0.0f, l - 4.0f));
++	float l = NOZERO(deltaDir.Length2D());
++	deltaDir *= smoothstep(0.0f,20.0f,l) / l;
+ 
+ 	// move towards goal position if it's not immediately
+ 	// behind us when we have more waypoints to get to
+ 	if (aircraftState != AIRCRAFT_LANDING &amp;&amp; owner-&gt;commandAI-&gt;HasMoreMoveCommands() &amp;&amp;
+ 		(l &lt; 120) &amp;&amp; (deltaDir.SqDistance(deltaVec) &gt; 1.0f)) {
+ 		deltaDir = owner-&gt;frontdir;
+-		moveFactor = 1.0f;
+ 	}
+ 
+-	// damping
+-	wantedSpeed = owner-&gt;speed * 0.95f;
++	deltaDir -= owner-&gt;speed;
++	l = deltaDir.SqLength2D();
++	if (l&gt;(maxSpeed*maxSpeed)) {
++		deltaDir *= maxSpeed / NOZERO(sqrt(l));
++	}
++	wantedSpeed = owner-&gt;speed + deltaDir;
+ 
+-	wantedSpeed += deltaDir * moveFactor * 0.05f;
+-
+ 	// random movement (a sort of fake wind effect)
+ 	// random drift values are in range -0.5 ... 0.5
+ 	randomWind = float3(randomWind.x * 0.9f + (gs-&gt;randFloat() - 0.5f) * 0.5f, 0,
+
+Modified: trunk/rts/System/myMath.cpp
+===================================================================
+--- trunk/rts/System/myMath.cpp	2008-12-20 14:05:20 UTC (rev 7207)
++++ trunk/rts/System/myMath.cpp	2008-12-20 15:03:34 UTC (rev 7208)
+@@ -91,3 +91,16 @@
+ 
+ CMyMath dummyMathObject;
+ 
++
++
++
++float smoothstep(float edge0,float edge1,float value)
++{
++	if (value&lt;=edge0) return 0.0f;
++	if (value&gt;=edge1) return 1.0f;
++	float t = (value - edge0) / (edge1 - edge0);
++	t = std::min(1.0f,std::max(0.0f, t ));
++	return t * t * (3.0f - 2.0f * t);
++}
++
++
+
+Modified: trunk/rts/System/myMath.h
+===================================================================
+--- trunk/rts/System/myMath.h	2008-12-20 14:05:20 UTC (rev 7207)
++++ trunk/rts/System/myMath.h	2008-12-20 15:03:34 UTC (rev 7208)
+@@ -126,6 +126,9 @@
+ float3 ClosestPointOnLine(const float3&amp; l1, const float3&amp; l2, const float3&amp; p);
+ 
+ 
++float smoothstep(float edge0,float edge1,float value);
++
++
+ #ifndef __GNUC__
+ #  define  __attribute__(x)  /*NOTHING*/
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001976.html">[Taspring-linux-commit] r7207 - trunk/rts/Sim/Weapons
+</A></li>
+	<LI>Next message: <A HREF="001978.html">[Taspring-linux-commit] r7209 - in trunk/rts: Game Sim/Units
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1977">[ date ]</a>
+              <a href="thread.html#1977">[ thread ]</a>
+              <a href="subject.html#1977">[ subject ]</a>
+              <a href="author.html#1977">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

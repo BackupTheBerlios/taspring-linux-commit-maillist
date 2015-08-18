@@ -1,0 +1,440 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7257 - Lobby/TASServer
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7257%20-%20Lobby/TASServer&In-Reply-To=%3C20090529153845.D9BD83B6EE%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002025.html">
+   <LINK REL="Next"  HREF="002027.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7257 - Lobby/TASServer</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7257%20-%20Lobby/TASServer&In-Reply-To=%3C20090529153845.D9BD83B6EE%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7257 - Lobby/TASServer">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri May 29 17:38:45 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002025.html">[Taspring-linux-commit] r7256 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002027.html">[Taspring-linux-commit] r7258 - in Lobby/TASClient: . Python	Python/engine
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2026">[ date ]</a>
+              <a href="thread.html#2026">[ thread ]</a>
+              <a href="subject.html#2026">[ subject ]</a>
+              <a href="author.html#2026">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2009-05-29 17:38:45 +0200 (Fri, 29 May 2009)
+New Revision: 7257
+
+Modified:
+   Lobby/TASServer/Channel.java
+   Lobby/TASServer/Misc.java
+   Lobby/TASServer/NATHelpServer.java
+   Lobby/TASServer/TASServer.java
+Log:
+variety of server fixes from a while ago, including:
+- registration rate limiting
+- per-account login rate limiting
+- possibility to check whether registering IP is a known proxy (but commented out)
+- added CREATEACCOUNT command
+- added FLOODLEVEL command
+- added KILL command, 'silent kick'
+- added KILLIP command
+- added WHITELIST command, IPs on whitelist aren't proxy-checked (see above)
+- added UNWHITELIST command
+- added ENABLELOGIN command, this can be used to disable new logins entirely
+- added ENABLEREGISTER command, this can be used to disable new registrations entirely
+- added SETTIMEOUT command
+
+
+
+Modified: Lobby/TASServer/Channel.java
+===================================================================
+--- Lobby/TASServer/Channel.java	2009-05-28 22:52:16 UTC (rev 7256)
++++ Lobby/TASServer/Channel.java	2009-05-29 15:38:45 UTC (rev 7257)
+@@ -109,7 +109,7 @@
+ 	}
+ 	
+ 	public boolean isLocked() {
+-		return !(key.equals(&quot;*&quot;));
++		return !(key.equals(&quot;*&quot;) || key.equals(&quot;&quot;));
+ 	}
+ 	
+ 	public void setKey(String key) {
+
+Modified: Lobby/TASServer/Misc.java
+===================================================================
+--- Lobby/TASServer/Misc.java	2009-05-28 22:52:16 UTC (rev 7256)
++++ Lobby/TASServer/Misc.java	2009-05-29 15:38:45 UTC (rev 7257)
+@@ -23,7 +23,7 @@
+ import java.security.*;
+ 
+ public class Misc {
+- 	static public final String EOL = System.getProperty(&quot;line.separator&quot;);
++ 	static public final String EOL = &quot;\n&quot;;
+  	static private String hex = &quot;0123456789ABCDEF&quot;; 
+ 	
+ 	public static String easyDateFormat (String format) {
+
+Modified: Lobby/TASServer/NATHelpServer.java
+===================================================================
+--- Lobby/TASServer/NATHelpServer.java	2009-05-28 22:52:16 UTC (rev 7256)
++++ Lobby/TASServer/NATHelpServer.java	2009-05-29 15:38:45 UTC (rev 7257)
+@@ -24,7 +24,7 @@
+ 
+ 	private DatagramSocket socket = null;
+ 	private int port;
+-	static public Vector msgList = new Vector(); // must be thread-safe
++	static public Vector&lt;DatagramPacket&gt; msgList = new Vector&lt;DatagramPacket&gt;(); // must be thread-safe
+ 	
+ 	public NATHelpServer(int port) {
+ 		this.port = port;
+
+Modified: Lobby/TASServer/TASServer.java
+===================================================================
+--- Lobby/TASServer/TASServer.java	2009-05-28 22:52:16 UTC (rev 7256)
++++ Lobby/TASServer/TASServer.java	2009-05-29 15:38:45 UTC (rev 7257)
+@@ -246,7 +246,8 @@
+ 	static final int DEFAULT_SERVER_PORT = 8200; // default server (TCP) port
+ 	static int serverPort = DEFAULT_SERVER_PORT; // actual server (TCP) port to be used (or currently in use)
+ 	static int NAT_TRAVERSAL_PORT = 8201; // default UDP port used with some NAT traversal technique. If this port is not forwarded, hole punching technique will not work.
+-	static final int TIMEOUT_LENGTH = 30000; // in milliseconds
++	static final int TIMEOUT_CHECK = 10000;
++	static int timeoutLength = 30000; // in milliseconds
+ 	static boolean LAN_MODE = false;
+ 	static boolean redirect = false; // if true, server is redirection clients to new IP
+ 	static String redirectToIP = &quot;&quot;; // new IP to which clients are redirected if (redirected==true)
+@@ -258,6 +259,8 @@
+ 	static PrintStream mainChanLog;
+ 	static String lanAdminUsername = &quot;admin&quot;; // default lan admin account. Can be overwritten with -LANADMIN switch. Used only when server is running in lan mode!
+ 	static String lanAdminPassword = Misc.encodePassword(&quot;admin&quot;);
++	private static HashMap&lt;String,Integer&gt;registrationTimes = new HashMap&lt;String, Integer&gt;();
++	private static LinkedList&lt;String&gt; whiteList=new LinkedList&lt;String&gt;();
+ 	static long purgeMutesInterval = 1000 * 3; // in miliseconds. On this interval, all channels' mute lists will be checked for expirations and purged accordingly.
+ 	static long lastMutesPurgeTime = System.currentTimeMillis(); // time when we last purged mute lists of all channels
+ 	static String[] reservedAccountNames = {&quot;TASServer&quot;, &quot;Server&quot;, &quot;server&quot;}; // accounts with these names cannot be registered (since they may be used internally by the server)
+@@ -266,7 +269,7 @@
+ 	public static boolean initializationFinished = false; // we set this to 'true' just before we enter the main loop. We need this information when saving accounts for example, so that we don't dump empty accounts to disk when an error has occured before initialization has been completed
+ 	static ArrayList&lt;FailedLoginAttempt&gt; failedLoginAttempts = new ArrayList&lt;FailedLoginAttempt&gt;(); // here we store information on latest failed login attempts. We use it to block users from brute-forcing other accounts
+ 	static long lastFailedLoginsPurgeTime = System.currentTimeMillis(); // time when we last purged list of failed login attempts
+-
++	
+ 	// database related:
+ 	public static DBInterface database;
+ 	private static String DB_URL = &quot;jdbc:<A HREF="mysql://127.0.0.1/spring">mysql://127.0.0.1/spring</A>&quot;;
+@@ -278,12 +281,16 @@
+     private static final long MAIN_LOOP_SLEEP = 10L;
+     public static final int NO_MSG_ID = -1; // meaning message isn't using an ID (see protocol description on message/command IDs)
+ 
+-    private static final int recvRecordPeriod = 10; // in seconds. Length of time period for which we keep record of bytes received from client. Used with anti-flood protection.
+-    private static final int maxBytesAlert = 20000; // maximum number of bytes received in the last recvRecordPeriod seconds from a single client before we raise &quot;flood alert&quot;. Used with anti-flood protection.
+-    private static final int maxBytesAlertForBot = 50000; // same as 'maxBytesAlert' but is used for clients in &quot;bot mode&quot; only (see client.status bits)
++    private static int recvRecordPeriod = 10; // in seconds. Length of time period for which we keep record of bytes received from client. Used with anti-flood protection.
++    private static int maxBytesAlert = 20000; // maximum number of bytes received in the last recvRecordPeriod seconds from a single client before we raise &quot;flood alert&quot;. Used with anti-flood protection.
++    private static int maxBytesAlertForBot = 50000; // same as 'maxBytesAlert' but is used for clients in &quot;bot mode&quot; only (see client.status bits)
+     private static long lastFloodCheckedTime = System.currentTimeMillis(); // time (in same format as System.currentTimeMillis) when we last updated it. Used with anti-flood protection.
+     private static long maxChatMessageLength = 1024; // used with basic anti-flood protection. Any chat messages (channel or private chat messages) longer than this are considered flooding. Used with following commands: SAY, SAYEX, SAYPRIVATE, SAYBATTLE, SAYBATTLEEX
+ 
++	
++	public static boolean regEnabled=true;
++	public static boolean loginEnabled=true;
++
+     private static long lastTimeoutCheck = System.currentTimeMillis(); // time (System.currentTimeMillis()) when we last checked for timeouts from clients
+ 
+     private static ServerSocketChannel sSockChan;
+@@ -687,11 +694,49 @@
+ 
+ 				client.sendLine(&quot;PONG&quot;);
+ 			}
++			if(commands[0].equals(&quot;CREATEACCOUNT&quot;)) {
++				if(client.account.accessLevel() != Account.ADMIN_ACCESS) return false;
++				if(commands.length!=3) {
++					client.sendLine(&quot;SERVERMSG bad params&quot;);
++					return false;
++				}
++				String valid = Accounts.isOldUsernameValid(commands[1]);
++				if (valid != null) {
++					client.sendLine(&quot;SERVERMSG Invalid username (reason: &quot; + valid + &quot;)&quot;);
++					return false;
++				}
++
++				// validate password:
++				valid = Accounts.isPasswordValid(commands[2]);
++				if (valid != null) {
++					client.sendLine(&quot;SERVERMSG Invalid password (reason: &quot; + valid + &quot;)&quot;);
++					return false;
++				}
++				Account acc = Accounts.findAccountNoCase(commands[1]);
++				if (acc != null) {
++					client.sendLine(&quot;SERVERMSG Account already exists&quot;);
++					return false;
++				}
++				for (int i = 0; i &lt; TASServer.reservedAccountNames.length; i++)
++					if (TASServer.reservedAccountNames[i].equals(commands[1])) {
++						client.sendLine(&quot;SERVERMSG Invalid account name - you are trying to register a reserved account name&quot;);
++						return false;
++					}
++				acc = new Account(commands[1], commands[2], Account.NORMAL_ACCESS, Account.NO_USER_ID, System.currentTimeMillis(), client.IP, System.currentTimeMillis(), client.country);
++				Accounts.addAccount(acc);
++				Accounts.saveAccounts(false); // let's save new accounts info to disk
++				client.sendLine(&quot;SERVERMSG Account created.&quot;);
++			}
+ 			if (commands[0].equals(&quot;REGISTER&quot;)) {
+ 				if (commands.length != 3) {
+ 					client.sendLine(&quot;REGISTRATIONDENIED Bad command arguments&quot;);
+ 					return false;
+ 				}
++				
++				if(!regEnabled) {
++					client.sendLine(&quot;REGISTRATIONDENIED Sorry, account registration is currently disabled&quot;);
++					return false;
++				}
+ 
+ 				if (client.account.accessLevel() != Account.NIL_ACCESS) { // only clients which aren't logged-in can register
+ 					client.sendLine(&quot;REGISTRATIONDENIED You are already logged-in, no need to register new account&quot;);
+@@ -716,7 +761,6 @@
+ 					client.sendLine(&quot;REGISTRATIONDENIED Invalid password (reason: &quot; + valid + &quot;)&quot;);
+ 					return false;
+ 				}
+-
+ 				Account acc = Accounts.findAccountNoCase(commands[1]);
+ 				if (acc != null) {
+ 					client.sendLine(&quot;REGISTRATIONDENIED Account already exists&quot;);
+@@ -724,12 +768,33 @@
+ 				}
+ 
+ 				// check for reserved names:
+-				for (int i = 0; i &lt; reservedAccountNames.length; i++)
+-					if (reservedAccountNames[i].equals(commands[1])) {
++				for (int i = 0; i &lt; TASServer.reservedAccountNames.length; i++)
++					if (TASServer.reservedAccountNames[i].equals(commands[1])) {
+ 						client.sendLine(&quot;REGISTRATIONDENIED Invalid account name - you are trying to register a reserved account name&quot;);
+ 						return false;
+ 					}
+-
++				if(!whiteList.contains(client.IP)) {
++					/*if (registrationTimes.containsKey(client.IP) 
++					&amp;&amp; (int)(registrationTimes.get(client.IP)) + 3600 &gt; (System.currentTimeMillis()/1000)) {
++						client.sendLine(&quot;REGISTRATIONDENIED This ip has already registered an account recently&quot;);
++						Clients.sendToAllAdministrators(&quot;SERVERMSG Client at &quot; + client.IP + &quot;'s registration of &quot; + commands[1] + &quot; was blocked due to register spam&quot;);
++						return false;
++					}
++					registrationTimes.put(client.IP, (int)(System.currentTimeMillis()/1000));*/
++					/*String proxyDNS = &quot;dnsbl.dronebl.org&quot;; //Bot checks this with the broadcast, no waiting for a response
++					String[] ipChunks = client.IP.split(&quot;\\.&quot;);
++					for (int i = 0; i &lt; 4; i++) {
++						proxyDNS = ipChunks[i] + &quot;.&quot; + proxyDNS;
++					}
++					try {
++						InetAddress.getByName(proxyDNS);
++						client.sendLine(&quot;REGISTRATIONDENIED Using a known proxy ip&quot;);
++						Clients.sendToAllAdministrators(&quot;SERVERMSG Client at &quot; + client.IP + &quot;'s registration of &quot; + commands[1] + &quot; was blocked as it is a proxy IP&quot;);
++						return false;
++					} catch (UnknownHostException e) {
++					}*/
++				}
++				Clients.sendToAllAdministrators(&quot;SERVERMSG New registration of &lt;&quot; + commands[1] +  &quot;&gt; at &quot; + client.IP);
+ 				acc = new Account(commands[1], commands[2], Account.NORMAL_ACCESS, Account.NO_USER_ID, System.currentTimeMillis(), client.IP, System.currentTimeMillis(), client.country);
+ 				Accounts.addAccount(acc);
+ 				Accounts.saveAccounts(false); // let's save new accounts info to disk
+@@ -758,6 +823,86 @@
+ 				target.sendLine(&quot;SERVERMSG You've been kicked from server by &lt;&quot; + client.account.user + &quot;&gt;&quot; + reason);
+ 				Clients.killClient(target, &quot;Quit: kicked from server&quot;);
+ 			}
++			else if (commands[0].equals(&quot;FLOODLEVEL&quot;)) {
++				if(client.account.accessLevel() &lt; Account.ADMIN_ACCESS) return false;
++				if(commands.length==3) {
++					if(commands[1].toUpperCase().equals(&quot;PERIOD&quot;)) {
++						recvRecordPeriod = Integer.parseInt(commands[2]);
++						client.sendLine(&quot;SERVERMSG The antiflood period is now &quot; + commands[2] + &quot; seconds.&quot;);
++					} else if(commands[1].toUpperCase().equals(&quot;USER&quot;)) {
++						maxBytesAlert = Integer.parseInt(commands[2]);
++						client.sendLine(&quot;SERVERMSG The antiflood amount for a normal user is now &quot; + commands[2] + &quot; bytes.&quot;);
++					} else if(commands[1].toUpperCase().equals(&quot;BOT&quot;)) {
++						maxBytesAlertForBot = Integer.parseInt(commands[2]);
++						client.sendLine(&quot;SERVERMSG The antiflood amount for a bot is now &quot; + commands[2] + &quot; bytes.&quot;);
++					}
++				}
++			}
++			else if (commands[0].equals(&quot;KILL&quot;)) {
++				if(client.account.accessLevel() &lt; Account.ADMIN_ACCESS) return false;
++				if(commands.length&lt;2) return false;
++				
++				Client target=Clients.getClient(commands[1]);
++				if(target==null) return false;
++				Clients.killClient(target);
++			}
++			else if (commands[0].equals(&quot;KILLIP&quot;)) {
++				if(client.account.accessLevel() &lt; Account.ADMIN_ACCESS) return false;
++				if(commands.length!=2) return false;
++				String IP = commands[1];
++				String[] sp1 = IP.split(&quot;\\.&quot;);
++				if (sp1.length != 4) {
++					client.sendLine(&quot;SERVERMSG Invalid IP address/range: &quot; + IP);
++					return false;
++				}
++				for (int i = 0; i &lt; Clients.getClientsSize(); i++) {
++					String[] sp2 = Clients.getClient(i).IP.split(&quot;\\.&quot;);
++
++					if (!sp1[0].equals(&quot;*&quot;)) if (!sp1[0].equals(sp2[0])) continue;
++					if (!sp1[1].equals(&quot;*&quot;)) if (!sp1[1].equals(sp2[1])) continue;
++					if (!sp1[2].equals(&quot;*&quot;)) if (!sp1[2].equals(sp2[2])) continue;
++					if (!sp1[3].equals(&quot;*&quot;)) if (!sp1[3].equals(sp2[3])) continue;
++					Clients.killClient(Clients.getClient(i));
++				}				
++			}
++			else if (commands[0].equals(&quot;WHITELIST&quot;)) {
++				if(client.account.accessLevel() &lt; Account.ADMIN_ACCESS) return false;
++				if(commands.length==2) {
++					whiteList.add(commands[1]);
++					client.sendLine(&quot;SERVERMSG IP successfully whitelisted from REGISTER constraints&quot;);
++				}
++				else
++					client.sendLine(&quot;SERVERMSG Whitelist is: &quot; + whiteList.toString());
++			}
++			else if (commands[0].equals(&quot;UNWHITELIST&quot;)) {
++				if(client.account.accessLevel() &lt; Account.ADMIN_ACCESS) return false;
++				if(commands.length==2) {
++					client.sendLine((whiteList.remove(commands[1]))?&quot;SERVERMSG IP removed from whitelist&quot;:&quot;SERVERMSG IP not in whitelist&quot;);
++				}
++				else
++					client.sendLine(&quot;SERVERMSG Bad command- UNWHITELIST IP&quot;);
++			}
++			else if (commands[0].equals(&quot;ENABLELOGIN&quot;)) {
++				if(client.account.accessLevel() &lt; Account.ADMIN_ACCESS) return false;
++				if(commands.length==2)
++					loginEnabled=(commands[1].equals(&quot;1&quot;));
++				client.sendLine(&quot;SERVERMSG The LOGIN command is &quot; + (loginEnabled?&quot;enabled&quot;:&quot;disabled&quot;) + &quot; for non-moderators&quot;);
++			}
++			else if (commands[0].equals(&quot;ENABLEREGISTER&quot;)) {
++				if(client.account.accessLevel() &lt; Account.ADMIN_ACCESS) return false;
++				if(commands.length==2)
++					regEnabled=(commands[1].equals(&quot;1&quot;));
++				client.sendLine(&quot;SERVERMSG The REGISTER command is &quot; + (regEnabled?&quot;enabled&quot;:&quot;disabled&quot;));
++			}
++
++			else if (commands[0].equals(&quot;SETTIMEOUT&quot;)) {
++				if(client.account.accessLevel() &lt; Account.ADMIN_ACCESS) return false;
++				if(commands.length==2) {
++					timeoutLength = Integer.parseInt(commands[1]) * 1000;
++					client.sendLine(&quot;SERVERMSG Timeout length is now &quot; + commands[1] + &quot; seconds.&quot;);
++				}
++			}
++
+ 			else if (commands[0].equals(&quot;REMOVEACCOUNT&quot;)) {
+ 				if (client.account.accessLevel() &lt; Account.ADMIN_ACCESS) return false;
+ 				if (commands.length != 2) return false;
+@@ -828,13 +973,14 @@
+ 				acc.access = value;
+ 
+ 				Accounts.saveAccounts(false); // save changes
+-				 // just in case if rank got changed:
+-				client.setRankToStatus(client.account.getRank());
++				// just in case if rank got changed: FIXME?
++				//Client target=Clients.getClient(commands[1]);
++				//target.setRankToStatus(client.account.getRank());
++				//if(target.alive)
++				//	Clients.notifyClientsOfNewClientStatus(target);
+ 
+-				Clients.notifyClientsOfNewClientStatus(client);
++				client.sendLine(&quot;SERVERMSG You have changed ACCESS for &lt;&quot; + commands[1] + &quot;&gt; successfully.&quot;);
+ 
+-				client.sendLine(&quot;SERVERMSG You have changed password for &lt;&quot; + commands[1] + &quot;&gt; successfully.&quot;);
+-
+ 				// add server notification:
+ 				ServerNotification sn = new ServerNotification(&quot;Account access changed by admin&quot;);
+ 				sn.addLine(&quot;Admin &lt;&quot; + client.account.user + &quot;&gt; has changed access/status bits for account &lt;&quot; + acc.user + &quot;&gt;.&quot;);
+@@ -1513,6 +1659,11 @@
+ 					client.sendLine(&quot;DENIED Already logged in&quot;);
+ 					return false; // user with accessLevel &gt; 0 cannot re-login
+ 				}
++				
++				if(!loginEnabled &amp;&amp; Accounts.getAccount(commands[1]).accessLevel() &lt; Account.PRIVILEGED_ACCESS) {
++					client.sendLine(&quot;DENIED Sorry, logging in is currently disabled&quot;);
++					return false;
++				}
+ 
+ 				if (commands.length &lt; 6) {
+ 					client.sendLine(&quot;DENIED Bad command arguments&quot;);
+@@ -1584,9 +1735,13 @@
+ 						acc.setAgreement(true);
+ 						Accounts.saveAccounts(false);
+ 					}
++					if (acc.lastLogin + 5000 &gt; System.currentTimeMillis()) {
++						client.sendLine(&quot;DENIED This account has already connected in the last 5 seconds&quot;);
++						return false;
++					}
+ 					client.account = acc;
+ 				} else { // LAN_MODE == true
+-					if (commands[1] == &quot;&quot;) {
++					if (commands[1].equals(&quot;&quot;)) {
+ 						client.sendLine(&quot;DENIED Cannot login with null username&quot;);
+ 					}
+ 					Account acc = Accounts.getAccount(commands[1]);
+@@ -1678,7 +1833,7 @@
+ 				}
+ 
+ 				Account acc = Accounts.findAccountNoCase(commands[1]);
+-				if (acc != null) {
++				if (acc != null &amp;&amp; acc != client.account) {
+ 					client.sendLine(&quot;SERVERMSG RENAMEACCOUNT failed: Account with same username already exists!&quot;);
+ 					return false;
+ 				}
+@@ -2934,12 +3089,12 @@
+ 		    }
+ 
+ 		    // check for timeouts:
+-		    if (System.currentTimeMillis() - lastTimeoutCheck &gt; TIMEOUT_LENGTH) {
++		    if (System.currentTimeMillis() - lastTimeoutCheck &gt; TIMEOUT_CHECK) {
+ 		    	lastTimeoutCheck = System.currentTimeMillis();
+ 		    	long now = System.currentTimeMillis();
+ 		    	for (int i = 0; i &lt; Clients.getClientsSize(); i++) {
+ 		    		if (Clients.getClient(i).halfDead) continue; // already scheduled for kill
+-		    		if (now - Clients.getClient(i).timeOfLastReceive &gt; TIMEOUT_LENGTH) {
++		    		if (now - Clients.getClient(i).timeOfLastReceive &gt; timeoutLength) {
+ 		    			System.out.println(&quot;Timeout detected from &quot; + Clients.getClient(i).account.user + &quot; (&quot; + Clients.getClient(i).IP + &quot;). Client has been scheduled for kill ...&quot;);
+ 		    			Clients.killClientDelayed(Clients.getClient(i), &quot;Quit: timeout&quot;);
+ 		    		}
+@@ -3024,3 +3179,4 @@
+         System.out.println(&quot;Server closed gracefully!&quot;);
+ 	}
+ }
++
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002025.html">[Taspring-linux-commit] r7256 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002027.html">[Taspring-linux-commit] r7258 - in Lobby/TASClient: . Python	Python/engine
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2026">[ date ]</a>
+              <a href="thread.html#2026">[ thread ]</a>
+              <a href="subject.html#2026">[ subject ]</a>
+              <a href="author.html#2026">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

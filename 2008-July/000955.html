@@ -1,0 +1,203 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6175 - trunk/rts/Lua
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6175%20-%20trunk/rts/Lua&In-Reply-To=%3C20080713203834.B9F9C4951%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000954.html">
+   <LINK REL="Next"  HREF="000956.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6175 - trunk/rts/Lua</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6175%20-%20trunk/rts/Lua&In-Reply-To=%3C20080713203834.B9F9C4951%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6175 - trunk/rts/Lua">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Jul 13 22:38:34 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000954.html">[Taspring-linux-commit] r6174 - trunk/rts/Lua
+</A></li>
+        <LI>Next message: <A HREF="000956.html">[Taspring-linux-commit] r6176 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#955">[ date ]</a>
+              <a href="thread.html#955">[ thread ]</a>
+              <a href="subject.html#955">[ subject ]</a>
+              <a href="author.html#955">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: trepan
+Date: 2008-07-13 22:38:33 +0200 (Sun, 13 Jul 2008)
+New Revision: 6175
+
+Modified:
+   trunk/rts/Lua/LuaSyncedCtrl.cpp
+   trunk/rts/Lua/LuaSyncedCtrl.h
+Log:
+
+- added Spring.AddHeightMap(x, y, h)
+- renamed Spring.SetHeight() to Spring.SetHeightMap()
+- used the absolute value of the change for heightMapAmountChanged
+
+
+
+Modified: trunk/rts/Lua/LuaSyncedCtrl.cpp
+===================================================================
+--- trunk/rts/Lua/LuaSyncedCtrl.cpp	2008-07-13 20:07:39 UTC (rev 6174)
++++ trunk/rts/Lua/LuaSyncedCtrl.cpp	2008-07-13 20:38:33 UTC (rev 6175)
+@@ -190,7 +190,8 @@
+ 	REGISTER_LUA_CFUNC(AdjustHeightMap);
+ 	REGISTER_LUA_CFUNC(RevertHeightMap);
+ 
+-	REGISTER_LUA_CFUNC(SetHeight);
++	REGISTER_LUA_CFUNC(AddHeightMap);
++	REGISTER_LUA_CFUNC(SetHeightMap);
+ 	REGISTER_LUA_CFUNC(SetHeightMapFunc);
+ 
+ 	REGISTER_LUA_CFUNC(SpawnCEG);
+@@ -2621,41 +2622,79 @@
+ /******************************************************************************/
+ /******************************************************************************/
+ 
+-int LuaSyncedCtrl::SetHeight(lua_State* L)
++int LuaSyncedCtrl::AddHeightMap(lua_State* L)
+ {
+ 	if (!inHeightMap) {
+-		luaL_error(L, &quot;SetHeight() can only be called in Spring.SetHeightMapFunc()&quot;);
++		luaL_error(L, &quot;AddHeightMap() can only be called in SetHeightMapFunc()&quot;);
+ 	}
+ 
+ 	const float xl = luaL_checkfloat(L, 1);
+ 	const float zl = luaL_checkfloat(L, 2);
+ 	const float h  = luaL_checkfloat(L, 3);
+ 
+-	// quantize and clamp
++	// quantize
+ 	const int x = (int)(xl / SQUARE_SIZE);
+ 	const int z = (int)(zl / SQUARE_SIZE);
+ 
+-	if (x&lt;0 || x&gt;gs-&gt;mapx || z&lt;0 || z&gt;gs-&gt;mapy) return 0;
++	// discard invalid coordinates
++	if ((x &lt; 0) || (x &gt; gs-&gt;mapx) ||
++	    (z &lt; 0) || (z &gt; gs-&gt;mapy)) {
++		return 0;
++	}
+ 
+ 	const int index = (z * (gs-&gt;mapx + 1)) + x;
++	readmap-&gt;GetHeightmap()[index] += h;
++	heightMapAmountChanged += fabs(h);
++
++	// update RecalcArea()
++	if (x &lt; heightMapx1) { heightMapx1 = x; }
++	if (x &gt; heightMapx2) { heightMapx2 = x; }
++	if (z &lt; heightMapz1) { heightMapz1 = z; }
++	if (z &gt; heightMapz2) { heightMapz2 = z; }
++
++	return 0;
++}
++
++
++int LuaSyncedCtrl::SetHeightMap(lua_State* L)
++{
++	if (!inHeightMap) {
++		luaL_error(L, &quot;SetHeightMap() can only be called in SetHeightMapFunc()&quot;);
++	}
++
++	const float xl = luaL_checkfloat(L, 1);
++	const float zl = luaL_checkfloat(L, 2);
++	const float h  = luaL_checkfloat(L, 3);
++
++	// quantize
++	const int x = (int)(xl / SQUARE_SIZE);
++	const int z = (int)(zl / SQUARE_SIZE);
++
++	// discard invalid coordinates
++	if ((x &lt; 0) || (x &gt; gs-&gt;mapx) ||
++	    (z &lt; 0) || (z &gt; gs-&gt;mapy)) {
++		return 0;
++	}
++
++	const int index = (z * (gs-&gt;mapx + 1)) + x;
+ 	float&amp; heightMap = readmap-&gt;GetHeightmap()[index];
+ 	const float oldHeight = heightMap;
+ 
+ 	if (lua_israwnumber(L, 4)) {
+-		const float t  = lua_tofloat(L, 4);
++		const float t = lua_tofloat(L, 4);
+ 		heightMap += (h - heightMap) * t;
+-	}else{
++	} else{
+ 		heightMap = h;
+ 	}
+ 
+-	const float heightDiff =  heightMap - oldHeight;
++	const float heightDiff = heightMap - oldHeight;
++	heightMapAmountChanged += fabs(heightDiff);
+ 
+ 	//update RecalcArea()
+ 	if (x &lt; heightMapx1) { heightMapx1 = x; }
+ 	if (x &gt; heightMapx2) { heightMapx2 = x; }
+ 	if (z &lt; heightMapz1) { heightMapz1 = z; }
+ 	if (z &gt; heightMapz2) { heightMapz2 = z; }
+-	heightMapAmountChanged += heightDiff;
+ 
+ 	lua_pushnumber(L, heightDiff);
+ 	return 1;
+@@ -2681,7 +2720,7 @@
+ 	heightMapx2 = -1;
+ 	heightMapz1 = gs-&gt;mapy;
+ 	heightMapz2 = 0;
+-	heightMapAmountChanged = 0;
++	heightMapAmountChanged = 0.0f;
+ 
+ 	inHeightMap = true;
+ 	const int error = lua_pcall(L, (args - 1), 0, 0);
+
+Modified: trunk/rts/Lua/LuaSyncedCtrl.h
+===================================================================
+--- trunk/rts/Lua/LuaSyncedCtrl.h	2008-07-13 20:07:39 UTC (rev 6174)
++++ trunk/rts/Lua/LuaSyncedCtrl.h	2008-07-13 20:38:33 UTC (rev 6175)
+@@ -108,7 +108,8 @@
+ 		static int AdjustHeightMap(lua_State* L);
+ 		static int RevertHeightMap(lua_State* L);
+ 
+-		static int SetHeight(lua_State* L);
++		static int AddHeightMap(lua_State* L);
++		static int SetHeightMap(lua_State* L);
+ 		static int SetHeightMapFunc(lua_State* L);
+ 
+ 		static int SpawnCEG(lua_State* L);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000954.html">[Taspring-linux-commit] r6174 - trunk/rts/Lua
+</A></li>
+	<LI>Next message: <A HREF="000956.html">[Taspring-linux-commit] r6176 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#955">[ date ]</a>
+              <a href="thread.html#955">[ thread ]</a>
+              <a href="subject.html#955">[ subject ]</a>
+              <a href="author.html#955">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

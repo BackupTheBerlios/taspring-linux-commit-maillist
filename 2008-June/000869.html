@@ -1,0 +1,386 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6089 - trunk/Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-June/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6089%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080628200745.884B54873%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000868.html">
+   <LINK REL="Next"  HREF="000870.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6089 - trunk/Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6089%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080628200745.884B54873%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6089 - trunk/Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Jun 28 22:07:45 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000868.html">[Taspring-linux-commit] r6088 - trunk/rts/System/FileSystem
+</A></li>
+        <LI>Next message: <A HREF="000870.html">[Taspring-linux-commit] r6090 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#869">[ date ]</a>
+              <a href="thread.html#869">[ thread ]</a>
+              <a href="subject.html#869">[ subject ]</a>
+              <a href="author.html#869">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2008-06-28 22:07:44 +0200 (Sat, 28 Jun 2008)
+New Revision: 6089
+
+Modified:
+   trunk/Lobby/TASClient/MainUnit.pas
+   trunk/Lobby/TASClient/MenuFormUnit.pas
+   trunk/Lobby/TASClient/ReplaysUnit.dfm
+   trunk/Lobby/TASClient/ReplaysUnit.pas
+   trunk/Lobby/TASClient/TASClient.dof
+   trunk/Lobby/TASClient/TASClient.dpr
+   trunk/Lobby/TASClient/TASClient.res
+Log:
+- &quot;-menudev&quot; command line added to make the lobby search the SP interface in .\Interface instead of using the default.ssk
+- dblclick on a nick in the chat will open a PM tab
+- &quot;delete all visible&quot; button added to the replay form, so you can only show the replays you want to delete and click that button to clean your replays
+
+Modified: trunk/Lobby/TASClient/MainUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.pas	2008-06-28 14:33:13 UTC (rev 6088)
++++ trunk/Lobby/TASClient/MainUnit.pas	2008-06-28 20:07:44 UTC (rev 6089)
+@@ -510,7 +510,7 @@
+ 
+ const
+   VERSION_NUMBER = '0.38'; // Must be float value! (with a period as a decimal seperator)
+-  BETA_NUMBER = 324;
++  BETA_NUMBER = 326;
+   CHECK_BETA_LOBBY_URL = '<A HREF="http://tasclient.no-ip.org/TASClient.txt">http://tasclient.no-ip.org/TASClient.txt</A>';
+   PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER + ' beta';
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+@@ -1282,6 +1282,7 @@
+     function GetTabWindowPageIndex(Caption: string): Integer;
+     procedure ChangeActivePageAndUpdate(PageControl: TPageControl; PageIndex: Integer); // never change ActivePageIndex manually, since it doesn't trigger OnChange event!
+     procedure RichEditMouseDown(Sender: TObject;Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
++    procedure RichEditDblClick(Sender: TObject);
+     procedure InputEditKeyPress(Sender: TObject; var Key: Char);
+     procedure InputEditClick(Sender: TObject);
+     procedure InputEditKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+@@ -1567,6 +1568,7 @@
+ 
+   RunningUnderWine: Boolean = False; // set via -wine argument to the program
+   RunningWithMainMenu: Boolean = False; // set via -menu argument to the program
++  RunningWithMainMenuDev: Boolean = True; // set via -menudev argument to the program
+ 
+   MyInternetIp: String;
+ 
+@@ -3718,6 +3720,7 @@
+   tmpre.HideSelection := False;
+   tmpre.PopupMenu := RichEditPopupMenu;
+   tmpre.OnMouseDown := RichEditMouseDown;
++  tmpre.OnDblClick := RichEditDblClick;
+   // enable auto URL detection:
+   mask := SendMessage(tmpre.Handle, EM_GETEVENTMASK, 0, 0);
+   SendMessage(tmpre.Handle, EM_SETEVENTMASK, 0, mask or ENM_LINK);
+@@ -6495,6 +6498,46 @@
+   PageControl1.OnChange(PageControl1); // because it doesn't get triggered automatically
+ end;
+ 
++
++procedure TMainForm.RichEditDblClick(Sender: TObject);
++var
++   ci, //Character Index
++   lix, //Line Index
++   co, //Character Offset
++   k, j: Integer;
++   Pt: TPoint;
++   s: string;
++   SelectedNick: string;
++begin
++   with TTntRichEdit(Sender) do
++   begin
++     GetCursorPos(pt);
++     pt := TTntRichEdit(Sender).ScreenToClient(pt);
++     //Pt := Point(X, Y) ;
++     ci := Perform(Messages.EM_CHARFROMPOS, 0, Integer(@Pt)) ;
++     if ci &lt; 0 then Exit;
++     lix := Perform(EM_EXLINEFROMCHAR, 0, ci) ;
++     co := ci - Perform(EM_LINEINDEX, lix, 0) ;
++     if -1 + Lines.Count &lt; lix then Exit;
++     s := Lines[lix];
++     Inc(co) ;
++     k := co;
++     while (k &gt; 0) and (s[k] &lt;&gt; ' ') and (s[k] &lt;&gt; '&lt;') do k:=k-1;
++     Inc(k);
++     Inc(co) ;
++     j := co;
++     while (j &lt;= Length(s)) and (s[j] &lt;&gt; ' ') and (s[j] &lt;&gt; '&gt;') do Inc(j) ;
++     SelectedNick := Copy(s, k, j - k) ;
++
++     RichEditSelectedClient := GetClient(SelectedNick);
++
++     if RichEditSelectedClient &lt;&gt; nil then
++     begin
++       OpenPrivateChat(SelectedNick);
++     end;
++   end;
++end;
++
+ procedure TMainForm.RichEditMouseDown(Sender: TObject;
+   Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+ var
+
+Modified: trunk/Lobby/TASClient/MenuFormUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/MenuFormUnit.pas	2008-06-28 14:33:13 UTC (rev 6088)
++++ trunk/Lobby/TASClient/MenuFormUnit.pas	2008-06-28 20:07:44 UTC (rev 6089)
+@@ -232,8 +232,11 @@
+ 
+   htmlBrowser := TWebBrowserWrapper.Create(htmlContainer.HostedBrowser);
+ 
+-  MenuCurrentPath := GetLongPathName(GetEnvironmentVariable('TEMP'))+'\tasclientgui\';
+-  //MenuCurrentPath := ExtractFilePath(Application.ExeName) + 'Interface\';
++  if MainUnit.RunningWithMainMenuDev then
++    MenuCurrentPath := ExtractFilePath(Application.ExeName) + 'Interface\'
++  else
++    MenuCurrentPath := GetLongPathName(GetEnvironmentVariable('TEMP'))+'\tasclientgui\';
++
+   MissionCurrentPath := MenuCurrentPath+'Mission\';
+   CampaignCurrentPath := MenuCurrentPath+'Campaign\';
+ 
+
+Modified: trunk/Lobby/TASClient/ReplaysUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/ReplaysUnit.dfm	2008-06-28 14:33:13 UTC (rev 6088)
++++ trunk/Lobby/TASClient/ReplaysUnit.dfm	2008-06-28 20:07:44 UTC (rev 6089)
+@@ -132,7 +132,7 @@
+         231)
+       object SpTBXLabel1: TSpTBXLabel
+         Left = 0
+-        Top = 148
++        Top = 152
+         Width = 32
+         Height = 13
+         Caption = 'Grade:'
+@@ -144,7 +144,7 @@
+       end
+       object GradeComboBox: TSpTBXComboBox
+         Left = 0
+-        Top = 164
++        Top = 168
+         Width = 97
+         Height = 21
+         Style = csDropDownList
+@@ -207,6 +207,26 @@
+             WordWrap = False
+           end
+         end
++        object SpTBXTabSheet2: TSpTBXTabSheet
++          Left = 0
++          Top = 23
++          Width = 686
++          Height = 170
++          Caption = 'Comments'
++          ImageIndex = -1
++          TabItem = 'CommentsTab'
++          object CommentsRichEdit: TRichEdit
++            Left = 2
++            Top = 0
++            Width = 682
++            Height = 168
++            Align = alClient
++            ScrollBars = ssBoth
++            TabOrder = 0
++            WordWrap = False
++            OnChange = CommentsRichEditChange
++          end
++        end
+         object SpTBXTabSheet4: TSpTBXTabSheet
+           Left = 0
+           Top = 23
+@@ -394,26 +414,6 @@
+             end
+           end
+         end
+-        object SpTBXTabSheet2: TSpTBXTabSheet
+-          Left = 0
+-          Top = 23
+-          Width = 686
+-          Height = 170
+-          Caption = 'Comments'
+-          ImageIndex = -1
+-          TabItem = 'CommentsTab'
+-          object CommentsRichEdit: TRichEdit
+-            Left = 2
+-            Top = 0
+-            Width = 682
+-            Height = 168
+-            Align = alClient
+-            ScrollBars = ssBoth
+-            TabOrder = 0
+-            WordWrap = False
+-            OnChange = CommentsRichEditChange
+-          end
+-        end
+         object SpTBXTabSheet3: TSpTBXTabSheet
+           Left = 0
+           Top = 23
+@@ -542,7 +542,7 @@
+       end
+       object DownloadButton: TSpTBXButton
+         Left = 0
+-        Top = 99
++        Top = 126
+         Width = 97
+         Height = 22
+         Caption = 'Dowload replays'
+@@ -556,7 +556,7 @@
+       end
+       object UploadButton: TSpTBXButton
+         Left = 0
+-        Top = 123
++        Top = 203
+         Width = 97
+         Height = 22
+         Caption = 'Upload'
+@@ -626,6 +626,20 @@
+         LinkFont.Name = 'MS Sans Serif'
+         LinkFont.Style = [fsUnderline]
+       end
++      object DeleteAllVisibleButton: TSpTBXButton
++        Left = 0
++        Top = 99
++        Width = 97
++        Height = 25
++        Caption = 'Delete all visible'
++        TabOrder = 12
++        OnClick = DeleteAllVisibleButtonClick
++        LinkFont.Charset = DEFAULT_CHARSET
++        LinkFont.Color = clBlue
++        LinkFont.Height = -11
++        LinkFont.Name = 'MS Sans Serif'
++        LinkFont.Style = [fsUnderline]
++      end
+     end
+     object SpTBXSplitter1: TSpTBXSplitter
+       Left = 4
+
+Modified: trunk/Lobby/TASClient/ReplaysUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/ReplaysUnit.pas	2008-06-28 14:33:13 UTC (rev 6088)
++++ trunk/Lobby/TASClient/ReplaysUnit.pas	2008-06-28 20:07:44 UTC (rev 6089)
+@@ -121,6 +121,7 @@
+     RemoveFromFilterListButton: TSpTBXButton;
+     ClearFilterListButton: TSpTBXButton;
+     chkEnableFilters: TSpTBXCheckBox;
++    DeleteAllVisibleButton: TSpTBXButton;
+ 
+     procedure CreateParams(var Params: TCreateParams); override;
+ 
+@@ -230,6 +231,7 @@
+     procedure VDTReplaysDrawHint(Sender: TBaseVirtualTree;
+       HintCanvas: TCanvas; Node: PVirtualNode; R: TRect;
+       Column: TColumnIndex);
++    procedure DeleteAllVisibleButtonClick(Sender: TObject);
+   private
+     { Private declarations }
+   public
+@@ -2805,4 +2807,16 @@
+   end;
+ end;
+ 
++procedure TReplaysForm.DeleteAllVisibleButtonClick(Sender: TObject);
++var
++  i : integer;
++begin
++  if MessageDlg('Are you sure you want to delete all visible replays ?', mtConfirmation, [mbYes, mbNo], 0) = mrNo then Exit;
++  for i:=0 to ReplayList.Count-1 do
++    if TReplay(ReplayList[i]).Node &lt;&gt; nil then
++      DeleteFile(TReplay(ReplayList[i]).FullFileName);
++
++  ReloadButtonClick(nil);
++end;
++
+ end.
+
+Modified: trunk/Lobby/TASClient/TASClient.dof
+===================================================================
+--- trunk/Lobby/TASClient/TASClient.dof	2008-06-28 14:33:13 UTC (rev 6088)
++++ trunk/Lobby/TASClient/TASClient.dof	2008-06-28 20:07:44 UTC (rev 6089)
+@@ -100,7 +100,7 @@
+ DebugSourceDirs=
+ UsePackages=0
+ [Parameters]
+-RunParams=-menu
++RunParams=-menu -menudev
+ HostApplication=C:\Program Files\Spring\TASClient.exe
+ Launcher=
+ UseLauncher=0
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=3
+ Release=0
+-Build=325
++Build=326
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TA Spring lobby client
+-FileVersion=0.3.0.325
++FileVersion=0.3.0.326
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: trunk/Lobby/TASClient/TASClient.dpr
+===================================================================
+--- trunk/Lobby/TASClient/TASClient.dpr	2008-06-28 14:33:13 UTC (rev 6088)
++++ trunk/Lobby/TASClient/TASClient.dpr	2008-06-28 20:07:44 UTC (rev 6089)
+@@ -125,6 +125,8 @@
+   begin
+     MainUnit.RunningUnderWine := MainUnit.RunningUnderWine or (UpperCase(ParamStr(i)) = '-WINE');
+     MainUnit.RunningWithMainMenu := MainUnit.RunningWithMainMenu or (UpperCase(ParamStr(i)) = '-MENU');
++    MainUnit.RunningWithMainMenuDev := MainUnit.RunningWithMainMenuDev or (UpperCase(ParamStr(i)) = '-MENUDEV');
++
+     if UpperCase(ParamStr(i)) = '-SERVER' then
+       if (ParamCount = i) or (Pos(':',ParamStr(i+1)) = 0) then
+         MessageDlg('Wrong -server usage : -server myserver.com:8200',mtWarning,[mbOk],0)
+
+Modified: trunk/Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000868.html">[Taspring-linux-commit] r6088 - trunk/rts/System/FileSystem
+</A></li>
+	<LI>Next message: <A HREF="000870.html">[Taspring-linux-commit] r6090 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#869">[ date ]</a>
+              <a href="thread.html#869">[ thread ]</a>
+              <a href="subject.html#869">[ subject ]</a>
+              <a href="author.html#869">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

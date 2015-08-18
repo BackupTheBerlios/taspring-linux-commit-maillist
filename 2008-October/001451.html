@@ -1,0 +1,370 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6682 - in trunk/rts: Lua Sim/MoveTypes	Sim/Objects Sim/Units
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6682%20-%20in%20trunk/rts%3A%20Lua%20Sim/MoveTypes%0A%09Sim/Objects%20Sim/Units&In-Reply-To=%3C20081012142721.37FAE472F%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001450.html">
+   <LINK REL="Next"  HREF="001452.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6682 - in trunk/rts: Lua Sim/MoveTypes	Sim/Objects Sim/Units</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6682%20-%20in%20trunk/rts%3A%20Lua%20Sim/MoveTypes%0A%09Sim/Objects%20Sim/Units&In-Reply-To=%3C20081012142721.37FAE472F%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6682 - in trunk/rts: Lua Sim/MoveTypes	Sim/Objects Sim/Units">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Oct 12 16:27:20 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001450.html">[Taspring-linux-commit] r6681 - trunk/rts/Sim/Units/CommandAI
+</A></li>
+        <LI>Next message: <A HREF="001452.html">[Taspring-linux-commit] r6683 - in trunk/rts: Game Map/SMF System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1451">[ date ]</a>
+              <a href="thread.html#1451">[ thread ]</a>
+              <a href="subject.html#1451">[ subject ]</a>
+              <a href="author.html#1451">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-10-12 16:27:19 +0200 (Sun, 12 Oct 2008)
+New Revision: 6682
+
+Modified:
+   trunk/rts/Lua/LuaSyncedCtrl.cpp
+   trunk/rts/Lua/LuaSyncedMoveCtrl.cpp
+   trunk/rts/Sim/MoveTypes/ScriptMoveType.cpp
+   trunk/rts/Sim/Objects/SolidObject.cpp
+   trunk/rts/Sim/Objects/SolidObject.h
+   trunk/rts/Sim/Units/Unit.cpp
+   trunk/rts/Sim/Units/UnitLoader.cpp
+Log:
+fix Mantis #1113, #1090
+
+Modified: trunk/rts/Lua/LuaSyncedCtrl.cpp
+===================================================================
+--- trunk/rts/Lua/LuaSyncedCtrl.cpp	2008-10-12 09:36:15 UTC (rev 6681)
++++ trunk/rts/Lua/LuaSyncedCtrl.cpp	2008-10-12 14:27:19 UTC (rev 6682)
+@@ -1508,14 +1508,24 @@
+ 	if (!lua_isboolean(L, 2)) {
+ 		luaL_error(L, &quot;Incorrect arguments to SetUnitBlocking()&quot;);
+ 	}
+-	const bool longTerm = lua_isboolean(L, 3) &amp;&amp; lua_toboolean(L, 3);
++
+ 	if (lua_toboolean(L, 2)) {
+-		if (longTerm) { unit-&gt;blocking = true; }
+ 		unit-&gt;Block();
+ 	} else {
+ 		unit-&gt;UnBlock();
+-		if (longTerm) { unit-&gt;blocking = false; }
+ 	}
++
++	if (lua_isboolean(L, 3)) {
++		// change the collidable state
++		unit-&gt;blocking = lua_toboolean(L, 3);
++
++		// run this again so that we are removed from
++		// the blocking map if unit-&gt;blocking was set
++		// to false but arg. #2 was true (no point in
++		// being registered on the map then)
++		unit-&gt;Block();
++	}
++
+ 	return 0;
+ }
+ 
+
+Modified: trunk/rts/Lua/LuaSyncedMoveCtrl.cpp
+===================================================================
+--- trunk/rts/Lua/LuaSyncedMoveCtrl.cpp	2008-10-12 09:36:15 UTC (rev 6681)
++++ trunk/rts/Lua/LuaSyncedMoveCtrl.cpp	2008-10-12 14:27:19 UTC (rev 6682)
+@@ -509,6 +509,9 @@
+ 	if ((args &lt; 2) || !lua_isboolean(L, 2)) {
+ 		luaL_error(L, &quot;Incorrect arguments to SetNoBlocking()&quot;);
+ 	}
++
++	// marks or unmarks the unit on the blocking-map, but
++	// does not change its blocking (collidable) state
+ 	moveType-&gt;SetNoBlocking(lua_toboolean(L, 2));
+ 	return 0;
+ }
+
+Modified: trunk/rts/Sim/MoveTypes/ScriptMoveType.cpp
+===================================================================
+--- trunk/rts/Sim/MoveTypes/ScriptMoveType.cpp	2008-10-12 09:36:15 UTC (rev 6681)
++++ trunk/rts/Sim/MoveTypes/ScriptMoveType.cpp	2008-10-12 14:27:19 UTC (rev 6682)
+@@ -1,4 +1,3 @@
+-
+ #include &quot;StdAfx.h&quot;
+ #include &quot;System/mmgr.h&quot;
+ 
+@@ -34,7 +33,6 @@
+ 	CR_MEMBER(trackGround),
+ 	CR_MEMBER(hasDecal),
+ 	CR_MEMBER(isBuilding),
+-	CR_MEMBER(isBlocking),
+ 	CR_MEMBER(gravityFactor),
+ 	CR_MEMBER(windFactor),
+ 	CR_MEMBER(trackSlope),
+@@ -42,7 +40,8 @@
+ 	CR_MEMBER(groundOffset),
+ 	CR_MEMBER(mins),
+ 	CR_MEMBER(maxs),
+-	CR_MEMBER(noBlocking),
++	CR_MEMBER(isBlocking), // copy of CSolidObject::blocking (no longer used)
++	CR_MEMBER(noBlocking), // copy of CSolidObject::isMarkedOnBlockingMap
+ 	CR_MEMBER(gndStop),
+ 	CR_MEMBER(shotStop),
+ 	CR_MEMBER(slopeStop),
+@@ -94,19 +93,18 @@
+ 	if (owner) {
+ 		const UnitDef* unitDef = owner-&gt;unitDef;
+ 		isBuilding = (unitDef-&gt;type == &quot;Building&quot;);
+-		isBlocking = (!unitDef-&gt;canKamikaze || !isBuilding);
+ 	} else {
+ 		isBuilding = false;
+-		isBlocking = false;
+ 	}
+ }
+ 
+ 
+ CScriptMoveType::~CScriptMoveType(void)
+ {
+-	if (isBlocking &amp;&amp; noBlocking) {
+-		owner-&gt;Block();
+-	}
++	// clean up if noBlocking was made true at
++	// some point during this script's lifetime
++	// and not reset
++	owner-&gt;Block();
+ }
+ 
+ inline void CScriptMoveType::CalcDirections()
+@@ -137,7 +135,7 @@
+ 	const float3&amp; pos = owner-&gt;pos;
+ 
+ 	// make sure the unit is in the map
+-//	pos.CheckInBounds();
++	// pos.CheckInBounds();
+ 
+ 	// don't need the rest if the pos hasn't changed
+ 	if (pos == oldSlowUpdatePos) {
+@@ -227,8 +225,7 @@
+ 
+ 	oldPos = owner-&gt;pos;
+ 
+-	if (isBlocking &amp;&amp; !noBlocking) {
+-		owner-&gt;UnBlock();
++	if (!noBlocking) {
+ 		owner-&gt;Block();
+ 	}
+ 
+@@ -321,15 +318,16 @@
+ 
+ void CScriptMoveType::SetNoBlocking(bool state)
+ {
++	// if false, forces blocking-map updates
+ 	noBlocking = state;
++
+ 	if (noBlocking) {
+ 		owner-&gt;UnBlock();
+ 	} else {
+-		if (isBlocking) {
+-			owner-&gt;Block();
+-		}
++		owner-&gt;Block();
+ 	}
+ }
++
+ void CScriptMoveType::TrackSlope()
+ {
+ 	owner-&gt;frontdir = GetVectorFromHeading(owner-&gt;heading);
+@@ -338,5 +336,3 @@
+ 	owner-&gt;rightdir.Normalize();
+ 	owner-&gt;frontdir = owner-&gt;updir.cross(owner-&gt;rightdir);
+ }
+-
+-
+
+Modified: trunk/rts/Sim/Objects/SolidObject.cpp
+===================================================================
+--- trunk/rts/Sim/Objects/SolidObject.cpp	2008-10-12 09:36:15 UTC (rev 6681)
++++ trunk/rts/Sim/Objects/SolidObject.cpp	2008-10-12 14:27:19 UTC (rev 6682)
+@@ -65,34 +65,50 @@
+ CSolidObject::~CSolidObject() {
+ 	if (mobility) {
+ 		delete mobility;
+-		mobility = 0x0;
+ 	}
++
++	mobility = 0x0;
++	blocking = false;
+ }
+ 
+ 
+ 
+-/* Removes this object from the GroundBlockingMap. */
++/*
++ * removes this object from the GroundBlockingMap
++ * if it is currently marked on it, does nothing
++ * otherwise
++ */
+ void CSolidObject::UnBlock() {
+ 	if (isMarkedOnBlockingMap) {
+ 		groundBlockingObjectMap-&gt;RemoveGroundBlockingObject(this);
++		// isMarkedOnBlockingMap is now false
+ 	}
+ }
+ 
+-/* Adds this object to the GroundBlockingMap. */
++/*
++ * adds this object to the GroundBlockingMap
++ * if and only if its collidable property is
++ * set (blocking), else does nothing (except
++ * call UnBlock())
++ */
+ void CSolidObject::Block() {
+ 	UnBlock();
+ 
+-	if (blocking &amp;&amp; (physicalState == OnGround ||
+-	                 physicalState == Floating ||
+-	                 physicalState == Hovering ||
+-	                 physicalState == Submarine)) {
+-		// use the object's yardmap if available
+-		if (yardMap) {
+-			groundBlockingObjectMap-&gt;AddGroundBlockingObject(this, yardMap);
+-		} else {
+-			groundBlockingObjectMap-&gt;AddGroundBlockingObject(this);
+-		}
++	if (!blocking) {
++		return;
+ 	}
++	if (physicalState == Ghost || physicalState == Flying) {
++		return;
++	}
++
++	// use the object's yardmap if available
++	if (yardMap) {
++		groundBlockingObjectMap-&gt;AddGroundBlockingObject(this, yardMap);
++	} else {
++		groundBlockingObjectMap-&gt;AddGroundBlockingObject(this);
++	}
++
++	// isMarkedOnBlockingMap is now true
+ }
+ 
+ 
+
+Modified: trunk/rts/Sim/Objects/SolidObject.h
+===================================================================
+--- trunk/rts/Sim/Objects/SolidObject.h	2008-10-12 09:36:15 UTC (rev 6681)
++++ trunk/rts/Sim/Objects/SolidObject.h	2008-10-12 14:27:19 UTC (rev 6682)
+@@ -36,9 +36,9 @@
+ 	void UnBlock();
+ 
+ 	// Static properties.
+-	float mass;									// The physical mass of this object.
+-	bool blocking;								// If this object is blocking/collidable. (NOTE: Some objects could be flat =&gt; not collidable.)
+-	bool floatOnWater;							// If the object will float or not in water. (TODO: &quot;float density;&quot; would be more dynamic.)
++	float mass;									// the physical mass of this object
++	bool blocking;								// if this object can be collided with at all (NOTE: Some objects could be flat =&gt; not collidable.)
++	bool floatOnWater;							// if the object will float on water (TODO: &quot;float density;&quot; would be more dynamic.)
+ 	bool isUnderWater;
+ 	bool immobile;								// Immobile objects can not be moved. (Except perhaps along y-axis, to make them stay on ground.)
+ 	bool blockHeightChanges;					// map height cannot change under this object
+
+Modified: trunk/rts/Sim/Units/Unit.cpp
+===================================================================
+--- trunk/rts/Sim/Units/Unit.cpp	2008-10-12 09:36:15 UTC (rev 6681)
++++ trunk/rts/Sim/Units/Unit.cpp	2008-10-12 14:27:19 UTC (rev 6682)
+@@ -241,6 +241,9 @@
+ 
+ CUnit::~CUnit()
+ {
++	// clean up if we are still under movectrl here
++	DisableScriptMoveType();
++
+ 	// not all unit deletions run through KillUnit(),
+ 	// but we always want to call this for ourselves
+ 	UnBlock();
+@@ -481,6 +484,8 @@
+ 		moveType-&gt;SetGoal(pos);
+ 		moveType-&gt;StopMoving();
+ 	}
++
++	// ??
+ 	CMobileCAI* mobile = dynamic_cast&lt;CMobileCAI*&gt;(moveType);
+ 	if (mobile) {
+ 		mobile-&gt;lastUserGoal = pos;
+
+Modified: trunk/rts/Sim/Units/UnitLoader.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitLoader.cpp	2008-10-12 09:36:15 UTC (rev 6681)
++++ trunk/rts/Sim/Units/UnitLoader.cpp	2008-10-12 14:27:19 UTC (rev 6682)
+@@ -91,7 +91,6 @@
+  			pos.y = -ud-&gt;waterline;
+ 		}
+ 	}
+-	bool blocking = false;	//Used to tell if ground area shall be blocked of not.
+ 
+ 	if (team &lt; 0) {
+ 		team = MAX_TEAMS - 1; // FIXME use gs-&gt;gaiaTeamID ?  (once it is always enabled)
+@@ -99,24 +98,18 @@
+ 
+ 	if (type == &quot;GroundUnit&quot;) {
+ 		unit = SAFE_NEW CUnit;
+-		blocking = true;
+ 	} else if (type == &quot;Transport&quot;) {
+ 		unit = SAFE_NEW CTransportUnit;
+-		blocking = true;
+ 	} else if (type == &quot;Building&quot;) {
+ 		unit = SAFE_NEW CBuilding;
+-		blocking = true;
+ 	} else if (type == &quot;Factory&quot;) {
+ 		unit = SAFE_NEW CFactory;
+-		blocking = true;
+ 	} else if (type == &quot;Builder&quot;) {
+ 		unit = SAFE_NEW CBuilder;
+-		blocking = true;
+ 	} else if (type == &quot;Bomber&quot; || type == &quot;Fighter&quot;) {
+ 		unit = SAFE_NEW CUnit;
+ 	} else if (type == &quot;MetalExtractor&quot;) {
+ 		unit = SAFE_NEW CExtractorBuilding;
+-		blocking = true;
+ 	} else {
+ 		logOutput &lt;&lt; &quot;Unknown unit type &quot; &lt;&lt; type.c_str() &lt;&lt; &quot;\n&quot;;
+ 		return NULL;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001450.html">[Taspring-linux-commit] r6681 - trunk/rts/Sim/Units/CommandAI
+</A></li>
+	<LI>Next message: <A HREF="001452.html">[Taspring-linux-commit] r6683 - in trunk/rts: Game Map/SMF System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1451">[ date ]</a>
+              <a href="thread.html#1451">[ thread ]</a>
+              <a href="subject.html#1451">[ subject ]</a>
+              <a href="author.html#1451">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

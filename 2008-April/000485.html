@@ -1,0 +1,206 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5724 - trunk/rts/lib/luabind/luabind/detail
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5724%20-%20trunk/rts/lib/luabind/luabind/detail&In-Reply-To=%3C20080413113810.DEBEE46BC%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000502.html">
+   <LINK REL="Next"  HREF="000496.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5724 - trunk/rts/lib/luabind/luabind/detail</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5724%20-%20trunk/rts/lib/luabind/luabind/detail&In-Reply-To=%3C20080413113810.DEBEE46BC%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5724 - trunk/rts/lib/luabind/luabind/detail">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Apr 13 13:38:10 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000502.html">[Taspring-linux-commit] r5723 - trunk/AI/Global/KAIK-0.13
+</A></li>
+        <LI>Next message: <A HREF="000496.html">[Taspring-linux-commit] r5725 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#485">[ date ]</a>
+              <a href="thread.html#485">[ thread ]</a>
+              <a href="subject.html#485">[ subject ]</a>
+              <a href="author.html#485">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: imbaczek
+Date: 2008-04-13 13:38:09 +0200 (Sun, 13 Apr 2008)
+New Revision: 5724
+
+Modified:
+   trunk/rts/lib/luabind/luabind/detail/class_rep.hpp
+   trunk/rts/lib/luabind/luabind/detail/enum_maker.hpp
+   trunk/rts/lib/luabind/luabind/detail/overload_rep.hpp
+Log:
+fix luabind compilation on gcc 4.3 with boost concept checking
+
+Modified: trunk/rts/lib/luabind/luabind/detail/class_rep.hpp
+===================================================================
+--- trunk/rts/lib/luabind/luabind/detail/class_rep.hpp	2008-04-13 10:43:41 UTC (rev 5723)
++++ trunk/rts/lib/luabind/luabind/detail/class_rep.hpp	2008-04-13 11:38:09 UTC (rev 5724)
+@@ -42,12 +42,16 @@
+ #include &lt;luabind/handle.hpp&gt;
+ #include &lt;luabind/detail/primitives.hpp&gt;
+ 
+-#ifdef BOOST_MSVC
++
++#if defined(BOOST_MSVC) || (__GNUC__ &gt;= 4 &amp;&amp; __GNUC_MINOR__ &gt;= 3)
+ // msvc doesn't have two-phase, but requires
+ // method_rep (and overload_rep) to be complete
+ // because of its std::list implementation.
+ // gcc on the other hand has two-phase but doesn't
+ // require method_rep to be complete.
++//
++// gcc 4.3 includes boost_concept_check library which
++// also requires method_rep to be complete.
+ #include &lt;luabind/detail/method_rep.hpp&gt;
+ #endif
+ 
+
+Modified: trunk/rts/lib/luabind/luabind/detail/enum_maker.hpp
+===================================================================
+--- trunk/rts/lib/luabind/luabind/detail/enum_maker.hpp	2008-04-13 10:43:41 UTC (rev 5723)
++++ trunk/rts/lib/luabind/luabind/detail/enum_maker.hpp	2008-04-13 11:38:09 UTC (rev 5724)
+@@ -32,17 +32,8 @@
+ 
+ namespace luabind
+ {
+-	struct value;
++        struct value_vector;
+ 
+-	struct value_vector : public std::vector&lt;value&gt;
+-	{
+-		// a bug in intel's compiler forces us to declare these constructors explicitly.
+-		value_vector();
+-		virtual ~value_vector();
+-		value_vector(const value_vector&amp; v);
+-		value_vector&amp; operator,(const value&amp; rhs);
+-	};
+-
+ 	struct value
+ 	{
+ 	friend class std::vector&lt;value&gt;;
+@@ -55,21 +46,26 @@
+ 		const char* name_;
+ 		int val_;
+ 
+-		value_vector operator,(const value&amp; rhs) const
+-		{
+-			value_vector v;
++                // due to boost_concept_check in gcc 4.3, this
++                // has to be defined later, after value_vector
++                // is a complete type
++		value_vector operator,(const value&amp; rhs) const;
+ 
+-			v.push_back(*this);
+-			v.push_back(rhs);
+-
+-			return v;
+-		}
+-
+ 	private: 
+ 
+ 		value() {}
+ 	};
+ 
++	struct value_vector : public std::vector&lt;value&gt;
++	{
++		// a bug in intel's compiler forces us to declare these constructors explicitly.
++		value_vector();
++		virtual ~value_vector();
++		value_vector(const value_vector&amp; v);
++		value_vector&amp; operator,(const value&amp; rhs);
++	};
++
++
+ 	inline value_vector::value_vector()
+ 		: std::vector&lt;value&gt;()
+ 	{
+@@ -117,6 +113,17 @@
+ 			template&lt;class T&gt; void operator,(T const&amp;) const;
+ 		};
+ 	}
++
++
++        inline value_vector value::operator,(const value&amp; rhs) const
++        {
++                value_vector v;
++
++                v.push_back(*this);
++                v.push_back(rhs);
++
++                return v;
++        }
+ }
+ 
+ #endif // LUABIND_ENUM_MAKER_HPP_INCLUDED
+
+Modified: trunk/rts/lib/luabind/luabind/detail/overload_rep.hpp
+===================================================================
+--- trunk/rts/lib/luabind/luabind/detail/overload_rep.hpp	2008-04-13 10:43:41 UTC (rev 5723)
++++ trunk/rts/lib/luabind/luabind/detail/overload_rep.hpp	2008-04-13 11:38:09 UTC (rev 5724)
+@@ -34,18 +34,24 @@
+ #include &lt;boost/preprocessor/repeat.hpp&gt;
+ #include &lt;vector&gt;
+ 
++// msvc and gcc 4.3 require a complete type
++#if defined(BOOST_MSVC) || (__GNUC__ &gt;= 4 &amp;&amp; __GNUC_MINOR__ &gt;= 3)
++#include &lt;luabind/detail/policy.hpp&gt;
++#endif
++
+ #include &lt;luabind/detail/overload_rep_base.hpp&gt;
+ 
+ #include &lt;luabind/detail/is_indirect_const.hpp&gt;
+ 
+-#ifndef BOOST_MSVC
+-#include &lt;luabind/detail/policy.hpp&gt;
+-#endif
+ 
+ namespace luabind { namespace detail
+ {
+ 	struct dummy_ {};
+ 
++        // gcc 4.3 barfs without this
++        template&lt;int, class&gt; struct find_conversion_policy;
++
++
+ 	// this class represents a specific overload of a member-function.
+ 	struct overload_rep: public overload_rep_base
+ 	{
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000502.html">[Taspring-linux-commit] r5723 - trunk/AI/Global/KAIK-0.13
+</A></li>
+	<LI>Next message: <A HREF="000496.html">[Taspring-linux-commit] r5725 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#485">[ date ]</a>
+              <a href="thread.html#485">[ thread ]</a>
+              <a href="subject.html#485">[ subject ]</a>
+              <a href="author.html#485">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

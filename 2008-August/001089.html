@@ -1,0 +1,1285 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6319 - in trunk: . rts/Game	rts/build/kdevelop tools/DemoAnalyser
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6319%20-%20in%20trunk%3A%20.%20rts/Game%0A%09rts/build/kdevelop%20tools/DemoAnalyser&In-Reply-To=%3C20080827180709.EE85449AE%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001088.html">
+   <LINK REL="Next"  HREF="001090.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6319 - in trunk: . rts/Game	rts/build/kdevelop tools/DemoAnalyser</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6319%20-%20in%20trunk%3A%20.%20rts/Game%0A%09rts/build/kdevelop%20tools/DemoAnalyser&In-Reply-To=%3C20080827180709.EE85449AE%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6319 - in trunk: . rts/Game	rts/build/kdevelop tools/DemoAnalyser">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Aug 27 20:07:09 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001088.html">[Taspring-linux-commit] r6318 - trunk/Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="001090.html">[Taspring-linux-commit] r6320 - in trunk/installer: . sections
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1089">[ date ]</a>
+              <a href="thread.html#1089">[ thread ]</a>
+              <a href="subject.html#1089">[ subject ]</a>
+              <a href="author.html#1089">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-08-27 20:07:08 +0200 (Wed, 27 Aug 2008)
+New Revision: 6319
+
+Modified:
+   trunk/CMakeLists.txt
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameSetup.cpp
+   trunk/rts/Game/Team.h
+   trunk/rts/build/kdevelop/rts.kdevelop
+   trunk/tools/DemoAnalyser/CMakeLists.txt
+   trunk/tools/DemoAnalyser/main.cpp
+Log:
+* fixed alliances when team indexes are not continuous in startscript
+* declare some synced variables from Team as SyncedFloat
+
+
+Modified: trunk/CMakeLists.txt
+===================================================================
+--- trunk/CMakeLists.txt	2008-08-26 21:27:48 UTC (rev 6318)
++++ trunk/CMakeLists.txt	2008-08-27 18:07:08 UTC (rev 6319)
+@@ -35,6 +35,7 @@
+ Add_Subdirectory(AI)
+ Add_Subdirectory(tools/DedicatedServer)
+ Add_Subdirectory(tools/unitsync)
++Add_Subdirectory(tools/DemoAnalyser)
+ 
+ if (UNIX OR CMAKE_CROSSCOMPILING)
+ 	add_custom_target(gamedata ALL COMMAND sh make_gamedata_arch.sh WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/installer)
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-08-26 21:27:48 UTC (rev 6318)
++++ trunk/rts/Game/GameServer.cpp	2008-08-27 18:07:08 UTC (rev 6319)
+@@ -260,6 +260,7 @@
+ #ifdef SYNCCHECK
+ 			if (!skipping)
+ 				outstandingSyncFrames.push_back(serverframenum);
++			CheckSync();
+ #endif
+ 			Broadcast(boost::shared_ptr&lt;const RawPacket&gt;(buf));
+ 			if (!skipping)
+
+Modified: trunk/rts/Game/GameSetup.cpp
+===================================================================
+--- trunk/rts/Game/GameSetup.cpp	2008-08-26 21:27:48 UTC (rev 6318)
++++ trunk/rts/Game/GameSetup.cpp	2008-08-27 18:07:08 UTC (rev 6319)
+@@ -289,8 +289,8 @@
+ 
+ 		int numAllies = atoi(file.SGetValueDef(&quot;0&quot;, s + &quot;NumAllies&quot;).c_str());
+ 
+-		for (int j = 0; j &lt; MAX_TEAMS; ++j) {
+-			data.allies[j] = (a == j);
++		for (int otherAllyTeam = 0; otherAllyTeam &lt; MAX_TEAMS; ++otherAllyTeam) {
++			data.allies[otherAllyTeam] = (i == otherAllyTeam);
+ 		}
+ 		for (int b = 0; b &lt; numAllies; ++b) {
+ 			char key[100];
+
+Modified: trunk/rts/Game/Team.h
+===================================================================
+--- trunk/rts/Game/Team.h	2008-08-26 21:27:48 UTC (rev 6318)
++++ trunk/rts/Game/Team.h	2008-08-27 18:07:08 UTC (rev 6319)
+@@ -90,10 +90,10 @@
+ 	float energyExpense, prevEnergyExpense;
+ 	float energyUpkeep,  prevEnergyUpkeep;
+ 
+-	float metalStorage, energyStorage;
++	SyncedFloat metalStorage, energyStorage;
+ 
+ 	float metalShare, energyShare;
+-	float delayedMetalShare, delayedEnergyShare; //excess that might be shared next SlowUpdate
++	SyncedFloat delayedMetalShare, delayedEnergyShare; //excess that might be shared next SlowUpdate
+ 
+ 	float metalSent;
+ 	float metalReceived;
+
+Modified: trunk/rts/build/kdevelop/rts.kdevelop
+===================================================================
+--- trunk/rts/build/kdevelop/rts.kdevelop	2008-08-26 21:27:48 UTC (rev 6318)
++++ trunk/rts/build/kdevelop/rts.kdevelop	2008-08-27 18:07:08 UTC (rev 6319)
+@@ -56,6 +56,1027 @@
+       &lt;filetype&gt;Makefile&lt;/filetype&gt;
+       &lt;filetype&gt;CMakeLists.txt&lt;/filetype&gt;
+     &lt;/filetypes&gt;
++    &lt;blacklist&gt;
++      &lt;path&gt;AI&lt;/path&gt;
++      &lt;path&gt;AI/CMakeLists.txt&lt;/path&gt;
++      &lt;path&gt;AI/Global&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIAirForceManager.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIAirForceManager.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIAttack.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIAttack.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIAttackManager.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIAttackManager.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIBrain.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIBrain.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIBuildTable.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIBuildTable.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIBuildTask.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIBuildTask.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIConfig.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIConfig.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIConstructor.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIConstructor.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIExecute.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIExecute.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIGroup.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIGroup.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAI.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIMap.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIMap.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAISector.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAISector.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIUnitTable.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/AAIUnitTable.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/aidef.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/AAI/Interface.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer/AbicAICallback.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer/AbicAICallback.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer/AbicLoader.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer/AbicProxy.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer/AbicProxy.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer/dllbuild.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer/myai.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer/myaimingw.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer/Platform&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer/Platform/Linux&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer/Platform/Linux/SoLib.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer/Platform/Linux/SoLib.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer/Platform/SharedLib.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer/Platform/SharedLib.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer/Platform/Win&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer/Platform/Win/DllLib.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer/Platform/Win/DllLib.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer/tinyxml&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer/tinyxml/tinystr.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/ABICompatibilityLayer/tinyxml/tinyxml.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/AbicWrappers&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/AbicWrappers/AbicAICallbackWrapper.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/AbicWrappers/AbicFeatureDefWrapper.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/AbicWrappers/AbicMoveDataWrapper.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/AbicWrappers/AbicUnitDefWrapper.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/BuildTools&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/BuildTools/_AICallbackProxy.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/BuildTools/_UnitDefProxy.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/CSAILoader&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/CSAILoader/CSAILoader.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/CSAILoader/CSAIProxyAICallback.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/CSAILoader/CSAIProxy.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/CSAILoader/CSAIProxyFeatureDef.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/CSAILoader/CSAIProxy.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/CSAILoader/CSAIProxyMoveData.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/CSAILoader/CSAIProxyUnitDef.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/MonoLoader&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/MonoLoader/cbind_generated.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/CSAI/MonoLoader/CSAILoaderMono.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/AI_Config.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/AIConfigLoader.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/BaseAIDef.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/BaseAIObjects.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/BuildMap.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/BuildMap.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/BuildTable.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/BuildTable.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/CfgParser.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/CfgParser.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/DebugWindow.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/DebugWindow.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/ForceHandler.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/ForceHandler.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/GlobalAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/GlobalAI.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/InfoMap.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/InfoMap.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/Interface.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/MetalSpotMap.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/MetalSpotMap.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/Object.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/PCHGen.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/ptrvec.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/ReconHandler.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/ReconHandler.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/ResourceManager.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/ResourceUnitHandler.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/ResourceUnitHandler.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/SupportHandler.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/SupportHandler.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/TaskManager.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/TaskManager.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/Tasks.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/JCAI/Tasks.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/AreaManager.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/AreaManager.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/AttackGroup.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/AttackGroup.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/AttackHandler.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/AttackHandler.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/BuildUp.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/BuildUp.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/Containers.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/CoverageHandler.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/CoverageHandler.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/DamageControl.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/DamageControl.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/Debug.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/Debug.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/DefenseMatrix.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/DefenseMatrix.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/Definitions.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/DGunController.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/DGunController.hpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/EconomyManager.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/EconomyManager.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/EconomyTracker.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/EconomyTracker.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/GlobalAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/GlobalAI.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/Include.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/Maths.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/Maths.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/MetalMaker.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/MetalMaker.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/MetalMap.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/MetalMap.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/MicroPather.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/MicroPather.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/MTRand.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/MTRand.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/PathFinder.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/PathFinder.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/SpotFinder.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/SpotFinder.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/SunParser.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/SunParser.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/SurveillanceHandler.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/SurveillanceHandler.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/TestAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/ThreatMap.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/ThreatMap.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/Unit.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/Unit.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/UnitHandler.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/UnitHandler.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/UnitTable.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAI-0.2/UnitTable.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/AIExports.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/AttackGroup.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/AttackGroup.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/AttackHandler.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/AttackHandler.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/BuildUp.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/BuildUp.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/Containers.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/Debug.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/Debug.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/DefenseMatrix.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/DefenseMatrix.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/Defines.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/DGunController.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/DGunController.hpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/EconomyManager.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/EconomyManager.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/EconomyTracker.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/EconomyTracker.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/GlobalAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/GlobalAI.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/Include.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/Maths.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/Maths.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/MetalMaker.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/MetalMaker.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/MetalMap.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/MetalMap.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/MicroPather.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/MicroPather.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/MTRand.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/MTRand.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/PathFinder.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/PathFinder.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/SpotFinder.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/SpotFinder.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/SunParser.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/SunParser.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/ThreatMap.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/ThreatMap.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/Unit.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/Unit.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/UnitHandler.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/UnitHandler.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/UnitTable.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/KAIK-0.13/UnitTable.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/Makefile&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Agents&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Agents/Chaser.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Agents/Chaser.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Agents/CManufacturer.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Agents/CManufacturer.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Agents/Planning.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Agents/Planning.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Core&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Core/CCached.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Core/CMessage.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Core/CMessage.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Core/CNTai.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Core/CNTai.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Core/enums.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Core/Global.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Core/Global.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Core/IModule.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Core/IModule.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Core/include.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Core/Interface.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Core/macros.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Core/resource.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Engine&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Engine/COrderRouter.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Engine/COrderRouter.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Engine/TCommand.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/CConfigData.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/CConfigData.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/CEconomy.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/CEconomy.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/CTokenizer.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/CWorkerThread.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/grid&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/grid/CGridCell.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/grid/CGridCell.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/grid/CGridManager.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/grid/CGridManager.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/Log.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/Log.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/mtrand.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/mtrand.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/tdf_grammar.hpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/TdfParser.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/TdfParser.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/Terrain&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/Terrain/CBuildingPlacer.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/Terrain/CBuildingPlacer.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/Terrain/DTHandler.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/Terrain/DTHandler.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/Terrain/Map.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/Terrain/Map.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/Terrain/MetalHandler.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/Terrain/MetalHandler.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/Terrain/MetalMap.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/Terrain/MetalMap.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/Terrain/RadarHandler.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/Terrain/RadarHandler.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/ubuild.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/ubuild.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/Units&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/Units/Actions.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/Units/Actions.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/Units/CUnitDefLoader.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Helpers/Units/CUnitDefLoader.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/SDK&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/SDK/AI.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Tasks&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Tasks/CConsoleTask.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Tasks/CConsoleTask.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Tasks/CKeywordConstructionTask.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Tasks/CKeywordConstructionTask.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Tasks/CLeaveBuildSpotTask.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Tasks/CLeaveBuildSpotTask.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Tasks/CUnitConstructionTask.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Tasks/CUnitConstructionTask.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Tasks/ITask.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/Behaviours&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/Behaviours/AttackBehaviour.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/Behaviours/AttackBehaviour.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/Behaviours/CDGunBehaviour.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/Behaviours/CDGunBehaviour.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/Behaviours/CKamikazeBehaviour.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/Behaviours/CKamikazeBehaviour.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/Behaviours/CMoveFailReclaimBehaviour.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/Behaviours/CMoveFailReclaimBehaviour.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/Behaviours/CRetreatBehaviour.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/Behaviours/CRetreatBehaviour.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/Behaviours/CStaticDefenceBehaviour.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/Behaviours/CStaticDefenceBehaviour.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/Behaviours/MetalMakerBehaviour.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/Behaviours/MetalMakerBehaviour.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/CConfigTaskManager.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/CConfigTaskManager.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/CUnit.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/CUnit.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/CUnitTypeData.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/CUnitTypeData.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/IBehaviour.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/ITaskManagerFactory.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/NTai/AI/NTai/Units/ITaskManager.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/Builder.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/Builder.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/BuilderPlacement.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/BuilderPlacement.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/CombatManager.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/CombatManager.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/GlobalAIs.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/Global.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/Global.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/GMetalMap.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/GMetalMap.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/GTerrainMap.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/GTerrainMap.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/KrogsMetalClass&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/KrogsMetalClass/MetalMap.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/KrogsMetalClass/MetalMap.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/LogFile.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/LogFile.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/PowerManager.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/PowerManager.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/RAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/RAI.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/SWeaponManager.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/SWeaponManager.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/UnitDef.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/UnitDef.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/UnitManager.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/RAI-0.553/UnitManager.h&lt;/path&gt;
++      &lt;path&gt;AI/Global/TestGlobalAI&lt;/path&gt;
++      &lt;path&gt;AI/Global/TestGlobalAI/TestAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/TestGlobalAI/TestGlobalAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Global/TestGlobalAI/TestGlobalAI.h&lt;/path&gt;
++      &lt;path&gt;AI/Group&lt;/path&gt;
++      &lt;path&gt;AI/Group/CentralBuildAI&lt;/path&gt;
++      &lt;path&gt;AI/Group/CentralBuildAI/GroupAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Group/CentralBuildAI/GroupAI.h&lt;/path&gt;
++      &lt;path&gt;AI/Group/CentralBuildAI/TestAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Group/CentralBuildAI/TestAI.h&lt;/path&gt;
++      &lt;path&gt;AI/Group/EconomyAI&lt;/path&gt;
++      &lt;path&gt;AI/Group/EconomyAI/BoHandler.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Group/EconomyAI/BoHandler.h&lt;/path&gt;
++      &lt;path&gt;AI/Group/EconomyAI/GroupAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Group/EconomyAI/GroupAI.h&lt;/path&gt;
++      &lt;path&gt;AI/Group/EconomyAI/Helper.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Group/EconomyAI/Helper.h&lt;/path&gt;
++      &lt;path&gt;AI/Group/EconomyAI/MetalMap.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Group/EconomyAI/MetalMap.h&lt;/path&gt;
++      &lt;path&gt;AI/Group/EconomyAI/TestAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Group/MetalMakerAI&lt;/path&gt;
++      &lt;path&gt;AI/Group/MetalMakerAI/GroupAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Group/MetalMakerAI/GroupAI.h&lt;/path&gt;
++      &lt;path&gt;AI/Group/MetalMakerAI/TestAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Group/MetalMakerAI/TestAI.h&lt;/path&gt;
++      &lt;path&gt;AI/Group/MexUpgraderAI&lt;/path&gt;
++      &lt;path&gt;AI/Group/MexUpgraderAI/GroupAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Group/MexUpgraderAI/GroupAI.h&lt;/path&gt;
++      &lt;path&gt;AI/Group/MexUpgraderAI/TestAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Group/RadarAI&lt;/path&gt;
++      &lt;path&gt;AI/Group/RadarAI/GroupAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Group/RadarAI/GroupAI.h&lt;/path&gt;
++      &lt;path&gt;AI/Group/RadarAI/TestAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Group/ReportIdleAI&lt;/path&gt;
++      &lt;path&gt;AI/Group/ReportIdleAI/GroupAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Group/ReportIdleAI/GroupAI.h&lt;/path&gt;
++      &lt;path&gt;AI/Group/ReportIdleAI/TestAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Group/SimpleFormationAI&lt;/path&gt;
++      &lt;path&gt;AI/Group/SimpleFormationAI/GroupAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Group/SimpleFormationAI/GroupAI.h&lt;/path&gt;
++      &lt;path&gt;AI/Group/SimpleFormationAI/TestAI.cpp&lt;/path&gt;
++      &lt;path&gt;AI/Group/SimpleFormationAI/TestAI.h&lt;/path&gt;
++      &lt;path&gt;Lobby&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/AePlayWave.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/AllyData.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/AllyEntry.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CAFLExceptionHandler.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CBattleCommandHandler.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CBattleInfo.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CBattleList.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CBattleModel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CBattlePlayer.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CBattlePlayerTableModel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CBattleTableModel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CBattleWindow.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CChannelInfo.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CChannel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CChannelPassword.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CChannelView.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CConnection.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CContentManager.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CDownloadFile.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CGlestBattleModel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CGlestBattleWindow.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CImageLoading.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CLadderProperties.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CLoginPanel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CLoginProgress.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CLooknfeelHelper.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CMeltraxLadder.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/ColourHelper.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/contentdownloader&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/contentdownloader/CContentDownloadHandler.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/contentdownloader/CContentInterface.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CPlayerDataWindow.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CPlayer.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CPlayers.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CPrivateMsgWindow.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CSettings.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CSplashScreen.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CStartBox.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CStartRectangleDrawer.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CStartupWizard.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CSync.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CTextColours.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CToast.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CUnitSyncJNIBindings.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CUpdateChecker.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CUserCommandHandler.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/CVectorListModel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/framework&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/framework/CBaseModule.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/framework/CCore.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/framework/CEvent.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/framework/IModule.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/helpers&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/helpers/AlphanumComparator.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/helpers/BrowserLauncher.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/helpers/CBase64Coder.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/helpers/CFSHelper.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/helpers/CHolePuncher.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/helpers/CStringHelper.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/helpers/TdfParser.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/IBattleModel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/IGUIBattleModel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/integration&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/integration/CSpringMark.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/IView.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/JRegView.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/JTraffic.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/LMain.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/Main.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/Misc.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/protocol&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/protocol/IProtocol.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/protocol/tasserver&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/protocol/tasserver/CTASServerProtocol.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/protocol/tasserver/RectEntry.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/protocol/tasserver/RectHandler.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/protocol/tasserver/TeamData.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/protocol/tasserver/TeamEntry.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/protocol/tasserver/ui&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/protocol/tasserver/ui/CAgree.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/protocol/tasserver/ui/CChannelList.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/battle&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/battle/CBooleanOptionsPanel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/battle/CListOptionsPanel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/battle/CSliderOptionsPanel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/battle/CStringOptionsPanel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/battle/ListItem.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/borders&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/borders/DefaultResizableBorder.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/borders/ResizableBorder.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/CChannelTableModel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/CChatLogFormatter.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/CChatPanel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/CErrorWindow.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/CHostWizard.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/CPlayerTableModel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/CPlayerTablePanel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/CSmileyCombo.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/CSmileyManager.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/CUISettings.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/CUserSettings.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/CView.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/DocumentSizeFilter.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/ThreadCheckingRepaintManager.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/aflobby/UI/WarningWindow.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/com&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/com/myjavatools&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/com/myjavatools/web&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/com/myjavatools/web/ClientHttpRequest.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/bencode&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/bencode/BDecoder.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/bencode/BEncoder.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/bencode/BEValue.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/bencode/InvalidBEncodingException.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/BitField.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/cmd&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/cmd/ConsoleStorageReporter.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/cmd/SnarkApplication.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/ConnectionAcceptor.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/CoordinatorListener.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/HttpAcceptor.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/Message.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/MetaInfo.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/PeerAcceptor.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/PeerCheckerTask.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/PeerConnectionIn.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/PeerConnectionOut.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/PeerCoordinator.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/PeerID.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/Peer.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/PeerListener.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/PeerMonitorTask.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/PeerState.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/Request.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/ShutdownListener.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/Snark.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/SnarkShutdown.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/StaticSnark.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/Storage.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/StorageListener.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/tracker&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/tracker/TrackerApplication.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/TrackerClient.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/TrackerInfo.java&lt;/path&gt;
++      &lt;path&gt;Lobby/AFLobby/src/org/klomp/snark/Tracker.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/aflobby&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/aflobby/CUnitSyncJNIBindings.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/CBase64Coder.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/CBasicTASChannelModel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/CConnection.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/CCore.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/CErrorWindow.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/CEvent.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/CEventTypes.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/CExceptionHandler.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/CFrameworkHelper.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/CHolePuncher.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/CPlayer.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/CStringHelper.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/IBattleInfo.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/ICentralClass.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/IChannelModel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/IModule.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/ITrafficListener.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/Misc.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/protocol&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/protocol/IProtocol.java&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/protocol/tasserver&lt;/path&gt;
++      &lt;path&gt;Lobby/BattleHubFramework/src/org/darkstars/battlehub/framework/protocol/tasserver/CBasicTASServerProtocol.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/Account.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/Accounts.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/BanEntry.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/BanSystem.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/Battle.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/Battles.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/Bot.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/Channel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/Channels.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/ChanServ&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/ChanServ/AntiSpamSystem.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/ChanServ/Channel.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/ChanServ/ChanServ.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/ChanServ/Client.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/ChanServ/DBInterface.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/ChanServ/LogCleaner.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/ChanServ/Log.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/ChanServ/Misc.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/ChanServ/MuteListRequest.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/ChanServ/Queue.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/ChanServ/RemoteAccessServer.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/Client.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/Clients.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/DBInterface.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/FailedLoginAttempt.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/GlobalMapGrade.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/IP2Country.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/IPRange.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/Makefile&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/MapGrade.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/MapGradeList.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/MapGrading.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/Misc.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/MuteList.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/NATHelpServer.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/SaveAccountsThread.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/ServerNotification.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/ServerNotifications.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/StartRect.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/Statistics.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/TASServer.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/tee.c&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/Tools&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/Tools/TransferOldAccounts&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/Tools/TransferOldAccounts/Account.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/Tools/TransferOldAccounts/Accounts.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/Tools/TransferOldAccounts/DBInterface.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/Tools/TransferOldAccounts/TransferOldAccounts.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/UpdateIP2CountryThread.java&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/WebInterface&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/WebInterface/searchlog.cpp&lt;/path&gt;
++      &lt;path&gt;Lobby/TASServer/WebServer.java&lt;/path&gt;
++      &lt;path&gt;tools&lt;/path&gt;
++      &lt;path&gt;tools/ArchiveMover&lt;/path&gt;
++      &lt;path&gt;tools/ArchiveMover/ArchiveMover.cpp&lt;/path&gt;
++      &lt;path&gt;tools/DedicatedServer&lt;/path&gt;
++      &lt;path&gt;tools/DedicatedServer/CMakeLists.txt&lt;/path&gt;
++      &lt;path&gt;tools/DedicatedServer/main.cpp&lt;/path&gt;
++      &lt;path&gt;tools/DemoAnalyser&lt;/path&gt;
++      &lt;path&gt;tools/DemoAnalyser/CMakeLists.txt&lt;/path&gt;
++      &lt;path&gt;tools/DemoAnalyser/main.cpp&lt;/path&gt;
++      &lt;path&gt;tools/DemoDumper&lt;/path&gt;
++      &lt;path&gt;tools/DemoDumper/DemoDumper.cpp&lt;/path&gt;
++      &lt;path&gt;tools/dirchange&lt;/path&gt;
++      &lt;path&gt;tools/dirchange/dirchange.cpp&lt;/path&gt;
++      &lt;path&gt;tools/FontTexture&lt;/path&gt;
++      &lt;path&gt;tools/FontTexture/main.cpp&lt;/path&gt;
++      &lt;path&gt;tools/MapConv&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/Bitmap.cpp&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/Bitmap.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/byteorder.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/ddraw.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/FeatureCreator.cpp&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/FeatureCreator.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/filefunctions.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/FileHandler.cpp&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/FileHandler.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/jpeglib.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/MapConv.cpp&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/mapfile.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/MemPool.cpp&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/MemPool.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/samples&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/samples/1&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/samples/1/Makefile&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/samples/2&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/samples/2/Makefile&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/stdafx.cpp&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/stdafx.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/tclap-1.0.5&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/tclap-1.0.5/include&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/tclap-1.0.5/include/tclap&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/tclap-1.0.5/include/tclap/ArgException.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/tclap-1.0.5/include/tclap/Arg.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/tclap-1.0.5/include/tclap/CmdLine.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/tclap-1.0.5/include/tclap/CmdLineInterface.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/tclap-1.0.5/include/tclap/CmdLineOutput.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/tclap-1.0.5/include/tclap/DocBookOutput.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/tclap-1.0.5/include/tclap/HelpVisitor.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/tclap-1.0.5/include/tclap/IgnoreRestVisitor.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/tclap-1.0.5/include/tclap/MultiArg.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/tclap-1.0.5/include/tclap/StdOutput.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/tclap-1.0.5/include/tclap/SwitchArg.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/tclap-1.0.5/include/tclap/UnlabeledMultiArg.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/tclap-1.0.5/include/tclap/UnlabeledValueArg.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/tclap-1.0.5/include/tclap/ValueArg.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/tclap-1.0.5/include/tclap/VersionVisitor.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/tclap-1.0.5/include/tclap/Visitor.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/tclap-1.0.5/include/tclap/XorHandler.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/texcompress.cpp&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/texcompress_nogui.cpp&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/texcompress_nogui.h&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/TileHandler.cpp&lt;/path&gt;
++      &lt;path&gt;tools/MapConv/TileHandler.h&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettings&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettings/MouseDialog.cpp&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettings/MouseDialog.h&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettings/RegHandler.cpp&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettings/RegHandler.h&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettings/resource.h&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettings/RtsSettings.cpp&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettings/RtsSettingsDlg.cpp&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettings/RtsSettingsDlg.h&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettings/RtsSettings.h&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettings/stdafx.cpp&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettings/stdafx.h&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/PPEnvironment.cpp&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/PPEnvironment.h&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/PPGeneral.cpp&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/PPGeneral.h&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/PPMap.cpp&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/PPMap.h&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/PPMisc.cpp&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/PPMisc.h&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/PPSound.cpp&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/PPSound.h&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/PPTemplate.cpp&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/PPTemplate.h&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/PPTweaks.cpp&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/PPTweaks.h&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/PPUnits.cpp&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/PPUnits.h&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/RegHandler.cpp&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/RegHandler.h&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/resource.h&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/RtsSettingsWiz.cpp&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/RtsSettingsWizDlg.cpp&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/RtsSettingsWizDlg.h&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/RtsSettingsWiz.h&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/SettingsHandler.cpp&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/SettingsHandler.h&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/stdafx.cpp&lt;/path&gt;
++      &lt;path&gt;tools/RtsSettingsWiz/stdafx.h&lt;/path&gt;
++      &lt;path&gt;tools/SelectionEditor&lt;/path&gt;
++      &lt;path&gt;tools/SelectionEditor/DataStore.cpp&lt;/path&gt;
++      &lt;path&gt;tools/SelectionEditor/DataStore.h&lt;/path&gt;
++      &lt;path&gt;tools/SelectionEditor/FilterDlg.cpp&lt;/path&gt;
++      &lt;path&gt;tools/SelectionEditor/FilterDlg.h&lt;/path&gt;
++      &lt;path&gt;tools/SelectionEditor/HotKeyDlg.cpp&lt;/path&gt;
++      &lt;path&gt;tools/SelectionEditor/HotKeyDlg.h&lt;/path&gt;
++      &lt;path&gt;tools/SelectionEditor/resource.h&lt;/path&gt;
++      &lt;path&gt;tools/SelectionEditor/SelectionEditor.cpp&lt;/path&gt;
++      &lt;path&gt;tools/SelectionEditor/SelectionEditorDlg.cpp&lt;/path&gt;
++      &lt;path&gt;tools/SelectionEditor/SelectionEditorDlg.h&lt;/path&gt;
++      &lt;path&gt;tools/SelectionEditor/SelectionEditor.h&lt;/path&gt;
++      &lt;path&gt;tools/SelectionEditor/SourceDlg.cpp&lt;/path&gt;
++      &lt;path&gt;tools/SelectionEditor/SourceDlg.h&lt;/path&gt;
++      &lt;path&gt;tools/SelectionEditor/stdafx.cpp&lt;/path&gt;
++      &lt;path&gt;tools/SelectionEditor/stdafx.h&lt;/path&gt;
++      &lt;path&gt;tools/springie&lt;/path&gt;
++      &lt;path&gt;tools/springie/Springie&lt;/path&gt;
++      &lt;path&gt;tools/springie/Springie/Makefile&lt;/path&gt;
++      &lt;path&gt;tools/unitsync&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/CMakeLists.txt&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/javabind.cpp&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/JavaUnitsyncTest&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/JavaUnitsyncTest/src&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/JavaUnitsyncTest/src/aflobby&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/JavaUnitsyncTest/src/aflobby/CJNAUnitsync.java&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/JavaUnitsyncTest/src/aflobby/CUnitSync.java&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/JavaUnitsyncTest/src/aflobby/CUnitSyncJNIBindings.java&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/JavaUnitsyncTest/src/aflobby/CUnitSyncJNIVersion.java&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/JavaUnitsyncTest/src/unitsynctest&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/JavaUnitsyncTest/src/unitsynctest/CGUI.java&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/JavaUnitsyncTest/src/unitsynctest/Main.java&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/LuaParserAPI.cpp&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/LuaParserAPI.h&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/pybind.cpp&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/stdafx.cpp&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/Syncer.cpp&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/Syncer.h&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/SyncServer.cpp&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/SyncServer.h&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/test&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/test/lua2php.cpp&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/test/test.cpp&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/unitsync_api.h&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/unitsync.cpp&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/unitsync.h&lt;/path&gt;
++      &lt;path&gt;tools/unitsync/unitsyncLogOutput.h&lt;/path&gt;
++      &lt;path&gt;tools/unitsync_cacher&lt;/path&gt;
++      &lt;path&gt;tools/unitsync_cacher/json&lt;/path&gt;
++      &lt;path&gt;tools/unitsync_cacher/json/json_spirit.h&lt;/path&gt;
++      &lt;path&gt;tools/unitsync_cacher/json/json_spirit_reader.cpp&lt;/path&gt;
++      &lt;path&gt;tools/unitsync_cacher/json/json_spirit_reader.h&lt;/path&gt;
++      &lt;path&gt;tools/unitsync_cacher/json/json_spirit_value.cpp&lt;/path&gt;
++      &lt;path&gt;tools/unitsync_cacher/json/json_spirit_value.h&lt;/path&gt;
++      &lt;path&gt;tools/unitsync_cacher/json/json_spirit_writer.cpp&lt;/path&gt;
++      &lt;path&gt;tools/unitsync_cacher/json/json_spirit_writer.h&lt;/path&gt;
++      &lt;path&gt;tools/unitsync_cacher/test.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/dynasm&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/dynasm/dasm_proto.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/dynasm/dasm_x86.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/etc&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/etc/lua.hpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/Makefile&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lapi.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lapi.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lauxlib.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lauxlib.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lbaselib.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lcoco.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lcoco.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lcode.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lcode.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/ldblib.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/ldebug.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/ldebug.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/ldo.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/ldo.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/ldump.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lfunc.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lfunc.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lgc.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lgc.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/linit.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/liolib.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/ljit_backend.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/ljit_core.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/ljit_dasm.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/ljit_dasm.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/ljit.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/ljit_hints.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/ljitlib.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/ljit_mem.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/ljit_x86.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/llex.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/llex.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/llimits.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lmathlib.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lmem.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lmem.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/loadlib.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lobject.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lobject.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lopcodes.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lopcodes.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/loslib.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lparser.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lparser.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lstate.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lstate.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lstring.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lstring.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lstrlib.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/ltable.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/ltable.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/ltablib.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/ltm.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/ltm.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lua.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/luac.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/luaconf.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lua.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/luajit.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lualib.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lundump.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lundump.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lvm.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lvm.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lzio.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/lzio.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/Makefile&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/LuaJIT-1.1.2/src/print.c&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Animation.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Animation.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/AnimationUI.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/AnimationUI.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/AnimKeyTrackView.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/AnimTrackEditorCB.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/AnimTrackEditor.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/AVIGenerator.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/AVIGenerator.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/BackupManager.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/BackupManager.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/BackupViewerCB.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/BackupViewerUI.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/CfgParser.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/CfgParser.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/creg&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/creg/creg.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/creg/creg.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/creg/ISerializer.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/creg/Serializer.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/creg/Serializer.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/creg/STL_Deque.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/creg/STL_List.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/creg/STL_Map.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/creg/STL_Set.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/creg/TypeDeduction.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/creg/VarTypes.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/creg/VarTypes.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/CurvedSurface.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/CurvedSurface.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/DebugTrace.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/DebugTrace.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/EditorCB.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Editor.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/EditorDef.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/EditorIncl.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/EditorUI.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/EditorUI.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/FileDialog.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/FileIO&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/FileIO/3DO.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/FileIO/3DS.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/FileIO/c3o.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/FileIO/c3o_fmt.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/FileIO/MD5.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/FileIO/OgreMeshFileFormat.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/FileIO/OgreModel.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/FileIO/OgreSkeletonFileFormat.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/FileIO/S3O.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/FileIO/s3o.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/FileIO/WavefrontOBJ.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/FileSearch.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/FileSearch.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Fl_Native_File_Chooser&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Fl_Native_File_Chooser/common.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Fl_Native_File_Chooser/FL&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Fl_Native_File_Chooser/FL/Fl_Native_File_Chooser_FLTK.H&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Fl_Native_File_Chooser/FL/Fl_Native_File_Chooser.H&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Fl_Native_File_Chooser/FL/Fl_Native_File_Chooser_MAC.H&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Fl_Native_File_Chooser/FL/Fl_Native_File_Chooser_WIN32.H&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Fl_Native_File_Chooser/Fl_Native_File_Chooser.cxx&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Fl_Native_File_Chooser/Fl_Native_File_Chooser_FLTK.cxx&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Fl_Native_File_Chooser/Fl_Native_File_Chooser_MAC.cxx&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Fl_Native_File_Chooser/Fl_Native_File_Chooser_WIN32.cxx&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Fltk.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/IEditor.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/IK_CB.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/IK.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/IK_UI.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/IKViewer.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Image.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Image.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/IView.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/MappingCB.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/math&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/math/Mathlib.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/math/Mathlib.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/MdlObject.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/MeshIterators.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Model.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/ModelDrawer.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/ModelDrawer.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Model.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/nv_dds.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/nv_dds.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/ObjectView.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/ObjectView.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/pch.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/PolyMesh.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/ptrvec.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Referenced.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/resource1.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/resource.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/RotatorUI.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Spline.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/swig&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/swig/ScriptInterface.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/swig/upspring_wrap.cxx&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/TexBuilderCB.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/TexBuilderUI.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/TexGroupCB.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/TexGroupUI.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/TextureBrowser.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/TextureBrowser.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Texture.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Texture.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/TimelineCB.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Timeline.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Tools.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Tools.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Util.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/Util.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/UVMappingUI.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/VertexBuffer.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/VertexBuffer.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/View.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/View.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/ViewsGroup.h&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/ZipFile.cpp&lt;/path&gt;
++      &lt;path&gt;tools/Upspring/src/upspring/ZipFile.h&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/ButtonNode.cpp&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/ButtonNode.h&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/CategoriesNode.cpp&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/CategoriesNode.h&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/CategoryNode.cpp&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/CategoryNode.h&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/CheckboxNode.cpp&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/CheckboxNode.h&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/ContainerNode.cpp&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/ContainerNode.h&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/EditboxNode.cpp&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/EditboxNode.h&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/IndentNode.cpp&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/IndentNode.h&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/LabelNode.cpp&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/LabelNode.h&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/ListboxNode.cpp&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/ListboxNode.h&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/ListItemNode.cpp&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/ListItemNode.h&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/Main.cpp&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/Main.h&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/RowNode.cpp&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/RowNode.h&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/SettingNode.cpp&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/SettingNode.h&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/SliderNode.cpp&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/SliderNode.h&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/tinyxml.cpp&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/tinyxmlerror.cpp&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/tinyxml.h&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/tinyxmlparser.cpp&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/ValueNode.cpp&lt;/path&gt;
++      &lt;path&gt;tools/XmlSettings/ValueNode.h&lt;/path&gt;
++    &lt;/blacklist&gt;
+   &lt;/kdevcustomproject&gt;
+   &lt;kdevdebugger&gt;
+     &lt;general&gt;
+
+Modified: trunk/tools/DemoAnalyser/CMakeLists.txt
+===================================================================
+--- trunk/tools/DemoAnalyser/CMakeLists.txt	2008-08-26 21:27:48 UTC (rev 6318)
++++ trunk/tools/DemoAnalyser/CMakeLists.txt	2008-08-27 18:07:08 UTC (rev 6319)
+@@ -4,33 +4,35 @@
+ ADD_DEFINITIONS(-DDEBUG -D_DEBUG -D_SZ_ONE_DIRECTORY -DNO_AVI -DDEDICATED -DSYNCCHECK )
+ 
+ INCLUDE_DIRECTORIES(/usr/include/SDL/)
+-INCLUDE_DIRECTORIES(../../rts/ ../../rts/Game ../../rts/lib/7zip ../../rts/System)
++INCLUDE_DIRECTORIES(../../rts/ ../../rts/Game ../../rts/lib/7zip ../../rts/lib/lua/include ../../rts/System)
+ 
+-AUX_SOURCE_DIRECTORY(../../rts/lib/7zip 7zipfiles)
+-ADD_LIBRARY(7zip SHARED  ${7zipfiles})
+-
+ IF (UNIX)
+-	ADD_LIBRARY(minizip SHARED  ../../rts/lib/minizip/unzip ../../rts/lib/minizip/zip ../../rts/lib/minizip/ioapi)
+-	TARGET_LINK_LIBRARIES(minizip z)
+-ELSE (UNIX)
+-	ADD_LIBRARY(minizip SHARED  ../../rts/lib/minizip/unzip ../../rts/lib/minizip/zip ../../rts/lib/minizip/iowin32)
+-ENDIF (UNIX)
+-
+-AUX_SOURCE_DIRECTORY(../../rts/lib/hpiutil2 hpiutil2)
+-ADD_LIBRARY(hpiutil2 SHARED  ${hpiutil2})
+-
+-IF (UNIX)
+ SET(platformfiles ../../rts/System/Platform/Linux/UnixFileSystemHandler ../../rts/System/Platform/Linux/DotfileHandler ../../rts/System/Platform/Linux/DataDirLocater)
+ ELSE (UNIX)
+ SET(platformfiles ../../rts/System/Platform/Windows/WinFileSystemHandler ../../rts/System/Platform/Windows/RegHandler)
+ ENDIF (UNIX)
+ 
+ AUX_SOURCE_DIRECTORY(../../rts/System/FileSystem/ fsfiles)
+-ADD_LIBRARY(fileops SHARED  ${fsfiles} ${platformfiles} ../../rts/System/TdfParser ../../rts/System/Platform/FileSystem ../../rts/System/Platform/ConfigHandler ../../rts/System/LogOutput ../../rts/System/DemoReader ../../rts/System/Demo ../../rts/Game/GameVersion)
+-TARGET_LINK_LIBRARIES(fileops hpiutil2 7zip minizip boost_regex boost_thread)
++ADD_LIBRARY(fileops SHARED  ${fsfiles} ${platformfiles}
++../../rts/Game/GameSetup
++../../rts/Game/PlayerBase
++../../rts/System/TdfParser
++../../rts/System/Platform/FileSystem
++../../rts/System/Platform/ConfigHandler
++../../rts/System/LogOutput
++../../rts/System/DemoReader
++../../rts/System/Demo
++../../rts/System/UnsyncedRNG
++../../rts/Game/GameVersion
++../../rts/Lua/LuaParser
++../../rts/Lua/LuaUtils
++../../rts/Map/MapParser
++../../rts/Rendering/Textures/TAPalette
++../../rts/Lua/LuaIO)
++TARGET_LINK_LIBRARIES(fileops hpiutil2 7zip lua minizip boost_regex boost_thread)
+ 
+ AUX_SOURCE_DIRECTORY(../../rts/System/Net/ netfiles)
+ ADD_LIBRARY(net SHARED  ${netfiles})
+ 
+-ADD_EXECUTABLE(analyser main)
++ADD_EXECUTABLE(analyser EXCLUDE_FROM_ALL main)
+ TARGET_LINK_LIBRARIES(analyser fileops net SDL)
+\ No newline at end of file
+
+Modified: trunk/tools/DemoAnalyser/main.cpp
+===================================================================
+--- trunk/tools/DemoAnalyser/main.cpp	2008-08-26 21:27:48 UTC (rev 6318)
++++ trunk/tools/DemoAnalyser/main.cpp	2008-08-27 18:07:08 UTC (rev 6319)
+@@ -4,12 +4,13 @@
+ 
+ #include &quot;../../rts/System/DemoReader.h&quot;
+ #include &quot;System/Platform/FileSystem.h&quot;
+-#include &quot;Game/GameSetupData.h&quot;
++#include &quot;Game/GameSetup.h&quot;
+ #include &quot;BaseNetProtocol.h&quot;
+ #include &quot;../../rts/System/Net/RawPacket.h&quot;
+ 
+-CGameSetupData* gameSetup = 0;
++const CGameSetup* gameSetup = 0;
+ using namespace std;
++using namespace netcode;
+ 
+ /*
+ Usage:
+@@ -26,7 +27,6 @@
+ 	CDemoReader reader(string(argv[1]), 0.0f);
+ 	DemoFileHeader header = reader.GetFileHeader();
+ 	
+-	unsigned unknownMessages = 0;
+ 	while (!reader.ReachedEnd())
+ 	{
+ 		RawPacket* packet;
+@@ -58,14 +58,22 @@
+ 				cout &lt;&lt; &quot;SYSTEMMSG: Player: &quot; &lt;&lt; (unsigned)buffer[2] &lt;&lt; &quot; Msg: &quot; &lt;&lt; (char*)(buffer+3) &lt;&lt; endl;
+ 				break;
+ 			case NETMSG_CHAT:
+-				cout &lt;&lt; &quot;CHAT: Player: &quot; &lt;&lt; (unsigned)buffer[2] &lt;&lt; &quot; Msg: &quot; &lt;&lt; (char*)(buffer+3) &lt;&lt; endl;
++				cout &lt;&lt; &quot;CHAT: Player: &quot; &lt;&lt; (unsigned)buffer[2] &lt;&lt; &quot; Msg: &quot; &lt;&lt; (char*)(buffer+4) &lt;&lt; endl;
+ 				break;
++			case NETMSG_KEYFRAME:
++				cout &lt;&lt; &quot;KEYFRAME: &quot; &lt;&lt; *(int*)(buffer+1) &lt;&lt; endl;
++				break;
++			case NETMSG_NEWFRAME:
++				cout &lt;&lt; &quot;NEWFRAME&quot; &lt;&lt; endl;
++				break;
++			case NETMSG_LUAMSG:
++				cout &lt;&lt; &quot;LUAMSG length:&quot; &lt;&lt; packet-&gt;length &lt;&lt; endl;
++				break;
+ 			default:
+-				unknownMessages++;
++				cout &lt;&lt; &quot;MSG: &quot; &lt;&lt; (unsigned)buffer[0] &lt;&lt; endl;
+ 		}
+ 		delete packet;
+ 	}
+-	cout &lt;&lt; endl &lt;&lt; &quot;There had been &quot; &lt;&lt; unknownMessages &lt;&lt; &quot; unknown NETMSGs&quot; &lt;&lt; endl;
+ 	FileSystemHandler::Cleanup();
+ 	return 0;
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001088.html">[Taspring-linux-commit] r6318 - trunk/Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="001090.html">[Taspring-linux-commit] r6320 - in trunk/installer: . sections
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1089">[ date ]</a>
+              <a href="thread.html#1089">[ thread ]</a>
+              <a href="subject.html#1089">[ subject ]</a>
+              <a href="author.html#1089">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

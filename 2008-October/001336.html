@@ -1,0 +1,362 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6566 - in	branches/springie/planetwars/Springie: . autohost spring
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6566%20-%20in%0A%09branches/springie/planetwars/Springie%3A%20.%20autohost%20spring&In-Reply-To=%3C20081006000258.AC8F846AE%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001335.html">
+   <LINK REL="Next"  HREF="001337.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6566 - in	branches/springie/planetwars/Springie: . autohost spring</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6566%20-%20in%0A%09branches/springie/planetwars/Springie%3A%20.%20autohost%20spring&In-Reply-To=%3C20081006000258.AC8F846AE%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6566 - in	branches/springie/planetwars/Springie: . autohost spring">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon Oct  6 02:02:58 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001335.html">[Taspring-linux-commit] r6565 - trunk/rts/Game/UI
+</A></li>
+        <LI>Next message: <A HREF="001337.html">[Taspring-linux-commit] r6567 - in branches/caiinterface: . rts	rts/System rts/lib/streflop
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1336">[ date ]</a>
+              <a href="thread.html#1336">[ thread ]</a>
+              <a href="subject.html#1336">[ subject ]</a>
+              <a href="author.html#1336">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Licho
+Date: 2008-10-06 02:02:58 +0200 (Mon, 06 Oct 2008)
+New Revision: 6566
+
+Modified:
+   branches/springie/planetwars/Springie/Main.cs
+   branches/springie/planetwars/Springie/autohost/AutoHost.cs
+   branches/springie/planetwars/Springie/autohost/AutoHostConfig.cs
+   branches/springie/planetwars/Springie/autohost/AutoHost_commands.cs
+   branches/springie/planetwars/Springie/spring/UnitSync.cs
+Log:
+ * support for new planetwars ranks
+ * planet specific settings distribution using string modoption
+ 
+
+Modified: branches/springie/planetwars/Springie/Main.cs
+===================================================================
+--- branches/springie/planetwars/Springie/Main.cs	2008-10-05 22:06:55 UTC (rev 6565)
++++ branches/springie/planetwars/Springie/Main.cs	2008-10-06 00:02:58 UTC (rev 6566)
+@@ -71,6 +71,14 @@
+       f.Close();
+     }
+ 
++		public void InitializePlanetWarsServer()
++		{
++			try {
++				PlanetWars = (ISpringieServer) Activator.GetObject(typeof (ISpringieServer), String.Format(&quot;<A HREF="tcp://{0">tcp://{0</A>}:1666/IServer&quot;, config.PlanetWarsServer));
++			} catch(Exception ex) {}
++		}
++
++
+     public bool Start()
+     {
+       if (config.AttemptToRecconnect) {
+@@ -112,7 +120,7 @@
+         }
+       }
+ 
+-			if (config.PlanetWarsEnabled) PlanetWars = (ISpringieServer)Activator.GetObject(typeof(ISpringieServer), config.PlanetWarsServer);
++			if (config.PlanetWarsEnabled) InitializePlanetWarsServer();
+ 
+       tas = new TasClient();
+       tas.ConnectionLost += new EventHandler&lt;TasEventArgs&gt;(tas_ConnectionLost);
+
+Modified: branches/springie/planetwars/Springie/autohost/AutoHost.cs
+===================================================================
+--- branches/springie/planetwars/Springie/autohost/AutoHost.cs	2008-10-05 22:06:55 UTC (rev 6565)
++++ branches/springie/planetwars/Springie/autohost/AutoHost.cs	2008-10-06 00:02:58 UTC (rev 6566)
+@@ -283,7 +283,7 @@
+ 					  {
+ 							if (!u.IsSpectator) {
+ 								tas.ForceSpectator(u.name);
+-								SayBattle(string.Format(&quot;{0} cannot play, he is not registered, register using PlanetWars client or !register command&quot;, u.name), false);
++								SayBattle(string.Format(&quot;{0} cannot play, (s)he is not registered, register using PlanetWars client or !register command&quot;, u.name), false);
+ 								return;
+ 							}
+ 						}  else {
+@@ -326,6 +326,16 @@
+     {
+       if (config.DisplayMapLink) SayBattle(&quot;maplink: &quot; + linker.GetMapBounceLink(tas.GetBattle().Map.Name));
+ 
++			Battle b = tas.GetBattle();
++			string mapName = b.Map.ArchiveName.ToLower();
++			if (MapBoxes.ContainsKey(mapName))
++			{
++				for (int i = 0; i &lt; b.Rectangles.Count; ++i) tas.RemoveBattleRectangle(i);
++				Dictionary&lt;int, BattleRect&gt; dict = MapBoxes[mapName];
++				foreach (KeyValuePair&lt;int, BattleRect&gt; v in dict) tas.AddBattleRectangle(v.Key, v.Value);
++			}
++
++
+ 			if (Program.main.config.PlanetWarsEnabled)
+ 			{
+ 				try {
+@@ -333,10 +343,13 @@
+ 
+ 					string name = tas.GetBattle().Map.Name;
+ 					var mapInfo = pw.GetAttackOptions().Find(m =&gt; m.MapName == name);
+-					for (int i = 0; i &lt; tas.GetBattle().Rectangles.Count; ++i) tas.RemoveBattleRectangle(i);
+-					for (int i = 0; i &lt; mapInfo.StartBoxes.Count; ++i) {
+-						var mi = mapInfo.StartBoxes[i];
+-						tas.AddBattleRectangle(i, new BattleRect(mi.Left, mi.Top, mi.Right, mi.Bottom));
++					if (mapInfo.StartBoxes != null &amp;&amp; mapInfo.StartBoxes.Count &gt; 0) {
++						var rectangles = tas.GetBattle().Rectangles.Count;
++						for (int i = 0; i &lt; rectangles; ++i) tas.RemoveBattleRectangle(i);
++						for (int i = 0; i &lt; mapInfo.StartBoxes.Count; ++i) {
++							var mi = mapInfo.StartBoxes[i];
++							tas.AddBattleRectangle(i, new BattleRect(mi.Left, mi.Top, mi.Right, mi.Bottom));
++						}
+ 					}
+ 
+ 					foreach (string command in mapInfo.AutohostCommands) {
+@@ -351,15 +364,6 @@
+ 					SayBattle(string.Format(&quot;Error setting planet starting boxes: {0}&quot;, ex.Message));
+ 				}
+ 			}
+-			else {
+-				Battle b = tas.GetBattle();
+-				string mapName = b.Map.ArchiveName.ToLower();
+-				if (MapBoxes.ContainsKey(mapName)) {
+-					for (int i = 0; i &lt; b.Rectangles.Count; ++i) tas.RemoveBattleRectangle(i);
+-					Dictionary&lt;int, BattleRect&gt; dict = MapBoxes[mapName];
+-					foreach (KeyValuePair&lt;int, BattleRect&gt; v in dict) tas.AddBattleRectangle(v.Key, v.Value);
+-				}
+-			}
+     }
+ 
+ 
+@@ -445,7 +449,8 @@
+ 
+ 			if (Program.main.config.PlanetWarsEnabled) {
+ 				var current = Program.main.PlanetWars.GetOffensiveFaction();
+-				SayBattle(string.Format(&quot;Currently {0} picks a planet&quot;, current.Name), false);
++				var info = Program.main.PlanetWars.GetPlayerInfo(name);
++				SayBattle(string.Format(&quot;{0} {1} {2}. Attacking faction is {3}&quot;, info.IsCommanderInChief?&quot;All hail to&quot;:&quot;Greetings, &quot;, info.RankText, name, current.Name), false);
+ 			}
+     }
+ 
+@@ -917,6 +922,16 @@
+ 						ComPlanet(e, words);
+         		break;
+ 
++					case &quot;setpwserver&quot;:
++						if (words.Length &lt; 1) Respond(e, &quot;Specify address&quot;);
++						else {
++							// hack this is just debug, remove this later
++							Program.main.config.PlanetWarsServer = words[0];
++							Program.main.InitializePlanetWarsServer();
++							Respond(e, &quot;Planetwars server changed to &quot; + words[0]);
++						}
++        		break;
++
+ 					case &quot;voteplanet&quot;:
+ 						if (Program.main.config.PlanetWarsEnabled) StartVote(new VotePlanet(tas,spring,this),e,words);
+ 						else Respond(e, &quot;PlanetWars not enabled on this host&quot;);
+
+Modified: branches/springie/planetwars/Springie/autohost/AutoHostConfig.cs
+===================================================================
+--- branches/springie/planetwars/Springie/autohost/AutoHostConfig.cs	2008-10-05 22:06:55 UTC (rev 6565)
++++ branches/springie/planetwars/Springie/autohost/AutoHostConfig.cs	2008-10-06 00:02:58 UTC (rev 6566)
+@@ -285,6 +285,7 @@
+       List&lt;CommandConfig&gt; addedCommands = new List&lt;CommandConfig&gt;();
+ 
+       AddMissing(new CommandConfig(&quot;help&quot;, 0, &quot; - lists all commands available specifically to you&quot;, 5), addedCommands);
++			AddMissing(new CommandConfig(&quot;setpwserver&quot;, 0, &quot; &lt;address&gt; - sets PlanetWars server&quot;, 5), addedCommands);
+ 
+       AddMissing(new CommandConfig(&quot;random&quot;, 1, &quot;&lt;allycount&gt; - assigns people to &lt;allycount&gt; random alliances, e.g. !random - makes 2 random alliances&quot;, 10), addedCommands);
+ 
+
+Modified: branches/springie/planetwars/Springie/autohost/AutoHost_commands.cs
+===================================================================
+--- branches/springie/planetwars/Springie/autohost/AutoHost_commands.cs	2008-10-05 22:06:55 UTC (rev 6565)
++++ branches/springie/planetwars/Springie/autohost/AutoHost_commands.cs	2008-10-06 00:02:58 UTC (rev 6566)
+@@ -285,7 +285,7 @@
+ 				var pw = Program.main.PlanetWars;
+ 				var info = pw.GetPlayerInfo(e.UserName);
+ 				var fact = pw.GetOffensiveFaction();
+-				if (info != null &amp;&amp; info.IsLeader) {
++				if (info != null &amp;&amp; info.IsCommanderInChief) {
+ 					if (info.FactionName == fact.Name) {
+ 						SayBattle(string.Format(&quot;changing planet to {0} by {1}&quot;, vals[0], e.UserName));
+ 						var planet = pw.GetAttackOptions().Find((m) =&gt; m.Name == vals[0]);
+@@ -456,7 +456,26 @@
+ 						}
+ 					}
+ 					if (ok) {
+-						pw.SendBattleStarted(tas.GetBattle().Map.Name, actual);
++						string options = pw.GetStartupModOptions(tas.GetBattle().Map.Name, actual);
++						Battle b = tas.GetBattle();
++						foreach (UnitSync.Option o in b.Mod.Options)
++						{
++							if (o.Key == &quot;planetwars&quot;)
++							{
++								string res;
++								if (o.GetPair(options, out res))
++								{
++									tas.SetScriptTag(res);
++									return ok;
++								}
++								else {
++									Respond(e, &quot;Eror setting script tag&quot;);
++									return false;
++								}
++							}
++						}
++						Respond(e, &quot;This mod does not support PlanetWars&quot;);
++						return false;
+ 					}
+ 
+ 					return ok;
+@@ -1266,43 +1285,51 @@
+ 
+     public string GetOptionsString(TasSayEventArgs e, string[] words)
+     {
+-      string s = Utils.Glue(words);
+-      string result = &quot;&quot;;
+-      string[] pairs = s.Split(new char[] {','});
+-      if (pairs.Length == 0 || pairs[0].Length == 0) {
+-        Respond(e, &quot;requires key=value format&quot;);
+-        return &quot;&quot;;
+-      }
+-      foreach (string pair in pairs) {
+-        string[] parts = pair.Split(new char[] {'='}, 2);
+-        if (parts.Length != 2) {
+-          Respond(e, &quot;requires key=value format&quot;);
+-          return &quot;&quot;;
+-        }
+-        Battle b = tas.GetBattle();
+-        string key = parts[0];
+-        string val = parts[1];
++			string s = Utils.Glue(words);
++			string result = &quot;&quot;;
++			string[] pairs = s.Split(new char[] { ',' });
++			if (pairs.Length == 0 || pairs[0].Length == 0)
++			{
++				Respond(e, &quot;requires key=value format&quot;);
++				return &quot;&quot;;
++			}
++			foreach (string pair in pairs)
++			{
++				string[] parts = pair.Split(new char[] { '=' }, 2);
++				if (parts.Length != 2)
++				{
++					Respond(e, &quot;requires key=value format&quot;);
++					return &quot;&quot;;
++				}
++				Battle b = tas.GetBattle();
++				string key = parts[0];
++				string val = parts[1];
+ 
+-        bool found = false;
+-        foreach (UnitSync.Option o in b.Mod.Options) {
+-          if (o.Key == key) {
+-            found = true;
+-            string res;
+-            if (o.GetPair(val, out res)) {
+-              if (result != &quot;&quot;) result += &quot;\t&quot;;
+-              result += res;
+-            } else Respond(e, &quot;Value &quot; + val + &quot; is not valid for this option&quot;);
++				bool found = false;
++				foreach (UnitSync.Option o in b.Mod.Options)
++				{
++					if (o.Key == key)
++					{
++						found = true;
++						string res;
++						if (o.GetPair(val, out res))
++						{
++							if (result != &quot;&quot;) result += &quot;\t&quot;;
++							result += res;
++						}
++						else Respond(e, &quot;Value &quot; + val + &quot; is not valid for this option&quot;);
+ 
+-            break;
+-          }
+-        }
+-        if (!found) {
+-          Respond(e, &quot;No option called &quot; + key + &quot; found&quot;);
+-          return &quot;&quot;;
+-        }
+-      }
+-      return result;
+-    }
++						break;
++					}
++				}
++				if (!found)
++				{
++					Respond(e, &quot;No option called &quot; + key + &quot; found&quot;);
++					return &quot;&quot;;
++				}
++			}
++			return result;
++		}
+ 
+ 
+     private void ComNotify(TasSayEventArgs e, string[] words)
+
+Modified: branches/springie/planetwars/Springie/spring/UnitSync.cs
+===================================================================
+--- branches/springie/planetwars/Springie/spring/UnitSync.cs	2008-10-05 22:06:55 UTC (rev 6565)
++++ branches/springie/planetwars/Springie/spring/UnitSync.cs	2008-10-06 00:02:58 UTC (rev 6566)
+@@ -701,7 +701,7 @@
+             return true;
+ 
+           case Type.String:
+-            if (Value.Length &gt; strMaxLen) return false;
++            if (strMaxLen != 0 &amp;&amp;  Value.Length &gt; strMaxLen) return false;
+             result = ConstructLine(Value);
+             return true;
+ 
+@@ -713,6 +713,8 @@
+               }
+             }
+             return false;
++
++						
+         }
+ 
+         return false;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001335.html">[Taspring-linux-commit] r6565 - trunk/rts/Game/UI
+</A></li>
+	<LI>Next message: <A HREF="001337.html">[Taspring-linux-commit] r6567 - in branches/caiinterface: . rts	rts/System rts/lib/streflop
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1336">[ date ]</a>
+              <a href="thread.html#1336">[ thread ]</a>
+              <a href="subject.html#1336">[ subject ]</a>
+              <a href="author.html#1336">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

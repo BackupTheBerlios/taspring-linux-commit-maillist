@@ -1,0 +1,459 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5699 - in trunk/rts: Game Game/UI Lua	System System/Net
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5699%20-%20in%20trunk/rts%3A%20Game%20Game/UI%20Lua%0A%09System%20System/Net&In-Reply-To=%3C20080411130831.7D95B46A1%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000478.html">
+   <LINK REL="Next"  HREF="000480.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5699 - in trunk/rts: Game Game/UI Lua	System System/Net</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5699%20-%20in%20trunk/rts%3A%20Game%20Game/UI%20Lua%0A%09System%20System/Net&In-Reply-To=%3C20080411130831.7D95B46A1%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5699 - in trunk/rts: Game Game/UI Lua	System System/Net">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Apr 11 15:08:31 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000478.html">[Taspring-linux-commit] r5698 - in trunk/Site2/www-root: .	forums/styles/spring/template tpl wiki/lib/tpl/default
+</A></li>
+        <LI>Next message: <A HREF="000480.html">[Taspring-linux-commit] r5700 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#479">[ date ]</a>
+              <a href="thread.html#479">[ thread ]</a>
+              <a href="subject.html#479">[ subject ]</a>
+              <a href="author.html#479">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-04-11 15:08:29 +0200 (Fri, 11 Apr 2008)
+New Revision: 5699
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/Game.h
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/PreGame.cpp
+   trunk/rts/Game/PreGame.h
+   trunk/rts/Game/UI/MouseHandler.cpp
+   trunk/rts/Lua/LuaSyncedRead.cpp
+   trunk/rts/Lua/LuaUnsyncedCtrl.cpp
+   trunk/rts/System/DemoReader.cpp
+   trunk/rts/System/DemoReader.h
+   trunk/rts/System/LoadSaveHandler.cpp
+   trunk/rts/System/Net/Net.h
+   trunk/rts/System/Net/UDPConnection.cpp
+   trunk/rts/System/Net/UDPConnection.h
+Log:
+* some include cleanup
+* the demo reader returns packets instead of writing to buffers
+
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-04-11 08:49:08 UTC (rev 5698)
++++ trunk/rts/Game/Game.cpp	2008-04-11 13:08:29 UTC (rev 5699)
+@@ -95,6 +95,7 @@
+ #include &quot;Sim/MoveTypes/MoveInfo.h&quot;
+ #include &quot;Sim/Path/PathManager.h&quot;
+ #include &quot;Sim/Projectiles/Projectile.h&quot;
++#include &quot;Sim/Projectiles/ProjectileHandler.h&quot;
+ #include &quot;Sim/Units/COB/CobEngine.h&quot;
+ #include &quot;Sim/Units/COB/CobFile.h&quot;
+ #include &quot;Sim/Units/UnitDefHandler.h&quot;
+@@ -3318,6 +3319,9 @@
+ 			}
+ 
+ 			case NETMSG_KEYFRAME: {
++#ifndef SYNCCHECK
++				net-&gt;SendKeyFrame(serverframenum-1);
++#endif
+ 				int serverframenum = *(int*)(inbuf+1);
+ 				if (gs-&gt;frameNum == (serverframenum - 1))
+ 				{
+@@ -3337,8 +3341,6 @@
+ 				net-&gt;SendSyncResponse(gu-&gt;myPlayerNum, gs-&gt;frameNum, CSyncChecker::GetChecksum());
+ 				if ((gs-&gt;frameNum &amp; 4095) == 0) // reset checksum every ~2.5 minute gametime
+ 					CSyncChecker::NewFrame();
+-#else
+-				net-&gt;SendNewFrame();
+ #endif
+ 				AddTraffic(-1, packetCode, dataLength);
+ 
+
+Modified: trunk/rts/Game/Game.h
+===================================================================
+--- trunk/rts/Game/Game.h	2008-04-11 08:49:08 UTC (rev 5698)
++++ trunk/rts/Game/Game.h	2008-04-11 13:08:29 UTC (rev 5699)
+@@ -7,17 +7,11 @@
+ 
+ #include &lt;time.h&gt;
+ #include &lt;string&gt;
+-#include &lt;deque&gt;
+-#include &lt;set&gt;
+ #include &lt;map&gt;
+ #include &quot;SDL_types.h&quot;
+ 
+-#include &quot;Sim/Projectiles/ProjectileHandler.h&quot;
+-#include &quot;Player.h&quot;
+ #include &quot;GameController.h&quot;
+ 
+-#define FRAME_HISTORY 16
+-
+ class CScript;
+ class CBaseWater;
+ class CAVIGenerator;
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-04-11 08:49:08 UTC (rev 5698)
++++ trunk/rts/Game/GameServer.cpp	2008-04-11 13:08:29 UTC (rev 5699)
+@@ -238,37 +238,31 @@
+ 
+ void CGameServer::SendDemoData(const bool skipping)
+ {
+-	unsigned char demobuffer[netcode::NETWORK_BUFFER_SIZE];
+-	unsigned length = 0;
+-
+-	while ( (length = demoReader-&gt;GetData(demobuffer, netcode::NETWORK_BUFFER_SIZE, modGameTime)) &gt; 0 )
++	RawPacket* buf = 0;
++	while ( (buf = demoReader-&gt;GetData(modGameTime)) )
+ 	{
+-		if (demobuffer[0] == NETMSG_NEWFRAME || demobuffer[0] == NETMSG_KEYFRAME)
++		unsigned msgCode = static_cast&lt;unsigned&gt;(buf-&gt;data[0]);
++		if (msgCode == NETMSG_NEWFRAME || msgCode == NETMSG_KEYFRAME)
+ 		{
+ 			// we can't use CreateNewFrame() here
+ 			lastTick = SDL_GetTicks();
+ 			serverframenum++;
+ #ifdef SYNCCHECK
+-		if (!skipping)
+-			outstandingSyncFrames.push_back(serverframenum);
++			if (!skipping)
++				outstandingSyncFrames.push_back(serverframenum);
+ #endif
+-			if (demobuffer[0] == NETMSG_KEYFRAME)
+-				serverNet-&gt;SendKeyFrame(serverframenum);
+-			else
+-				serverNet-&gt;SendNewFrame();
++			serverNet-&gt;SendData(buf);
+ 		}
+-		else if ( demobuffer[0] != NETMSG_GAMEDATA &amp;&amp;
+-						demobuffer[0] != NETMSG_SETPLAYERNUM &amp;&amp;
+-						demobuffer[0] != NETMSG_USER_SPEED &amp;&amp;
+-						demobuffer[0] != NETMSG_INTERNAL_SPEED &amp;&amp;
+-						demobuffer[0] != NETMSG_PAUSE) // dont send these from demo
++		else if ( msgCode != NETMSG_GAMEDATA &amp;&amp;
++						msgCode != NETMSG_SETPLAYERNUM &amp;&amp;
++						msgCode != NETMSG_USER_SPEED &amp;&amp;
++						msgCode != NETMSG_INTERNAL_SPEED &amp;&amp;
++						msgCode != NETMSG_PAUSE) // dont send these from demo
+ 		{
+-			serverNet-&gt;RawSend(demobuffer, length);
++			if (msgCode == NETMSG_GAMEOVER)
++				sentGameOverMsg = true;
++			serverNet-&gt;SendData(buf);
+ 		}
+-		else if ( demobuffer[0] != NETMSG_GAMEOVER )
+-		{
+-			sentGameOverMsg = true;
+-		}
+ 	}
+ 
+ 	if (demoReader-&gt;ReachedEnd()) {
+@@ -482,7 +476,7 @@
+ 			{
+ 				const unsigned char* inbuf = packet-&gt;data;
+ 				switch (inbuf[0]){
+-					case NETMSG_NEWFRAME:
++					case NETMSG_KEYFRAME:
+ 						players[a]-&gt;ping = serverframenum-*(int*)&amp;inbuf[1];
+ 						break;
+ 
+@@ -662,7 +656,7 @@
+ 								delayedSyncResponseFrame = serverframenum;
+ 								log.Warning(format(DelayedSyncResponse) %players[a]-&gt;name %frameNum %serverframenum);
+ 							}
+-							// update players' ping (if !defined(SYNCCHECK) this is done in NETMSG_NEWFRAME)
++							// update players' ping (if !defined(SYNCCHECK) this is done in NETMSG_KEYFRAME)
+ 							players[a]-&gt;ping = serverframenum - frameNum;
+ 						}
+ #endif
+
+Modified: trunk/rts/Game/PreGame.cpp
+===================================================================
+--- trunk/rts/Game/PreGame.cpp	2008-04-11 08:49:08 UTC (rev 5698)
++++ trunk/rts/Game/PreGame.cpp	2008-04-11 13:08:29 UTC (rev 5699)
+@@ -10,6 +10,7 @@
+ #include &quot;FPUCheck.h&quot;
+ #include &quot;GameServer.h&quot;
+ #include &quot;GameSetup.h&quot;
++#include &quot;GameData.h&quot;
+ #include &quot;NetProtocol.h&quot;
+ #include &quot;DemoRecorder.h&quot;
+ #include &quot;DemoReader.h&quot;
+@@ -486,17 +487,17 @@
+ 	logOutput.Print(&quot;Pre-scanning demo file for game data...&quot;);
+ 	CDemoReader scanner(demoName, 0);
+ 
+-	unsigned char demobuffer[netcode::NETWORK_BUFFER_SIZE];
+-	unsigned length = 0;
+ 	gu-&gt;myPlayerNum = scanner.GetFileHeader().maxPlayerNum + 1;
+ 
+-	while ( (length = scanner.GetData(demobuffer, netcode::NETWORK_BUFFER_SIZE, INT_MAX)) &gt; 0) {
+-		if (demobuffer[0] == NETMSG_GAMEDATA)
++	RawPacket* buf = 0;
++	while ( (buf = scanner.GetData(static_cast&lt;float&gt;(INT_MAX))) ) {
++		if (buf-&gt;data[0] == NETMSG_GAMEDATA)
+ 		{
+-			const RawPacket packet(demobuffer, length);
+-			serverStartupData = new GameData(packet);
++			serverStartupData = new GameData(*buf);
++			delete buf;
+ 			break;
+ 		}
++		delete buf;
+ 		if (scanner.ReachedEnd())
+ 		{
+ 			throw content_error(&quot;End of demo reached and no game data found&quot;);
+
+Modified: trunk/rts/Game/PreGame.h
+===================================================================
+--- trunk/rts/Game/PreGame.h	2008-04-11 08:49:08 UTC (rev 5698)
++++ trunk/rts/Game/PreGame.h	2008-04-11 13:08:29 UTC (rev 5699)
+@@ -4,13 +4,12 @@
+ #include &lt;string&gt;
+ 
+ #include &quot;GameController.h&quot;
+-#include &quot;GameData.h&quot;
+ 
+ class CglList;
+ class CInfoConsole;
+ class CLoadSaveHandler;
+-
+-namespace netcode{
++class GameData;
++namespace netcode {
+ 	class RawPacket;
+ }
+ 
+
+Modified: trunk/rts/Game/UI/MouseHandler.cpp
+===================================================================
+--- trunk/rts/Game/UI/MouseHandler.cpp	2008-04-11 08:49:08 UTC (rev 5698)
++++ trunk/rts/Game/UI/MouseHandler.cpp	2008-04-11 13:08:29 UTC (rev 5699)
+@@ -24,6 +24,7 @@
+ #include &quot;Game/GameHelper.h&quot;
+ #include &quot;Game/SelectedUnits.h&quot;
+ #include &quot;Game/Team.h&quot;
++#include &quot;Game/Player.h&quot;
+ #include &quot;Map/Ground.h&quot;
+ #include &quot;Map/MapDamage.h&quot;
+ #include &quot;Platform/ConfigHandler.h&quot;
+
+Modified: trunk/rts/Lua/LuaSyncedRead.cpp
+===================================================================
+--- trunk/rts/Lua/LuaSyncedRead.cpp	2008-04-11 08:49:08 UTC (rev 5698)
++++ trunk/rts/Lua/LuaSyncedRead.cpp	2008-04-11 13:08:29 UTC (rev 5699)
+@@ -23,6 +23,7 @@
+ #include &quot;Game/Camera.h&quot;
+ #include &quot;Game/GameHelper.h&quot;
+ #include &quot;Game/Team.h&quot;
++#include &quot;Game/Player.h&quot;
+ #include &quot;Map/Ground.h&quot;
+ #include &quot;Map/MapDamage.h&quot;
+ #include &quot;Rendering/UnitModels/3DModelParser.h&quot;
+
+Modified: trunk/rts/Lua/LuaUnsyncedCtrl.cpp
+===================================================================
+--- trunk/rts/Lua/LuaUnsyncedCtrl.cpp	2008-04-11 08:49:08 UTC (rev 5698)
++++ trunk/rts/Lua/LuaUnsyncedCtrl.cpp	2008-04-11 13:08:29 UTC (rev 5699)
+@@ -20,6 +20,7 @@
+ #include &quot;Game/Game.h&quot;
+ #include &quot;Game/SelectedUnits.h&quot;
+ #include &quot;Game/Team.h&quot;
++#include &quot;Game/Player.h&quot;
+ #include &quot;Game/UI/CommandColors.h&quot;
+ #include &quot;Game/UI/CursorIcons.h&quot;
+ #include &quot;Game/UI/MouseHandler.h&quot;
+
+Modified: trunk/rts/System/DemoReader.cpp
+===================================================================
+--- trunk/rts/System/DemoReader.cpp	2008-04-11 08:49:08 UTC (rev 5698)
++++ trunk/rts/System/DemoReader.cpp	2008-04-11 13:08:29 UTC (rev 5699)
+@@ -7,6 +7,7 @@
+ #include &quot;Sync/Syncify.h&quot;
+ #include &quot;Game/GameSetup.h&quot;
+ #endif
++#include &quot;Net/RawPacket.h&quot;
+ #include &quot;Game/GameVersion.h&quot;
+ #include &quot;FileSystem/FileHandler.h&quot;
+ 
+@@ -77,15 +78,15 @@
+ 	}
+ }
+ 
+-unsigned CDemoReader::GetData(unsigned char *buf, const unsigned length, float curTime)
++netcode::RawPacket* CDemoReader::GetData(float curTime)
+ {
+ 	if (ReachedEnd())
+ 		return 0;
+ 
+ 	// when paused, modGameTime wont increase so no seperate check needed
+ 	if (nextDemoRead &lt; curTime) {
+-		playbackDemo-&gt;Read((void*)(buf), chunkHeader.length);
+-		unsigned ret = chunkHeader.length;
++		netcode::RawPacket* buf = new netcode::RawPacket(chunkHeader.length);
++		playbackDemo-&gt;Read((void*)(buf-&gt;data), chunkHeader.length);
+ 		bytesRemaining -= chunkHeader.length;
+ 
+ 		playbackDemo-&gt;Read((void*)&amp;chunkHeader, sizeof(chunkHeader));
+@@ -93,7 +94,7 @@
+ 		nextDemoRead = chunkHeader.modGameTime + demoTimeOffset;
+ 		bytesRemaining -= sizeof(chunkHeader);
+ 
+-		return ret;
++		return buf;
+ 	} else {
+ 		return 0;
+ 	}
+
+Modified: trunk/rts/System/DemoReader.h
+===================================================================
+--- trunk/rts/System/DemoReader.h	2008-04-11 08:49:08 UTC (rev 5698)
++++ trunk/rts/System/DemoReader.h	2008-04-11 13:08:29 UTC (rev 5699)
+@@ -4,6 +4,7 @@
+ #include &quot;Demo.h&quot;
+ 
+ class CFileHandler;
++namespace netcode { class RawPacket; }
+ 
+ /**
+ @brief Utility class for reading demofiles
+@@ -19,9 +20,9 @@
+ 	
+ 	/**
+ 	@brief read from demo file
+-	@return Amount of data read (bytes)
++	@return The data read (or 0 if no data), don't forget to delete it
+ 	*/
+-	unsigned GetData(unsigned char *buf, const unsigned length, float curTime);
++	netcode::RawPacket* GetData(float curTime);
+ 
+ 	/**
+ 	@brief Wether the demo has reached the end
+
+Modified: trunk/rts/System/LoadSaveHandler.cpp
+===================================================================
+--- trunk/rts/System/LoadSaveHandler.cpp	2008-04-11 08:49:08 UTC (rev 5698)
++++ trunk/rts/System/LoadSaveHandler.cpp	2008-04-11 13:08:29 UTC (rev 5699)
+@@ -14,6 +14,7 @@
+ #include &quot;Sim/Misc/AirBaseHandler.h&quot;
+ #include &quot;Sim/Misc/QuadField.h&quot;
+ #include &quot;Sim/Misc/CategoryHandler.h&quot;
++#include &quot;Sim/Projectiles/ProjectileHandler.h&quot;
+ #include &quot;Platform/errorhandler.h&quot;
+ #include &quot;Platform/FileSystem.h&quot;
+ #include &quot;creg/Serializer.h&quot;
+
+Modified: trunk/rts/System/Net/Net.h
+===================================================================
+--- trunk/rts/System/Net/Net.h	2008-04-11 08:49:08 UTC (rev 5698)
++++ trunk/rts/System/Net/Net.h	2008-04-11 13:08:29 UTC (rev 5699)
+@@ -8,15 +8,13 @@
+ 
+ #include &quot;RawPacket.h&quot;
+ 
+-typedef netcode::RawPacket RawPacket;
++using netcode::RawPacket;
+ 
+ namespace netcode {
+ 
+ class CConnection;
+ class UDPListener;
+ 
+-const unsigned NETWORK_BUFFER_SIZE = 40000;
+-
+ /**
+ @brief Interface for low level networking
+ Low level network connection (basically a fast TCP-like layer on top of UDP)
+
+Modified: trunk/rts/System/Net/UDPConnection.cpp
+===================================================================
+--- trunk/rts/System/Net/UDPConnection.cpp	2008-04-11 08:49:08 UTC (rev 5698)
++++ trunk/rts/System/Net/UDPConnection.cpp	2008-04-11 13:08:29 UTC (rev 5699)
+@@ -53,7 +53,7 @@
+ 
+ void UDPConnection::SendData(const unsigned char *data, const unsigned length)
+ {
+-	if(outgoingLength+length&gt;=NETWORK_BUFFER_SIZE){
++	if(outgoingLength+length&gt;=UDPBufferSize){
+ 		throw network_error(&quot;Buffer overflow in UDPConnection (SendData)&quot;);
+ 	}
+ 	memcpy(&amp;outgoingData[outgoingLength],data,length);
+
+Modified: trunk/rts/System/Net/UDPConnection.h
+===================================================================
+--- trunk/rts/System/Net/UDPConnection.h	2008-04-11 08:49:08 UTC (rev 5698)
++++ trunk/rts/System/Net/UDPConnection.h	2008-04-11 13:08:29 UTC (rev 5699)
+@@ -2,7 +2,6 @@
+ #define _REMOTE_CONNECTION
+ 
+ #include &quot;Connection.h&quot;
+-#include &quot;Net.h&quot;
+ #include &quot;UDPSocket.h&quot;
+ #include &quot;RawPacket.h&quot;
+ 
+@@ -13,6 +12,8 @@
+ 
+ namespace netcode {
+ 
++const unsigned UDPBufferSize = 8192;
++
+ /**
+ How Spring protocolheader looks like (size in bytes):
+ 4 (int): number of packet (continuous)
+@@ -90,7 +91,7 @@
+ 	sockaddr_in addr;
+ 
+ 	///outgoing stuff (pure data without header) waiting to be sended
+-	unsigned char outgoingData[NETWORK_BUFFER_SIZE];
++	unsigned char outgoingData[UDPBufferSize];
+ 	unsigned outgoingLength;
+ 
+ 	/// packets the other side didn't ack'ed until now
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000478.html">[Taspring-linux-commit] r5698 - in trunk/Site2/www-root: .	forums/styles/spring/template tpl wiki/lib/tpl/default
+</A></li>
+	<LI>Next message: <A HREF="000480.html">[Taspring-linux-commit] r5700 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#479">[ date ]</a>
+              <a href="thread.html#479">[ thread ]</a>
+              <a href="subject.html#479">[ subject ]</a>
+              <a href="author.html#479">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

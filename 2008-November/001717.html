@@ -1,0 +1,267 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6948 - in trunk: rts/Game	tools/DedicatedServer
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-November/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6948%20-%20in%20trunk%3A%20rts/Game%0A%09tools/DedicatedServer&In-Reply-To=%3C20081101170821.A9B444743%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001716.html">
+   <LINK REL="Next"  HREF="001718.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6948 - in trunk: rts/Game	tools/DedicatedServer</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6948%20-%20in%20trunk%3A%20rts/Game%0A%09tools/DedicatedServer&In-Reply-To=%3C20081101170821.A9B444743%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6948 - in trunk: rts/Game	tools/DedicatedServer">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Nov  1 18:08:21 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001716.html">[Taspring-linux-commit] r6947 - trunk/rts/Game
+</A></li>
+        <LI>Next message: <A HREF="001718.html">[Taspring-linux-commit] r6949 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1717">[ date ]</a>
+              <a href="thread.html#1717">[ thread ]</a>
+              <a href="subject.html#1717">[ subject ]</a>
+              <a href="author.html#1717">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-11-01 18:08:19 +0100 (Sat, 01 Nov 2008)
+New Revision: 6948
+
+Modified:
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameServer.h
+   trunk/rts/Game/PreGame.cpp
+   trunk/rts/Game/SelectMenu.h
+   trunk/tools/DedicatedServer/main.cpp
+Log:
+* fix CPreGame not compiling due to INT_MAX not found
+* simplified constructing of CGameServer
+
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-11-01 16:39:45 UTC (rev 6947)
++++ trunk/rts/Game/GameServer.cpp	2008-11-01 17:08:19 UTC (rev 6948)
+@@ -97,7 +97,7 @@
+ 
+ CGameServer* gameServer=0;
+ 
+-CGameServer::CGameServer(int port, bool onlyLocal, const GameData* const newGameData, const CGameSetup* const mysetup)
++CGameServer::CGameServer(const LocalSetup* settings, bool onlyLocal, const GameData* const newGameData, const CGameSetup* const mysetup)
+ : setup(mysetup)
+ {
+ 	assert(setup);
+@@ -128,10 +128,13 @@
+ 	sentGameOverMsg = false;
+ 	
+ 	if (!onlyLocal)
+-		UDPNet.reset(new netcode::UDPListener(port));
++		UDPNet.reset(new netcode::UDPListener(settings-&gt;hostport));
+ 	
++	if (settings-&gt;autohostport &gt; 0) {
++		AddAutohostInterface(settings-&gt;autohostport);
++	}
+ 	rng.Seed(SDL_GetTicks());
+-	Message(str( format(ServerStart) %port) );
++	Message(str( format(ServerStart) %settings-&gt;hostport) );
+ 
+ 	lastTick = SDL_GetTicks();
+ 
+@@ -164,6 +167,7 @@
+ 	RestrictedAction(&quot;editdefs&quot;);
+ 	RestrictedAction(&quot;luagaia&quot;);
+ 	RestrictedAction(&quot;singlestep&quot;);
++
+ 	thread = new boost::thread(boost::bind&lt;void, CGameServer, CGameServer*&gt;(&amp;CGameServer::UpdateLoop, this));
+ 
+ #ifdef STREFLOP_H
+@@ -193,7 +197,6 @@
+ {
+ 	if (!hostif)
+ 	{
+-		boost::recursive_mutex::scoped_lock scoped_lock(gameServerMutex);
+ 		hostif.reset(new AutohostInterface(remotePort));
+ 		hostif-&gt;SendStart();
+ 		Message(str(format(ConnectAutohost) %remotePort));
+
+Modified: trunk/rts/Game/GameServer.h
+===================================================================
+--- trunk/rts/Game/GameServer.h	2008-11-01 16:39:45 UTC (rev 6947)
++++ trunk/rts/Game/GameServer.h	2008-11-01 17:08:19 UTC (rev 6948)
+@@ -27,6 +27,7 @@
+ class CDemoReader;
+ class AutohostInterface;
+ class CGameSetup;
++class LocalSetup;
+ class ChatMessage;
+ 
+ const unsigned SERVER_PLAYER = 255; //server generated message which needs a playernumber
+@@ -63,7 +64,7 @@
+ {
+ 	friend class CLoadSaveHandler;     //For initialize server state after load
+ public:
+-	CGameServer(int port, bool onlyLocal, const GameData* const gameData, const CGameSetup* const setup);
++	CGameServer(const LocalSetup* settings, bool onlyLocal, const GameData* const gameData, const CGameSetup* const setup);
+ 	virtual ~CGameServer();
+ 
+ 	void AddLocalClient(const std::string&amp; myName, const std::string&amp; myVersion);
+
+Modified: trunk/rts/Game/PreGame.cpp
+===================================================================
+--- trunk/rts/Game/PreGame.cpp	2008-11-01 16:39:45 UTC (rev 6947)
++++ trunk/rts/Game/PreGame.cpp	2008-11-01 17:08:19 UTC (rev 6948)
+@@ -5,6 +5,7 @@
+ #include &lt;SDL_timer.h&gt;
+ #include &lt;SDL_types.h&gt;
+ #include &lt;set&gt;
++#include &lt;cfloat&gt;
+ 
+ #include &quot;mmgr.h&quot;
+ 
+@@ -262,12 +263,8 @@
+ 	}
+ 	
+ 	good_fpu_control_registers(&quot;before CGameServer creation&quot;);
+-	int myPort = settings-&gt;hostport;
+ 	startupData-&gt;SetSetup(setup-&gt;gameSetupText);
+-	gameServer = new CGameServer(myPort, false, startupData, setup);
+-	if (settings-&gt;autohostport &gt; 0) {
+-		gameServer-&gt;AddAutohostInterface(settings-&gt;autohostport);
+-	}
++	gameServer = new CGameServer(settings.get(), false, startupData, setup);
+ 	gameServer-&gt;AddLocalClient(settings-&gt;myPlayerName, std::string(VERSION_STRING_DETAILED));
+ 	good_fpu_control_registers(&quot;after CGameServer creation&quot;);
+ }
+@@ -312,7 +309,7 @@
+ 	logOutput.Print(&quot;Pre-scanning demo file for game data...&quot;);
+ 	CDemoReader scanner(demoName, 0);
+ 
+-	boost::shared_ptr&lt;const RawPacket&gt; buf(scanner.GetData(static_cast&lt;float&gt;(INT_MAX)));
++	boost::shared_ptr&lt;const RawPacket&gt; buf(scanner.GetData(static_cast&lt;float&gt;(FLT_MAX )));
+ 	while ( buf )
+ 	{
+ 		if (buf-&gt;data[0] == NETMSG_GAMEDATA)
+@@ -346,7 +343,7 @@
+ 				throw content_error(&quot;Server sent us incorrect script&quot;);
+ 			}
+ 			good_fpu_control_registers(&quot;before CGameServer creation&quot;);
+-			gameServer = new CGameServer(settings-&gt;hostport, false, data, tempSetup);
++			gameServer = new CGameServer(settings.get(), false, data, tempSetup);
+ 			gameServer-&gt;AddLocalClient(settings-&gt;myPlayerName, std::string(VERSION_STRING_DETAILED));
+ 			good_fpu_control_registers(&quot;after CGameServer creation&quot;);
+ 			break;
+@@ -356,7 +353,7 @@
+ 		{
+ 			throw content_error(&quot;End of demo reached and no game data found&quot;);
+ 		}
+-		buf.reset(scanner.GetData(static_cast&lt;float&gt;(INT_MAX)));
++		buf.reset(scanner.GetData(static_cast&lt;float&gt;(FLT_MAX )));
+ 	}
+ 
+ 	assert(gameServer);
+
+Modified: trunk/rts/Game/SelectMenu.h
+===================================================================
+--- trunk/rts/Game/SelectMenu.h	2008-11-01 16:39:45 UTC (rev 6947)
++++ trunk/rts/Game/SelectMenu.h	2008-11-01 17:08:19 UTC (rev 6948)
+@@ -6,6 +6,13 @@
+ class LocalSetup;
+ class CglList;
+ 
++/**
+<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">+ at brief</A> User prompt for options when no script is given
++
++When no setupscript is given, this will show a menu to select server address (when running in client (&quot;-c&quot;)mode).
++If in host mode, it will show lists for Map, Mod and Script.
++When everything is selected, it will generate a gamesetup-script and start CPreGame
++*/
+ class SelectMenu : public CGameController
+ {
+ public:
+@@ -18,9 +25,8 @@
+ 	void ShowMapList();
+ 	void ShowScriptList();
+ 	void ShowModList();
+-	CglList* showList;
+ 	
+-	/// Choose the script we will tell the server to start with
++	/// Callback functions for CglList
+ 	void SelectScript(const std::string&amp; s);
+ 	void SelectMap(const std::string&amp; s);
+ 	void SelectMod(const std::string&amp; s);
+@@ -32,6 +38,7 @@
+ 	
+ 	bool addressKnown;
+ 	LocalSetup* mySettings;
++	CglList* showList;
+ };
+ 
+ #endif
+\ No newline at end of file
+
+Modified: trunk/tools/DedicatedServer/main.cpp
+===================================================================
+--- trunk/tools/DedicatedServer/main.cpp	2008-11-01 16:39:45 UTC (rev 6947)
++++ trunk/tools/DedicatedServer/main.cpp	2008-11-01 17:08:19 UTC (rev 6948)
+@@ -19,7 +19,7 @@
+ int main(int argc, char *argv[])
+ {
+ 	try {
+-	std::cout &lt;&lt; &quot;BIG FAT WARNING: this server is currently under development. If you find any errors (you most likely will)&quot;;
++	std::cout &lt;&lt; &quot;This server is currently under development. If you find any errors&quot;;
+ 	std::cout &lt;&lt; &quot; report them to mantis or the forums.&quot; &lt;&lt; std::endl &lt;&lt; std::endl;
+ 	FileSystemHandler::Cleanup();
+ 	FileSystemHandler::Initialize(false);
+@@ -88,14 +88,7 @@
+ 		}
+ 
+ 		data-&gt;SetScript(gameSetup-&gt;scriptName);
+-		server = new CGameServer(settings-&gt;hostport, false, data, gameSetup);
+-		
+-		if (settings-&gt;autohostport &gt; 0)
+-			server-&gt;AddAutohostInterface(settings-&gt;autohostport);
+-		else
+-		{
+-			std::cout &lt;&lt; &quot;You should specify an AutohostPort in the script&quot; &lt;&lt; std::endl;
+-		}
++		server = new CGameServer(settings, false, data, gameSetup);
+ 
+ 		while (!server-&gt;HasFinished()) // check if still running
+ #ifdef _WIN32
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001716.html">[Taspring-linux-commit] r6947 - trunk/rts/Game
+</A></li>
+	<LI>Next message: <A HREF="001718.html">[Taspring-linux-commit] r6949 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1717">[ date ]</a>
+              <a href="thread.html#1717">[ thread ]</a>
+              <a href="subject.html#1717">[ subject ]</a>
+              <a href="author.html#1717">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

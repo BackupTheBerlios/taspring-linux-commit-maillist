@@ -1,0 +1,515 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5650 - trunk/Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5650%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080402195416.82886469F%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000430.html">
+   <LINK REL="Next"  HREF="000432.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5650 - trunk/Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5650%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080402195416.82886469F%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5650 - trunk/Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Apr  2 21:54:13 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000430.html">[Taspring-linux-commit] r5649 - in trunk: . rts/System/Platform/Win	rts/lib/streflop
+</A></li>
+        <LI>Next message: <A HREF="000432.html">[Taspring-linux-commit] r5651 - trunk/rts/lib/streflop
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#431">[ date ]</a>
+              <a href="thread.html#431">[ thread ]</a>
+              <a href="subject.html#431">[ subject ]</a>
+              <a href="author.html#431">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2008-04-02 21:54:05 +0200 (Wed, 02 Apr 2008)
+New Revision: 5650
+
+Modified:
+   trunk/Lobby/TASClient/BattleFormUnit.dfm
+   trunk/Lobby/TASClient/BattleFormUnit.pas
+   trunk/Lobby/TASClient/HostBattleFormUnit.pas
+   trunk/Lobby/TASClient/MainUnit.dfm
+   trunk/Lobby/TASClient/MainUnit.pas
+   trunk/Lobby/TASClient/PreferencesFormUnit.dfm
+   trunk/Lobby/TASClient/PreferencesFormUnit.pas
+   trunk/Lobby/TASClient/TASClient.dof
+   trunk/Lobby/TASClient/TASClient.res
+Log:
+- ladder password checked (constant added)
+- ladder password is checked each time you join or host a ladder battle
+- players without account are auto speced
+- if you join a ladder and the password is wrong it warn you that you must have an old lobby version
+- Check for Lobby Update add in Help menu to force an update check
+
+Modified: trunk/Lobby/TASClient/BattleFormUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/BattleFormUnit.dfm	2008-04-02 19:02:33 UTC (rev 5649)
++++ trunk/Lobby/TASClient/BattleFormUnit.dfm	2008-04-02 19:54:05 UTC (rev 5650)
+@@ -1,6 +1,6 @@
+ object BattleForm: TBattleForm
+-  Left = 868
+-  Top = 62
++  Left = 546
++  Top = 175
+   Width = 758
+   Height = 548
+   Caption = 'Battle window'
+
+Modified: trunk/Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/BattleFormUnit.pas	2008-04-02 19:02:33 UTC (rev 5649)
++++ trunk/Lobby/TASClient/BattleFormUnit.pas	2008-04-02 19:54:05 UTC (rev 5650)
+@@ -583,6 +583,7 @@
+     ResizingY : ShortInt;
+     SelectedStartRect: Shortint; // if -1, no start rect is selected
+     BanList:TStringList;
++    TryingToJoinLadderBattle: boolean;
+   end;
+ 
+   BattleReplayInfo: // used only when battle is of &quot;battle replay&quot; type
+@@ -4275,7 +4276,10 @@
+         NormalClient:
+         begin
+           if TClient(BattleState.Battle.Clients[RealIndex]).CurrentLadderRating = 0 then
+-            Canvas.TextOut(R.Left + Pos, R.Top,'n/a')
++          begin
++            Canvas.Brush.Color := clRed;
++            Canvas.TextOut(R.Left + Pos, R.Top,'No ladder account.');
++          end
+           else if TClient(BattleState.Battle.Clients[RealIndex]).CurrentLadderRating = -2 then
+             Canvas.TextOut(R.Left + Pos, R.Top,'n/a')
+           else if TClient(BattleState.Battle.Clients[RealIndex]).CurrentLadderRating = -1 then
+@@ -5320,9 +5324,12 @@
+   parse1 : TStrings;
+   parse2 : TStrings;
+   nick : PChar;
++  forceSpecNickList: TStringList;
+ begin
+   if BattleState.LadderIndex = -1 then
+     Exit;
++
++  forceSpecNickList := TStringList.Create;
+     
+   with BattleForm do begin
+   playerList := TStringList.Create;
+@@ -5383,7 +5390,14 @@
+           if TClient(BattleState.Battle.Clients[j]).Name = parse2[0] then begin
+             with TClient(BattleState.Battle.Clients[j]) do begin
+               if parse2[1] = 'n/a' then
+-                CurrentLadderRating := 0
++              begin
++                CurrentLadderRating := 0;
++                if (GetMode &lt;&gt; 0) and (BattleState.Status = Hosting) then
++                begin
++                  MainForm.TryToSendCommand('FORCESPECTATORMODE', Name);
++                  forceSpecNickList.Add(Name);
++                end;
++              end
+               else
+                 CurrentLadderRating := StrToInt(parse2[1]);
+               if parse2[2] = 'n/a' then
+@@ -5397,6 +5411,9 @@
+         end;
+       end;
+       VDTBattleClients.Refresh;
++      if forceSpecNickList.Count &gt;0 then
++        MainForm.TryToSendCommand('SAYBATTLEEX', 'is forcing spectator players without ladder account: '+JoinStringList(forceSpecNickList,' '));
++      forceSpecNickList.Free;
+   end;
+   end;
+ end;
+
+Modified: trunk/Lobby/TASClient/HostBattleFormUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/HostBattleFormUnit.pas	2008-04-02 19:02:33 UTC (rev 5649)
++++ trunk/Lobby/TASClient/HostBattleFormUnit.pas	2008-04-02 19:54:05 UTC (rev 5650)
+@@ -127,6 +127,7 @@
+   i,j: Integer;
+   s: WideString;
+   validMaps: TStringList;
++  CheckPasswordThread : TLadderCheckAccountThread;
+ begin
+   try
+     i := StrToInt(PortEdit.Text);
+@@ -243,7 +244,7 @@
+   s := s + IntToStr(NATRadioGroup.ItemIndex) + ' ';
+   // password (must be &quot;*&quot; for none):
+   if ladderIndex &gt; -1 then
+-    s := s + 'ladderlock '
++    s := s + LADDER_BATTLE_PASSWORD + ' '
+   else
+     if PasswordEdit.Text = '' then s := s + '* ' else s := s + PasswordEdit.Text + ' ';
+   // port:
+@@ -293,6 +294,9 @@
+ 
+   BattleState.LadderIndex := ladderIndex;
+ 
++  if ladderIndex &gt;=0 then
++    CheckPasswordThread := TLadderCheckAccountThread.Create(False,Preferences.LadderPassword,true);
++
+   // send the command:
+   MainForm.TryToSendCommand('OPENBATTLE', s);
+ 
+
+Modified: trunk/Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.dfm	2008-04-02 19:02:33 UTC (rev 5649)
++++ trunk/Lobby/TASClient/MainUnit.dfm	2008-04-02 19:54:05 UTC (rev 5650)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 326
+-  Top = 135
++  Left = 472
++  Top = 240
+   Width = 789
+   Height = 548
+   Caption = 'TASClient'
+@@ -5928,6 +5928,10 @@
+       FontSettings.Bold = tsTrue
+       OnClick = mnuHelpClick
+     end
++    object mnuForceLobbyUpdateCheck: TSpTBXItem
++      Caption = 'Check for Lobby Update'
++      OnClick = mnuForceLobbyUpdateCheckClick
++    end
+     object SpTBXSeparatorItem7: TSpTBXSeparatorItem
+     end
+     object SubMenuWiki: TSpTBXSubmenuItem
+
+Modified: trunk/Lobby/TASClient/MainUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.pas	2008-04-02 19:02:33 UTC (rev 5649)
++++ trunk/Lobby/TASClient/MainUnit.pas	2008-04-02 19:54:05 UTC (rev 5650)
+@@ -508,7 +508,7 @@
+ 
+ const
+   VERSION_NUMBER = '0.37'; // Must be float value! (with a period as a decimal seperator)
+-  BETA_NUMBER = 265;
++  BETA_NUMBER = 266;
+   CHECK_BETA_LOBBY_URL = '<A HREF="http://tasclient.no-ip.org/TASClient.txt">http://tasclient.no-ip.org/TASClient.txt</A>';
+   PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER + ' beta';
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+@@ -523,6 +523,7 @@
+   MAPS_PAGE_LINK = '<A HREF="http://spring.jobjol.nl/files.php?subcategory_id=2">http://spring.jobjol.nl/files.php?subcategory_id=2</A>';
+   WIKI_PAGE_LINK = '<A HREF="http://taspring.clan-sy.com/wiki/Main_Page">http://taspring.clan-sy.com/wiki/Main_Page</A>';
+   LADDER_PREFIX_URL = '<A HREF="http://blendax.informatik.uni-bremen.de/jan/spring/ladder/lobby/">http://blendax.informatik.uni-bremen.de/jan/spring/ladder/lobby/</A>'; //'<A HREF="http://springladder.no-ip.org/lobby/">http://springladder.no-ip.org/lobby/</A>';
++  LADDER_BATTLE_PASSWORD = 'ladderlock2';
+   AWAY_TIME = 300000; // in milliseconds. After this period of time (of inactivity), client will set its state to &quot;away&quot;
+   IDL_DEFAULT_MSG = 'The user has been idling for $t minutes.';
+   AWAY_DEFAULT_MSG = 'I am currently away from the computer.';
+@@ -717,12 +718,13 @@
+ 
+   TCheckNewBetaLobbyThread = class(TDialogThread)
+   private
++    confirmation: boolean;
+ 
+   protected
+     procedure Execute; override;
+ 
+   public
+-    constructor Create(Suspended : Boolean);
++    constructor Create(Suspended : Boolean;hasLastVersionConfirmation: boolean);
+   end;
+ 
+   TLadder = class
+@@ -1036,6 +1038,7 @@
+     mnuHideEveryMod: TSpTBXItem;
+     mnuHideEveryHost: TSpTBXItem;
+     SpTBXItem3: TSpTBXItem;
++    mnuForceLobbyUpdateCheck: TSpTBXItem;
+     procedure mnuOpenPrivateChatClick(Sender: TObject);
+     procedure mnuSelectBattleClick(Sender: TObject);
+     procedure SpTBXItem1Click(Sender: TObject);
+@@ -1138,6 +1141,7 @@
+     procedure SpTBXItem3Click(Sender: TObject);
+     procedure mnuBattleDlMapClick(Sender: TObject);
+     procedure mnuBattleDlModClick(Sender: TObject);
++    procedure mnuForceLobbyUpdateCheckClick(Sender: TObject);
+ 
+   published
+     MainTitleBar: TSpTBXTitleBar;
+@@ -4058,6 +4062,7 @@
+   oldVisible: Boolean;
+   LadderListThread : TLadderListThread;
+   LMThread : TLadderMapThread;
++  CheckPasswordThread : TLadderCheckAccountThread;
+   Ladder : ^TLadder;
+   RenameThread : TLadderRenameAccountThread;
+   luaOpt: TLuaOption;
+@@ -5054,6 +5059,7 @@
+ 
+         BattleState.LadderIndex := -1;
+         if Battle.IsLadderBattle then
++          CheckPasswordThread := TLadderCheckAccountThread.Create(False,Preferences.LadderPassword,true);
+           if Battle.GetLadderId = -1 then
+             AddMainLog('Error: Battle ladder id not found.', Colors.Error)
+           else
+@@ -5090,7 +5096,8 @@
+         AddMainLog('Error: Server sent ambiguous command!', Colors.Error);
+         Exit;
+       end;
+-
++      if BattleState.TryingToJoinLadderBattle then
++        MessageDlg('You are trying to join a battle with another ladder version, updating your lobby should fix that problem.',mtWarning,[mbOk],0);
+       AddMainLog('Failed to join the battle (Reason: ' + MakeSentenceWS(sl, 1) + ')', Colors.Error);
+     end
+     else if sl[0] = 'OPENBATTLEFAILED' then
+@@ -5366,6 +5373,8 @@
+           if not BattleForm.Active then
+             if NotificationsForm.FindNotification(nfJoinedBattle, []) or ((BattleState.Status = Hosting) and NotificationsForm.FindNotification(nfJoinedMyHostedBattle, [])) then
+               AddNotification('Player joined battle', '&lt;' + Client.Name + '&gt; has joined battle.', 2000);
++          Client.CurrentLadderRank := -1;
++          Client.CurrentLadderRating := -1;
+           BattleForm.RefreshLadderRanks;
+         end;
+     end
+@@ -5809,7 +5818,13 @@
+             if (BattleState.Status=Hosting) and (Client.GetGroup &gt; -1) and TClientGroup(ClientGroups[Client.GetGroup]).AutoSpec and (Client.GetMode &lt;&gt; 0) then begin
+               MainForm.TryToSendCommand('SAYBATTLEEX', '*** Group auto-spec : '+Client.Name+' ***');
+               MainForm.TryToSendCommand('FORCESPECTATORMODE', Client.Name);
+-            end;
++            end
++            else
++              if (BattleState.Status=Hosting) and (Client.GetMode &lt;&gt; 0) and BattleState.Battle.IsLadderBattle and (Client.CurrentLadderRating=0) then
++              begin
++                MainForm.TryToSendCommand('SAYBATTLEEX', '*** No ladder account auto-spec : '+Client.Name+' ***');
++                MainForm.TryToSendCommand('FORCESPECTATORMODE', Client.Name);
++              end;
+ 
+           // update spectator count:
+           count := 0;
+@@ -7180,7 +7195,7 @@
+   if Battle.Password then
+   begin
+     if Battle.IsLadderBattle then
+-      pass := 'ladderlock'
++      pass := LADDER_BATTLE_PASSWORD
+     else
+       if not InputQuery('Password', 'Password:', pass) then Exit;
+   end;
+@@ -7198,6 +7213,7 @@
+       Exit;
+     end;
+   end;
++  BattleState.TryingToJoinLadderBattle := Battle.IsLadderBattle;
+   BattleState.LadderIndex := -1;
+   TryToSendCommand('JOINBATTLE', IntToStr(Battle.ID) + IFF(pass &lt;&gt; '', ' ' + pass, ''));
+ end;
+@@ -8283,7 +8299,7 @@
+ var
+   checkThread : TCheckNewBetaLobbyThread;
+ begin
+-  checkThread := TCheckNewBetaLobbyThread.Create(false);
++  checkThread := TCheckNewBetaLobbyThread.Create(false,false);
+ end;
+ 
+ constructor TLadder.Create(id: integer; Name: string);
+@@ -9413,10 +9429,11 @@
+     BattleListPopupMenuInitPopup(nil,nil);
+ end;
+ 
+-constructor TCheckNewBetaLobbyThread.Create(Suspended: Boolean);
++constructor TCheckNewBetaLobbyThread.Create(Suspended: Boolean;hasLastVersionConfirmation: boolean);
+ begin
+    FreeOnTerminate := True;
+    inherited Create(Suspended);
++   confirmation := hasLastVersionConfirmation;
+ end;
+ 
+ procedure TCheckNewBetaLobbyThread.Execute;
+@@ -9451,8 +9468,13 @@
+ 
+       Misc.ParseDelimited(parsedHtml,html,' ','');
+       if StrToInt(parsedHtml[0]) &gt; BETA_NUMBER then
++      begin
+         if MessageDlgThread('A new beta version of the lobby is available, do you want to download it ?',mtInformation,[mbYes,mbNo],0) = mrYes then
+           Misc.OpenURLInDefaultBrowser(parsedHtml[1]);
++      end
++      else
++        if confirmation then
++          MessageDlgThread('Your lobby version is up to date.',mtInformation,[mbOk],0);
+     except
+       Exit;
+     end;
+@@ -9485,4 +9507,11 @@
+   Misc.OpenURLInDefaultBrowser(url);
+ end;
+ 
++procedure TMainForm.mnuForceLobbyUpdateCheckClick(Sender: TObject);
++var
++  checkThread: TCheckNewBetaLobbyThread;
++begin
++  checkThread := TCheckNewBetaLobbyThread.Create(false,true);
++end;
++
+ end.
+
+Modified: trunk/Lobby/TASClient/PreferencesFormUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/PreferencesFormUnit.dfm	2008-04-02 19:02:33 UTC (rev 5649)
++++ trunk/Lobby/TASClient/PreferencesFormUnit.dfm	2008-04-02 19:54:05 UTC (rev 5650)
+@@ -1,6 +1,6 @@
+ object PreferencesForm: TPreferencesForm
+-  Left = 516
+-  Top = 232
++  Left = 252
++  Top = 171
+   BorderStyle = bsDialog
+   Caption = 'Preferences'
+   ClientHeight = 392
+
+Modified: trunk/Lobby/TASClient/PreferencesFormUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/PreferencesFormUnit.pas	2008-04-02 19:02:33 UTC (rev 5649)
++++ trunk/Lobby/TASClient/PreferencesFormUnit.pas	2008-04-02 19:54:05 UTC (rev 5650)
+@@ -206,13 +206,15 @@
+ 
+   TLadderCheckAccountThread = class(TDialogThread)
+   private
++    password : string;
++    isOnTheFlyCheck : boolean; // means it is check the actual saved password
+     procedure CheckAccount;
+     procedure OnTerminateProcedure(Sender : TObject);
+   protected
+     procedure Execute; override;
+     
+   public
+-    constructor Create(Suspended : Boolean);
++    constructor Create(Suspended: Boolean;passToCheck: string;onTheFlyCheck : boolean);
+   end;
+ 
+   TLadderCreateAccountThread = class(TDialogThread)
+@@ -1009,11 +1011,13 @@
+   if (tmp &gt; 0) and (tmp &lt; 32) then MessageDlg('Couldn''t find SelectionEditor.exe!', mtWarning, [mbOK], 0);
+ end;
+ 
+-constructor TLadderCheckAccountThread.Create(Suspended: Boolean);
++constructor TLadderCheckAccountThread.Create(Suspended: Boolean;passToCheck: string;onTheFlyCheck : boolean);
+ begin
+    FreeOnTerminate := True;
+    inherited Create(Suspended);
+    OnTerminate := OnTerminateProcedure;
++   password := passToCheck;
++   isOnTheFlyCheck := onTheFlyCheck;
+ end;
+ 
+ procedure TLadderCheckAccountThread.Execute;
+@@ -1026,10 +1030,7 @@
+   i,j,k:integer;
+   html:string;
+   parse1 : TStrings;
+-  password : string;
+ begin
+-  password := InputBoxThread('Ladder password','Enter your ladder password :','');
+-
+   if password = '' then
+     Exit;
+     
+@@ -1074,17 +1075,24 @@
+     // parse the html result
+     Misc.ParseDelimited(parse1,html,' ','');
+     if (parse1[0] = 'error') then begin
+-      LadderPasswordEdit.Text := '';
++      if not isOnTheFlyCheck then
++        LadderPasswordEdit.Text := ''
++      else
++        Preferences.LadderPassword := '';
+       parse1.Delete(0);
+       MessageDlgThread(Misc.JoinStringList(parse1,' '),mtError,[mbOK],0)
+     end
+     else
+     begin
+-      LadderPasswordEdit.Text := password;
++      if not isOnTheFlyCheck then
++        LadderPasswordEdit.Text := password;
+     end;
+     parse1.Clear;
+-    ApplyAndCloseButton.Enabled := True;
+-    ChangeLadderPasswordButton.Enabled := True;
++    if not isOnTheFlyCheck then
++    begin
++      ApplyAndCloseButton.Enabled := True;
++      ChangeLadderPasswordButton.Enabled := True;
++    end;
+   end;
+ end;
+ 
+@@ -1256,8 +1264,10 @@
+   Sender: TObject);
+ var
+   CheckPasswordThread : TLadderCheckAccountThread;
++  password : string;
+ begin
+-  CheckPasswordThread := TLadderCheckAccountThread.Create(False);
++  password := InputBox('Ladder password','Enter your ladder password :','');
++  CheckPasswordThread := TLadderCheckAccountThread.Create(False,password,false);
+ end;
+ 
+ procedure TPreferencesForm.UsernameEditChange(Sender: TObject);
+
+Modified: trunk/Lobby/TASClient/TASClient.dof
+===================================================================
+--- trunk/Lobby/TASClient/TASClient.dof	2008-04-02 19:02:33 UTC (rev 5649)
++++ trunk/Lobby/TASClient/TASClient.dof	2008-04-02 19:54:05 UTC (rev 5650)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=3
+ Release=0
+-Build=265
++Build=266
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TA Spring lobby client
+-FileVersion=0.3.0.265
++FileVersion=0.3.0.266
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: trunk/Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000430.html">[Taspring-linux-commit] r5649 - in trunk: . rts/System/Platform/Win	rts/lib/streflop
+</A></li>
+	<LI>Next message: <A HREF="000432.html">[Taspring-linux-commit] r5651 - trunk/rts/lib/streflop
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#431">[ date ]</a>
+              <a href="thread.html#431">[ thread ]</a>
+              <a href="subject.html#431">[ subject ]</a>
+              <a href="author.html#431">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,316 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5232 - trunk/Lobby/TASServer/WebInterface
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5232%20-%20trunk/Lobby/TASServer/WebInterface&In-Reply-To=%3CE1JAFZQ-0007Oa-NQ%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000039.html">
+   <LINK REL="Next"  HREF="000041.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5232 - trunk/Lobby/TASServer/WebInterface</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5232%20-%20trunk/Lobby/TASServer/WebInterface&In-Reply-To=%3CE1JAFZQ-0007Oa-NQ%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5232 - trunk/Lobby/TASServer/WebInterface">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Jan  3 03:12:32 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000039.html">[Taspring-linux-commit] r5231 - trunk/Lobby/TASServer/ChanServ
+</A></li>
+        <LI>Next message: <A HREF="000041.html">[Taspring-linux-commit] r5233 -	trunk/Lobby/TASServer/WebInterface/inc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#40">[ date ]</a>
+              <a href="thread.html#40">[ thread ]</a>
+              <a href="subject.html#40">[ subject ]</a>
+              <a href="author.html#40">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: betalord
+Date: 2008-01-03 03:12:32 +0100 (Thu, 03 Jan 2008)
+New Revision: 5232
+
+Added:
+   trunk/Lobby/TASServer/WebInterface/userid.php
+Modified:
+   trunk/Lobby/TASServer/WebInterface/ban.delete.php
+   trunk/Lobby/TASServer/WebInterface/userinfo.php
+Log:
+made it easier for moderators to handle user ids, also fixed a bug with ban entry deletion not updating the server
+
+Modified: trunk/Lobby/TASServer/WebInterface/ban.delete.php
+===================================================================
+--- trunk/Lobby/TASServer/WebInterface/ban.delete.php	2008-01-03 02:09:58 UTC (rev 5231)
++++ trunk/Lobby/TASServer/WebInterface/ban.delete.php	2008-01-03 02:12:32 UTC (rev 5232)
+@@ -36,7 +36,41 @@
+     echo '  &lt;/table&gt;';
+     echo '&lt;/FORM&gt;';
+   }
++  
++  function forceUpdate()
++  {
++    $conn = new ServerConnection();
++    if (($res = $conn-&gt;connect()) !== true)
++    {
++      printError(&quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Error: &quot; . $res . &quot;&lt;/p&gt;&quot;);
++      return false;
++    }
++    if (($conn-&gt;identify()) == false)
++    {
++      printError(&quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Error while trying to authenticate with the server&quot; . &quot;&lt;/p&gt;&quot;);
++      return false;
++    }
+ 
++    if (($res = $conn-&gt;sendLine(&quot;queryserver RETRIEVELATESTBANLIST&quot;)) !== TRUE)
++    {
++      printError(&quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Error while communicating with the server&quot; . &quot;&lt;/p&gt;&quot;);
++      return false;
++    }
++    if (($res = $conn-&gt;readLine()) === FALSE)
++    {
++      printError(&quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Error while communicating with the server&quot; . &quot;&lt;/p&gt;&quot;);
++      return false;
++    }
++
++    $res = removeBeginning($res, 'SERVERMSG ');
++    echo &quot;&lt;p&gt;Server has successfully updated ban records from the database.&lt;/p&gt;&quot;;
++
++    // close connection with server:
++    $conn-&gt;close();
++    
++    return true;
++  }  
++
+   if (!$_GET[&quot;id&quot;]) {
+     returnError(&quot;Ban ID is missing!&quot;);
+   } else if (!($_GET[&quot;confirm&quot;] == &quot;true&quot;)) {
+@@ -71,7 +105,13 @@
+     
+     mysql_close($dbh);
+     
+-    echo &quot;&lt;p&gt;Ban entry successfully deleted.&lt;/p&gt;&quot;;
++    $temp = forceUpdate();
++    if ($temp === TRUE) {
++      echo &quot;&lt;p&gt;Ban entry successfully deleted.&lt;/p&gt;&quot;;
++    } else {
++      echo &quot;&lt;p&gt;Ban entry has been successfuly deleted from the database, however when forcing server-side update, it failed. This should not happen, but it is not a critical error. You should force server-side update manually to correct it.&lt;/p&gt;&quot;;
++    }
++    
+     doneButton();
+   }
+ 
+
+Added: trunk/Lobby/TASServer/WebInterface/userid.php
+===================================================================
+--- trunk/Lobby/TASServer/WebInterface/userid.php	                        (rev 0)
++++ trunk/Lobby/TASServer/WebInterface/userid.php	2008-01-03 02:12:32 UTC (rev 5232)
+@@ -0,0 +1,92 @@
++&lt;?php require(&quot;inc/head.php&quot;) ?&gt;
++
++&lt;?php
++
++  $username = $_GET['username'];
++  if ($username == &quot;&quot;) {
++    printError(&quot;No username specified. Cancelling operation.&quot;);
++    return;
++  }
++    
++  $conn = new ServerConnection();
++  if (($res = $conn-&gt;connect()) !== true)
++  {
++    echo &quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Error: &quot; . $res . &quot;&lt;/p&gt;&quot;;
++    return;
++  }
++
++  if (($conn-&gt;identify()) == false)
++  {
++    echo &quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Error while trying to authenticate with the server&quot; . &quot;&lt;/p&gt;&quot;;
++    return;
++  }
++
++  if (($res = $conn-&gt;sendLine(&quot;queryserver GETUSERID &quot; . $username)) !== TRUE)
++  {
++    echo &quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Error while communicating with the server&quot; . &quot;&lt;/p&gt;&quot;;
++    return;
++  }
++  if (($res = $conn-&gt;readLine()) === FALSE)
++  {
++    echo &quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Error while communicating with the server&quot; . &quot;&lt;/p&gt;&quot;;
++    return;
++  }
++  $res = removeBeginning($res, 'SERVERMSG ');
++  $temp = strpos($res, &quot;Last user ID for &lt;&quot; . $username . &quot;&gt; was &quot;);
++  if ($temp === FALSE) {
++    echo &quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Error while communicating with the server&quot; . &quot;&lt;/p&gt;&quot;;
++    return;
++  } else
++    $userid = removeBeginning($res, &quot;Last user ID for &lt;&quot; . $username . &quot;&gt; was &quot;);
++
++  if ($userid != &quot;0&quot;) {
++    printError(&quot;User has already an ID associated, installing it again would override the old one. Operation cancelled. (note: if you want to override the current ID anyway, you can still do it manually)&quot;);
++    echo &quot;&lt;br /&gt;&lt;br /&gt;&quot;;
++    goBackButton();
++    return;
++  }
++
++  if (($res = $conn-&gt;sendLine(&quot;ISONLINE &quot; . $username)) !== TRUE)
++  {
++    echo &quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Error while communicating with the server&quot; . &quot;&lt;/p&gt;&quot;;
++    return;
++  }
++  if (($res = $conn-&gt;readLine()) === FALSE)
++  {
++    echo &quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Error while communicating with the server&quot; . &quot;&lt;/p&gt;&quot;;
++    return;
++  }
++
++  if ($res != &quot;OK&quot;)
++  {
++    echo &quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;User is currently offline. Please try again when user is online. Operation cancelled.&quot; . &quot;&lt;/p&gt;&quot;;
++    goBackButton();
++    return;
++  }
++  
++  if (($res = $conn-&gt;sendLine(&quot;GENERATEUSERID &quot; . $username)) !== TRUE)
++  {
++    echo &quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Error while communicating with the server&quot; . &quot;&lt;/p&gt;&quot;;
++    return;
++  }
++  if (($res = $conn-&gt;readLine()) === FALSE)
++  {
++    echo &quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Error while communicating with the server&quot; . &quot;&lt;/p&gt;&quot;;
++    return;
++  }
++
++  if ($res != &quot;OK&quot;)
++  {
++    echo &quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Error while communicating with the server&quot; . &quot;&lt;/p&gt;&quot;;
++    return;
++  }
++  
++  // close connection with server:
++  $conn-&gt;close();
++
++  echo &quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Request to generate User ID for user &lt;&quot; . $username . &quot;&gt; has been dispatched. You will be notified of success via server notification system.&quot; . &quot;&lt;/p&gt;&quot;;
++  goBackButton();
++
++?&gt;
++
++&lt;?php require(&quot;inc/footer.php&quot;) ?&gt;
+\ No newline at end of file
+
+Modified: trunk/Lobby/TASServer/WebInterface/userinfo.php
+===================================================================
+--- trunk/Lobby/TASServer/WebInterface/userinfo.php	2008-01-03 02:09:58 UTC (rev 5231)
++++ trunk/Lobby/TASServer/WebInterface/userinfo.php	2008-01-03 02:12:32 UTC (rev 5232)
+@@ -4,12 +4,12 @@
+ 
+   function displayInputForm()
+   {
+-    echo &quot;&lt;form action='{$PHP_SELF}' method='post'&gt;&quot;;
++    echo &quot;&lt;form action='{$PHP_SELF}' method='get'&gt;&quot;;
+     echo '&lt;table class=&quot;table4&quot;&gt;';
+     echo '&lt;tr&gt;';
+     echo '  &lt;td&gt;';
+-    echo &quot;  Info for (type in username): &lt;input type='text' name='username' /&gt;&quot;;
+-    echo &quot;  &lt;input type='submit' value='Submit' name='submit' /&gt;&quot;;
++    echo &quot;  Info for (type in username): &lt;input type='text' name='username' value='&quot; . (isset($_GET['username']) ? $_GET['username'] : &quot;&quot;) . &quot;' /&gt;&quot;;
++    echo &quot;  &lt;input type='submit' value='Submit' /&gt;&quot;;
+     echo '  &lt;/td&gt;';
+     echo '&lt;/tr&gt;';
+     echo '&lt;/table&gt;';
+@@ -139,6 +139,25 @@
+     default:
+       $access = 'unknown (error?)';
+     }
++    
++    if (($res = $conn-&gt;sendLine(&quot;queryserver GETUSERID &quot; . $username)) !== TRUE)
++    {
++      echo &quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Error while communicating with the server&quot; . &quot;&lt;/p&gt;&quot;;
++      return;
++    }
++    if (($res = $conn-&gt;readLine()) === FALSE)
++    {
++      echo &quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Error while communicating with the server&quot; . &quot;&lt;/p&gt;&quot;;
++      return;
++    }
++    $res = removeBeginning($res, 'SERVERMSG ');
++    $temp = strpos($res, &quot;Last user ID for &lt;&quot; . $username . &quot;&gt; was &quot;);
++    if ($temp === FALSE)
++      $userid = &quot;[Error querying server]&quot;;
++    else
++      $userid = removeBeginning($res, &quot;Last user ID for &lt;&quot; . $username . &quot;&gt; was &quot;);
++    if ($userid == &quot;0&quot;)
++      $userid = &quot;[UserID not installed]&quot;;
+ 
+     // close connection with server:
+     $conn-&gt;close();
+@@ -193,20 +212,32 @@
+     echo &quot;      &quot; . $lastLogin;
+     echo &quot;    &lt;/td&gt;&quot;;
+     echo &quot;  &lt;/tr&gt;&quot;;
++    echo &quot;  &lt;tr&gt;&quot;;
++    echo &quot;    &lt;td&gt;&quot;;
++    echo &quot;      User ID: &quot;;
++    echo &quot;    &lt;/td&gt;&quot;;
++    echo &quot;    &lt;td&gt;&quot;;
++    echo &quot;      &quot; . $userid;
++    echo &quot;    &lt;/td&gt;&quot;;
++    echo &quot;  &lt;/tr&gt;&quot;;
+     echo &quot;&lt;/table&gt;&quot;;
+   }
+ 
+ 
+   // page contents begin here:
+ 
+-  $username = $_POST['username'];
+-  if ($username == &quot;&quot;) $username = $_GET['username'];
++  $username = $_GET['username'];
+   if ($username == &quot;&quot;)
+     displayInputForm();
+   else {
+     displayInputForm();
+     echo &quot;&lt;br&gt;&lt;br&gt;&quot;;
+     displayResultForm($username);
++    
++    // install user ID button:
++    echo &quot;&lt;br&gt;&lt;br&gt;&quot;;
++    echo &quot;&lt;a class='button1' href='userid.php?username=&quot; . $username . &quot;'&gt;Install user ID&lt;/a&gt;&quot;;
++    
+   }
+ 
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000039.html">[Taspring-linux-commit] r5231 - trunk/Lobby/TASServer/ChanServ
+</A></li>
+	<LI>Next message: <A HREF="000041.html">[Taspring-linux-commit] r5233 -	trunk/Lobby/TASServer/WebInterface/inc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#40">[ date ]</a>
+              <a href="thread.html#40">[ thread ]</a>
+              <a href="subject.html#40">[ subject ]</a>
+              <a href="author.html#40">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,231 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7232 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7232%20-%20Lobby/TASClient&In-Reply-To=%3C20090130122315.3BA494A0F%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002000.html">
+   <LINK REL="Next"  HREF="002002.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7232 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7232%20-%20Lobby/TASClient&In-Reply-To=%3C20090130122315.3BA494A0F%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r7232 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Jan 30 13:23:14 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002000.html">[Taspring-linux-commit] r7231 - in Lobby/TASClient: . Python	Python/scripts Python/scripts/subf
+</A></li>
+        <LI>Next message: <A HREF="002002.html">[Taspring-linux-commit] r7233 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2001">[ date ]</a>
+              <a href="thread.html#2001">[ thread ]</a>
+              <a href="subject.html#2001">[ subject ]</a>
+              <a href="author.html#2001">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2009-01-30 13:23:12 +0100 (Fri, 30 Jan 2009)
+New Revision: 7232
+
+Modified:
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* the channel join is now case sensitive
+* debug mode RichEdit crash fixed
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2009-01-29 19:58:48 UTC (rev 7231)
++++ Lobby/TASClient/MainUnit.dfm	2009-01-30 12:23:12 UTC (rev 7232)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 786
+-  Top = 309
++  Left = 635
++  Top = 318
+   Width = 776
+   Height = 548
+   Caption = '.'
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2009-01-29 19:58:48 UTC (rev 7231)
++++ Lobby/TASClient/MainUnit.pas	2009-01-30 12:23:12 UTC (rev 7232)
+@@ -589,7 +589,8 @@
+   WM_AFTERCREATE = WM_USER + 12; // we send this signal once we've finished creating all forms. We will do some post-initialization here
+   WM_REFRESHOUTPUT = WM_USER + 13; // used to refresh script debug output
+   WM_SCRIPT = WM_USER + 14; // used to add a msg from a script to a textbox (tab RichEdit or battleform)
+-  WM_UNLOCK_WINDOW = WM_USER +15; // used to unlock the menu form display to avoid white flashes
++  WM_UNLOCK_WINDOW = WM_USER + 15; // used to unlock the menu form display to avoid white flashes
++  WM_REFRESHMAINLOG = WM_USER + 16; // used to avoid richedit problems
+ 
+   QUEUE_LENGTH = 4096;
+ 
+@@ -1378,6 +1379,7 @@
+     procedure OnConnectToNextHostMessage(var Msg: TMessage); message WM_CONNECT_TO_NEXT_HOST;
+     procedure OnScriptMessage(var Msg: TMessage); message WM_SCRIPT;
+     procedure WMAfterCreate(var AMsg: TMessage); message WM_AFTERCREATE; // we will do some post-initialization here
++    procedure RefreshMainLog(var AMsg: TMessage); message WM_REFRESHMAINLOG;
+ 
+     function LoadImagesDynamically: Boolean;
+ 
+@@ -1707,6 +1709,9 @@
+ 
+   autoCompleteString : String;
+ 
++  mainLogBuffer : TStringList;
++  mainLogBufferColor: TIntegerList;
++
+   function Dequeue: WideString; forward;
+   function Enqueue(s: WideString): Integer; forward;
+ 
+@@ -3710,6 +3715,9 @@
+ 
+   SpringDownloaderFormUnit.DownloadList := TStringList.Create;
+ 
++  mainLogBuffer := TStringList.Create;
++  mainLogBufferColor := TIntegerList.Create;
++
+   // we have to set the splash screen title bar back to what it was before (since we changed it in OnFormCreate event):
+   SplashScreenForm.UpdateText('creating forms ...'); // main form will change the update text, that is why we change it back again
+ 
+@@ -4053,9 +4061,11 @@
+ 
+ procedure TMainForm.AddMainLog(Text: WideString; Color: TColor);
+ begin
+-  MainLogCS.Enter;
+-  AddTextToChatWindow(PageControl1.Pages[0] as TMyTabSheet, Text, Color);
+-  MainLogCS.Leave;
++  mainLogBuffer.BeginUpdate;
++  mainLogBuffer.Add(Text);
++  mainLogBufferColor.Add(ColorToRGB(Color));
++  mainLogBuffer.EndUpdate;
++  SendMessage(Handle,WM_REFRESHMAINLOG,0,0);
+ end;
+ 
+ procedure TMainForm.AddMainLog(Text: WideString; Color: TColor; AmbiguousCommandID: Integer);
+@@ -4074,13 +4084,21 @@
+   FileName: string;
+   logsLastLines : string;
+   tabName: string;
++  i: integer;
++  nbTabs: integer;
+ begin
+   Result := -1;
+ 
+   tmpts := TMyTabSheet.Create(PageControl1);
+ 
++  tabName := 'TabSheet_'+Caption;
++  nbTabs := 0;
++
++  for i:=0 to PageControl1.PageCount-1 do
++    if (LowerCase(PageControl1.Pages[i].Caption) = LowerCase(Caption)) and (PageControl1.Pages[i].Caption &lt;&gt; Caption) then
++      nbTabs := nbTabs+1;
++  tabName := 'TabSheet_'+Caption+'_'+IntToStr(nbTabs);
+   tmpts.Caption := Caption;
+-  tabName := 'TabSheet_'+Caption;
+   tabName := StringReplace(tabName,'$','Internal_',[rfReplaceAll]);
+   tabName := StringReplace(tabName,'#','Channel_',[rfReplaceAll]);
+   tabName := StringReplace(tabName,'[','_OB_',[rfReplaceAll]);
+@@ -4326,7 +4344,7 @@
+       end;
+ 
+       if sl.Count = 2 then tmp := '' else tmp := ' ' + MakeSentenceWS(sl, 2);
+-      TryToSendCommand('JOIN', LowerCase(Copy(sl[1], 2, Length(sl[1])-1)) + tmp);
++      TryToSendCommand('JOIN', Copy(sl[1], 2, Length(sl[1])-1) + tmp);
+     end
+     else if (sl[0] = 'PART') or (sl[0] = 'P') then
+     begin
+@@ -4967,7 +4985,7 @@
+     begin
+       if sl.Count &lt; 3 then
+       begin
+-        AddMainLog('Error: Server sent ambiguous command!', Colors.Error, 1);
++        AddMainLog('*Error: Server sent ambiguous command!', Colors.Error, 1);
+       end
+       else
+       begin
+@@ -11276,4 +11294,16 @@
+   LockWindowUpdate(0);
+ end;
+ 
++procedure TMainForm.RefreshMainLog(var AMsg: TMessage);
++var
++  i:integer;
++begin
++  mainLogBuffer.BeginUpdate;
++  for i:=0 to mainLogBuffer.Count-1 do
++    AddTextToChatWindow(PageControl1.Pages[0] as TMyTabSheet, mainLogBuffer[i], TColor(mainLogBufferColor.Items[i]));
++  mainLogBuffer.EndUpdate;
++  mainLogBuffer.Clear;
++  mainLogBufferColor.Clear;
++end;
++
+ end.
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2009-01-29 19:58:48 UTC (rev 7231)
++++ Lobby/TASClient/TASClient.dof	2009-01-30 12:23:12 UTC (rev 7232)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=3
+ Release=0
+-Build=565
++Build=566
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TA Spring lobby client
+-FileVersion=0.3.0.565
++FileVersion=0.3.0.566
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002000.html">[Taspring-linux-commit] r7231 - in Lobby/TASClient: . Python	Python/scripts Python/scripts/subf
+</A></li>
+	<LI>Next message: <A HREF="002002.html">[Taspring-linux-commit] r7233 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2001">[ date ]</a>
+              <a href="thread.html#2001">[ thread ]</a>
+              <a href="subject.html#2001">[ subject ]</a>
+              <a href="author.html#2001">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

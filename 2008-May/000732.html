@@ -1,0 +1,159 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5952 - in trunk/rts/lib/lua: . src
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5952%20-%20in%20trunk/rts/lib/lua%3A%20.%20src&In-Reply-To=%3C20080526020920.1E50246DF%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000731.html">
+   <LINK REL="Next"  HREF="000733.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5952 - in trunk/rts/lib/lua: . src</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5952%20-%20in%20trunk/rts/lib/lua%3A%20.%20src&In-Reply-To=%3C20080526020920.1E50246DF%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5952 - in trunk/rts/lib/lua: . src">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon May 26 04:09:20 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000731.html">[Taspring-linux-commit] r5951 - trunk/AI/Global
+</A></li>
+        <LI>Next message: <A HREF="000733.html">[Taspring-linux-commit] r5953 - in trunk: game/LuaUI/Icons	game/LuaUI/Widgets installer/builddata/springcontent/gamedata	rts/Game rts/Game/UI rts/Lua rts/Map rts/Map/SM3/terrain	rts/Map/SMF rts/Rendering rts/Rendering/Env rts/Rendering/UnitModels
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#732">[ date ]</a>
+              <a href="thread.html#732">[ thread ]</a>
+              <a href="subject.html#732">[ subject ]</a>
+              <a href="author.html#732">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: trepan
+Date: 2008-05-26 04:09:19 +0200 (Mon, 26 May 2008)
+New Revision: 5952
+
+Modified:
+   trunk/rts/lib/lua/README_SPRING
+   trunk/rts/lib/lua/src/lbaselib.cpp
+   trunk/rts/lib/lua/src/lvm.cpp
+Log:
+
+- modified the lua tostring() function to be safe for
+  synced data (at least for the extreme cases). might
+  also want to use a custom number format function
+  (ie: don't trust sprintf())
+
+
+
+Modified: trunk/rts/lib/lua/README_SPRING
+===================================================================
+--- trunk/rts/lib/lua/README_SPRING	2008-05-25 23:23:45 UTC (rev 5951)
++++ trunk/rts/lib/lua/README_SPRING	2008-05-26 02:09:19 UTC (rev 5952)
+@@ -35,3 +35,6 @@
+ 
+   7. Changed the return type of lua_toboolean from int to bool to prevent
+      compiler performance warnings on Visual Studio 2005.
++
++	8. Modified lbaselib.cpp:luaB_tostring() and lvm.cpp:luaV_tostring()
++     so that the tostring() lua function would be sync safe.
+
+Modified: trunk/rts/lib/lua/src/lbaselib.cpp
+===================================================================
+--- trunk/rts/lib/lua/src/lbaselib.cpp	2008-05-25 23:23:45 UTC (rev 5951)
++++ trunk/rts/lib/lua/src/lbaselib.cpp	2008-05-26 02:09:19 UTC (rev 5952)
+@@ -408,9 +408,21 @@
+     case LUA_TNIL:
+       lua_pushliteral(L, &quot;nil&quot;);
+       break;
++    /*
++     * SPRING - synced safety change
++     */
++    case LUA_TNONE:          { lua_pushliteral(L, &quot;&lt;none&gt;&quot;);          break; }
++    case LUA_TTABLE:         { lua_pushliteral(L, &quot;&lt;table&gt;&quot;);         break; }
++    case LUA_TUSERDATA:      { lua_pushliteral(L, &quot;&lt;userdata&gt;&quot;);      break; }
++    case LUA_TLIGHTUSERDATA: { lua_pushliteral(L, &quot;&lt;lightuserdata&gt;&quot;); break; }
++    case LUA_TFUNCTION:      { lua_pushliteral(L, &quot;&lt;function&gt;&quot;);      break; }
++    case LUA_TTHREAD:        { lua_pushliteral(L, &quot;&lt;thread&gt;&quot;);        break; }
++    default:                 { lua_pushliteral(L, &quot;&lt;unknown_type&gt;&quot;);  break; }
++/*
+     default:
+       lua_pushfstring(L, &quot;%s: %p&quot;, luaL_typename(L, 1), lua_topointer(L, 1));
+       break;
++*/
+   }
+   return 1;
+ }
+
+Modified: trunk/rts/lib/lua/src/lvm.cpp
+===================================================================
+--- trunk/rts/lib/lua/src/lvm.cpp	2008-05-25 23:23:45 UTC (rev 5951)
++++ trunk/rts/lib/lua/src/lvm.cpp	2008-05-26 02:09:19 UTC (rev 5952)
+@@ -9,6 +9,8 @@
+ #include &lt;stdlib.h&gt;
+ #include &lt;string.h&gt;
+ 
++#include &quot;streflop_cond.h&quot; // SPRING -- for luaV_tostring
++
+ #define lvm_c
+ #define LUA_CORE
+ 
+@@ -50,7 +52,26 @@
+   else {
+     char s[LUAI_MAXNUMBER2STR];
+     lua_Number n = nvalue(obj);
+-    lua_number2str(s, n);
++    // SPRING -- synced safety change
++    //        -- need a custom number formatter?
++    if (isfinite(n)) {
++      lua_number2str(s, n);
++    }
++    else {
++      if (isnan(n)) {
++        strcpy(s, &quot;nan&quot;);
++      }
++      else {
++        const int inf_type = isinf(n);
++        if (inf_type == 1) {
++          strcpy(s, &quot;+inf&quot;);
++        } else if (inf_type == -1) {
++          strcpy(s, &quot;-inf&quot;);
++        } else {
++          strcpy(s, &quot;weird_number&quot;);
++        }
++      }
++    } 
+     setsvalue2s(L, obj, luaS_new(L, s));
+     return 1;
+   }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000731.html">[Taspring-linux-commit] r5951 - trunk/AI/Global
+</A></li>
+	<LI>Next message: <A HREF="000733.html">[Taspring-linux-commit] r5953 - in trunk: game/LuaUI/Icons	game/LuaUI/Widgets installer/builddata/springcontent/gamedata	rts/Game rts/Game/UI rts/Lua rts/Map rts/Map/SM3/terrain	rts/Map/SMF rts/Rendering rts/Rendering/Env rts/Rendering/UnitModels
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#732">[ date ]</a>
+              <a href="thread.html#732">[ thread ]</a>
+              <a href="subject.html#732">[ subject ]</a>
+              <a href="author.html#732">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

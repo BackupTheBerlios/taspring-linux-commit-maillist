@@ -1,0 +1,2593 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7515 - in Lobby/TASClient: . Python/scripts
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2010-September/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7515%20-%20in%20Lobby/TASClient%3A%20.%20Python/scripts&In-Reply-To=%3C20100904172235.A58CE2326D%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002286.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7515 - in Lobby/TASClient: . Python/scripts</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7515%20-%20in%20Lobby/TASClient%3A%20.%20Python/scripts&In-Reply-To=%3C20100904172235.A58CE2326D%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7515 - in Lobby/TASClient: . Python/scripts">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Sep  4 19:22:35 CEST 2010</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002286.html">[Taspring-linux-commit] r7516 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2285">[ date ]</a>
+              <a href="thread.html#2285">[ thread ]</a>
+              <a href="subject.html#2285">[ subject ]</a>
+              <a href="author.html#2285">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2010-09-04 19:22:35 +0200 (Sat, 04 Sep 2010)
+New Revision: 7515
+
+Modified:
+   Lobby/TASClient/BattleFormUnit.dfm
+   Lobby/TASClient/BattleFormUnit.pas
+   Lobby/TASClient/HttpGetUnit.dfm
+   Lobby/TASClient/HttpGetUnit.pas
+   Lobby/TASClient/LobbyScriptUnit.pas
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/PreferencesFormUnit.dfm
+   Lobby/TASClient/Python/scripts/mapdownload.py
+   Lobby/TASClient/SpringDownloaderFormUnit.dfm
+   Lobby/TASClient/SpringDownloaderFormUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+   Lobby/TASClient/UploadReplayUnit.dfm
+Log:
+* Integrated Downloader replacing the SpringDownloader interface
+* fixed few script bugs
+* fixed the filters spinedit not always updating the current filter
+
+Modified: Lobby/TASClient/BattleFormUnit.dfm
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.dfm	2010-08-26 17:28:11 UTC (rev 7514)
++++ Lobby/TASClient/BattleFormUnit.dfm	2010-09-04 17:22:35 UTC (rev 7515)
+@@ -1,6 +1,6 @@
+ object BattleForm: TBattleForm
+-  Left = 575
+-  Top = 209
++  Left = 917
++  Top = 362
+   Width = 923
+   Height = 638
+   Caption = 'Battle window'
+
+Modified: Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.pas	2010-08-26 17:28:11 UTC (rev 7514)
++++ Lobby/TASClient/BattleFormUnit.pas	2010-09-04 17:22:35 UTC (rev 7515)
+@@ -2416,6 +2416,7 @@
+     MainForm.SpringSocket.OnDataAvailable := MainForm.SpringSocketDataAvailable;
+     MainForm.SpringSocket.Addr := '127.0.0.1';
+     MainForm.SpringSocket.Port := IntToStr(BattleState.Battle.Port-1);
++    MainForm.SpringSocket.LocalPort := IntToStr(BattleState.Battle.Port-1);
+     Script.AddOrChangeKeyValue('GAME/autohostport',MainForm.SpringSocket.Port);
+     BattleState.IngameName.Clear;
+     BattleState.IngameId.Clear;
+
+Modified: Lobby/TASClient/HttpGetUnit.dfm
+===================================================================
+--- Lobby/TASClient/HttpGetUnit.dfm	2010-08-26 17:28:11 UTC (rev 7514)
++++ Lobby/TASClient/HttpGetUnit.dfm	2010-09-04 17:22:35 UTC (rev 7515)
+@@ -119,7 +119,7 @@
+     OnDocData = HttpCli1DocData
+     SocksAuthentication = socksNoAuthentication
+     Left = 120
+-    Top = 144
++    Top = 128
+   end
+   object SevenZip1: TSevenZip
+     SFXCreate = False
+
+Modified: Lobby/TASClient/HttpGetUnit.pas
+===================================================================
+--- Lobby/TASClient/HttpGetUnit.pas	2010-08-26 17:28:11 UTC (rev 7514)
++++ Lobby/TASClient/HttpGetUnit.pas	2010-09-04 17:22:35 UTC (rev 7515)
+@@ -257,9 +257,9 @@
+   fileSize := HttpCli1.ContentLength;
+ 
+   try
+-    ReceivedLabel.Caption := Format(_('Received %s KB (%d%%)'),[Misc.FormatFileSize(currentSize),Round(currentSize / fileSize * 100)])
++    ReceivedLabel.Caption := Format(_('Received %s kB (%d%%)'),[Misc.FormatFileSize(currentSize),Round(currentSize / fileSize * 100)])
+   except
+-    ReceivedLabel.Caption := Format('Received %s KB (%d%%)',[Misc.FormatFileSize(currentSize),Round(currentSize / fileSize * 100)])
++    ReceivedLabel.Caption := Format('Received %s kB (%d%%)',[Misc.FormatFileSize(currentSize),Round(currentSize / fileSize * 100)])
+   end;
+   if fileSize = 0 then
+     ProgressBar.Position := 0
+
+Modified: Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- Lobby/TASClient/LobbyScriptUnit.pas	2010-08-26 17:28:11 UTC (rev 7514)
++++ Lobby/TASClient/LobbyScriptUnit.pas	2010-09-04 17:22:35 UTC (rev 7515)
+@@ -178,9 +178,9 @@
+       procedure RefreshPythonLists;
+       procedure LockCallback;
+       procedure UnlockCallback;
+-      procedure DownloadCallbackEvent(snc: PScriptDownloadCallback;progress: integer);
+ 
+ 
++
+     public
+       procedure ClearRefs;
+       
+@@ -224,6 +224,8 @@
+       procedure DownloadMap(mapName: string; mapHash: integer; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string);
+       procedure DownloadMod(modName: string; modHash: integer; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string);
+ 
++      procedure DownloadCallbackEvent(snc: PScriptDownloadCallback;progress: integer);
++
+       constructor Create;
+       destructor Destroy;
+       
+@@ -1413,27 +1415,21 @@
+   snc : PScriptDownloadCallback;
+   nForm: TSpringDownloaderForm;
+ begin
+-  nForm := SpringDownloaderFormUnit.DownloadMap(mapHash,mapName);
+-  if nForm = nil then Exit;
+   New(snc);
+   snc.moduleName := callbackModuleName;
+   snc.functionName := callbackFunctionName;
+-  snc.form := nForm;
+   with GetPythonEngine do
+   begin
+     snc.args := VariantAsPyObject(callbackArgs);
+     PyList_Insert(snc.args,0,PyLong_FromLong(0));
+   end;
+-  nForm.cbInfo := snc;
+-  nForm.OnProgress := DownloadCallbackEvent;
++  nForm := SpringDownloaderFormUnit.DownloadMap(mapHash,mapName,false,snc,Self);
+ end;
+ procedure TCallback.DownloadMod(modName: string; modHash: integer; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string);
+ var
+   snc : PScriptDownloadCallback;
+   nForm: TSpringDownloaderForm;
+ begin
+-  nForm := SpringDownloaderFormUnit.DownloadMod(modHash,modName);
+-  if nForm = nil then Exit;
+   New(snc);
+   snc.moduleName := callbackModuleName;
+   snc.functionName := callbackFunctionName;
+@@ -1443,8 +1439,7 @@
+     snc.args := VariantAsPyObject(callbackArgs);
+     PyList_Insert(snc.args,0,PyLong_FromLong(0));
+   end;
+-  nForm.cbInfo := snc;
+-  nForm.OnProgress := DownloadCallbackEvent;
++  nForm := SpringDownloaderFormUnit.DownloadMod(modHash,modName,0,snc,Self);
+ end;
+ 
+ //------------------------------------------------------------------------------------------------------
+@@ -1990,6 +1985,8 @@
+     Exit;
+   end;
+ 
++  if c = nil then Exit;
++
+   LockGUI;
+   with GetPythonEngine do
+   begin
+@@ -2083,6 +2080,8 @@
+ 
+       c := GetComponentFromString(component) as TControl;
+ 
++      if c = nil then Exit;
++
+       propNames := TStringList.Create;
+       propValues := TList.Create;
+       propTypes := TStringList.Create;
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2010-08-26 17:28:11 UTC (rev 7514)
++++ Lobby/TASClient/MainUnit.dfm	2010-09-04 17:22:35 UTC (rev 7515)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 1117
+-  Top = 128
++  Left = 507
++  Top = 215
+   Width = 883
+   Height = 539
+   Caption = '.'
+@@ -990,6 +990,7 @@
+                     SpinButton.Width = 14
+                     SpinButton.Height = 17
+                     SpinButton.Align = alRight
++                    SpinButton.OnClick = PlayersValueTextBoxSubEditButton0Click
+                     SpinOptions.MaxValue = 250.000000000000000000
+                     OnValueChanged = PlayersValueTextBoxChange
+                   end
+@@ -1005,6 +1006,7 @@
+                     SpinButton.Width = 14
+                     SpinButton.Height = 17
+                     SpinButton.Align = alRight
++                    SpinButton.OnClick = Players2ValueTextBoxSubEditButton0Click
+                     SpinOptions.MaxValue = 250.000000000000000000
+                     OnValueChanged = Players2ValueTextBoxChange
+                   end
+@@ -1020,6 +1022,7 @@
+                     SpinButton.Width = 14
+                     SpinButton.Height = 17
+                     SpinButton.Align = alRight
++                    SpinButton.OnClick = MaxPlayersValueTextBoxSubEditButton0Click
+                     SpinOptions.MaxValue = 250.000000000000000000
+                     SpinOptions.MinValue = 1.000000000000000000
+                     SpinOptions.Value = 1.000000000000000000
+@@ -1037,6 +1040,7 @@
+                     SpinButton.Width = 14
+                     SpinButton.Height = 17
+                     SpinButton.Align = alRight
++                    SpinButton.OnClick = RankValueTextBoxSubEditButton0Click
+                     SpinOptions.MaxValue = 9.000000000000000000
+                     SpinOptions.MinValue = 1.000000000000000000
+                     SpinOptions.Value = 1.000000000000000000
+@@ -5900,7 +5904,7 @@
+     Top = 80
+   end
+   object ScrollingNewsRSS: TXMLDocument
+-    Left = 238
++    Left = 240
+     Top = 82
+     DOMVendorDesc = 'MSXML'
+   end
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2010-08-26 17:28:11 UTC (rev 7514)
++++ Lobby/TASClient/MainUnit.pas	2010-09-04 17:22:35 UTC (rev 7515)
+@@ -1463,6 +1463,10 @@
+     procedure mnuJoinChannelClick(Sender: TObject);
+     procedure mnuListChannelsClick(Sender: TObject);
+     procedure SpringSocketDataAvailable(Sender: TObject; ErrCode: Word);
++    procedure PlayersValueTextBoxSubEditButton0Click(Sender: TObject);
++    procedure Players2ValueTextBoxSubEditButton0Click(Sender: TObject);
++    procedure MaxPlayersValueTextBoxSubEditButton0Click(Sender: TObject);
++    procedure RankValueTextBoxSubEditButton0Click(Sender: TObject);
+   published
+     MainTitleBar: TSpTBXTitleBar;
+     ButtonImageList: TImageList;
+@@ -1700,7 +1704,7 @@
+     procedure TryToConnect(ServerAddress, ServerPort: string; DontRecoToBackup : boolean = false); overload;
+ 
+     procedure AddMainLog(Text: WideString; Color: TColor); overload;
+-    procedure AddMainLog(Text: WideString; Color: TColor; AmbiguousCommandID: Integer); overload;
++    procedure AmbiguousCommand(AmbiguousCommand : WideString; Text: WideString; Color: TColor; AmbiguousCommandID: Integer); overload;
+     procedure AddTextToChatWindow(Chat: TMyTabSheet; Text: WideString; Color: TColor; DoNotHighLight : Boolean = false; DoNotFlash : Boolean = True); overload;
+     procedure AddTextToChatWindow(Chat: TMyTabSheet; Text: WideString; Color: TColor; ChatTextPos: Integer; DoNotHighLight : Boolean = false; DoNotFlash : Boolean = True); overload;
+   end;
+@@ -4690,9 +4694,10 @@
+   SendMessage(Handle,WM_REFRESHMAINLOG,0,0);
+ end;
+ 
+-procedure TMainForm.AddMainLog(Text: WideString; Color: TColor; AmbiguousCommandID: Integer);
++procedure TMainForm.AmbiguousCommand(AmbiguousCommand : WideString; Text: WideString; Color: TColor; AmbiguousCommandID: Integer);
+ begin
+-  AddMainLog(Text + ' [#' + IntToStr(AmbiguousCommandID) + ']', Color);
++  AddMainLog(_('Error: Server sent ambiguous command!')+IFF(Text&lt;&gt;'','{'+Text+'}','') + ' [#' + IntToStr(AmbiguousCommandID) + ']', Color);
++  AddMainLog(_('Ambiguous command : ')+AmbiguousCommand, Color);
+ end;
+ 
+ // SetFocus: if True, then switch focus to this new TAB and update
+@@ -5621,7 +5626,7 @@
+     begin
+       if (sl.Count &lt;&gt; 2) then
+       begin
+-        AddMainLog('Error: Server sent ambiguous command!', Colors.Error, 0);
++        AmbiguousCommand(s,'', Colors.Error, 0);
+         Exit;
+       end;
+       if not Debug.IgnoreRedirects then
+@@ -5757,7 +5762,7 @@
+     begin
+       if sl.Count &lt; 3 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 1);
++        AmbiguousCommand(s,'', Colors.Error, 1);
+       end
+       else
+       begin
+@@ -5768,21 +5773,21 @@
+     begin
+       if sl.Count &lt; 2 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 2);
++        AmbiguousCommand(s,'', Colors.Error, 2);
+         Exit;
+       end;
+ 
+       sl2 := ParseString(MakeSentenceWS(sl, 2), #9);
+       if sl2.Count &lt;&gt; 3 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 3);
++        AmbiguousCommand(s,'', Colors.Error, 3);
+         Exit;
+       end;
+ 
+       try
+         tmpint := StrToInt(sl[1]);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 4);
++        AmbiguousCommand(s,'', Colors.Error, 4);
+         Exit;
+       end;
+ 
+@@ -5800,14 +5805,14 @@
+     begin
+       if sl.Count &lt;&gt; 2 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 5);
++        AmbiguousCommand(s,'', Colors.Error, 5);
+         Exit;
+       end;
+ 
+       try
+         i := StrToInt(sl[1]);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 6);
++        AmbiguousCommand(s,'', Colors.Error, 6);
+         Exit;
+       end;
+ 
+@@ -5820,14 +5825,14 @@
+     begin
+       if sl.Count &lt;&gt; 4 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 7);
++        AmbiguousCommand(s,'', Colors.Error, 7);
+         Exit;
+       end;
+ 
+       Client := GetClient(sl[1]);
+       if Client = nil then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 8);
++        AmbiguousCommand(s,'', Colors.Error, 8);
+         Exit;
+       end;
+ 
+@@ -5837,7 +5842,7 @@
+         if (Client.PublicPort = 0) and (BattleForm.IsBattleActive) then
+           BattleForm.AddTextToChat('Warning : '+Client.Name+' doesn''t support NAT Traversal.',Colors.Error,1);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 9);
++        AmbiguousCommand(s,'', Colors.Error, 9);
+         Exit;
+       end;
+     end
+@@ -5845,20 +5850,20 @@
+     begin
+       if sl.Count &lt;&gt; 2 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 10);
++        AmbiguousCommand(s,'', Colors.Error, 10);
+         Exit;
+       end;
+ 
+       if BattleFormUnit.BattleState.Status = None then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 11);
++        AmbiguousCommand(s,'', Colors.Error, 11);
+         Exit;
+       end;
+ 
+       try
+         BattleState.Battle.Port := StrToInt(sl[1]);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 12);
++        AmbiguousCommand(s,'', Colors.Error, 12);
+         Exit;
+       end;
+     end
+@@ -5866,14 +5871,14 @@
+     begin
+       if (sl.Count &lt; 4) or (sl.Count &gt; 5) then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 13);
++        AmbiguousCommand(s,'', Colors.Error, 13);
+         Exit;
+       end;
+ 
+       try
+         tmpint := StrToInt(sl[3]);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 14);
++        AmbiguousCommand(s,'', Colors.Error, 14);
+         Exit;
+       end;
+ 
+@@ -5883,25 +5888,25 @@
+         else
+           tmpInt2 := 0;
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 15);
++        AmbiguousCommand(s,'', Colors.Error, 15);
+         Exit;
+       end;
+ 
+       if sl[1] = '' then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 16);
++        AmbiguousCommand(s,'', Colors.Error, 16);
+         Exit;
+       end;
+ 
+       if (tmpInt2 &gt; 0) and (GetClientById(tmpInt2) &lt;&gt; nil) then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 149);
++        AmbiguousCommand(s,GetClientById(tmpInt2).Name, Colors.Error, 149);
+         Exit;
+       end;
+ 
+       if GetClient(sl[1]) &lt;&gt; nil then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 150);
++        AmbiguousCommand(s,'', Colors.Error, 150);
+         Exit;
+       end;
+ 
+@@ -5946,7 +5951,7 @@
+     begin
+       if sl.Count &lt;&gt; 2 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 17);
++        AmbiguousCommand(s,'', Colors.Error, 17);
+         Exit;
+       end;
+       { We don't need to manually remove client from channels or battle, since
+@@ -5957,7 +5962,7 @@
+ 
+       if Client = nil then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 18);
++        AmbiguousCommand(s,'', Colors.Error, 18);
+         Exit;
+       end;
+ 
+@@ -5976,7 +5981,7 @@
+ 
+       if not RemoveClientFromAllClientsList(sl[1]) then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 19);
++        AmbiguousCommand(s,'', Colors.Error, 19);
+       end;
+ 
+       if sl[1] = Status.Username then Status.Me := nil;
+@@ -5987,7 +5992,7 @@
+     begin
+       if sl.Count &lt; 7 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 20);
++        AmbiguousCommand(s,'', Colors.Error, 20);
+         Exit;
+       end;
+ 
+@@ -5996,27 +6001,27 @@
+         tmpint2 := StrToInt(sl[4]);
+         teamcolor := StrToInt(sl[5]);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 21);
++        AmbiguousCommand(s,'', Colors.Error, 21);
+         Exit;
+       end;
+ 
+       if not BattleForm.IsBattleActive then
+       begin
+         // not a big problem. This can happen because of lag (we could get this command just after we left the battle)
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 22);
++        AmbiguousCommand(s,'', Colors.Error, 22);
+         Exit;
+       end;
+ 
+       Battle := BattleState.Battle;
+       if Battle.ID &lt;&gt; tmpint then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 23);
++        AmbiguousCommand(s,'', Colors.Error, 23);
+         Exit;
+       end;
+ 
+       if Battle.GetBot(sl[2]) &lt;&gt; nil then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 24);
++        AmbiguousCommand(s,'', Colors.Error, 24);
+         AddMainLog(_('Disconnecting from battle due to inconsistent data error'), Colors.Error);
+         TryToSendCommand('LEAVEBATTLE');
+         Exit;
+@@ -6043,35 +6048,35 @@
+ 
+       if sl.Count &lt;&gt; 3 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,25);
++        AmbiguousCommand(s,'', Colors.Error,25);
+         Exit;
+       end;
+ 
+       try
+         tmpint := StrToInt(sl[1]);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,26);
++        AmbiguousCommand(s,'', Colors.Error,26);
+         Exit;
+       end;
+ 
+       if not BattleForm.IsBattleActive then
+       begin
+         // not a big problem. This can happen because of lag (we could get this command just after we left the battle)
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,27);
++        AmbiguousCommand(s,'', Colors.Error,27);
+         Exit;
+       end;
+ 
+       Battle := BattleState.Battle;
+       if Battle.ID &lt;&gt; tmpint then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,28);
++        AmbiguousCommand(s,'', Colors.Error,28);
+         Exit;
+       end;
+ 
+       Bot := GetBot(sl[2], Battle);
+       if Bot = nil then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,29);
++        AmbiguousCommand(s,'', Colors.Error,29);
+         Exit;
+       end;
+ 
+@@ -6092,7 +6097,7 @@
+     begin
+       if sl.Count &lt;&gt; 5 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,30);
++        AmbiguousCommand(s,'', Colors.Error,30);
+         Exit;
+       end;
+ 
+@@ -6101,14 +6106,14 @@
+         tmpint := StrToInt(sl[3]);
+         teamcolor := StrToInt(sl[4]);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,31);
++        AmbiguousCommand(s,'', Colors.Error,31);
+         Exit;
+       end;
+ 
+       if not BattleForm.IsBattleActive then
+       begin
+         // not a big problem. This can happen because of lag (we could get this command just after we left the battle)
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,32);
++        AmbiguousCommand(s,'', Colors.Error,32);
+         Exit;
+       end;
+ 
+@@ -6118,7 +6123,7 @@
+ 
+       if Battle.ID &lt;&gt; tmpint2 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,33);
++        AmbiguousCommand(s,'', Colors.Error,33);
+         AddMainLog(_('Disconnecting from battle due to inconsistent data error'), Colors.Error);
+         TryToSendCommand('LEAVEBATTLE');
+         Exit;
+@@ -6127,7 +6132,7 @@
+       Bot := GetBot(sl[2], Battle);
+       if Bot = nil then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,34);
++        AmbiguousCommand(s,'', Colors.Error,34);
+         Exit;
+       end;
+ 
+@@ -6141,7 +6146,7 @@
+     begin
+       if sl.Count &lt;&gt; 6 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,35);
++        AmbiguousCommand(s,'', Colors.Error,35);
+         Exit;
+       end;
+ 
+@@ -6154,21 +6159,21 @@
+         Rect.Right := Round(StrToInt(sl[4])/2);
+         Rect.Bottom := Round(StrToInt(sl[5])/2);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,36);
++        AmbiguousCommand(s,'', Colors.Error,36);
+         Exit;
+       end;
+ 
+       if not BattleForm.IsBattleActive then
+       begin
+         // not a big problem. This can happen because of lag (we could get this command just after we left the battle)
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,37);
++        AmbiguousCommand(s,'', Colors.Error,37);
+         Exit;
+       end;
+ 
+       if (BattleState.Status = Hosting) and (HostBattleForm.relayHoster = nil) then
+       begin
+         // this could happen due to lag (we could get this command from our previous battle, where we didn't host)
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,38);
++        AmbiguousCommand(s,'', Colors.Error,38);
+         Exit;
+       end;
+ 
+@@ -6176,14 +6181,14 @@
+ 
+       if (index &lt; 0) or (index &gt; High(BattleState.StartRects)) then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,39);
++        AmbiguousCommand(s,'', Colors.Error,39);
+         Exit;
+       end;
+ 
+       if BattleState.StartRects[index].Enabled then
+       begin
+         // this is a pretty serious error. It should not happen though. Client will have different start rects than other clients.
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,40);
++        AmbiguousCommand(s,'', Colors.Error,40);
+         Exit;
+       end;
+ 
+@@ -6193,14 +6198,14 @@
+     begin
+       if sl.Count &lt;&gt; 2 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,41);
++        AmbiguousCommand(s,'', Colors.Error,41);
+         Exit;
+       end;
+ 
+       try
+         index := StrToInt(sl[1]);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,42);
++        AmbiguousCommand(s,'', Colors.Error,42);
+         Exit;
+       end;
+ 
+@@ -6209,14 +6214,14 @@
+       if not BattleForm.IsBattleActive then
+       begin
+         // not a big problem. This can happen because of lag (we could get this command just after we left the battle)
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,43);
++        AmbiguousCommand(s,'', Colors.Error,43);
+         Exit;
+       end;
+ 
+       if (BattleState.Status = Hosting) and (HostBattleForm.relayHoster = nil) then
+       begin
+         // this could happen due to lag (we could get this command from our previous battle, where we didn't host)
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,44);
++        AmbiguousCommand(s,'', Colors.Error,44);
+         Exit;
+       end;
+ 
+@@ -6224,14 +6229,14 @@
+ 
+       if (index &lt; 0) or (index &gt; High(BattleState.StartRects)) then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,45);
++        AmbiguousCommand(s,'', Colors.Error,45);
+         Exit;
+       end;
+ 
+       if not BattleState.StartRects[index].Enabled then
+       begin
+         // this is a pretty serious error. It should not happen though. Client will have different start rects than other clients.
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,46);
++        AmbiguousCommand(s,'', Colors.Error,46);
+         Exit;
+       end;
+ 
+@@ -6241,7 +6246,7 @@
+     begin
+       if sl.Count &lt; 2 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,47);
++        AmbiguousCommand(s,'', Colors.Error,47);
+       end
+       else
+       begin
+@@ -6292,7 +6297,7 @@
+     begin
+       if sl.Count &lt; 3 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,48);
++        AmbiguousCommand(s,'', Colors.Error,48);
+         Exit;
+       end;
+ 
+@@ -6301,14 +6306,14 @@
+       i := GetTabWindowPageIndex('#' + sl[1]);
+       if i = -1 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,49);
++        AmbiguousCommand(s,'', Colors.Error,49);
+         Exit;
+       end;
+ 
+       for j := 2 to sl.Count-1 do
+         if not AddClientToTab(TMyTabSheet(MainForm.ChatTabs[i]).Clients, sl[j]) then
+         begin
+-          AddMainLog(_('Error: Server sent ambiguous command!')+'{'+sl[j]+'}', Colors.Error,50);
++          AmbiguousCommand(s,sl[j], Colors.Error,50);
+           Exit;
+         end;
+ 
+@@ -6318,7 +6323,7 @@
+     begin
+       if sl.Count &lt; 3 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,51);
++        AmbiguousCommand(s,'', Colors.Error,51);
+         Exit;
+       end;
+ 
+@@ -6341,20 +6346,20 @@
+     begin
+       if sl.Count &lt;&gt; 3 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,52);
++        AmbiguousCommand(s,'', Colors.Error,52);
+         Exit;
+       end;
+ 
+       i := GetTabWindowPageIndex('#' + sl[1]);
+       if i = -1 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,53);
++        AmbiguousCommand(s,'', Colors.Error,53);
+         Exit;
+       end;
+ 
+       if not AddClientToTab(TMyTabSheet(MainForm.ChatTabs[i]).Clients, sl[2]) then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,144);
++        AmbiguousCommand(s,'', Colors.Error,144);
+         Exit;
+       end;
+ 
+@@ -6369,7 +6374,7 @@
+     begin
+       if sl.Count &lt; 3 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,54);
++        AmbiguousCommand(s,'', Colors.Error,54);
+         Exit;
+       end;
+ 
+@@ -6378,13 +6383,13 @@
+       i := GetTabWindowPageIndex('#' + sl[1]);
+       if i = -1 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,55);
++        AmbiguousCommand(s,'', Colors.Error,55);
+         Exit;
+       end;
+ 
+       if not RemoveClientFromTab(TMyTabSheet(MainForm.ChatTabs[i]), sl[2]) then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,56);
++        AmbiguousCommand(s,'', Colors.Error,56);
+         Exit;
+       end;
+ 
+@@ -6401,14 +6406,14 @@
+     begin
+       if sl.Count &lt; 3 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,57);
++        AmbiguousCommand(s,'', Colors.Error,57);
+         Exit;
+       end;
+ 
+       i := GetTabWindowPageIndex('#' + sl[1]);
+       if i = -1 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,58);
++        AmbiguousCommand(s,'', Colors.Error,58);
+         Exit;
+       end;
+ 
+@@ -6422,7 +6427,7 @@
+     begin
+       if sl.Count &lt; 5 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,59);
++        AmbiguousCommand(s,'', Colors.Error,59);
+         Exit;
+       end;
+ 
+@@ -6432,14 +6437,14 @@
+         tmpi64 := StrToInt64(sl[3]);
+         tmp := FormatDateTime('mmm d &quot;'+_('at')+'&quot; hh:mm AM/PM', UTCTimeToLocalTime(UnixToDateTime(tmpi64 div 1000)));
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,60);
++        AmbiguousCommand(s,'', Colors.Error,60);
+         Exit;
+       end;
+ 
+       i := GetTabWindowPageIndex('#' + sl[1]);
+       if i = -1 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,61);
++        AmbiguousCommand(s,'', Colors.Error,61);
+         Exit;
+       end;
+       tmp2 := MakeSentenceWS(sl, 4);
+@@ -6464,7 +6469,7 @@
+     begin
+       if sl.Count &lt; 4 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,62);
++        AmbiguousCommand(s,'', Colors.Error,62);
+         Exit;
+       end;
+ 
+@@ -6492,7 +6497,7 @@
+       i := GetTabWindowPageIndex('#' + sl[1]);
+       if i = -1 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,63);
++        AmbiguousCommand(s,'', Colors.Error,63);
+         Exit;
+       end;
+ 
+@@ -6504,14 +6509,14 @@
+     begin
+       if sl.Count &lt; 3 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,64);
++        AmbiguousCommand(s,'', Colors.Error,64);
+         Exit;
+       end;
+ 
+       i := GetTabWindowPageIndex('#' + sl[1]);
+       if i = -1 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,145);
++        AmbiguousCommand(s,'', Colors.Error,145);
+         Exit;
+       end;
+ 
+@@ -6521,7 +6526,7 @@
+     begin
+       if sl.Count &lt; 4 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,65);
++        AmbiguousCommand(s,'', Colors.Error,65);
+         Exit;
+       end;
+ 
+@@ -6541,7 +6546,7 @@
+       i := GetTabWindowPageIndex('#' + sl[1]);
+       if i = -1 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,66);
++        AmbiguousCommand(s,'', Colors.Error,66);
+         Exit;
+       end;
+ 
+@@ -6551,13 +6556,13 @@
+     begin
+       if sl.Count &lt; 3 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,67);
++        AmbiguousCommand(s,'', Colors.Error,67);
+         Exit;
+       end;
+ 
+       if sl[1] = '' then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,68);
++        AmbiguousCommand(s,'', Colors.Error,68);
+         Exit;
+       end;
+ 
+@@ -6641,7 +6646,7 @@
+         i := ChatTabs.Count-1;
+         if not AddClientToTab(TMyTabSheet(MainForm.ChatTabs[i]).Clients, sl[1]) then
+         begin
+-          AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,69);
++          AmbiguousCommand(s,'', Colors.Error,69);
+           Exit;
+         end;
+         UpdateClientsListBox;
+@@ -6663,7 +6668,7 @@
+     begin
+       if sl.Count &lt; 3 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,70);
++        AmbiguousCommand(s,'', Colors.Error,70);
+         Exit;
+       end;
+ 
+@@ -6682,7 +6687,7 @@
+         i := ChatTabs.Count-1;
+         if not AddClientToTab(TMyTabSheet(MainForm.ChatTabs[i]).Clients, sl[1]) then
+         begin
+-          AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,71);
++          AmbiguousCommand(s,'', Colors.Error,71);
+           Exit;
+         end;
+         UpdateClientsListBox;
+@@ -6705,7 +6710,7 @@
+     begin
+       if sl.Count &lt; 3 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,72);
++        AmbiguousCommand(s,'', Colors.Error,72);
+         Exit;
+       end;
+ 
+@@ -6732,7 +6737,7 @@
+     begin
+       if sl.Count &lt; 3 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,73);
++        AmbiguousCommand(s,'', Colors.Error,73);
+         Exit;
+       end;
+       tmp := MakeSentenceWS(sl, 2);
+@@ -6823,7 +6828,7 @@
+     begin
+       if sl.Count &lt;&gt; 1 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,74);
++        AmbiguousCommand(s,'', Colors.Error,74);
+         Exit;
+       end;
+ 
+@@ -6854,13 +6859,13 @@
+     begin
+       if (sl.Count &lt;&gt; 3) then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,146);
++        AmbiguousCommand(s,'', Colors.Error,146);
+         Exit;
+       end;
+ 
+       if BattleForm.IsBattleActive then // we are already in battle! (this can't really happen)
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,75);
++        AmbiguousCommand(s,'', Colors.Error,75);
+         MainForm.TryToSendCommand('LEAVEBATTLE');
+         BattleForm.ResetBattleScreen;
+         BattleState.Status := None;
+@@ -6872,14 +6877,14 @@
+         t := StrToInt(sl[2]);
+ 
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,76);
++        AmbiguousCommand(s,'', Colors.Error,76);
+         Exit;
+       end;
+ 
+       Battle := GetBattle(i);
+       if Battle = nil then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,77);
++        AmbiguousCommand(s,'', Colors.Error,77);
+         Exit;
+       end;
+ 
+@@ -6950,7 +6955,7 @@
+     begin
+       if sl.Count &lt; 2 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,78);
++        AmbiguousCommand(s,'', Colors.Error,78);
+         Exit;
+       end;
+       if BattleState.TryingToJoinLadderBattle then
+@@ -6967,7 +6972,7 @@
+     begin
+       if sl.Count &lt; 12 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,79);
++        AmbiguousCommand(s,'', Colors.Error,79);
+         Exit;
+       end;
+ 
+@@ -6975,21 +6980,21 @@
+ 
+       if sl2.Count &lt;&gt; 3 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,80);
++        AmbiguousCommand(s,'', Colors.Error,80);
+         Exit;
+       end;
+ 
+       try
+         i := StrToInt(sl[1]);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,81);
++        AmbiguousCommand(s,'', Colors.Error,81);
+         Exit;
+       end;
+ 
+       try
+         battletype := StrToInt(sl[2]);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,82);
++        AmbiguousCommand(s,'', Colors.Error,82);
+         Exit;
+       end;
+ 
+@@ -6997,20 +7002,20 @@
+         nattype := StrToInt(sl[3]);
+         if (nattype &lt; 0) or (nattype &gt; 2) then raise Exception.CreateFmt(_('Invalid NAT traversal method index'), []);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,83);
++        AmbiguousCommand(s,'', Colors.Error,83);
+         Exit;
+       end;
+ 
+       Client := GetClient(sl[4]);
+       if Client = nil then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,84);
++        AmbiguousCommand(s,'', Colors.Error,84);
+         Exit;
+       end;
+ 
+       if GetBattle(i) &lt;&gt; nil then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,148);
++        AmbiguousCommand(s,'', Colors.Error,148);
+         Exit;
+       end;
+ 
+@@ -7023,7 +7028,7 @@
+         l := StrToInt(sl[9]);
+         maphash := StrToInt(sl[10]);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,85);
++        AmbiguousCommand(s,'', Colors.Error,85);
+         Exit;
+       end;
+       AddBattle(i, battletype, nattype, Client, tmp, j, k, tmpBool, l, maphash, sl2[0], sl2[1], sl2[2]);
+@@ -7035,13 +7040,13 @@
+       if (not Application.Active) or (not BattleForm.Active) then if NotificationsForm.FindNotification(nfStatusInBattle, [Client.Name]) then AddNotification('Player opened new battle', '&lt;' + Client.Name + '&gt; is hosting new game.', 2000);
+ 
+       if (Status.ReceivingLoginInfo = False) and (Client.Name &lt;&gt; Status.Username) then if
+-        NotificationsForm.FindNotification(nfModHosted, [Battle.ModName]) then AddNotification(_('Mod hosted'), _('Mod &lt;') + Battle.ModName + _('&gt; has been hosted by ') + TClient(Battle.Clients[0]).Name +'.', 2000);
++        NotificationsForm.FindNotification(nfModHosted, [Battle.ModName]) then AddNotification(_('Mod hosted'), _('Mod &lt;') + Battle.ModName + _('&gt; has been hosted by ') + TClient(Battle.Clients[0]).DisplayName +'.', 2000);
+ 
+       if not Status.ReceivingLoginInfo then UpdateClientsListBox;
+ 
+       if not Status.ReceivingLoginInfo and (Client.GetGroup &lt;&gt; nil) and Client.GetGroup.NotifyOnHost then
+       begin
+-        AddNotification(_('Player host'), '&lt;' + Client.Name + _('&gt; is hosting a new battle.'), 5000,true,Battle.ID);
++        AddNotification(_('Player host'), '&lt;' + Client.DisplayName + _('&gt; is hosting a new battle.'), 5000,true,Battle.ID);
+       end;
+ 
+       if (Status.ReceivingLoginInfo) and (Status.LastCommandReceived = 'ADDUSER') then LoginProgressForm.UpdateCaption(_('Receiving battle list ...'));
+@@ -7055,21 +7060,21 @@
+     begin
+       if sl.Count &lt;&gt; 2 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,86);
++        AmbiguousCommand(s,'', Colors.Error,86);
+         Exit;
+       end;
+ 
+       try
+         BattleIndex := StrToInt(sl[1]);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,87);
++        AmbiguousCommand(s,'', Colors.Error,87);
+         Exit;
+       end;
+ 
+       Battle := GetBattle(BattleIndex);
+       if Battle = nil then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,88);
++        AmbiguousCommand(s,'', Colors.Error,88);
+         Exit;
+       end;
+ 
+@@ -7093,28 +7098,28 @@
+     begin
+       if (not WaitForAckForm.Visible) or (not WaitForAckForm.Waiting) then // we are not hosting a battle! This is an error. We must tell the server to cancel this battle. (Note: this should not happen normally. Perhaps only if server lags really badly)
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,89);
++        AmbiguousCommand(s,'', Colors.Error,89);
+         TryToSendCommand('LEAVEBATTLE');
+         Exit;
+       end;
+ 
+       if sl.Count &lt;&gt; 2 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,90);
++        AmbiguousCommand(s,'', Colors.Error,90);
+         Exit;
+       end;
+ 
+       try
+         i := StrToInt(sl[1]);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,91);
++        AmbiguousCommand(s,'', Colors.Error,91);
+         Exit;
+       end;
+ 
+       Battle := GetBattle(i);
+       if Battle = nil then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,92);
++        AmbiguousCommand(s,'', Colors.Error,92);
+         Exit;
+       end;
+ 
+@@ -7142,13 +7147,13 @@
+     begin
+       if sl.Count &lt;&gt; 3 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,93);
++        AmbiguousCommand(s,'', Colors.Error,93);
+         Exit;
+       end;
+       Client := GetClient(sl[1]);
+       if Client = nil then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,94);
++        AmbiguousCommand(s,'', Colors.Error,94);
+         Exit;
+       end;
+       Client.IP := sl[2];
+@@ -7161,28 +7166,28 @@
+     begin
+       if (sl.Count &lt;&gt; 3) and ((sl.Count &lt;&gt; 4) or ((sl[3] &lt;&gt; Status.Me.BattleJoinPassword) and (BattleState.Status = Joined))) then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,95);
++        AmbiguousCommand(s,'', Colors.Error,95);
+         Exit;
+       end;
+ 
+       try
+         i := StrToInt(sl[1]);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,96);
++        AmbiguousCommand(s,'', Colors.Error,96);
+         Exit;
+       end;
+ 
+       Battle := GetBattle(i);
+       if Battle = nil then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,97);
++        AmbiguousCommand(s,'', Colors.Error,97);
+         Exit;
+       end;
+ 
+       Client := GetClient(sl[2]);
+       if Client = nil then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,98);
++        AmbiguousCommand(s,'', Colors.Error,98);
+         Exit;
+       end;
+ 
+@@ -7290,28 +7295,28 @@
+     begin
+       if sl.Count &lt;&gt; 3 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,99);
++        AmbiguousCommand(s,'', Colors.Error,99);
+         Exit;
+       end;
+ 
+       try
+         i := StrToInt(sl[1]);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,100);
++        AmbiguousCommand(s,'', Colors.Error,100);
+         Exit;
+       end;
+ 
+       Battle := GetBattle(i);
+       if Battle = nil then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,101);
++        AmbiguousCommand(s,'', Colors.Error,101);
+         Exit;
+       end;
+ 
+       Client := GetClient(sl[2]);
+       if Client = nil then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,102);
++        AmbiguousCommand(s,'', Colors.Error,102);
+         Exit;
+       end;
+ 
+@@ -7370,21 +7375,21 @@
+     begin
+       if sl.Count &lt;&gt; 3 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,103);
++        AmbiguousCommand(s,'', Colors.Error,103);
+         Exit;
+       end;
+ 
+       Client := GetClient(sl[1]);
+       if Client = nil then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,104);
++        AmbiguousCommand(s,'', Colors.Error,104);
+         Exit;
+       end;
+ 
+       try
+         tmpInt := StrToInt(sl[2]);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,105);
++        AmbiguousCommand(s,'', Colors.Error,105);
+         Exit;
+       end;
+ 
+@@ -7397,7 +7402,7 @@
+       begin
+         if Client.Battle.Clients[0] = Client then
+         begin
+-          if changed and not Client.GetInGameStatus and (BattleState.Battle &lt;&gt; nil) and (BattleState.Battle.ID = Client.Battle.ID) then
++          if changed and not Client.GetInGameStatus and (BattleState.Battle &lt;&gt; nil) and (BattleState.Battle.ID = Client.Battle.ID) and (client &lt;&gt; Status.me) then
+           begin
+             BattleForm.JoinButton.Visible := True;
+             BattleForm.StartButton.Visible := False;
+@@ -7441,7 +7446,7 @@
+     begin
+       if sl.Count &lt; 5 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,106);
++        AmbiguousCommand(s,'', Colors.Error,106);
+         Exit;
+       end;
+ 
+@@ -7451,14 +7456,14 @@
+         tmpBool := IntToBool(StrToInt(sl[3]));
+         maphash := StrToInt(sl[4]);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,107);
++        AmbiguousCommand(s,'', Colors.Error,107);
+         Exit;
+       end;
+       while RefreshingBattleList do;
+       Battle := GetBattle(tmpInt);
+       if Battle = nil then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,108);
++        AmbiguousCommand(s,'', Colors.Error,108);
+         Exit;
+       end;
+ 
+@@ -7522,13 +7527,13 @@
+     begin
+       if sl.Count &lt;&gt; 9 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,109);
++        AmbiguousCommand(s,'', Colors.Error,109);
+         Exit;
+       end;
+ 
+       if BattleFormUnit.BattleState.Status = None then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,110);
++        AmbiguousCommand(s,'', Colors.Error,110);
+         Exit;
+       end;
+ 
+@@ -7542,19 +7547,19 @@
+         p := StrToInt(sl[7]);
+         r := StrToInt(sl[8]);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,111);
++        AmbiguousCommand(s,'', Colors.Error,111);
+         Exit;
+       end;
+ 
+       if (l &lt; 0) or (l &gt; 3) then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,112);
++        AmbiguousCommand(s,'', Colors.Error,112);
+         Exit;
+       end;
+ 
+       if (m &lt; 0) or (m &gt; 2) then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,113);
++        AmbiguousCommand(s,'', Colors.Error,113);
+         Exit;
+       end;
+ 
+@@ -7575,7 +7580,7 @@
+     begin
+       if sl.Count &lt; 2 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,114);
++        AmbiguousCommand(s,'', Colors.Error,114);
+         Exit;
+       end;
+       for i:=1 to sl.Count-1 do
+@@ -7585,7 +7590,7 @@
+           j := CompleteKeyList.IndexOf(LowerCase(sl[i]));
+           if j = -1 then
+           begin
+-            AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,115);
++            AmbiguousCommand(s,'', Colors.Error,115);
+             Exit;
+           end;
+           CompleteKeyList.Delete(j);
+@@ -7599,7 +7604,7 @@
+ 
+       if sl2.Count = 0 then
+       begin
+-        //AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,116);
++        //AmbiguousCommand(s,'', Colors.Error,116);
+         Exit;
+       end;
+       sl3 := TStringList.Create;
+@@ -7667,7 +7672,7 @@
+           on E: Exception do
+           begin
+             MessageDlg(E.Message,mtError,[mbOk], E.HelpContext);
+-            AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,117);
++            AmbiguousCommand(s,'', Colors.Error,117);
+             BattleForm.DisconnectButtonClick(nil);
+           end;
+         end;
+@@ -7678,35 +7683,35 @@
+     begin
+       if sl.Count &lt;&gt; 4 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,118);
++        AmbiguousCommand(s,'', Colors.Error,118);
+         Exit;
+       end;
+ 
+       if not BattleForm.IsBattleActive then
+       begin
+         // not a big problem. This can happen because of lag (we could get this command just after we left the battle)
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,119);
++        AmbiguousCommand(s,'', Colors.Error,119);
+         Exit;
+       end;
+ 
+       Client := GetClient(sl[1]);
+       if Client = nil then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,120);
++        AmbiguousCommand(s,'', Colors.Error,120);
+         Exit;
+       end;
+ 
+       try
+         tmpInt := StrToInt(sl[2]);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,121);
++        AmbiguousCommand(s,'', Colors.Error,121);
+         Exit;
+       end;
+ 
+       try
+         teamcolor := StrToInt(sl[3]);
+       except
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,122);
++        AmbiguousCommand(s,'', Colors.Error,122);
+         Exit;
+       end;
+ 
+@@ -7791,14 +7796,14 @@
+     begin
+       if sl.Count &lt;&gt; 1 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,123);
++        AmbiguousCommand(s,'', Colors.Error,123);
+         Exit;
+       end;
+ 
+       if not BattleForm.IsBattleActive then
+       begin
+         // not a big problem. This can happen because of lag (we could get this command just after we left the battle)
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,147);
++        AmbiguousCommand(s,'', Colors.Error,147);
+         Exit;
+       end;
+ 
+@@ -7810,14 +7815,14 @@
+     begin
+       if sl.Count &lt; 2 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,124);
++        AmbiguousCommand(s,'', Colors.Error,124);
+         Exit;
+       end;
+ 
+       if not BattleForm.IsBattleActive then
+       begin
+         // not a big problem. This can happen because of lag (we could get this command just after we left the battle)
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,125);
++        AmbiguousCommand(s,'', Colors.Error,125);
+         Exit;
+       end;
+ 
+@@ -7831,14 +7836,14 @@
+     begin
+       if sl.Count &lt; 2 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,126);
++        AmbiguousCommand(s,'', Colors.Error,126);
+         Exit;
+       end;
+ 
+       if not BattleForm.IsBattleActive then
+       begin
+         // not a big problem. This can happen because of lag (we could get this command just after we left the battle)
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,127);
++        AmbiguousCommand(s,'', Colors.Error,127);
+         Exit;
+       end;
+ 
+@@ -7855,14 +7860,14 @@
+     begin
+       if sl.Count &lt;&gt; 1 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,128);
++        AmbiguousCommand(s,'', Colors.Error,128);
+         Exit;
+       end;
+ 
+       if not BattleForm.IsBattleActive then
+       begin
+         // not a big problem. This can happen because of lag (we could get this command just after we left the battle)
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,129);
++        AmbiguousCommand(s,'', Colors.Error,129);
+         Exit;
+       end;
+ 
+@@ -7874,7 +7879,7 @@
+     begin
+       if sl.Count &lt;&gt; 2 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,130);
++        AmbiguousCommand(s,'', Colors.Error,130);
+         Exit;
+       end;
+ 
+@@ -7886,7 +7891,7 @@
+     begin
+       if sl.Count &lt; 2 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,131);
++        AmbiguousCommand(s,'', Colors.Error,131);
+         Exit;
+       end;
+ 
+@@ -7900,7 +7905,7 @@
+       sl2 := TWideStringList.Create;
+       if sl.Count &lt; 2 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,132);
++        AmbiguousCommand(s,'', Colors.Error,132);
+         Exit;
+       end;
+       tmp := MakeSentenceWS(sl, 1);
+@@ -7931,7 +7936,7 @@
+     begin
+       if sl.Count &lt; 2 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,133);
++        AmbiguousCommand(s,'', Colors.Error,133);
+         Exit;
+       end;
+ 
+@@ -7952,20 +7957,20 @@
+     begin
+       if sl.Count &lt;&gt; 1 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,134);
++        AmbiguousCommand(s,'', Colors.Error,134);
+         Exit;
+       end;
+ 
+       if not BattleForm.IsBattleActive then
+       begin
+         // not a big problem. This can happen because of lag (we could get this command just after we left the battle)
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,135);
++        AmbiguousCommand(s,'', Colors.Error,135);
+         Exit;
+       end;
+ 
+       if not (BattleState.Battle.BattleType = 1) then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,136);
++        AmbiguousCommand(s,'', Colors.Error,136);
+         Exit;
+       end;
+ 
+@@ -7976,13 +7981,13 @@
+       if not BattleForm.IsBattleActive then
+       begin
+         // not a big problem. This can happen because of lag (we could get this command just after we left the battle)
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,137);
++        AmbiguousCommand(s,'', Colors.Error,137);
+         Exit;
+       end;
+ 
+       if not (BattleState.Battle.BattleType = 1) then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,138);
++        AmbiguousCommand(s,'', Colors.Error,138);
+         Exit;
+       end;
+ 
+@@ -7993,20 +7998,20 @@
+     begin
+       if sl.Count &lt;&gt; 1 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,139);
++        AmbiguousCommand(s,'', Colors.Error,139);
+         Exit;
+       end;
+ 
+       if not BattleForm.IsBattleActive then
+       begin
+         // not a big problem. This can happen because of lag (we could get this command just after we left the battle)
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,140);
++        AmbiguousCommand(s,'', Colors.Error,140);
+         Exit;
+       end;
+ 
+       if not (BattleState.Battle.BattleType = 1) then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,141);
++        AmbiguousCommand(s,'', Colors.Error,141);
+         Exit;
+       end;
+ 
+@@ -8019,7 +8024,7 @@
+     begin
+       if sl.Count &lt;&gt; 2 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,142);
++        AmbiguousCommand(s,'', Colors.Error,142);
+         Exit;
+       end;
+ 
+@@ -8047,7 +8052,7 @@
+     begin
+       if sl.Count &lt; 2 then
+       begin
+-        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,143);
++        AmbiguousCommand(s,'', Colors.Error,143);
+         Exit;
+       end;
+ 
+@@ -12453,7 +12458,11 @@
+   Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+ begin
+   if Button = mbRight then
++  begin
++    VDTBattles.FocusedNode := VDTBattles.GetNodeAt(X,Y);
++    VDTBattles.Selected[VDTBattles.FocusedNode] := true;
+     BattleListPopupMenuPopup(nil);
++  end;
+ end;
+ 
+ constructor TLobbyUpdateThread.Create(Suspended: Boolean;downloadBeta: boolean; autoUpdate: boolean; delayed : integer = 0; forceUpdate: boolean = False);
+@@ -14129,8 +14138,13 @@
+ end;
+ 
+ procedure TMainForm.Button1Click(Sender: TObject);
++var
++  sl: TStringList;
++  i: integer;
+ begin
+-  //SpringSocket.SendTo()
++  sl := GetDownloadLinks('TheRockFinal');
++  for i:=0 to sl.count-1 do
++    AddMainLog(sl[i],colors.Normal);
+ end;
+ 
+ procedure TMainForm.VDTBattlesHeaderDraw(Sender: TVTHeader;
+@@ -14289,4 +14303,27 @@
+   end;
+ end;
+ 
++procedure TMainForm.PlayersValueTextBoxSubEditButton0Click(
++  Sender: TObject);
++begin
++  PlayersValueTextBoxChange(PlayersValueTextBox);
++end;
++
++procedure TMainForm.Players2ValueTextBoxSubEditButton0Click(
++  Sender: TObject);
++begin
++  Players2ValueTextBoxChange(Players2ValueTextBox);
++end;
++
++procedure TMainForm.MaxPlayersValueTextBoxSubEditButton0Click(
++  Sender: TObject);
++begin
++  MaxPlayersValueTextBoxChange(MaxPlayersValueTextBox);
++end;
++
++procedure TMainForm.RankValueTextBoxSubEditButton0Click(Sender: TObject);
++begin
++  RankValueTextBoxChange(RankValueTextBox);
++end;
++
+ end.
+
+Modified: Lobby/TASClient/PreferencesFormUnit.dfm
+===================================================================
+--- Lobby/TASClient/PreferencesFormUnit.dfm	2010-08-26 17:28:11 UTC (rev 7514)
++++ Lobby/TASClient/PreferencesFormUnit.dfm	2010-09-04 17:22:35 UTC (rev 7515)
+@@ -90,13 +90,12 @@
+       Top = 56
+       Width = 553
+       Height = 417
+-      ActiveTabIndex = 0
++      ActiveTabIndex = 2
+       TabAutofit = True
+       HiddenItems = &lt;&gt;
+       object SpTBXTabItem6: TSpTBXTabItem
+         Caption = 'Server'
+         Wrapping = twWrap
+-        Checked = True
+         CustomWidth = 78
+         CustomHeight = 40
+       end
+@@ -108,6 +107,7 @@
+       object SpTBXTabItem4: TSpTBXTabItem
+         Caption = 'Program'
+         Wrapping = twWrap
++        Checked = True
+         CustomWidth = 78
+       end
+       object SpTBXTabItem3: TSpTBXTabItem
+@@ -397,188 +397,6 @@
+           TabOrder = 4
+         end
+       end
+-      object SpTBXTabSheet4: TSpTBXTabSheet
+-        Left = 0
+-        Top = 44
+-        Width = 553
+-        Height = 373
+-        Caption = 'Program'
+-        ImageIndex = -1
+-        TabItem = 'SpTBXTabItem4'
+-        object GroupBox3: TSpTBXGroupBox
+-          Left = 16
+-          Top = 8
+-          Width = 529
+-          Height = 345
+-          Caption = 'Program settings'
+-          TabOrder = 0
+-          object ResetRegistryButton: TSpTBXSpeedButton
+-            Left = 296
+-            Top = 312
+-            Width = 225
+-            Height = 22
+-            Caption = 'Reset registry data'
+-            OnClick = ResetRegistryButtonClick
+-          end
+-          object GameSettingsButton: TSpTBXSpeedButton
+-            Left = 296
+-            Top = 88
+-            Width = 225
+-            Height = 22
+-            Caption = 'Game settings'
+-            OnClick = GameSettingsButtonClick
+-          end
+-          object NotificationsButton: TSpTBXSpeedButton
+-            Left = 296
+-            Top = 40
+-            Width = 225
+-            Height = 22
+-            Caption = 'Notifications ...'
+-            OnClick = NotificationsButtonClick
+-          end
+-          object HighlightingButton: TSpTBXSpeedButton
+-            Left = 296
+-            Top = 16
+-            Width = 225
+-            Height = 22
+-            Caption = 'Highlighting ...'
+-            OnClick = HighlightingButtonClick
+-          end
+-          object IgnoreListButton: TSpTBXSpeedButton
+-            Left = 296
+-            Top = 64
+-            Width = 225
+-            Height = 22
+-            Caption = 'Ignore list ...'
+-            OnClick = IgnoreListButtonClick
+-          end
+-          object Label6: TSpTBXLabel
+-            Left = 16
+-            Top = 32
+-            Width = 46
+-            Height = 13
+-            Caption = 'Tab style:'
+-          end
+-          object RadioButton4: TSpTBXRadioButton
+-            Left = 16
+-            Top = 56
+-            Width = 38
+-            Height = 15
+-            Caption = 'tabs'
+-            TabOrder = 0
+-            TabStop = True
+-            Checked = True
+-          end
+-          object RadioButton5: TSpTBXRadioButton
+-            Left = 16
+-            Top = 72
+-            Width = 53
+-            Height = 15
+-            Caption = 'buttons'
+-            TabOrder = 1
+-          end
+-          object RadioButton6: TSpTBXRadioButton
+-            Left = 16
+-            Top = 88
+-            Width = 70
+-            Height = 15
+-            Caption = 'flat buttons'
+-            TabOrder = 2
+-          end
+-          object CheckBox8: TSpTBXCheckBox
+-            Left = 16
+-            Top = 296
+-            Width = 88
+-            Height = 15
+-            Caption = 'Enable logging'
+-            TabOrder = 3
+-            Checked = True
+-            State = cbChecked
+-          end
+-          object CheckBox9: TSpTBXCheckBox
+-            Left = 16
+-            Top = 280
+-            Width = 128
+-            Height = 15
+-            Caption = 'Use sound notifications'
+-            TabOrder = 4
+-            Checked = True
+-            State = cbChecked
+-          end
+-          object KeyEditorButton: TSpTBXSpeedButton
+-            Left = 296
+-            Top = 112
+-            Width = 225
+-            Height = 22
+-            Caption = 'Selection key editor'
+-            OnClick = KeyEditorButtonClick
+-          end
+-          object CheckForNewVersionCheckBox: TSpTBXCheckBox
+-            Left = 16
+-            Top = 264
+-            Width = 168
+-            Height = 15
+-            Caption = 'Auto update lobby to latest beta'
+-            TabOrder = 12
+-          end
+-          object ColorsButton: TSpTBXButton
+-            Left = 296
+-            Top = 136
+-            Width = 225
+-            Height = 22
+-            Caption = 'Colors and font ...'
+-            TabOrder = 13
+-            OnClick = ColorsButtonClick
+-          end
+-          object ManageGroupsButton: TSpTBXButton
+-            Left = 296
+-            Top = 160
+-            Width = 225
+-            Height = 22
+-            Caption = 'Manage groups ...'
+-            TabOrder = 14
+-            OnClick = ManageGroupsButtonClick
+-          end
+-          object EnableSpringDownloaderCheckBox: TSpTBXCheckBox
+-            Left = 16
+-            Top = 248
+-            Width = 144
+-            Height = 15
+-            Caption = 'Enable Spring Downloader'
+-            TabOrder = 15
+-            Checked = True
+-            State = cbChecked
+-          end
+-          object UseLogonFormCheckBox: TSpTBXCheckBox
+-            Left = 16
+-            Top = 232
+-            Width = 89
+-            Height = 15
+-            Caption = 'Use logon form'
+-            TabOrder = 16
+-            Checked = True
+-            State = cbChecked
+-          end
+-          object TipsButton: TSpTBXButton
+-            Left = 296
+-            Top = 184
+-            Width = 225
+-            Height = 22
+-            Caption = 'Tips ...'
+-            TabOrder = 17
+-            OnClick = TipsButtonClick
+-          end
+-          object SpringSettingsProfilesButton: TSpTBXButton
+-            Left = 296
+-            Top = 208
+-            Width = 225
+-            Height = 22
+-            Caption = 'Spring Settings profiles'
+-            TabOrder = 18
+-            OnClick = SpringSettingsProfilesButtonClick
+-          end
+-        end
+-      end
+       object SpTBXTabSheet5: TSpTBXTabSheet
+         Left = 0
+         Top = 44
+@@ -945,6 +763,188 @@
+           end
+         end
+       end
++      object SpTBXTabSheet4: TSpTBXTabSheet
++        Left = 0
++        Top = 44
++        Width = 553
++        Height = 373
++        Caption = 'Program'
++        ImageIndex = -1
++        TabItem = 'SpTBXTabItem4'
++        object GroupBox3: TSpTBXGroupBox
++          Left = 16
++          Top = 8
++          Width = 529
++          Height = 345
++          Caption = 'Program settings'
++          TabOrder = 0
++          object ResetRegistryButton: TSpTBXSpeedButton
++            Left = 296
++            Top = 312
++            Width = 225
++            Height = 22
++            Caption = 'Reset registry data'
++            OnClick = ResetRegistryButtonClick
++          end
++          object GameSettingsButton: TSpTBXSpeedButton
++            Left = 296
++            Top = 88
++            Width = 225
++            Height = 22
++            Caption = 'Game settings'
++            OnClick = GameSettingsButtonClick
++          end
++          object NotificationsButton: TSpTBXSpeedButton
++            Left = 296
++            Top = 40
++            Width = 225
++            Height = 22
++            Caption = 'Notifications ...'
++            OnClick = NotificationsButtonClick
++          end
++          object HighlightingButton: TSpTBXSpeedButton
++            Left = 296
++            Top = 16
++            Width = 225
++            Height = 22
++            Caption = 'Highlighting ...'
++            OnClick = HighlightingButtonClick
++          end
++          object IgnoreListButton: TSpTBXSpeedButton
++            Left = 296
++            Top = 64
++            Width = 225
++            Height = 22
++            Caption = 'Ignore list ...'
++            OnClick = IgnoreListButtonClick
++          end
++          object Label6: TSpTBXLabel
++            Left = 16
++            Top = 32
++            Width = 46
++            Height = 13
++            Caption = 'Tab style:'
++          end
++          object RadioButton4: TSpTBXRadioButton
++            Left = 16
++            Top = 56
++            Width = 38
++            Height = 15
++            Caption = 'tabs'
++            TabOrder = 0
++            TabStop = True
++            Checked = True
++          end
++          object RadioButton5: TSpTBXRadioButton
++            Left = 16
++            Top = 72
++            Width = 53
++            Height = 15
++            Caption = 'buttons'
++            TabOrder = 1
++          end
++          object RadioButton6: TSpTBXRadioButton
++            Left = 16
++            Top = 88
++            Width = 70
++            Height = 15
++            Caption = 'flat buttons'
++            TabOrder = 2
++          end
++          object CheckBox8: TSpTBXCheckBox
++            Left = 16
++            Top = 296
++            Width = 88
++            Height = 15
++            Caption = 'Enable logging'
++            TabOrder = 3
++            Checked = True
++            State = cbChecked
++          end
++          object CheckBox9: TSpTBXCheckBox
++            Left = 16
++            Top = 280
++            Width = 128
++            Height = 15
++            Caption = 'Use sound notifications'
++            TabOrder = 4
++            Checked = True
++            State = cbChecked
++          end
++          object KeyEditorButton: TSpTBXSpeedButton
++            Left = 296
++            Top = 112
++            Width = 225
++            Height = 22
++            Caption = 'Selection key editor'
++            OnClick = KeyEditorButtonClick
++          end
++          object CheckForNewVersionCheckBox: TSpTBXCheckBox
++            Left = 16
++            Top = 264
++            Width = 168
++            Height = 15
++            Caption = 'Auto update lobby to latest beta'
++            TabOrder = 12
++          end
++          object ColorsButton: TSpTBXButton
++            Left = 296
++            Top = 136
++            Width = 225
++            Height = 22
++            Caption = 'Colors and font ...'
++            TabOrder = 13
++            OnClick = ColorsButtonClick
++          end
++          object ManageGroupsButton: TSpTBXButton
++            Left = 296
++            Top = 160
++            Width = 225
++            Height = 22
++            Caption = 'Manage groups ...'
++            TabOrder = 14
++            OnClick = ManageGroupsButtonClick
++          end
++          object EnableSpringDownloaderCheckBox: TSpTBXCheckBox
++            Left = 16
++            Top = 248
++            Width = 162
++            Height = 15
++            Caption = 'Enable Integrated Downloader'
++            TabOrder = 15
++            Checked = True
++            State = cbChecked
++          end
++          object UseLogonFormCheckBox: TSpTBXCheckBox
++            Left = 16
++            Top = 232
++            Width = 89
++            Height = 15
++            Caption = 'Use logon form'
++            TabOrder = 16
++            Checked = True
++            State = cbChecked
++          end
++          object TipsButton: TSpTBXButton
++            Left = 296
++            Top = 184
++            Width = 225
++            Height = 22
++            Caption = 'Tips ...'
++            TabOrder = 17
++            OnClick = TipsButtonClick
++          end
++          object SpringSettingsProfilesButton: TSpTBXButton
++            Left = 296
++            Top = 208
++            Width = 225
++            Height = 22
++            Caption = 'Spring Settings profiles'
++            TabOrder = 18
++            OnClick = SpringSettingsProfilesButtonClick
++          end
++        end
++      end
+     end
+     object ApplyAndCloseButton: TSpTBXButton
+       Left = 119
+
+Modified: Lobby/TASClient/Python/scripts/mapdownload.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/mapdownload.py	2010-08-26 17:28:11 UTC (rev 7514)
++++ Lobby/TASClient/Python/scripts/mapdownload.py	2010-09-04 17:22:35 UTC (rev 7515)
+@@ -33,11 +33,12 @@
+ 	global cancelMapDl
+ 	global dlFailed
+ 	if progress == -2:
+-		p = gui.GetControlProperties(dlFormName+'.lblInfo','')
+-		changeComponentProp(dlFormName+'.lblProgress','Caption',p['Caption'])
+-		p = gui.GetControlProperties(dlFormName+'.lblInfo','Font')
+-		changeComponentPropFull(dlFormName+'.lblProgress','Font','Color',p['Color'])
+-		dlFailed = True
++		if gui.GetControlProperties(dlFormName,'') != None:
++			p = gui.GetControlProperties(dlFormName+'.lblInfo','')
++			changeComponentProp(dlFormName+'.lblProgress','Caption',p['Caption'])
++			p = gui.GetControlProperties(dlFormName+'.lblInfo','Font')
++			changeComponentPropFull(dlFormName+'.lblProgress','Font','Color',p['Color'])
++			dlFailed = True
+ 	if progress == -1 or progress == -3:
+ 		for control in oldParent:
+ 			changeComponentProp(control,'Parent',oldParent[control])
+
+Modified: Lobby/TASClient/SpringDownloaderFormUnit.dfm
+===================================================================
+--- Lobby/TASClient/SpringDownloaderFormUnit.dfm	2010-08-26 17:28:11 UTC (rev 7514)
++++ Lobby/TASClient/SpringDownloaderFormUnit.dfm	2010-09-04 17:22:35 UTC (rev 7515)
+@@ -1,6 +1,6 @@
+ object SpringDownloaderForm: TSpringDownloaderForm
+-  Left = 226
+-  Top = 127
++  Left = 966
++  Top = 171
+   Width = 463
+   Height = 192
+   Caption = 'Downloading ...'
+@@ -87,6 +87,7 @@
+       Caption = 'Show details'
+       Anchors = [akTop, akRight]
+       TabOrder = 6
++      Visible = False
+       OnClick = DetailsButtonClick
+     end
+     object joinBattleCheckBox: TSpTBXCheckBox
+@@ -100,6 +101,7 @@
+     end
+   end
+   object tmrProgress: TTimer
++    Enabled = False
+     Interval = 300
+     OnTimer = tmrProgressTimer
+     Left = 296
+@@ -111,4 +113,24 @@
+     Left = 328
+     Top = 32
+   end
++  object HttpCli1: THttpCli
++    LocalAddr = '0.0.0.0'
++    ProxyPort = '80'
++    Agent = 'Mozilla/4.0 (compatible; ICS)'
++    Accept = 'image/gif, image/x-xbitmap, image/jpeg, image/pjpeg, */*'
++    NoCache = False
++    ContentTypePost = 'application/x-www-form-urlencoded'
++    MultiThreaded = False
++    RequestVer = '1.0'
++    FollowRelocation = True
++    LocationChangeMaxCount = 5
++    BandwidthLimit = 10000
++    BandwidthSampling = 1000
++    Options = []
++    OnDocBegin = HttpCli1DocBegin
++    OnDocData = HttpCli1DocData
++    SocksAuthentication = socksNoAuthentication
++    Left = 296
++    Top = 104
++  end
+ end
+
+Modified: Lobby/TASClient/SpringDownloaderFormUnit.pas
+===================================================================
+--- Lobby/TASClient/SpringDownloaderFormUnit.pas	2010-08-26 17:28:11 UTC (rev 7514)
++++ Lobby/TASClient/SpringDownloaderFormUnit.pas	2010-09-04 17:22:35 UTC (rev 7515)
+@@ -5,7 +5,8 @@
+ uses
+   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
+   Dialogs, SpTBXItem, SpTBXControls, JclRegistry, ExtCtrls,ShellAPI,
+-  LobbyScriptUnit, Math, SpTBXSkins;
++  LobbyScriptUnit, Math, SpTBXSkins,IdHTTP, InvokeRegistry, Rio,
++  SOAPHTTPClient, xmldom, XMLIntf, msxmldom, XMLDoc, HttpProt,GpIFF,RegExpr;
+ 
+ type
+   TProgressEvent = procedure(snc: PScriptDownloadCallback;progress: integer) of object;
+@@ -21,6 +22,7 @@
+     lblProgress: TSpTBXLabel;
+     DetailsButton: TSpTBXButton;
+     joinBattleCheckBox: TSpTBXCheckBox;
++    HttpCli1: THttpCli;
+ 
+     procedure CreateParams(var Params: TCreateParams); override;
+     procedure tmrProgressTimer(Sender: TObject);
+@@ -29,6 +31,9 @@
+     procedure FormCreate(Sender: TObject);
+     procedure DetailsButtonClick(Sender: TObject);
+     procedure FormClose(Sender: TObject; var Action: TCloseAction);
++    procedure HttpCli1DocData(Sender: TObject; Buffer: Pointer;
++      Len: Integer);
++    procedure HttpCli1DocBegin(Sender: TObject);
+   private
+     { Private declarations }
+   protected
+@@ -36,19 +41,25 @@
+     downloadHash: integer;
+     downloadName: string;
+     joinBattleId : Integer;
++    fileName: string;
++    downloadLinks: TStringList;
++    downloadCanceled: boolean;
+ 
+     downloading: boolean;
+     timeOutCounter: integer;
+ 
+     FOnProgress: TProgressEvent;
++
++    procedure TryNextLink;
+   public
+     cbInfo: PScriptDownloadCallback;
+     procedure StartDownload(dlType: string; dlHash : integer; dlName: string; joinBattleWhenDownloadComplete : integer = 0);
+     property OnProgress: TProgressEvent read FOnProgress write FOnProgress;
+   end;
+ 
+-  function DownloadMod(modHash : integer; modName: string; joinBattleWhenDownloadComplete : integer = 0):TSpringDownloaderForm;
+-  function DownloadMap(mapHash : integer; mapName: string; noBrowser : boolean = False):TSpringDownloaderForm;
++  function GetDownloadLinks(name: string): TStringList;
++  function DownloadMod(modHash : integer; modName: string; joinBattleWhenDownloadComplete : integer = 0; scriptCallBack: PScriptDownloadCallback = nil; cb: TCallback=nil):TSpringDownloaderForm;
++  function DownloadMap(mapHash : integer; mapName: string; noBrowser : boolean = False; scriptCallBack: PScriptDownloadCallback = nil; cb: TCallback=nil):TSpringDownloaderForm;
+   procedure StartSpringDownloader;
+   procedure CloseSpringDownloader;
+ var
+@@ -81,6 +92,63 @@
+   end;
+ end;
+ 
++procedure TSpringDownloaderForm.TryNextLink;
++var
++  battle: TBattle;
++  i: integer;
++  RegExpr: TRegExpr;
++begin
++  if downloadLinks.Count=0 then
++  begin
++    lblInfo.Caption := _('Download failed (')+downloadName+')';
++    lblInfo.Font.Color := clRed;
++    CancelButton.Caption := _('Exit');
++    if Assigned(FOnProgress) then
++      FOnProgress(cbInfo,-2);
++    Exit;
++  end;
++
++  Randomize;
++  i := RandomRange(0,downloadLinks.Count-1);
++  HttpCli1.URL := downloadLinks[i];
++  downloadLinks.Delete(i);
++
++  try
++      HttpCli1.Head;
++      RegExpr := TRegExpr.Create;
++      RegExpr.Expression := 'Content-Disposition: attachment; filename=&quot;([^&quot;]+)&quot;';
++      if RegExpr.Exec(HttpCli1.RcvdHeader.Text) and (RegExpr.SubExprMatchCount = 1) then
++      begin
++        fileName := ExtractFilePath(Application.ExeName)+IFF(downloadType='MAP','maps\','mods\')+RegExpr.Match[1];
++      end
++      else
++      begin
++        fileName := ExtractFilePath(Application.ExeName)+IFF(downloadType='MAP','maps\','mods\')+HttpCli1.DocName;
++      end;
++      HttpCli1.Get;
++      try
++        HttpCli1.RcvdStream.Destroy;
++      except
++      end;
++      HttpCli1.RcvdStream := nil;
++      lblInfo.Caption := _('Done.');
++      if Assigned(FOnProgress) then
++        FOnProgress(cbInfo,-1);
++      If downloadType = 'MAP' then
++        BattleForm.ReloadMapListButtonClick(nil);
++      if joinBattleCheckBox.Checked then
++      begin
++        battle := MainForm.GetBattle(joinBattleId);
++        if battle &lt;&gt; nil then
++          MainForm.JoinBattle(battle);
++      end;
++      Close;
++      Exit;
++  except
++    TryNextLink;
++  end;
++end;
++
+ procedure TSpringDownloaderForm.StartDownload(dlType: string; dlHash : integer; dlName: string; joinBattleWhenDownloadComplete : integer = 0);
+ var
+   sl: TStringList;
+@@ -98,15 +166,24 @@
+   joinBattleCheckBox.Visible := joinBattleId &lt;&gt; 0;
+   joinBattleCheckBox.Checked := joinBattleId &lt;&gt; 0;
+ 
++  lblInfo.Caption := Format(_('Downloading %s %s'),[LowerCase(dlType),dlName]);
++  SpTBXTitleBar1.Caption := lblInfo.Caption;
++  Self.Caption := lblInfo.Caption;
++
++  ShowAndSetFocus(CancelButton);
++  downloadLinks := GetDownloadLinks(dlName);
++
++  TryNextLink;
++
++  Exit;
++
++  // SpringDownloader code
++
+   sl := TStringList.Create;
+   sl.Add(dlType);
+   sl.Add(IntToStr(dlHash));
+   sl.Add(dlName);
+ 
+-  lblInfo.Caption := Format(_('Downloading %s %s'),[LowerCase(dlType),dlName]);
+-  SpTBXTitleBar1.Caption := lblInfo.Caption;
+-  Self.Caption := lblInfo.Caption;
+-
+   path := StringReplace(ExtractFilePath(Application.ExeName),'\','/',[rfReplaceAll]);
+   path := LeftStr(path,Length(path)-1);
+ 
+@@ -116,7 +193,7 @@
+   tmrTimeout.Enabled := True;
+ end;
+ 
+-function DownloadMod(modHash : integer; modName: string; joinBattleWhenDownloadComplete : integer = 0):TSpringDownloaderForm;
++function DownloadMod(modHash : integer; modName: string; joinBattleWhenDownloadComplete : integer = 0; scriptCallBack: PScriptDownloadCallback = nil; cb: TCallback=nil):TSpringDownloaderForm;
+ var
+   url: string;
+   cancel: boolean;
+@@ -131,6 +208,12 @@
+   if DownloadList.IndexOf(modName) &lt;&gt; -1 then
+     Exit;
+   Application.CreateForm(TSpringDownloaderForm, Result);
++  if scriptCallBack &lt;&gt; nil then
++  begin
++    Result.cbInfo := scriptCallBack;
++    Result.cbInfo.form := Result;
++    Result.OnProgress := cb.DownloadCallbackEvent;
++  end;
+   cancel := False;
+   if AcquireMainThread then
+   begin
+@@ -142,13 +225,62 @@
+   else
+   begin
+     Result.StartDownload('MOD',modHash,modName,joinBattleWhenDownloadComplete);
+-    Misc.ShowAndSetFocus(Result.CancelButton);
++    //Misc.ShowAndSetFocus(Result.CancelButton);
+   end;
+ 
+ end;
+ 
+-function DownloadMap(mapHash : integer; mapName: string; noBrowser : boolean = False):TSpringDownloaderForm;
++function GetDownloadLinks(name: string): TStringList;
+ var
++  idHttp: TIdHTTP;
++  xmlRequest : TStringList;
++  xmlRequestStream: TStringStream;
++  responseStream: TStringStream;
++  xmlDoc: TXMLDocument;
++  test: string;
++  linksNode: IXMLNode;
++  i:integer;
++begin
++  idHttp := TIdHTTP.Create(MainForm);
++  idHttp.Port := 80;
++  idHttp.Request.ContentType := 'application/soap+xml';
++  idHttp.Request.ContentEncoding := 'utf-8';
++
++  xmlRequest := TStringList.Create;
++  xmlRequest.Add('&lt;?xml version=&quot;1.0&quot; encoding=&quot;utf-8&quot;?&gt;');
++  xmlRequest.Add('&lt;soap12:Envelope xmlns:xsi=&quot;<A HREF="http://www.w3.org/2001/XMLSchema-instance">http://www.w3.org/2001/XMLSchema-instance</A>&quot; xmlns:xsd=&quot;<A HREF="http://www.w3.org/2001/XMLSchema">http://www.w3.org/2001/XMLSchema</A>&quot; xmlns:soap12=&quot;<A HREF="http://www.w3.org/2003/05/soap-envelope">http://www.w3.org/2003/05/soap-envelope</A>&quot;&gt;');
++  xmlRequest.Add('  &lt;soap12:Body&gt;');
++  xmlRequest.Add('    &lt;DownloadFile xmlns=&quot;<A HREF="http://planet-wars.eu/PlasmaServer/">http://planet-wars.eu/PlasmaServer/</A>&quot;&gt;');
++  xmlRequest.Add('      &lt;internalName&gt;'+name+'&lt;/internalName&gt;');
++  xmlRequest.Add('    &lt;/DownloadFile&gt;');
++  xmlRequest.Add('  &lt;/soap12:Body&gt;');
++  xmlRequest.Add('&lt;/soap12:Envelope&gt;');
++
++
++  xmlRequestStream := TStringStream.Create('');
++  xmlRequestStream.WriteString(xmlRequest.Text);
++
++  responseStream := TStringStream.Create('');
++
++  idHttp.Post('<A HREF="http://planet-wars.eu/PlasmaServer/service.asmx">http://planet-wars.eu/PlasmaServer/service.asmx</A>',xmlRequestStream,responseStream);
++
++  xmlDoc := TXMLDocument.Create(MainForm);
++  xmlDoc.LoadFromStream(responseStream);
++
++  result := TStringList.Create;
++
++  try
++    linksNode := xmlDoc.DocumentElement.ChildNodes.FindNode('soap:Body').ChildNodes.First.ChildNodes.FindNode('links');
++    for i:=0 to linksNode.ChildNodes.Count-1 do
++    begin
++      result.Add(linksNode.ChildNodes.Nodes[i].Text);
++    end;
++  except
++  end;
++end;
++
++function DownloadMap(mapHash : integer; mapName: string; noBrowser : boolean = False; scriptCallBack: PScriptDownloadCallback = nil; cb: TCallback=nil):TSpringDownloaderForm;
++var
+   url: string;
+   cancel: boolean;
+ begin
+@@ -163,6 +295,12 @@
+   if DownloadList.IndexOf(mapName) &lt;&gt; -1 then
+     Exit;
+   Application.CreateForm(TSpringDownloaderForm, Result);
++  if scriptCallBack &lt;&gt; nil then
++  begin
++    Result.cbInfo := scriptCallBack;
++    Result.cbInfo.form := Result;
++    Result.OnProgress := cb.DownloadCallbackEvent;
++  end;
+   cancel := false;
+   if AcquireMainThread then
+   begin
+@@ -174,7 +312,7 @@
+   else
+   begin
+     Result.StartDownload('MAP',mapHash,mapName);
+-    Misc.ShowAndSetFocus(Result.CancelButton);
++    //Misc.ShowAndSetFocus(Result.CancelButton);
+   end;
+ end;
+ 
+@@ -229,7 +367,7 @@
+       lblInfo.Font.Color := clRed;
+       tmrProgress.Enabled := False;
+       tmrTimeout.Enabled := False;
+-      CancelButton.Caption := 'Exit';
++      CancelButton.Caption := _('Exit');
+       if Assigned(FOnProgress) then
+         FOnProgress(cbInfo,-2);
+     end;
+@@ -238,6 +376,7 @@
+ 
+ procedure TSpringDownloaderForm.CancelButtonClick(Sender: TObject);
+ begin
++  downloadCanceled := True;
+   Close;
+ end;
+ 
+@@ -251,6 +390,9 @@
+     BorderStyle := bsNone;
+   end;
+ 
++  downloadLinks := TStringList.Create;
++  downloadCanceled := False;
++
+   FOnProgress := nil;
+ end;
+ 
+@@ -259,6 +401,7 @@
+   sl: TStringList;
+   path : string;
+ begin
++
+   sl := TStringList.Create;
+   sl.Add('display');
+ 
+@@ -274,18 +417,28 @@
+   sl: TStringList;
+   path : string;
+ begin
+-  if CancelButton.Caption = _('Cancel') then
++  if downloadCanceled then
+   begin
+-    sl := TStringList.Create;
++    try
++      downloadLinks.Clear;
++      HttpCli1.Abort;
++      if HttpCli1.RcvdStream &lt;&gt; nil then
++        HttpCli1.RcvdStream.Destroy;
++      HttpCli1.RcvdStream := nil;
++      if FileExists(fileName) then
++        DeleteFile(filename);
++    except
++    end;
++    {sl := TStringList.Create;
+     sl.Add('stop');
+ 
+     path := StringReplace(ExtractFilePath(Application.ExeName),'\','/',[rfReplaceAll]);
+     path := LeftStr(path,Length(path)-1);
+ 
+-    RegWriteMultiSz(HKCU,'\Software\SpringDownloader\'+path+'\request\',downloadName,sl);
++    RegWriteMultiSz(HKCU,'\Software\SpringDownloader\'+path+'\request\',downloadName,sl);}
+   end;
+-  tmrProgress.Enabled := False;
+-  tmrTimeout.Enabled := False;
++  //tmrProgress.Enabled := False;
++  //tmrTimeout.Enabled := False;
+   if Assigned(FOnProgress) then
+     FOnProgress(cbInfo,-3);
+   DownloadList.BeginUpdate;
+@@ -298,6 +451,7 @@
+   path : string;
+   tmp: integer;
+ begin
++  Exit;
+   if MainUnit.Debug.Enabled then
+     Misc.TryToAddLog(MainUnit.StartDebugLog,'Starting SpringDownloader ...');
+   if not RegKeyExists(HKLM,'Software\Microsoft\NET Framework Setup\NDP\v2.0.50727') or not RegReadBool(HKLM,'Software\Microsoft\NET Framework Setup\NDP\v2.0.50727','Install') then
+@@ -324,6 +478,7 @@
+   sl: TStringList;
+   path : string;
+ begin
++  Exit;
+   sl := TStringList.Create;
+   sl.Add('exit');
+ 
+@@ -333,4 +488,41 @@
+   RegWriteMultiSz(HKCU,'\Software\SpringDownloader\'+path+'\request\','ExitRequest',sl);
+ end;
+ 
++procedure TSpringDownloaderForm.HttpCli1DocData(Sender: TObject;
++  Buffer: Pointer; Len: Integer);
++begin
++  try
++    lblProgress.Caption := _('Progress : ')+Format(_('Received %s kB (%d%%)'),[Misc.FormatFileSize(HttpCli1.RcvdStream.Size),Round(HttpCli1.RcvdStream.Size / HttpCli1.ContentLength * 100)])
++  except
++    lblProgress.Caption := _('Progress : ')+Format('Received %s kB (%d%%)',[Misc.FormatFileSize(HttpCli1.RcvdStream.Size),Round(HttpCli1.RcvdStream.Size / HttpCli1.ContentLength * 100)])
++  end;
++  ProgressBar.Position := Round(HttpCli1.RcvdStream.Size / HttpCli1.ContentLength * 100);
++end;
++
++procedure TSpringDownloaderForm.HttpCli1DocBegin(Sender: TObject);
++var
++  FileStream: TFileStream;
++begin
++  lblInfo.Caption := Format(_('Downloading %s ...'),[downloadName]);
++
++  if fileName = '' then
++  begin
++    lblInfo.Caption := _('Download failed (')+downloadName+')';
++    lblInfo.Font.Color := clRed;
++    CancelButton.Caption := _('Exit');
++    if Assigned(FOnProgress) then
++      FOnProgress(cbInfo,-2);
++  end;
++
++  try
++    FileStream := TFileStream.Create(fileName, fmCreate);
++    HttpCli1.RcvdStream := FileStream;
++  except
++    try HttpCli1.Abort; except end;
++    lblInfo.Caption := _('Unable to create file: ') + fileName + _('. Download cancelled!');
++    lblInfo.Font.Color := clRed;
++    Exit;
++  end;
++end;
++
+ end.
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2010-08-26 17:28:11 UTC (rev 7514)
++++ Lobby/TASClient/TASClient.dof	2010-09-04 17:22:35 UTC (rev 7515)
+@@ -100,7 +100,7 @@
+ DebugSourceDirs=
+ UsePackages=0
+ [Parameters]
+-RunParams=
++RunParams=-IGNOREVERSION
+ HostApplication=C:\Program Files\Spring\TASClient.exe
+ Launcher=
+ UseLauncher=0
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=78
+ Release=0
+-Build=980
++Build=985
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.78.0.980
++FileVersion=0.78.0.985
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+Modified: Lobby/TASClient/UploadReplayUnit.dfm
+===================================================================
+--- Lobby/TASClient/UploadReplayUnit.dfm	2010-08-26 17:28:11 UTC (rev 7514)
++++ Lobby/TASClient/UploadReplayUnit.dfm	2010-09-04 17:22:35 UTC (rev 7515)
+@@ -1,6 +1,6 @@
+ object UploadReplayForm: TUploadReplayForm
+-  Left = 540
+-  Top = 181
++  Left = 1041
++  Top = 285
+   Width = 486
+   Height = 354
+   Caption = 'Upload replay'
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002286.html">[Taspring-linux-commit] r7516 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2285">[ date ]</a>
+              <a href="thread.html#2285">[ thread ]</a>
+              <a href="subject.html#2285">[ subject ]</a>
+              <a href="author.html#2285">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

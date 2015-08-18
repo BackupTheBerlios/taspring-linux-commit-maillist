@@ -1,0 +1,951 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7258 - in Lobby/TASClient: . Python	Python/engine
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2009-May/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7258%20-%20in%20Lobby/TASClient%3A%20.%20Python%0A%09Python/engine&In-Reply-To=%3C20090529234438.75CD13B6EE%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002026.html">
+   <LINK REL="Next"  HREF="002028.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7258 - in Lobby/TASClient: . Python	Python/engine</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7258%20-%20in%20Lobby/TASClient%3A%20.%20Python%0A%09Python/engine&In-Reply-To=%3C20090529234438.75CD13B6EE%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7258 - in Lobby/TASClient: . Python	Python/engine">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat May 30 01:44:38 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002026.html">[Taspring-linux-commit] r7257 - Lobby/TASServer
+</A></li>
+        <LI>Next message: <A HREF="002028.html">[Taspring-linux-commit] r7259 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2027">[ date ]</a>
+              <a href="thread.html#2027">[ thread ]</a>
+              <a href="subject.html#2027">[ subject ]</a>
+              <a href="author.html#2027">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2009-05-30 01:44:37 +0200 (Sat, 30 May 2009)
+New Revision: 7258
+
+Modified:
+   Lobby/TASClient/LobbyScriptUnit.pas
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/Python/api.txt
+   Lobby/TASClient/Python/engine/handlers.py
+   Lobby/TASClient/SearchFormUnit.pas
+   Lobby/TASClient/SpringDownloaderFormUnit.dfm
+   Lobby/TASClient/SpringDownloaderFormUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+- PYTHON : new callin: in2_PROTOCOLCMD(args), same as in_PROTOCOLCMD(args) but is triggered when the lobby has handled it
+- PYTHON : new callouts : DownloadMap(mapName,mapHash,callBackArgs,callBackModuleName,callBackFunctionName) DownloadMod(modName,modHash,callBackArgs,callBackModuleName,callBackFunctionName)
+- command auto completion on TAB added
+- /scriptdebugwindow command added
+- when autocompleting it shows a hint under the textbox with the valid possibilities
+
+Modified: Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- Lobby/TASClient/LobbyScriptUnit.pas	2009-05-29 15:38:45 UTC (rev 7257)
++++ Lobby/TASClient/LobbyScriptUnit.pas	2009-05-29 23:44:37 UTC (rev 7258)
+@@ -19,12 +19,12 @@
+     { Public declarations }
+   end;
+ 
+-  TScriptNotificationCallback = record
++  TScriptSimpleCallback = record
+     moduleName : string;
+     functionName : string;
+     args: PPyObject;
+   end;
+-  PScriptNotificationCallback = ^TScriptNotificationCallback;
++  PScriptSimpleCallback = ^TScriptSimpleCallback;
+ 
+   TScriptMenuItemCallBack = record
+     moduleName : string;
+@@ -98,7 +98,7 @@
+       function GetMenuSelectedId(menu: TTBCustomItem): string;
+       procedure MenuItemClick(Sender: TObject);
+       function GetFreeMenuId: integer;
+-      procedure NotificationClick(Sender: TObject);
++      procedure SimpleCallbackEvent(Sender: TObject);
+       procedure LockGUI;
+       procedure UnlockGUI;
+       procedure RefreshRichEditLists;
+@@ -110,14 +110,14 @@
+ 
+     public
+       constructor Create;
+-      function AddItemToMenu(menu: string;itemCaption: string; callInArgs: Variant; callbackModuleName: string; callbackFunctionName: string): integer;
++      function AddItemToMenu(menu: string;itemCaption: string; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string): integer;
+       function AddSubmenuToMenu(menu: string; itemCaption: string): integer;
+       function AddSeparatorToMenu(menu: string): integer;
+       procedure SetMenuItemState(id: integer; c: boolean; e: boolean);
+       procedure RemoveFromMenu(id: integer);
+ 
+       procedure DisplaySimpleNotification(title: string; msg: string; displayTime: integer);
+-      procedure DisplayNotification(title: string; msg: string; callInArgs: Variant; callbackModuleName: string; callbackFunctionName: string; displayTime: integer);
++      procedure DisplayNotification(title: string; msg: string; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string; displayTime: integer);
+ 
+       function GetControlProperties(component: string; prop: string): Variant;
+       function SetControlProperties(component: string; prop : string; propertiesV : Variant): boolean;
+@@ -165,7 +165,9 @@
+       procedure LockCallback;
+       procedure UnlockCallback;
+       procedure Print(data : string);
++      procedure DownloadCallbackEvent(snc: PScriptSimpleCallback;progress: integer);
+ 
++
+     public
+       // tasclient special functions
+       procedure ShowDebugWindow;
+@@ -203,6 +205,9 @@
+       procedure SetServers(sV : Variant);
+       function ChangeMap(mapName: string): Boolean;
+ 
++      procedure DownloadMap(mapName: string; mapHash: integer; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string);
++      procedure DownloadMod(modName: string; modHash: integer; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string);
++
+       constructor Create;
+       destructor Destroy;
+       
+@@ -282,7 +287,7 @@
+ 
+ uses PythonScriptDebugFormUnit, Utility, MapListFormUnit, HostBattleFormUnit,
+ BattleFormUnit, ReplaysUnit, PreferencesFormUnit, CustomizeGUIFormUnit,
+-  TypInfo;
++TypInfo,SpringDownloaderFormUnit;
+ 
+ 
+ //------------------------------------------------------------------------------------------------------
+@@ -829,6 +834,20 @@
+   CS.Leave;
+ end;
+ 
++procedure TCallback.DownloadCallbackEvent(snc: PScriptSimpleCallback;progress: integer);
++var
++  m : PPyObject;
++begin
++  AcquireMainThread;
++  with GetPythonEngine do
++  begin
++    m := FindFunction(snc.moduleName,snc.functionName);
++    PyList_SetItem(snc.args,0,PyLong_FromLong(progress));
++    EvalPyFunction(m,PyList_AsTuple(snc.args));
++  end;
++  ReleaseMainThread;
++end;
++
+ procedure TCallback.ClearRefs;
+ begin
+   SafeDecRef(pyGroups);
+@@ -1270,6 +1289,41 @@
+   AcquireMainThread;
+ end;
+ 
++procedure TCallback.DownloadMap(mapName: string; mapHash: integer; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string);
++var
++  snc : PScriptSimpleCallback;
++  nForm: TSpringDownloaderForm;
++begin
++  nForm := SpringDownloaderFormUnit.DownloadMap(mapHash,mapName);
++  New(snc);
++  snc.moduleName := callbackModuleName;
++  snc.functionName := callbackFunctionName;
++  with GetPythonEngine do
++  begin
++    snc.args := VariantAsPyObject(callbackArgs);
++    PyList_Insert(snc.args,0,PyLong_FromLong(0));
++  end;
++  nForm.cbInfo := snc;
++  nForm.OnProgress := DownloadCallbackEvent;
++end;
++procedure TCallback.DownloadMod(modName: string; modHash: integer; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string);
++var
++  snc : PScriptSimpleCallback;
++  nForm: TSpringDownloaderForm;
++begin
++  nForm := SpringDownloaderFormUnit.DownloadMod(modHash,modName);
++  New(snc);
++  snc.moduleName := callbackModuleName;
++  snc.functionName := callbackFunctionName;
++  with GetPythonEngine do
++  begin
++    snc.args := VariantAsPyObject(callbackArgs);
++    PyList_Insert(snc.args,0,PyLong_FromLong(0));
++  end;
++  nForm.cbInfo := snc;
++  nForm.OnProgress := DownloadCallbackEvent;
++end;
++
+ //------------------------------------------------------------------------------------------------------
+ //    TGUI
+ //------------------------------------------------------------------------------------------------------
+@@ -1500,7 +1554,7 @@
+   ReleaseMainThread;
+ end;
+ 
+-function TGUI.AddItemToMenu(menu: string;itemCaption: string; callInArgs: Variant; callbackModuleName: string; callbackFunctionName: string): integer;
++function TGUI.AddItemToMenu(menu: string;itemCaption: string; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string): integer;
+ var
+   m : TTBCustomItem;
+   s: PPyObject;
+@@ -1522,7 +1576,7 @@
+ 
+   with GetPythonEngine do
+   begin
+-    if not PyList_Check(VariantAsPyObject(callInArgs)) then
++    if not PyList_Check(VariantAsPyObject(callbackArgs)) then
+     begin
+       PythonScriptDebugFormUnit.printList.BeginUpdate;
+       PythonScriptDebugFormUnit.printList.Add('AddItemToMenu incorrect `callInArgs` for item : '+itemCaption);
+@@ -1539,7 +1593,7 @@
+       New(itemCb);
+       itemCb.moduleName := callbackModuleName;
+       itemCb.functionName := callbackFunctionName;
+-      itemCb.args := VariantAsPyObject(callInArgs);
++      itemCb.args := VariantAsPyObject(callbackArgs);
+       PyList_Insert(itemCb.args,0,PyString_FromString('')); // adding the returning id as first arg
+       itemCb.menu := m;
+       Tag := Longint(itemCb);
+@@ -1670,30 +1724,30 @@
+  MainForm.ExecuteNotification(N);
+ end;
+ 
+-procedure TGUI.DisplayNotification(title: string; msg: string; callInArgs: Variant; callbackModuleName: string; callbackFunctionName: string; displayTime: integer);
++procedure TGUI.DisplayNotification(title: string; msg: string; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string; displayTime: integer);
+ var
+-  snc : PScriptNotificationCallback;
++  snc : PScriptSimpleCallback;
+   N : TJvDesktopAlert;
+ begin
+   N := MainForm.MakeNotification(title,msg,displayTime,True);
+-  N.OnMessageClick := NotificationClick;
++  N.OnMessageClick := SimpleCallbackEvent;
+   New(snc);
+   snc.moduleName := callbackModuleName;
+   snc.functionName := callbackFunctionName;
+-  snc.args := GetPythonEngine.VariantAsPyObject(callInArgs);
++  snc.args := GetPythonEngine.VariantAsPyObject(callbackArgs);
+   N.Tag := Longint(snc);
+   MainForm.ExecuteNotification(N);
+ end;
+ 
+-procedure TGUI.NotificationClick(Sender: TObject);
++procedure TGUI.SimpleCallbackEvent(Sender: TObject);
+ var
+   m : PPyObject;
+-  snc : PScriptNotificationCallback;
++  snc : PScriptSimpleCallback;
+ begin
+   AcquireMainThread;
+   with GetPythonEngine do
+   begin
+-    snc := PScriptNotificationCallback(Pointer((Sender as TJvDesktopAlert).Tag));
++    snc := PScriptSimpleCallback(Pointer((Sender as TComponent).Tag));
+     m := FindFunction(snc.moduleName,snc.functionName);
+ 
+     EvalPyFunction(m,PyList_AsTuple(snc.args));
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2009-05-29 15:38:45 UTC (rev 7257)
++++ Lobby/TASClient/MainUnit.dfm	2009-05-29 23:44:37 UTC (rev 7258)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 313
+-  Top = 155
++  Left = 167
++  Top = 56
+   Width = 850
+   Height = 538
+   Caption = '.'
+@@ -6688,8 +6688,12 @@
+     end
+     object SubMenuWiki: TSpTBXSubmenuItem
+       Caption = 'Wiki / Online help'
++      object SpTBXItem5: TSpTBXItem
++        Caption = 'Wiki'
++        OnClick = SpTBXItem5Click
++      end
+       object mnuFAQ: TSpTBXItem
+-        Caption = 'FAQ'
++        Caption = 'FAQs'
+         OnClick = mnuFAQClick
+       end
+       object mnuPlayingSpring: TSpTBXItem
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2009-05-29 15:38:45 UTC (rev 7257)
++++ Lobby/TASClient/MainUnit.pas	2009-05-29 23:44:37 UTC (rev 7258)
+@@ -210,9 +210,48 @@
+   RegExpr,TntGraphics,SpTBXDkPanels, TB2Dock, UWebBrowserWrapper,TypInfo,TntForms,
+   Clipbrd,SyncObjs, JvExStdCtrls, JvBehaviorLabel, OleCtrls, SHDocVw,
+   JvWinampLabel, JvExControls, JvLinkLabel, xmldom, XMLIntf, msxmldom,
+-  XMLDoc, ActnList;
++  XMLDoc, ActnList, JvgHint;
+ 
+ const
++  CommandList : array[0..35] of string =
++   (
++      'CONNECT',
++      'QUIT',
++      'JOIN',
++      'PART',
++      'CHANNELS',
++      'LIST',
++      'ME',
++      'RING',
++      'HELP',
++      'UPTIME',
++      'KICK',
++      'RENAME',
++      'PASSWORD',
++      'TOPIC',
++      'CHANMSG',
++      'INGAME',
++      'IP',
++      'FINDIP',
++      'LASTIP',
++      'MUTE',
++      'UNMUTE',
++      'MUTELIST',
++      'TESTNOTIFY',
++      'FORCEUPDATE',
++      'FORCEBETAUPDATE',
++      'TESTUDP',
++      'TESTMD5',
++      'TESTCRASH',
++      'VERSION',
++      'TESTFLOOD',
++      'TESTAGREEMENT',
++      'LOCALIP',
++      'PING',
++      'MSG',
++      'HOOK',
++      'SCRPITSDEBUGWINDOW'
++   ) ;
+   CountryNames: array[0..240] of string = (
+   'Unknown country xx',
+   'AFGHANISTAN af',
+@@ -1245,6 +1284,7 @@
+     mnuSpringinfo: TSpTBXItem;
+     AutojoinTimer: TTimer;
+     ClearPlayersFilterButton: TSpTBXButton;
++    SpTBXItem5: TSpTBXItem;
+     procedure mnuOpenPrivateChatClick(Sender: TObject);
+     procedure mnuSelectBattleClick(Sender: TObject);
+     procedure SpTBXItem1Click(Sender: TObject);
+@@ -1397,6 +1437,7 @@
+     procedure Button1Click(Sender: TObject);
+     procedure ClearPlayersFilterButtonClick(Sender: TObject);
+     procedure SpTBXButton1Click(Sender: TObject);
++    procedure SpTBXItem5Click(Sender: TObject);
+   published
+     MainTitleBar: TSpTBXTitleBar;
+     ButtonImageList: TImageList;
+@@ -1431,6 +1472,8 @@
+     NewsBrowser: TWebBrowserWrapper;
+ 
+   public
++    autoCompletionHint : THintWindow;
++    
+     procedure CreateParams(var Params: TCreateParams); override;
+     procedure WMSysCommand(var Message: TWMSysCommand); message WM_SYSCOMMAND;
+ 
+@@ -1510,7 +1553,8 @@
+     procedure TryToSendDataDirectly(s: string); // deprecated - use TryToSendCommand method instead!
+     procedure TryToLogin(Username, Password: string);
+     procedure TryToRegister(Username, Password: string); // try to register new account
+-    procedure TryToAutoCompleteClientName(Edit: TTntMemo; Clients: TList);
++    procedure TryToAutoCompleteWord(Edit: TTntMemo; Clients: TList);
++    function TryToAutoCompleteCommand(word: string; pos: integer;Edit: TTntMemo):string;
+ 
+     procedure SortClientsList(List: TList; SortStyle: Byte);
+     procedure SortClientInList(client: TClient;List: TList; SortStyle: Byte);
+@@ -1845,22 +1889,22 @@
+ end;
+ procedure TMainForm.mnuFAQClick(Sender: TObject);
+ begin
+-  Misc.OpenURLInDefaultBrowser(_('<A HREF="http://spring.clan-sy.com/wiki/FAQ">http://spring.clan-sy.com/wiki/FAQ</A>'));
++  Misc.OpenURLInDefaultBrowser(_('<A HREF="http://springrts.com/wiki/FAQs">http://springrts.com/wiki/FAQs</A>'));
+ end;
+ 
+ procedure TMainForm.mnuPlayingSpringClick(Sender: TObject);
+ begin
+-  Misc.OpenURLInDefaultBrowser(_('<A HREF="http://spring.clan-sy.com/wiki/Using_Spring">http://spring.clan-sy.com/wiki/Using_Spring</A>'));
++  Misc.OpenURLInDefaultBrowser(_('<A HREF="http://springrts.com/wiki/Using_Spring">http://springrts.com/wiki/Using_Spring</A>'));
+ end;
+ 
+ procedure TMainForm.mnuGlossaryClick(Sender: TObject);
+ begin
+-  Misc.OpenURLInDefaultBrowser(_('<A HREF="http://spring.clan-sy.com/wiki/Glossary">http://spring.clan-sy.com/wiki/Glossary</A>'));
++  Misc.OpenURLInDefaultBrowser(_('<A HREF="http://springrts.com/wiki/Glossary">http://springrts.com/wiki/Glossary</A>'));
+ end;
+ 
+ procedure TMainForm.mnuStrategyAndTacticsClick(Sender: TObject);
+ begin
+-  Misc.OpenURLInDefaultBrowser(_('<A HREF="http://spring.clan-sy.com/wiki/Strategy_and_Tactics">http://spring.clan-sy.com/wiki/Strategy_and_Tactics</A>'));
++  Misc.OpenURLInDefaultBrowser(_('<A HREF="http://springrts.com/wiki/Strategy_and_Tactics">http://springrts.com/wiki/Strategy_and_Tactics</A>'));
+ end;
+ 
+ procedure TMainForm.OnDataHasArrivedMessage(var Msg: TMessage); // responds to WM_DATAHASARRIVED message
+@@ -2066,13 +2110,13 @@
+   begin
+     Handled := True;
+     if not Preferences.AutoCompletionFromCurrentChannel or (PageControl1.ActivePage.Caption = LOCAL_TAB) then
+-      TryToAutoCompleteClientName(TTntMemo(Screen.ActiveControl), AllClients)
++      TryToAutoCompleteWord(TTntMemo(Screen.ActiveControl), AllClients)
+     else if Screen.ActiveForm.Name = 'BattleForm' then
+-      TryToAutoCompleteClientName(TTntMemo(Screen.ActiveControl), BattleState.Battle.Clients)
++      TryToAutoCompleteWord(TTntMemo(Screen.ActiveControl), BattleState.Battle.Clients)
+     else if PageControl1.ActivePage.Caption[1] = '#' then // a channel tab
+-      TryToAutoCompleteClientName(TTntMemo(Screen.ActiveControl), (PageControl1.ActivePage as TMyTabSheet).Clients)
++      TryToAutoCompleteWord(TTntMemo(Screen.ActiveControl), (PageControl1.ActivePage as TMyTabSheet).Clients)
+     else // a private chat tab
+-      TryToAutoCompleteClientName(TTntMemo(Screen.ActiveControl), (PageControl1.ActivePage as TMyTabSheet).Clients);
++      TryToAutoCompleteWord(TTntMemo(Screen.ActiveControl), (PageControl1.ActivePage as TMyTabSheet).Clients);
+ 
+     Exit;
+   end;
+@@ -3644,6 +3688,8 @@
+   Left := 10;
+   Top := 10;
+ 
++  autoCompletionHint := THintWindow.Create(MainForm);
++
+   MainLogCS := TCriticalSection.Create;
+ 
+   SinglePlayerButton.Enabled := not RunningUnderWine;
+@@ -4803,6 +4849,10 @@
+       else
+         TryToSendCommand('HOOK')
+     end
++    else if (sl[0] = 'SCRPITSDEBUGWINDOW') then
++    begin
++      PythonScriptDebugForm.Show;
++    end
+     else if (sl[0] = 'IGNORE') then
+     begin
+       if sl.Count = 1 then
+@@ -7041,6 +7091,10 @@
+       AddMainLog(_('Error: Server sent unknown or invalid command!'), Colors.Error);
+     end;
+   finally
++    AcquireMainThread;
++    try if not Preferences.ScriptsDisabled then handlers.handleIn2(s); except end;
++    ReleaseMainThread;
++    
+     ProcessingRemoteCommand := False;
+     Status.LastCommandReceived := sl[0];
+     if sl &lt;&gt; nil then sl.Free;
+@@ -7659,8 +7713,49 @@
+   TryToSendCommand('REGISTER', Username + ' ' + Password);
+ end;
+ 
++function TMainForm.TryToAutoCompleteCommand(word: string; pos: integer;Edit: TTntMemo):string;
++var
++  i:integer;
++  validCommands: TStringList;
++  hintStr: string;
++  r: TRect;
++begin
++  Result := word;
++
++  validCommands := TStringList.Create;
++  for i:=0 to High(CommandList) do
++    if '/'+LowerCase(LeftStr(CommandList[i],pos-1)) = LeftStr(word,pos) then
++      validCommands.Add(CommandList[i]);
++
++  autoCompletionHint.ReleaseHandle;
++
++  if validCommands.Count = 0 then Exit;
++  
++  hintStr := JoinStringList(validCommands,' - ');
++  r := autoCompletionHint.CalcHintRect(Edit.Width,hintStr,nil);
++  autoCompletionHint.ActivateHint(Rect(Edit.ClientOrigin.X,Edit.ClientOrigin.Y+Edit.Height,Edit.ClientOrigin.X+r.Right,Edit.ClientOrigin.Y+Edit.Height+r.Bottom),hintStr);
++
++
++
++
++  Result := '/'+LowerCase(validCommands[0]);
++
++  for i:=0 to validCommands.Count-1 do
++    if '/'+LowerCase(validCommands[i]) = LowerCase(word) then
++      if i = validCommands.Count-1 then
++      begin
++        Result := '/'+LowerCase(validCommands[0]);
++        Exit;
++      end
++      else
++      begin
++        Result := '/'+LowerCase(validCommands[i+1]);
++        Exit;
++      end;
++end;
++
+ // &quot;Edit&quot; must be from TMyTabSheet container! (this method uses clients
+-procedure TMainForm.TryToAutoCompleteClientName(Edit: TTntMemo; Clients: TList);
++procedure TMainForm.TryToAutoCompleteWord(Edit: TTntMemo; Clients: TList);
+ var
+   s: string;
+   text: string;
+@@ -7672,8 +7767,10 @@
+   splitedString: TWideStringList;
+   completionWordIndex: integer;
+   selStart: integer;
++  r: TRect;
++  hintStr: string;
+ begin
+-  if (Clients.Count = 0) or ((Edit.SelLength &lt;&gt; 0) and (Edit.Tag = 0))  or (Edit.Text = '') then
++  if ((Clients.Count = 0) and (LeftStr(Edit.Text,1) &lt;&gt; '/')) or ((Edit.SelLength &lt;&gt; 0) and (Edit.Tag = 0))  or (Edit.Text = '') then
+   begin
+     Beep;
+     Exit;
+@@ -7707,40 +7804,56 @@
+   // we use the Edit.Tag to save the length of the first string we tab
+   if Edit.Tag = 0 then
+   begin
+-    Edit.Tag := Edit.SelStart - (j-Length(splitedString[i])-1);
+-    splitedString[i] := LeftStr(splitedString[i],Edit.Tag);
+-    autoCompleteString := LowerCase(splitedString[i]);
++    Edit.Tag := Edit.SelStart - (j-Length(splitedString[completionWordIndex])-1);
++    splitedString[i] := LeftStr(splitedString[completionWordIndex],Edit.Tag);
++    autoCompleteString := LowerCase(splitedString[completionWordIndex]);
+   end;
+ 
+-  // extract the good ones
+-  for i:=0 to SortedClientsList.Count-1 do
+-    if autoCompleteString = LowerCase(LeftStr(SortedClientsList[i],Length(autoCompleteString))) then
+-      ValidClientsList.Add(SortedClientsList[i]);
+-  for i:=0 to SortedClientsList.Count-1 do
+-    if Pos(autoCompleteString,LowerCase(SortedClientsList[i])) &gt; 0 then
+-      ValidClientsList.Add(SortedClientsList[i]);
+-
+-  if ValidClientsList.Count = 0 then
++  if (LeftStr(Edit.Text,1) = '/') and (completionWordIndex = 0) then
+   begin
+-    Beep;
+-    Exit;
+-  end;
+-
+-  // we replace the username
+-  if Length(splitedString[completionWordIndex]) = Edit.Tag then // is it the first tab we do ?
+-    splitedString[completionWordIndex] := ValidClientsList[0]
++    splitedString[completionWordIndex] := TryToAutoCompleteCommand(splitedString[completionWordIndex],Edit.Tag,Edit);
++  end
+   else
+   begin
+-    j := 0;
+-    for i:=0 to ValidClientsList.Count-1 do
+-      if LowerCase(ValidClientsList[i]) = LowerCase(splitedString[completionWordIndex]) then
+-      begin
+-        j := i;
+-        break;
+-      end;
+-    if j = ValidClientsList.Count-1 then
+-      j:=-1;
+-    splitedString[completionWordIndex] := ValidClientsList[j+1];
++    // extract the good ones
++    for i:=0 to SortedClientsList.Count-1 do
++      if autoCompleteString = LowerCase(LeftStr(SortedClientsList[i],Length(autoCompleteString))) then
++        ValidClientsList.Add(SortedClientsList[i]);
++    for i:=0 to SortedClientsList.Count-1 do
++      if (ValidClientsList.IndexOf(SortedClientsList[i]) = -1) and  (Pos(autoCompleteString,LowerCase(SortedClientsList[i])) &gt; 0) then
++        ValidClientsList.Add(SortedClientsList[i]);
++
++
++    autoCompletionHint.ReleaseHandle;
++    
++    if ValidClientsList.Count = 0 then
++    begin
++      Beep;
++      Exit;
++    end;
++
++
++    hintStr := JoinStringList(ValidClientsList,' - ');
++    r := autoCompletionHint.CalcHintRect(Edit.Width,hintStr,nil);
++    autoCompletionHint.ActivateHint(Rect(Edit.ClientOrigin.X,Edit.ClientOrigin.Y+Edit.Height,Edit.ClientOrigin.X+r.Right,Edit.ClientOrigin.Y+Edit.Height+r.Bottom),hintStr);
++
++
++    // we replace the username
++    if Length(splitedString[completionWordIndex]) = Edit.Tag then // is it the first tab we do ?
++      splitedString[completionWordIndex] := ValidClientsList[0]
++    else
++    begin
++      j := 0;
++      for i:=0 to ValidClientsList.Count-1 do
++        if LowerCase(ValidClientsList[i]) = LowerCase(splitedString[completionWordIndex]) then
++        begin
++          j := i;
++          break;
++        end;
++      if j = ValidClientsList.Count-1 then
++        j:=-1;
++      splitedString[completionWordIndex] := ValidClientsList[j+1];
++    end;
+   end;
+ 
+ 
+@@ -7872,6 +7985,16 @@
+   i: Integer;
+   p: TPoint;
+ begin
++  // cursor moved
++  GetCursorPos(p);
++  if (p.X &lt;&gt; LastCursorPos.X) and (p.Y &lt;&gt; LastCursorPos.Y)then
++  begin
++    autoCompletionHint.ReleaseHandle;
++    Status.AwayTime := GetTickCount;
++    AutoSetBack;
++  end;
++  LastCursorPos := p;
++
+   // lets purge the Pings list:
+   i := 0;
+   while i &lt; Pings.Count do
+@@ -7914,15 +8037,6 @@
+     end;
+   end;
+ 
+-  // cursor moved
+-  GetCursorPos(p);
+-  if (p.X &lt;&gt; LastCursorPos.X) and (p.Y &lt;&gt; LastCursorPos.Y)then
+-  begin
+-    Status.AwayTime := GetTickCount;
+-    AutoSetBack;
+-  end;
+-  LastCursorPos := p;
+-
+   // we will also use this timer to check if user is away:
+   if (GetTickCount - Status.AwayTime &gt; AWAY_TIME) then // (not Application.Active) and
+   begin // user is away
+@@ -9671,12 +9785,12 @@
+ 
+ procedure TMainForm.mnuBugTrackerClick(Sender: TObject);
+ begin
+-  Misc.OpenURLInDefaultBrowser('<A HREF="http://spring.clan-sy.com/mantis/">http://spring.clan-sy.com/mantis/</A>');
++  Misc.OpenURLInDefaultBrowser('<A HREF="http://springrts.com/mantis/">http://springrts.com/mantis/</A>');
+ end;
+ 
+ procedure TMainForm.mnuMessageboardClick(Sender: TObject);
+ begin
+-  Misc.OpenURLInDefaultBrowser('<A HREF="http://spring.clan-sy.com/phpbb/index.php">http://spring.clan-sy.com/phpbb/index.php</A>');
++  Misc.OpenURLInDefaultBrowser('<A HREF="http://springrts.com/phpbb/index.php">http://springrts.com/phpbb/index.php</A>');
+ end;
+ 
+ procedure TMainForm.mnuSpringHomePageClick(Sender: TObject);
+@@ -11712,4 +11826,9 @@
+   AddBotForm.Show;
+ end;
+ 
++procedure TMainForm.SpTBXItem5Click(Sender: TObject);
++begin
++  Misc.OpenURLInDefaultBrowser(_('<A HREF="http://springrts.com/wiki/FAQ">http://springrts.com/wiki/FAQ</A>'));
++end;
++
+ end.
+
+Modified: Lobby/TASClient/Python/api.txt
+===================================================================
+--- Lobby/TASClient/Python/api.txt	2009-05-29 15:38:45 UTC (rev 7257)
++++ Lobby/TASClient/Python/api.txt	2009-05-29 23:44:37 UTC (rev 7258)
+@@ -6,6 +6,8 @@
+ - in_PROTOCOLCMD(args) return newArgs
+ 	PROTOCOLCMD can be any of the incoming protocol command : SAID, SAIDEX ...
+ 	see the protocol documentation for more information
++- in2_PROTOCOLCMD(args)
++	same as above but is triggered when the lobby has handled the command
+ - out_PROTOCOLCMD(args) return newArgs
+ 	PROTOCOLCMD can be any of the outgoing protocol command : SAY, SAYEX ...
+ 	see the protocol documentation for more information
+@@ -22,6 +24,8 @@
+ - onURLClick(channel,url) return dontLetLobbyHandleIt : boolean
+ - onChatDblClick(channel,charPos,line) return dontLetLobbyHandleIt : boolean
+ - onStartSpring(args) return newArgs : string
++- onDownloadModStart(formName,modHash,modName)
++- onDownloadMapStart(formName,mapHash,mapName)
+ 
+ 
+ Callback class
+@@ -58,6 +62,13 @@
+ - LeaveBattle
+ - StartBattle
+ - ChangeMap(mapName)
++- DownloadMap(mapName,mapHash,callBackArgs,callBackModuleName,callBackFunctionName)
++	The progress in % is returned as first argument added to the argsTuple.
++	Progress = -1 : download complete
++	Progress = -2 : download failed (file not found, SD not launched etc)
++	Progress = -3 : download canceled
++- DownloadMod(modName,modHash,callBackArgs,callBackModuleName,callBackFunctionName)
++	Same as DownloadMap
+ 
+ GUI Class
+ ---------
+
+Modified: Lobby/TASClient/Python/engine/handlers.py
+===================================================================
+--- Lobby/TASClient/Python/engine/handlers.py	2009-05-29 15:38:45 UTC (rev 7257)
++++ Lobby/TASClient/Python/engine/handlers.py	2009-05-29 23:44:37 UTC (rev 7258)
+@@ -169,6 +169,9 @@
+ 			exec 'function = script.all_%s' % direction
+ 			return _call_function(function, spaces, data, cmd, data)
+ 	return data
++	
++def handleIn2(data, recursing=0):
++	return _handle('in2', data)
+ 
+ def handleIn(data, recursing=0):
+ 	return _handle('in', data)
+@@ -236,6 +239,12 @@
+ def onChatDblClick(channel,charPos,line):
+ 	return _handle_callin('onChatDblClick',channel+' '+str(charPos)+' '+line)
+ 	
++def onDownloadModStart(formName,modHash,modName):
++	return _handle_callin('onDownloadModStart',formName+' '+str(modHash)+' '+modName)
++	
++def onDownloadMapStart(formName,mapHash,mapName):
++	return _handle_callin('onDownloadModStart',formName+' '+str(mapHash)+' '+mapName)
++	
+ def onStartSpring(args):
+ 	return _handle_callin('onStartSpring',args)
+ 	
+
+Modified: Lobby/TASClient/SearchFormUnit.pas
+===================================================================
+--- Lobby/TASClient/SearchFormUnit.pas	2009-05-29 15:38:45 UTC (rev 7257)
++++ Lobby/TASClient/SearchFormUnit.pas	2009-05-29 23:44:37 UTC (rev 7258)
+@@ -57,6 +57,7 @@
+ procedure TSearchForm.FormCreate(Sender: TObject);
+ begin
+   TranslateComponent(self);
++  CategorySearchBox.ItemIndex := 0;
+ end;
+ 
+ end.
+
+Modified: Lobby/TASClient/SpringDownloaderFormUnit.dfm
+===================================================================
+--- Lobby/TASClient/SpringDownloaderFormUnit.dfm	2009-05-29 15:38:45 UTC (rev 7257)
++++ Lobby/TASClient/SpringDownloaderFormUnit.dfm	2009-05-29 23:44:37 UTC (rev 7258)
+@@ -1,6 +1,6 @@
+ object SpringDownloaderForm: TSpringDownloaderForm
+-  Left = 360
+-  Top = 374
++  Left = 240
++  Top = 33
+   BorderStyle = bsDialog
+   Caption = 'Downloading ...'
+   ClientHeight = 174
+
+Modified: Lobby/TASClient/SpringDownloaderFormUnit.pas
+===================================================================
+--- Lobby/TASClient/SpringDownloaderFormUnit.pas	2009-05-29 15:38:45 UTC (rev 7257)
++++ Lobby/TASClient/SpringDownloaderFormUnit.pas	2009-05-29 23:44:37 UTC (rev 7258)
+@@ -4,9 +4,12 @@
+ 
+ uses
+   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
+-  Dialogs, SpTBXItem, SpTBXControls, TBXDkPanels, JclRegistry, ExtCtrls,ShellAPI;
++  Dialogs, SpTBXItem, SpTBXControls, TBXDkPanels, JclRegistry, ExtCtrls,ShellAPI,
++  LobbyScriptUnit, Math;
+ 
+ type
++  TProgressEvent = procedure(snc: PScriptSimpleCallback;progress: integer) of object;
++
+   TSpringDownloaderForm = class(TForm)
+     SpTBXTitleBar1: TSpTBXTitleBar;
+     ProgressBar: TSpTBXProgressBar;
+@@ -36,12 +39,16 @@
+ 
+     downloading: boolean;
+     timeOutCounter: integer;
++
++    FOnProgress: TProgressEvent;
+   public
++    cbInfo: PScriptSimpleCallback;
+     procedure StartDownload(dlType: string; dlHash : integer; dlName: string; joinBattleWhenDownloadComplete : integer = 0);
++    property OnProgress: TProgressEvent read FOnProgress write FOnProgress;
+   end;
+ 
+-  procedure DownloadMod(modHash : integer; modName: string; joinBattleWhenDownloadComplete : integer = 0);
+-  procedure DownloadMap(mapHash : integer; mapName: string; noBrowser : boolean = False);
++  function DownloadMod(modHash : integer; modName: string; joinBattleWhenDownloadComplete : integer = 0):TSpringDownloaderForm;
++  function DownloadMap(mapHash : integer; mapName: string; noBrowser : boolean = False):TSpringDownloaderForm;
+   procedure StartSpringDownloader;
+   procedure CloseSpringDownloader;
+ var
+@@ -56,8 +63,7 @@
+ 
+ implementation
+ 
+-uses  BattleFormUnit,PreferencesFormUnit, MainUnit, StrUtils, Misc, ComObj, gnugettext,
+-      LobbyScriptUnit;
++uses  BattleFormUnit,PreferencesFormUnit, MainUnit, StrUtils, Misc, ComObj, gnugettext;
+ 
+ {$R *.dfm}
+ 
+@@ -110,9 +116,8 @@
+   tmrTimeout.Enabled := True;
+ end;
+ 
+-procedure DownloadMod(modHash : integer; modName: string; joinBattleWhenDownloadComplete : integer = 0);
++function DownloadMod(modHash : integer; modName: string; joinBattleWhenDownloadComplete : integer = 0):TSpringDownloaderForm;
+ var
+-  newDownloadForm: TSpringDownloaderForm;
+   url: string;
+ begin
+   if not Preferences.EnableSpringDownloader then
+@@ -124,17 +129,16 @@
+   end;
+   if DownloadList.IndexOf(modName) &lt;&gt; -1 then
+     Exit;
+-  Application.CreateForm(TSpringDownloaderForm, newDownloadForm);
+-  newDownloadForm.StartDownload('MOD',modHash,modName,joinBattleWhenDownloadComplete);
++  Application.CreateForm(TSpringDownloaderForm, Result);
++  Result.StartDownload('MOD',modHash,modName,joinBattleWhenDownloadComplete);
+   AcquireMainThread;
+-  try if not Preferences.ScriptsDisabled then handlers.onDownloadModStart(LobbyScriptUnit.GetStringFromComponent(newDownloadForm),modHash,modName); except end;
++  try if not Preferences.ScriptsDisabled then handlers.onDownloadModStart(LobbyScriptUnit.GetStringFromComponent(Result),modHash,modName); except end;
+   ReleaseMainThread;
+-  Misc.ShowAndSetFocus(newDownloadForm.DetailsButton);
++  Misc.ShowAndSetFocus(Result.DetailsButton);
+ end;
+ 
+-procedure DownloadMap(mapHash : integer; mapName: string; noBrowser : boolean = False);
++function DownloadMap(mapHash : integer; mapName: string; noBrowser : boolean = False):TSpringDownloaderForm;
+ var
+-  newDownloadForm: TSpringDownloaderForm;
+   url: string;
+ begin
+   if not Preferences.EnableSpringDownloader then
+@@ -147,12 +151,12 @@
+   end;
+   if DownloadList.IndexOf(mapName) &lt;&gt; -1 then
+     Exit;
+-  Application.CreateForm(TSpringDownloaderForm, newDownloadForm);
+-  newDownloadForm.StartDownload('MAP',mapHash,mapName);
++  Application.CreateForm(TSpringDownloaderForm, Result);
++  Result.StartDownload('MAP',mapHash,mapName);
+   AcquireMainThread;
+-  try if not Preferences.ScriptsDisabled then handlers.onDownloadMapStart(LobbyScriptUnit.GetStringFromComponent(newDownloadForm),mapHash,mapName); except end;
++  try if not Preferences.ScriptsDisabled then handlers.onDownloadMapStart(LobbyScriptUnit.GetStringFromComponent(Result),mapHash,mapName); except end;
+   ReleaseMainThread;
+-  Misc.ShowAndSetFocus(newDownloadForm.DetailsButton);
++  Misc.ShowAndSetFocus(Result.DetailsButton);
+ end;
+ 
+ procedure TSpringDownloaderForm.tmrProgressTimer(Sender: TObject);
+@@ -171,6 +175,8 @@
+     lblInfo.Caption := Format(_('Downloading %s ...'),[sl[2]]);
+     lblRemainingTime.Caption := _('Remaining time : ')+sl[4];
+     lblProgress.Caption := _('Progress : ')+sl[5];
++    if Assigned(FOnProgress) then
++      FOnProgress(cbInfo,Floor(100*ProgressBar.Position/ProgressBar.Max));
+   except
+     if downloading then // if download complete
+     begin
+@@ -183,6 +189,8 @@
+         if battle &lt;&gt; nil then
+           MainForm.JoinBattle(battle);
+       end;
++      if Assigned(FOnProgress) then
++        FOnProgress(cbInfo,-1);
+       Close;
+       Exit;
+     end;
+@@ -201,7 +209,10 @@
+       lblInfo.Caption := _('Download failed (')+downloadName+')';
+       lblInfo.Font.Color := clRed;
+       tmrProgress.Enabled := False;
++      tmrTimeout.Enabled := False;
+       CancelButton.Caption := 'Exit';
++      if Assigned(FOnProgress) then
++        FOnProgress(cbInfo,-2);
+     end;
+   end;
+ end;
+@@ -223,6 +234,8 @@
+   end;
+   tmrProgress.Enabled := False;
+   tmrTimeout.Enabled := False;
++  if Assigned(FOnProgress) then
++    FOnProgress(cbInfo,-3);
+   Close;
+   Exit;
+ end;
+@@ -251,6 +264,7 @@
+ procedure TSpringDownloaderForm.FormClose(Sender: TObject;
+   var Action: TCloseAction);
+ begin
++  CancelButtonClick(nil);
+   DownloadList.BeginUpdate;
+   try DownloadList.Delete(DownloadList.IndexOf(downloadName)); except end;
+   DownloadList.EndUpdate;
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2009-05-29 15:38:45 UTC (rev 7257)
++++ Lobby/TASClient/TASClient.dof	2009-05-29 23:44:37 UTC (rev 7258)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=47
+ Release=0
+-Build=595
++Build=598
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.47.0.595
++FileVersion=0.47.0.598
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002026.html">[Taspring-linux-commit] r7257 - Lobby/TASServer
+</A></li>
+	<LI>Next message: <A HREF="002028.html">[Taspring-linux-commit] r7259 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2027">[ date ]</a>
+              <a href="thread.html#2027">[ thread ]</a>
+              <a href="subject.html#2027">[ subject ]</a>
+              <a href="author.html#2027">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,208 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7638 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2012-March/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7638%20-%20Lobby/TASClient&In-Reply-To=%3Cmailman.125.1332602633.1571.taspring-linux-commit%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002407.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7638 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7638%20-%20Lobby/TASClient&In-Reply-To=%3Cmailman.125.1332602633.1571.taspring-linux-commit%40lists.berlios.de%3E"
+       TITLE="[Taspring-linux-commit] r7638 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Mar 24 16:14:40 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002407.html">[Taspring-linux-commit] r7637 - Lobby/TASClient
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2408">[ date ]</a>
+              <a href="thread.html#2408">[ thread ]</a>
+              <a href="subject.html#2408">[ subject ]</a>
+              <a href="author.html#2408">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2012-03-24 16:14:38 +0100 (Sat, 24 Mar 2012)
+New Revision: 7638
+
+Modified:
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+   Lobby/TASClient/Utility.pas
+Log:
+* use the major AND the minor spring version for comparison with server spring version
+* check for lobby update before updating spring
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2012-03-13 20:22:00 UTC (rev 7637)
++++ Lobby/TASClient/MainUnit.pas	2012-03-24 15:14:38 UTC (rev 7638)
+@@ -866,12 +866,13 @@
+     autoUpdt: boolean;
+     delay: integer;
+     forceUpt: boolean;
++    startSpringDl: boolean;
+ 
+   protected
+     procedure Execute; override;
+ 
+   public
+-    constructor Create(Suspended: Boolean;downloadBeta: boolean; autoUpdate: boolean; delayed : integer = 0; forceUpdate: boolean = False);
++    constructor Create(Suspended: Boolean;downloadBeta: boolean; autoUpdate: boolean; delayed : integer = 0; forceUpdate: boolean = False; startSpringUpdateDownloadIfNoLobbyUpdate: boolean = False);
+   end;
+ 
+   TScrollingNewsRefreshThread = class(TTASClientThread)
+@@ -6028,9 +6029,14 @@
+         DownloadFile.FileName := sl2[0];
+         DownloadFile.ServerOptions := tmpint;
+         DownloadFile.HeaderReceived := False;
+-        PostMessage(HttpGetForm.Handle, WM_STARTDOWNLOAD, 0, 0);
++        TLobbyUpdateThread.Create(False, False, True, 0, False, True );
+       end
+-      else if (tmpint and 4) = 4 then TryToDisconnect;
++      else
++      begin
++        TLobbyUpdateThread.Create(False, False, True );
++        if (tmpint and 4) = 4 then
++          TryToDisconnect;
++      end;
+     end
+     else if sl[0] = 'UDPSOURCEPORT' then
+     begin
+@@ -12828,7 +12834,7 @@
+   end;
+ end;
+ 
+-constructor TLobbyUpdateThread.Create(Suspended: Boolean;downloadBeta: boolean; autoUpdate: boolean; delayed : integer = 0; forceUpdate: boolean = False);
++constructor TLobbyUpdateThread.Create(Suspended: Boolean;downloadBeta: boolean; autoUpdate: boolean; delayed : integer = 0; forceUpdate: boolean = False; startSpringUpdateDownloadIfNoLobbyUpdate: boolean = False);
+ begin
+    FreeOnTerminate := True;
+    inherited Create(Suspended);
+@@ -12836,6 +12842,7 @@
+    autoUpdt := autoUpdate;
+    delay := delayed;
+    forceUpt := forceUpdate;
++   startSpringDl := startSpringUpdateDownloadIfNoLobbyUpdate;
+ end;
+ 
+ procedure TLobbyUpdateThread.Execute;
+@@ -12870,6 +12877,10 @@
+     except
+       MainForm.AddMainLog(_('Warning: Lobby update server unavailable.'), Colors.Normal);
+       autoUpdateDone := True;
++      if startSpringDl then
++      begin
++        PostMessage(HttpGetForm.Handle, WM_STARTDOWNLOAD, 0, 0);
++      end;
+       Exit;
+     end;
+     try
+@@ -12912,8 +12923,12 @@
+     except
+       MainForm.AddMainLog(_('Warning: Auto-update file broken.'), Colors.Normal);
+       autoUpdateDone := True;
+-      Exit;
+     end;
++
++    if startSpringDl then
++    begin
++      PostMessage(HttpGetForm.Handle, WM_STARTDOWNLOAD, 0, 0);
++    end;
+   end;
+ end;
+ 
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2012-03-13 20:22:00 UTC (rev 7637)
++++ Lobby/TASClient/TASClient.dof	2012-03-24 15:14:38 UTC (rev 7638)
+@@ -100,7 +100,7 @@
+ DebugSourceDirs=
+ UsePackages=0
+ [Parameters]
+-RunParams=-debug
++RunParams=
+ HostApplication=C:\Program Files\Spring\TASClient.exe
+ Launcher=
+ UseLauncher=0
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=95
+ Release=0
+-Build=1352
++Build=1356
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TASClient
+-FileVersion=0.95.0.1352
++FileVersion=0.95.0.1356
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+Modified: Lobby/TASClient/Utility.pas
+===================================================================
+--- Lobby/TASClient/Utility.pas	2012-03-13 20:22:00 UTC (rev 7637)
++++ Lobby/TASClient/Utility.pas	2012-03-24 15:14:38 UTC (rev 7638)
+@@ -220,6 +220,7 @@
+ function InitEx(isServer: Boolean; id: Integer; enable_logging: Boolean): Integer; stdcall; external 'UnitSync.dll' name 'Init';
+ procedure UnInit; stdcall; external 'UnitSync.dll' name 'UnInit';
+ {since 0.75} function GetSpringVersion: PChar; stdcall; external 'UnitSync.dll' name 'GetSpringVersion';
++{since 0.8x} function GetSpringVersionPatchset: PChar; stdcall; external 'UnitSync.dll' name 'GetSpringVersionPatchset';
+ function ProcessUnits: Integer; stdcall; external 'UnitSync.dll' name 'ProcessUnits';
+ {since 0.61}function ProcessUnitsNoChecksum: Integer; stdcall; external 'UnitSync.dll' name 'ProcessUnitsNoChecksum';
+ function GetCurrentList: PChar; stdcall; external 'UnitSync.dll' name 'GetCurrentList';
+@@ -473,7 +474,7 @@
+ 
+ function AcquireSpringVersion: string;
+ begin
+-  Result := GetSpringVersion;
++  Result := GetSpringVersion+'.'+GetSpringVersionPatchset;
+ end;
+ 
+ { ------------------------------------------------------------------------ }
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002407.html">[Taspring-linux-commit] r7637 - Lobby/TASClient
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2408">[ date ]</a>
+              <a href="thread.html#2408">[ thread ]</a>
+              <a href="subject.html#2408">[ subject ]</a>
+              <a href="author.html#2408">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

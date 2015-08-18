@@ -1,0 +1,1220 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5402 - in trunk/rts: Game Game/UI System	System/Net System/Script
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5402%20-%20in%20trunk/rts%3A%20Game%20Game/UI%20System%0A%09System/Net%20System/Script&In-Reply-To=%3CE1JIvYp-00069b-Ot%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000208.html">
+   <LINK REL="Next"  HREF="000210.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5402 - in trunk/rts: Game Game/UI System	System/Net System/Script</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5402%20-%20in%20trunk/rts%3A%20Game%20Game/UI%20System%0A%09System/Net%20System/Script&In-Reply-To=%3CE1JIvYp-00069b-Ot%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5402 - in trunk/rts: Game Game/UI System	System/Net System/Script">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Jan 27 01:39:47 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000208.html">[Taspring-linux-commit] r5401 - trunk/AI/Global/KAIK-0.13
+</A></li>
+        <LI>Next message: <A HREF="000210.html">[Taspring-linux-commit] r5403 - in trunk: rts/Game rts/System	tools/DedicatedServer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#209">[ date ]</a>
+              <a href="thread.html#209">[ thread ]</a>
+              <a href="subject.html#209">[ subject ]</a>
+              <a href="author.html#209">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-01-27 01:39:47 +0100 (Sun, 27 Jan 2008)
+New Revision: 5402
+
+Added:
+   trunk/rts/System/SFloat3.h
+   trunk/rts/System/UnsyncedRNG.cpp
+   trunk/rts/System/UnsyncedRNG.h
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameServer.h
+   trunk/rts/Game/GameSetup.cpp
+   trunk/rts/Game/GameSetup.h
+   trunk/rts/Game/GameSetupData.cpp
+   trunk/rts/Game/GameSetupData.h
+   trunk/rts/Game/PreGame.cpp
+   trunk/rts/Game/UI/GameSetupDrawer.cpp
+   trunk/rts/Game/UI/GameSetupDrawer.h
+   trunk/rts/System/BaseNetProtocol.cpp
+   trunk/rts/System/BaseNetProtocol.h
+   trunk/rts/System/DemoReader.cpp
+   trunk/rts/System/Net/UDPSocket.h
+   trunk/rts/System/Script/LuaBinder.cpp
+   trunk/rts/System/float3.h
+Log:
+* factored out unsynced RNG from GameServer to separate class
+* NETMSG_STARTPLAYING now has a parameter countdown (0 == instant start)
+* new TEAMMSG_JOIN_TEAM (still todo: in-game teamchange)
+* new SFloat3 with 3 float members (x,y,z), for use in unsynced code
+* when a gameSetup is read from an demofile, numDemoPlayers and demoName is set to correct values
+* gameserver now tracks the player's teams
+* refactoring of gameStarting:
+  - CGameServer decides when to start a game
+  - force-start is done with a NETMSG_STARTPLAYING from an privileged client
+  - server don't forward startpos-messages when they are not selected ingame
+* players from demos with gameSetup inside will no longer be set to spectator when they weren't
+* fixed bug #773: same mods with different filenames don't cause errors anymore
+* players with playernumber 0 can now be kicked
+* giving away stuff now works correctly when teamnumbers are not equal to playernumbers
+
+
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-01-26 20:13:51 UTC (rev 5401)
++++ trunk/rts/Game/Game.cpp	2008-01-27 00:39:47 UTC (rev 5402)
+@@ -479,7 +479,7 @@
+ 	net-&gt;SendPlayerName(gu-&gt;myPlayerNum, p-&gt;playerName);
+ 
+ 	if (net-&gt;localDemoPlayback) // auto-start when playing a demo in local mode
+-		net-&gt;SendStartPlaying();
++		net-&gt;SendStartPlaying(0);
+ 
+ 	lastCpuUsageTime = gu-&gt;gameTime + 10;
+ }
+@@ -1909,30 +1909,25 @@
+ 		return false;
+ 	}
+ 
+-	if(gameSetup &amp;&amp; !playing) {
+-		allReady=gameSetup-&gt;Update();
+-		if (allReady &amp;&amp; gameSetup-&gt;hostDemo)
+-			// the NETMSG_STARTPLAYING may arrive later so don't show negative time until start
+-			GameSetupDrawer::Disable();
+-	} else if( gameServer &amp;&amp; gameServer-&gt;WaitsOnCon()) {
+-		allReady=true;
++	if( gameServer &amp;&amp; gameServer-&gt;WaitsOnCon() &amp;&amp; !gameSetup)
++	{
++		bool allReady = true;
+ 		for(int a=0;a&lt;gs-&gt;activePlayers;a++) {
+ 			if(gs-&gt;players[a]-&gt;active &amp;&amp; !gs-&gt;players[a]-&gt;readyToStart) {
+ 				allReady=false;
+ 				break;
+ 			}
+ 		}
++		if (allReady &amp;&amp; (keys[SDLK_RETURN] || script-&gt;onlySinglePlayer))
++		{
++			chatting = false;
++			userWriting = false;
++			writingPos = 0;
++			net-&gt;SendRandSeed(gs-&gt;randSeed);
++			net-&gt;SendStartPlaying(0);
++		}
+ 	}
+ 
+-	if (gameServer &amp;&amp; gameServer-&gt;WaitsOnCon() &amp;&amp; allReady &amp;&amp; (keys[SDLK_RETURN] || script-&gt;onlySinglePlayer || gameSetup))
+-	{
+-		chatting = false;
+-		userWriting = false;
+-		writingPos = 0;
+-		net-&gt;SendRandSeed(gs-&gt;randSeed);
+-		net-&gt;SendStartPlaying();
+-	}
+-
+ 	return true;
+ }
+ 
+@@ -2256,11 +2251,9 @@
+ 		}
+ 	}
+ 
+-	if( gameServer &amp;&amp; gameServer-&gt;WaitsOnCon()){
+-		if (allReady) {
+-			glColor3f(1.0f, 1.0f, 1.0f);
+-			font-&gt;glPrintCentered (0.5f, 0.5f, 1.5f, &quot;Waiting for connections. Press return to start&quot;);
+-		}
++	if( gameServer &amp;&amp; gameServer-&gt;WaitsOnCon() &amp;&amp;!gameSetup){
++		glColor3f(1.0f, 1.0f, 1.0f);
++		font-&gt;glPrintCentered (0.5f, 0.5f, 1.5f, &quot;Waiting for connections. Press return to start&quot;);
+ 	}
+ 
+ 	if (userWriting) {
+@@ -2758,7 +2751,13 @@
+ 			}
+ 
+ 			case NETMSG_STARTPLAYING: {
+-				StartPlaying();
++				unsigned timeToStart = *(unsigned*)(inbuf+1);
++				if (timeToStart &gt; 0)
++				{
++					GameSetupDrawer::StartCountdown(timeToStart);
++				}
++				else
++					StartPlaying();
+ 				AddTraffic(-1, packetCode, dataLength);
+ 				break;
+ 			}
+@@ -3188,7 +3187,6 @@
+ 				for (int a=0;a&lt;MAX_PLAYERS;++a)
+ 					if (gs-&gt;players[a]-&gt;active &amp;&amp; gs-&gt;players[a]-&gt;team == fromTeam)
+ 						++numPlayersInTeam;
+-				assert(numPlayersInTeam &gt; 0);
+ 
+ 				switch (action)
+ 				{
+@@ -3200,7 +3198,7 @@
+ 						break;
+ 					}
+ 					case TEAMMSG_GIVEAWAY: {
+-						const int toTeam = gs-&gt;players[inbuf[3]]-&gt;team;
++						const int toTeam = inbuf[3];
+ 						if (numPlayersInTeam == 1)
+ 							gs-&gt;Team(fromTeam)-&gt;GiveEverythingTo(toTeam);
+ 						else
+@@ -3212,6 +3210,11 @@
+ 						logOutput.Print(&quot;Player %i resigned and is now spectating!&quot;, player);
+ 						break;
+ 					}
++					case TEAMMSG_JOIN_TEAM: {
++						//TODO is this enought?
++						gs-&gt;players[inbuf[3]]-&gt;team = int(inbuf[3]);
++						break;
++					}
+ 					default: {
+ 						logOutput.Print(&quot;Unknown action in NETMSG_TEAM (%i) from player %i&quot;, action, player);
+ 					}
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-01-26 20:13:51 UTC (rev 5401)
++++ trunk/rts/Game/GameServer.cpp	2008-01-27 00:39:47 UTC (rev 5402)
+@@ -20,8 +20,13 @@
+ #include &quot;Player.h&quot;
+ #include &quot;Team.h&quot;
+ 
++#ifdef DEDICATED
++#include &lt;iostream&gt;
++#endif
++
+ #define SYNCCHECK_TIMEOUT 300 //frames
+ #define SYNCCHECK_MSG_TIMEOUT 400  // used to prevent msg spam
++const unsigned GameStartDelay = 3800; //msecs to wait until the game starts after all players are ready
+ 
+ GameParticipant::GameParticipant(bool willHaveRights)
+ : name(&quot;unnamed&quot;)
+@@ -42,6 +47,8 @@
+ 	lastPlayerInfo = 0;
+ 	serverframenum=0;
+ 	timeLeft=0;
++	readyTime = 0;
++	gameStartTime = 0;
+ 	gameEndTime=0;
+ 	lastUpdate = SDL_GetTicks();
+ 	modGameTime = 0.0f;
+@@ -60,7 +67,8 @@
+ 	nextserverframenum = 0;
+ 	serverNet = new CBaseNetProtocol();
+ 	serverNet-&gt;InitServer(port);
+-
++	rng.Seed(SDL_GetTicks());
++	
+ 	SendSystemMsg(&quot;Starting server on port %i&quot;, port);
+ 	mapName = newMapName;
+ 	mapChecksum = archiveScanner-&gt;GetMapChecksum(mapName);
+@@ -319,8 +327,12 @@
+ 
+ 	ServerReadNet();
+ 
+-	if (serverframenum &gt; 0 &amp;&amp; !demoReader)
++	if (!gameStartTime)
+ 	{
++		CheckForGameStart();
++	}
++	else if (serverframenum &gt; 0 &amp;&amp; !demoReader)
++	{
+ 		CreateNewFrame(true);
+ 	}
+ 	serverNet-&gt;Update();
+@@ -462,13 +474,24 @@
+ 					case NETMSG_STARTPOS:
+ 						if(inbuf[1] != a){
+ 							SendSystemMsg(&quot;Server: Warning got startpos msg from %i claiming to be from %i&quot;,a,inbuf[1]);
+-						} else {
+-							serverNet-&gt;SendStartPos(inbuf[1],inbuf[2], inbuf[3], *((float*)&amp;inbuf[4]), *((float*)&amp;inbuf[8]), *((float*)&amp;inbuf[12])); //forward data
++						}
++						else if (gameSetup &amp;&amp; gameSetup-&gt;startPosType == CGameSetupData::StartPos_ChooseInGame)
++						{
++							unsigned team = (unsigned)inbuf[2];
++							if (teams[team])
++							{
++								teams[team]-&gt;startpos = SFloat3(*((float*)&amp;inbuf[4]), *((float*)&amp;inbuf[8]), *((float*)&amp;inbuf[12]));
++							}
++							serverNet-&gt;SendStartPos(inbuf[1],team, inbuf[3], *((float*)&amp;inbuf[4]), *((float*)&amp;inbuf[8]), *((float*)&amp;inbuf[12])); //forward data
+ 							if (hostif)
+ 							{
+ 								hostif-&gt;SendPlayerReady(a, inbuf[3]);
+ 							}
+ 						}
++						else
++						{
++							SendSystemMsg(&quot;Server: Warning player %i tried to change his startposition&quot;,a);
++						}
+ 						break;
+ 
+ 					case NETMSG_COMMAND:
+@@ -593,8 +616,8 @@
+ 
+ 					case NETMSG_STARTPLAYING:
+ 					{
+-						if (players[a]-&gt;hasRights)
+-							StartGame();
++						if (players[a]-&gt;hasRights &amp;&amp; !gameStartTime)
++							CheckForGameStart(true);
+ 						break;
+ 					}
+ 					case NETMSG_RANDSEED:
+@@ -663,26 +686,9 @@
+ #endif
+ }
+ 
+-// FIXME: move to separate file-&gt;make utility class of it and use it in GlobalStuff
+-class CRandomNumberGenerator
+-{
+-public:
+-	CRandomNumberGenerator() : randSeed(0) {}
+-	void Seed(unsigned seed) { randSeed = seed; }
+-	unsigned int operator()() {
+-		randSeed = (randSeed * 214013L + 2531011L);
+-		return randSeed &amp; 0x7FFF;
+-	}
+-private:
+-	unsigned randSeed;
+-};
+-
+ /** @brief Generate a unique game identifier and sent it to all clients. */
+ void CGameServer::GenerateAndSendGameID()
+ {
+-	CRandomNumberGenerator prand;
+-	prand.Seed(SDL_GetTicks());
+-
+ 	// This is where we'll store the ID temporarily.
+ 	union {
+ 		unsigned char charArray[16];
+@@ -692,7 +698,7 @@
+ 	// First and second dword are time based (current time and load time).
+ 	gameID.intArray[0] = (unsigned) time(NULL);
+ 	for (int i = 4; i &lt; 12; ++i)
+-		gameID.charArray[i] = prand();
++		gameID.charArray[i] = rng();
+ 
+ 	CRC entropy;
+ 	entropy.UpdateData((const unsigned char*)&amp;lastTick, sizeof(lastTick));
+@@ -710,8 +716,56 @@
+ 	serverNet-&gt;SendGameID(gameID.charArray);
+ }
+ 
++void CGameServer::CheckForGameStart(bool forced)
++{
++	assert(!gameStartTime);
++	bool allReady = true;
++	unsigned numDemoPlayers = demoReader ? demoReader-&gt;GetFileHeader().maxPlayerNum+1 : 0;
++	
++	if (gameSetup)
++	{
++		for (unsigned a = numDemoPlayers; a &lt; gameSetup-&gt;numPlayers; a++) {
++			if (!players[a] || !players[a]-&gt;readyToStart) {
++				allReady = false;
++				break;
++			} else if (!teams[players[a]-&gt;team]-&gt;readyToStart &amp;&amp; !demoReader)
++			{
++				allReady = false;
++				break;
++			}
++		}
++	}
++	else
++	{
++		allReady = false;
++		// no gameSetup, wait for host to send NETMSG_STARTPLAYING
++		// if this is the case, forced is true...
++		if (forced)
++		{
++			// immediately start
++			readyTime = SDL_GetTicks();
++			rng.Seed(readyTime);
++			StartGame();
++		}
++	}
++
++	if (allReady || forced)
++	{
++		if (readyTime == 0) {
++			readyTime = SDL_GetTicks();
++			rng.Seed(readyTime);
++			serverNet-&gt;SendStartPlaying(GameStartDelay);
++		}
++	}
++	if (readyTime &amp;&amp; (SDL_GetTicks() - readyTime) &gt; GameStartDelay)
++	{
++		StartGame();
++	}
++}
++
+ void CGameServer::StartGame()
+ {
++	gameStartTime = SDL_GetTicks();
+ 	serverNet-&gt;Listening(false);
+ 
+ 	for(unsigned a=0; a &lt; MAX_PLAYERS; ++a) {
+@@ -722,12 +776,12 @@
+ 	// make sure initial game speed is within allowed range and sent a new speed if not
+ 	if(userSpeedFactor&gt;maxUserSpeed)
+ 	{
+-		serverNet-&gt;SendUserSpeed(0,maxUserSpeed);
++		serverNet-&gt;SendUserSpeed(SERVER_PLAYER, maxUserSpeed);
+ 		userSpeedFactor = maxUserSpeed;
+ 	}
+ 	else if(userSpeedFactor&lt;minUserSpeed)
+ 	{
+-		serverNet-&gt;SendUserSpeed(0,minUserSpeed);
++		serverNet-&gt;SendUserSpeed(SERVER_PLAYER, minUserSpeed);
+ 		userSpeedFactor = minUserSpeed;
+ 	}
+ 
+@@ -740,13 +794,15 @@
+ 
+ 	GenerateAndSendGameID();
+ 	if (gameSetup) {
+-		for (unsigned a = 0; a &lt; gs-&gt;activeTeams; ++a)
++		for (unsigned a = 0; a &lt; MAX_TEAMS; ++a)
+ 		{
+-			serverNet-&gt;SendStartPos(SERVER_PLAYER, a, 1, gs-&gt;Team(a)-&gt;startPos.x, gs-&gt;Team(a)-&gt;startPos.y, gs-&gt;Team(a)-&gt;startPos.z);
++			if (teams[a])
++				serverNet-&gt;SendStartPos(SERVER_PLAYER, a, 1, teams[a]-&gt;startpos.x, teams[a]-&gt;startpos.y, teams[a]-&gt;startpos.z);
+ 		}
+ 	}
+ 
+-	serverNet-&gt;SendStartPlaying();
++	serverNet-&gt;SendRandSeed(rng());
++	serverNet-&gt;SendStartPlaying(0);
+ 	if (hostif)
+ 	{
+ 		hostif-&gt;SendStartPlaying();
+@@ -854,7 +910,7 @@
+ 
+ void CGameServer::KickPlayer(const int playerNum)
+ {
+-	if (playerNum != 0 &amp;&amp; players[playerNum]) {
++	if (players[playerNum]) {
+ 		serverNet-&gt;SendPlayerLeft(playerNum, 2);
+ 		serverNet-&gt;SendQuit(playerNum);
+ 		serverNet-&gt;Kill(playerNum);
+@@ -867,10 +923,11 @@
+ 
+ void CGameServer::BindConnection(unsigned wantedNumber, bool grantRights)
+ {
++	unsigned hisNewNumber = wantedNumber;
+ 	if (demoReader) {
+-		wantedNumber = std::max(wantedNumber, (unsigned)demoReader-&gt;GetFileHeader().maxPlayerNum+1);
++		hisNewNumber = std::max(wantedNumber, (unsigned)demoReader-&gt;GetFileHeader().maxPlayerNum+1);
+ 	}
+-	unsigned hisNewNumber = serverNet-&gt;AcceptIncomingConnection(wantedNumber);
++	hisNewNumber = serverNet-&gt;AcceptIncomingConnection(hisNewNumber);
+ 
+ 	serverNet-&gt;SendSetPlayerNum((unsigned char)hisNewNumber, (unsigned char)hisNewNumber);
+ 
+@@ -884,15 +941,33 @@
+ 			serverNet-&gt;SendPlayerName(a, players[a]-&gt;name);
+ 	}
+ 
+-	if (gameSetup) {
+-		for (unsigned a = 0; a &lt; gs-&gt;activeTeams; ++a)
++	players[hisNewNumber].reset(new GameParticipant(grantRights)); // give him rights to change speed, kick players etc
++	if (gameSetup &amp;&amp; hisNewNumber &lt; gameSetup-&gt;numPlayers/* needed for non-hosted demo playback */)
++	{
++		unsigned hisTeam = gameSetup-&gt;playerStartingTeam[hisNewNumber];
++		if (!teams[hisTeam]) // is commsharing
+ 		{
+-			serverNet-&gt;SendStartPos(SERVER_PLAYER, a, 2, gs-&gt;Team(a)-&gt;startPos.x, gs-&gt;Team(a)-&gt;startPos.y, gs-&gt;Team(a)-&gt;startPos.z);
++			teams[hisTeam].reset(new GameTeam());
++			teams[hisTeam]-&gt;startpos = gameSetup-&gt;startPos[hisTeam];
++			teams[hisTeam]-&gt;readyToStart = (gameSetup-&gt;startPosType != CGameSetup::StartPos_ChooseInGame);
+ 		}
++		players[hisNewNumber]-&gt;team = hisTeam;
++		serverNet-&gt;SendJoinTeam(hisNewNumber, hisTeam);
++		for (unsigned a = 0; a &lt; MAX_TEAMS; ++a)
++		{
++			if (teams[a])
++				serverNet-&gt;SendStartPos(SERVER_PLAYER, a, 1, teams[a]-&gt;startpos.x, teams[a]-&gt;startpos.y, teams[a]-&gt;startpos.z);
++		}
+ 	}
++	else
++	{
++		unsigned hisTeam = hisNewNumber;
++		teams[hisTeam].reset(new GameTeam());
++		players[hisNewNumber]-&gt;team = hisTeam;
++		serverNet-&gt;SendJoinTeam(hisNewNumber, hisTeam);
++	}
++	SendSystemMsg(&quot;Client connected on slot %i (wanted number was %i)&quot;, hisNewNumber, wantedNumber);
+ 
+-	players[hisNewNumber].reset(new GameParticipant(grantRights)); // give him rights to change speed, kick players etc
+-	SendSystemMsg(&quot;Client connected on slot %i (wanted number was %i)&quot;, hisNewNumber, wantedNumber);
+ 	serverNet-&gt;FlushNet();
+ }
+ 
+@@ -918,6 +993,9 @@
+ 
+ 	std::string msg = text;
+ 	serverNet-&gt;SendSystemMessage((unsigned char)SERVER_PLAYER, msg);
++#ifdef DEDICATED
++	std::cout &lt;&lt; msg &lt;&lt; std::endl;
++#endif
+ }
+ 
+ void CGameServer::GotChatMessage(const std::string&amp; msg, unsigned player)
+
+Modified: trunk/rts/Game/GameServer.h
+===================================================================
+--- trunk/rts/Game/GameServer.h	2008-01-26 20:13:51 UTC (rev 5401)
++++ trunk/rts/Game/GameServer.h	2008-01-27 00:39:47 UTC (rev 5402)
+@@ -9,6 +9,8 @@
+ #include &lt;deque&gt;
+ 
+ #include &quot;System/GlobalStuff.h&quot;
++#include &quot;System/UnsyncedRNG.h&quot;
++#include &quot;SFloat3.h&quot;
+ 
+ class CBaseNetProtocol;
+ class CDemoReader;
+@@ -26,6 +28,8 @@
+ 	bool readyToStart;
+ 	float cpuUsage;
+ 	int ping;
++	
++	unsigned team;
+ 
+ 	bool hasRights;
+ #ifdef SYNCCHECK
+@@ -33,6 +37,13 @@
+ #endif
+ };
+ 
++class GameTeam
++{
++public:
++	SFloat3 startpos;
++	bool readyToStart;
++};
++
+ /**
+ @brief Server class for game handling
+ This class represents a gameserver. It is responsible for recieving, checking and forwarding gamedata to the clients. It keeps track of the sync, cpu and other stats and informs all clients about events.
+@@ -91,6 +102,7 @@
+ 
+ 	void BindConnection(unsigned wantedNumber, bool grantRights=false);
+ 
++	void CheckForGameStart(bool forced=false);
+ 	void StartGame();
+ 	void UpdateLoop();
+ 	void Update();
+@@ -116,6 +128,8 @@
+ 	int serverframenum;
+ 	int nextserverframenum; //For loading game
+ 
++	unsigned readyTime;
++	unsigned gameStartTime;
+ 	unsigned gameEndTime;	//Tick when game end was detected
+ 	bool sentGameOverMsg;
+ 	unsigned lastTick;
+@@ -129,6 +143,7 @@
+ 	float internalSpeed;
+ 
+ 	boost::scoped_ptr&lt;GameParticipant&gt; players[MAX_PLAYERS];
++	boost::scoped_ptr&lt;GameTeam&gt; teams[MAX_TEAMS];
+ 
+ 	/////////////////// game settings ///////////////////
+ 	/// Wheter the game is pausable for others than the host
+@@ -155,6 +170,8 @@
+ 	int syncWarningFrame;
+ 	int delayedSyncResponseFrame;
+ 
++	///////////////// internal stuff //////////////////
++	UnsyncedRNG rng;
+ 	boost::thread* thread;
+ 	mutable boost::mutex gameServerMutex;
+ };
+
+Modified: trunk/rts/Game/GameSetup.cpp
+===================================================================
+--- trunk/rts/Game/GameSetup.cpp	2008-01-26 20:13:51 UTC (rev 5401)
++++ trunk/rts/Game/GameSetup.cpp	2008-01-27 00:39:47 UTC (rev 5402)
+@@ -126,6 +126,7 @@
+ 		p2.GetDef(x, &quot;1000&quot;, string(&quot;MAP\\&quot;) + teamName + &quot;\\StartPosX&quot;);
+ 		p2.GetDef(z, &quot;1000&quot;, string(&quot;MAP\\&quot;) + teamName + &quot;\\StartPosZ&quot;);
+ 		gs-&gt;Team(a)-&gt;startPos = float3(x, 100, z);
++		startPos[a] = SFloat3(x, 100, z);
+ 	}
+ }
+ 
+@@ -154,7 +155,10 @@
+ 	// Show that we havent selected start pos yet
+ 	if (startPosType == StartPos_ChooseInGame) {
+ 		for (int a = 0; a &lt; numTeams; ++a)
++		{
+ 			gs-&gt;Team(a)-&gt;startPos.y = -500;
++			startPos[a].y = -500;
++		}
+ 	}
+ 
+ 	// Load start position from gameSetup script
+@@ -165,8 +169,16 @@
+ 			string s(section);
+ 			std::string xpos = file.SGetValueDef(&quot;&quot;, s + &quot;StartPosX&quot;);
+ 			std::string zpos = file.SGetValueDef(&quot;&quot;, s + &quot;StartPosZ&quot;);
+-			if (!xpos.empty()) gs-&gt;Team(a)-&gt;startPos.x = atoi(xpos.c_str());
+-			if (!zpos.empty()) gs-&gt;Team(a)-&gt;startPos.z = atoi(zpos.c_str());
++			if (!xpos.empty())
++			{
++				gs-&gt;Team(a)-&gt;startPos.x = atoi(xpos.c_str());
++				startPos[a].x = gs-&gt;Team(a)-&gt;startPos.x;
++			}
++			if (!zpos.empty())
++			{
++				gs-&gt;Team(a)-&gt;startPos.z = atoi(zpos.c_str());
++				startPos[a].y = gs-&gt;Team(a)-&gt;startPos.y;
++			}
+ 		}
+ 	}
+ }
+@@ -196,6 +208,7 @@
+ 		// expects lines of form team=x rather than team=TEAMx
+ 		// team field is relocated in RemapTeams
+ 		gs-&gt;players[i]-&gt;team = atoi(file.SGetValueDef(&quot;0&quot;,   s + &quot;team&quot;).c_str());
++		playerStartingTeam[i] = unsigned(gs-&gt;players[i]-&gt;team);
+ 		gs-&gt;players[i]-&gt;rank = atoi(file.SGetValueDef(&quot;-1&quot;,  s + &quot;rank&quot;).c_str());
+ 		gs-&gt;players[i]-&gt;playerName  = file.SGetValueDef(&quot;no name&quot;, s + &quot;name&quot;);
+ 		gs-&gt;players[i]-&gt;countryCode = file.SGetValueDef(&quot;&quot;,  s + &quot;countryCode&quot;);
+@@ -336,6 +349,7 @@
+ 		if (teamRemap.find(gs-&gt;players[a]-&gt;team) == teamRemap.end())
+ 			throw content_error(&quot;invalid Player.Team in GameSetup script&quot;);
+ 		gs-&gt;players[a]-&gt;team = teamRemap[gs-&gt;players[a]-&gt;team];
++		playerStartingTeam[a] = teamRemap[playerStartingTeam[a]];
+ 	}
+ }
+ 
+@@ -491,30 +505,3 @@
+ 	return true;
+ }
+ 
+-bool CGameSetup::Update()
+-{
+-	bool allReady = true;
+-	if (!gameServer) // let the server/host start the game
+-		return false;
+-	for (int a = numDemoPlayers; a &lt; numPlayers; a++) {
+-		if (!gs-&gt;players[a]-&gt;readyToStart) {
+-			allReady = false;
+-			break;
+-		} else if (!readyTeams[gs-&gt;players[a]-&gt;team] &amp;&amp; !hostDemo)
+-		{
+-			allReady = false;
+-			break;
+-		}
+-	}
+-
+-	if (forceReady)
+-		allReady = true;
+-	if (allReady) {
+-		if (readyTime == 0) {
+-			int mode = configHandler.GetInt(&quot;CamMode&quot;, 1);
+-			camHandler-&gt;SetCameraMode(mode);
+-			readyTime = SDL_GetTicks();
+-		}
+-	}
+-	return (readyTime &amp;&amp; (SDL_GetTicks() - readyTime) &gt; 3000);
+-}
+
+Modified: trunk/rts/Game/GameSetup.h
+===================================================================
+--- trunk/rts/Game/GameSetup.h	2008-01-26 20:13:51 UTC (rev 5401)
++++ trunk/rts/Game/GameSetup.h	2008-01-27 00:39:47 UTC (rev 5402)
+@@ -14,7 +14,6 @@
+ 	CGameSetup();
+ 	~CGameSetup();
+ 	bool Init(std::string setupFile);
+-	bool Update();
+ 
+ 	bool Init(const char* buf, int size);
+ 
+
+Modified: trunk/rts/Game/GameSetupData.cpp
+===================================================================
+--- trunk/rts/Game/GameSetupData.cpp	2008-01-26 20:13:51 UTC (rev 5401)
++++ trunk/rts/Game/GameSetupData.cpp	2008-01-27 00:39:47 UTC (rev 5402)
+@@ -2,12 +2,10 @@
+ 
+ CGameSetupData::CGameSetupData()
+ {
+-	readyTime=0;
+ 	gameSetupText=0;
+ 	startPosType=StartPos_Fixed;
+ 	numDemoPlayers=0;
+ 	hostDemo=false;
+-	forceReady=false;
+ }
+ 
+ CGameSetupData::~CGameSetupData()
+
+Modified: trunk/rts/Game/GameSetupData.h
+===================================================================
+--- trunk/rts/Game/GameSetupData.h	2008-01-26 20:13:51 UTC (rev 5401)
++++ trunk/rts/Game/GameSetupData.h	2008-01-27 00:39:47 UTC (rev 5402)
+@@ -4,6 +4,7 @@
+ #include &lt;string&gt;
+ #include &lt;map&gt;
+ 
++#include &quot;SFloat3.h&quot;
+ #include &quot;GlobalStuff.h&quot;
+ 
+ class TdfParser;
+@@ -14,10 +15,10 @@
+ 	enum StartPosType
+ 	{
+ 		StartPos_Fixed = 0,
+-			StartPos_Random = 1,
+-			StartPos_ChooseInGame = 2,
+-			StartPos_ChooseBeforeGame = 3,
+-			StartPos_Last = 3  // last entry in enum (for user input check)
++		StartPos_Random = 1,
++		StartPos_ChooseInGame = 2,
++		StartPos_ChooseBeforeGame = 3,
++		StartPos_Last = 3  // last entry in enum (for user input check)
+ 	};
+ 	
+ 	CGameSetupData();
+@@ -38,13 +39,16 @@
+ 	int hostport;
+ 	int sourceport; //the port clients will try to connect from
+ 	
+-	int readyTime;
+-	bool forceReady;
+-	
+ 	char* gameSetupText;
+ 	int gameSetupTextLength;
+ 	
+ 	StartPosType startPosType;
++	
++	
++	/// Team the player will start in (read-only)
++	unsigned playerStartingTeam[MAX_PLAYERS];
++	/// Initial startposition (read-only)
++	SFloat3 startPos[MAX_TEAMS];
+ 	bool readyTeams[MAX_TEAMS];
+ 	int teamStartNum[MAX_TEAMS];
+ 	float startRectTop[MAX_TEAMS];
+
+Modified: trunk/rts/Game/PreGame.cpp
+===================================================================
+--- trunk/rts/Game/PreGame.cpp	2008-01-26 20:13:51 UTC (rev 5401)
++++ trunk/rts/Game/PreGame.cpp	2008-01-27 00:39:47 UTC (rev 5402)
+@@ -102,14 +102,10 @@
+ 			if (hasDemo) {
+ 				net-&gt;localDemoPlayback = true;
+ 				state = WAIT_CONNECTING;
+-				ReadDataFromDemo(demoFile);
++				ReadDataFromDemo(demoFile); // scan for map, mod etc.
+ 				net-&gt;InitLocalClient(0);
+ 				if (gameSetup) {	// we read a gameSetup from the demofiles
+ 					logOutput.Print(&quot;Read GameSetup from Demofile&quot;);
+-					SelectMap(gameSetup-&gt;mapName);
+-					SelectMod(gameSetup-&gt;baseMod);
+-					CScriptHandler::SelectScript(gameSetup-&gt;scriptName);
+-					SelectScript(gameSetup-&gt;scriptName);
+ 				}
+ 				else	// we dont read a GameSetup from demofile (this code was copied from CDemoReader)
+ 				{
+@@ -135,10 +131,6 @@
+ 					}
+ 				}
+ 
+-				/*
+-				We want to watch a demo local, so we dont know script, map and mod yet and we have to start a server which should send us the required data
+-				Default settings: spectating
+-				*/
+ 				gs-&gt;players[gu-&gt;myPlayerNum]-&gt;StartSpectating();
+ 			}
+ 			else {
+@@ -347,7 +339,7 @@
+ 			if ((server || hasDemo) &amp;&amp; !gameServer) {
+ 				good_fpu_control_registers(&quot;before CGameServer creation&quot;);
+ 				int myPort = gameSetup? gameSetup-&gt;hostport : 8452;
+-				gameServer = new CGameServer(myPort, mapName, modArchive, scriptName, demoFile);
++				gameServer = new CGameServer(myPort, mapName, modName, scriptName, demoFile);
+ 				int autohostport = configHandler.GetInt(&quot;Autohost&quot;, 0);
+ 				if (autohostport &gt; 0)
+ 					gameServer-&gt;AddAutohostInterface(myPort+1, autohostport);
+@@ -508,7 +500,34 @@
+ 
+ 			case NETMSG_SENDPLAYERSTAT: {
+ 			} break;
++			
++			case NETMSG_TEAM: {
++				const int player = (int)inbuf[1];
++				const unsigned char action = inbuf[2];
+ 
++				switch (action)
++				{
++					case TEAMMSG_SELFD: {
++						break;
++					}
++					case TEAMMSG_GIVEAWAY: {
++						break;
++					}
++					case TEAMMSG_RESIGN: {
++						break;
++					}
++					case TEAMMSG_JOIN_TEAM: {
++						//TODO is this enought?
++						gs-&gt;players[inbuf[3]]-&gt;team = int(inbuf[3]);
++						break;
++					}
++					default: {
++						logOutput.Print(&quot;Unknown action in NETMSG_TEAM (%i) from player %i&quot;, action, player);
++					}
++				}
++				break;
++			}
++
+ 			case NETMSG_PAUSE: {
+ 				// these can get into the network stream here -- Kloot
+ 				int playerNum = (int) inbuf[1];
+@@ -538,6 +557,7 @@
+ 	mapName = &quot;&quot;;
+ 	modName = &quot;&quot;;
+ 	scriptName = &quot;&quot;;
++	gu-&gt;myPlayerNum = scanner.GetFileHeader().maxPlayerNum + 1;
+ 
+ 	while ( (length = scanner.GetData(demobuffer, netcode::NETWORK_BUFFER_SIZE, INT_MAX)) &gt; 0 &amp;&amp; (mapName.empty() || modName.empty() || scriptName.empty())) {
+ 		if (demobuffer[0] == NETMSG_MAPNAME)
+@@ -637,6 +657,8 @@
+ /** Called by the mod-selecting CglList. */
+ void CPreGame::SelectMod(std::string s)
+ {
++	// make sure s is a modname (because the same mod can be in different archives on different computers)
++	s = archiveScanner-&gt;ModArchiveToModName(s);
+ 	if (s == &quot;Random mod&quot;) {
+ 		const int index = 1 + (gu-&gt;usRandInt() % (pregame-&gt;showList-&gt;items.size() - 1));
+ 		const string&amp; modName = pregame-&gt;showList-&gt;items[index];
+
+Modified: trunk/rts/Game/UI/GameSetupDrawer.cpp
+===================================================================
+--- trunk/rts/Game/UI/GameSetupDrawer.cpp	2008-01-26 20:13:51 UTC (rev 5401)
++++ trunk/rts/Game/UI/GameSetupDrawer.cpp	2008-01-27 00:39:47 UTC (rev 5402)
+@@ -6,6 +6,9 @@
+ #include &lt;SDL_timer.h&gt;
+ #include &lt;SDL_keysym.h&gt;
+ 
++#include &quot;NetProtocol.h&quot;
++#include &quot;Platform/ConfigHandler.h&quot;
++#include &quot;../CameraHandler.h&quot;
+ #include &quot;../Player.h&quot;
+ #include &quot;../GameSetup.h&quot;
+ #include &quot;StartPosSelecter.h&quot;
+@@ -36,9 +39,22 @@
+ 	}
+ }
+ 
++void GameSetupDrawer::StartCountdown(unsigned time)
++{
++	if (instance)
++	{
++		instance-&gt;lastTick = SDL_GetTicks();
++		instance-&gt;readyCountdown = (int)time;
++		int mode = configHandler.GetInt(&quot;CamMode&quot;, 1);
++		camHandler-&gt;SetCameraMode(mode);
++	}
++}
+ 
++
+ GameSetupDrawer::GameSetupDrawer()
+ {
++	readyCountdown = 0;
++	lastTick = 0;
+ 	if (gameSetup-&gt;startPosType == CGameSetup::StartPos_ChooseInGame &amp;&amp; !gameSetup-&gt;hostDemo) {
+ 		new CStartPosSelecter();
+ 	}
+@@ -52,11 +68,21 @@
+ 
+ void GameSetupDrawer::Draw()
+ {
++	if (readyCountdown &gt; 0)
++	{
++		readyCountdown -= (SDL_GetTicks() - lastTick);
++		lastTick = SDL_GetTicks();
++	}
++	else if (readyCountdown &lt; 0)
++	{
++		GameSetupDrawer::Disable();
++	}
++
+ 	float xshift = 0.0f;
+ 	std::string state = &quot;Unknown state.&quot;;
+-	if (gameSetup-&gt;readyTime &gt; 0) {
++	if (readyCountdown &gt; 0) {
+ 		char buf[64];
+-		sprintf(buf, &quot;Starting in %i&quot;, 3 - (SDL_GetTicks() - gameSetup-&gt;readyTime) / 1000);
++		sprintf(buf, &quot;Starting in %i&quot;, readyCountdown / 1000);
+ 		state = buf;
+ 	} else if (!gameSetup-&gt;readyTeams[gu-&gt;myTeam]) {
+ 		state = &quot;Choose start pos&quot;;
+@@ -141,8 +167,10 @@
+ 
+ bool GameSetupDrawer::KeyPressed(unsigned short key, bool isRepeat)
+ {
+-	if (keys[SDLK_LCTRL] &amp;&amp; (key == SDLK_RETURN)) {
+-		gameSetup-&gt;forceReady = true;
++	if (keys[SDLK_LCTRL] &amp;&amp; (key == SDLK_RETURN))
++	{
++		// tell the server to force-start the game
++		net-&gt;SendStartPlaying(0);
+ 	}
+ 	return false;
+ }
+
+Modified: trunk/rts/Game/UI/GameSetupDrawer.h
+===================================================================
+--- trunk/rts/Game/UI/GameSetupDrawer.h	2008-01-26 20:13:51 UTC (rev 5401)
++++ trunk/rts/Game/UI/GameSetupDrawer.h	2008-01-27 00:39:47 UTC (rev 5402)
+@@ -8,6 +8,8 @@
+ public:
+ 	static void Enable();
+ 	static void Disable();
++	
++	static void StartCountdown(unsigned time);
+ 
+ private:
+ 	GameSetupDrawer();
+@@ -18,6 +20,8 @@
+ 
+ 	static GameSetupDrawer* instance;
+ 	bool lctrl_pressed;
++	int readyCountdown;
++	unsigned lastTick;
+ };
+ 
+ 
+
+Modified: trunk/rts/System/BaseNetProtocol.cpp
+===================================================================
+--- trunk/rts/System/BaseNetProtocol.cpp	2008-01-26 20:13:51 UTC (rev 5401)
++++ trunk/rts/System/BaseNetProtocol.cpp	2008-01-27 00:39:47 UTC (rev 5402)
+@@ -11,7 +11,7 @@
+ 
+ 	RegisterMessage(NETMSG_QUIT, 1);
+ 	RegisterMessage(NETMSG_NEWFRAME, 5);
+-	RegisterMessage(NETMSG_STARTPLAYING, 1);
++	RegisterMessage(NETMSG_STARTPLAYING, 5);
+ 	RegisterMessage(NETMSG_SETPLAYERNUM, 2);
+ 	RegisterMessage(NETMSG_PLAYERNAME, -1);
+ 	RegisterMessage(NETMSG_CHAT, -1);
+@@ -79,9 +79,9 @@
+ 
+ //  NETMSG_STARTPLAYING     = 4,  //
+ 
+-void CBaseNetProtocol::SendStartPlaying()
++void CBaseNetProtocol::SendStartPlaying(unsigned countdown)
+ {
+-	SendData(NETMSG_STARTPLAYING);
++	SendData&lt;unsigned&gt;(NETMSG_STARTPLAYING, countdown);
+ }
+ 
+ //  NETMSG_SETPLAYERNUM     = 5,  // uchar myPlayerNum;
+@@ -355,6 +355,12 @@
+ 	SendData(msg, 4);
+ }
+ 
++void CBaseNetProtocol::SendJoinTeam(uchar myPlayerNum, uchar wantedTeamNum)
++{
++	unsigned char msg[4] = {NETMSG_TEAM, myPlayerNum, TEAMMSG_JOIN_TEAM, wantedTeamNum};
++	SendData(msg, 4);
++}
++
+ /* FIXME: add these:
+ 
+ #ifdef SYNCDEBUG
+
+Modified: trunk/rts/System/BaseNetProtocol.h
+===================================================================
+--- trunk/rts/System/BaseNetProtocol.h	2008-01-26 20:13:51 UTC (rev 5401)
++++ trunk/rts/System/BaseNetProtocol.h	2008-01-27 00:39:47 UTC (rev 5402)
+@@ -24,7 +24,7 @@
+ enum NETMSG {
+ 	NETMSG_QUIT             = 2,  //
+ 	NETMSG_NEWFRAME         = 3,  // int frameNum;
+-	NETMSG_STARTPLAYING     = 4,  //
++	NETMSG_STARTPLAYING     = 4,  // unsigned countdown
+ 	NETMSG_SETPLAYERNUM     = 5,  // uchar myPlayerNum;
+ 	NETMSG_PLAYERNAME       = 6,  // uchar myPlayerNum; std::string playerName;
+ 	NETMSG_CHAT             = 7,  // uchar myPlayerNum; std::string message;
+@@ -80,6 +80,7 @@
+ 	TEAMMSG_SELFD           = 0,		// not used 
+ 	TEAMMSG_GIVEAWAY        = 1,		// team to give stuff to
+ 	TEAMMSG_RESIGN			= 2,		// not used
++	TEAMMSG_JOIN_TEAM		= 3,		// team to join
+ //TODO: changing teams (to spectator, from spectator to specific team)
+ //TODO: in-game allyteams
+ };
+@@ -106,7 +107,7 @@
+ 	void SendQuit();
+ 	void SendQuit(unsigned playerNum);
+ 	void SendNewFrame(int frameNum);
+-	void SendStartPlaying();
++	void SendStartPlaying(unsigned countdown); /// client can send these to force-start the game
+ 	void SendSetPlayerNum(uchar myPlayerNum, uchar connNumber);
+ 	void SendPlayerName(uchar myPlayerNum, const std::string&amp; playerName);
+ 	void SendChat(uchar myPlayerNum, const std::string&amp; message);
+@@ -145,6 +146,7 @@
+ 	void SendSelfD(uchar myPlayerNum);
+ 	void SendGiveAwayEverything(uchar myPlayerNum, uchar giveTo);
+ 	void SendResign(uchar myPlayerNum);
++	void SendJoinTeam(uchar myPlayerNum, uchar wantedTeamNum);
+ 
+ private:
+ };
+
+Modified: trunk/rts/System/DemoReader.cpp
+===================================================================
+--- trunk/rts/System/DemoReader.cpp	2008-01-26 20:13:51 UTC (rev 5401)
++++ trunk/rts/System/DemoReader.cpp	2008-01-27 00:39:47 UTC (rev 5402)
+@@ -56,6 +56,8 @@
+ 		if (!gameSetup) { // dont overwrite existing gamesetup (when hosting a demo)
+ 			gameSetup = SAFE_NEW CGameSetup();
+ 			gameSetup-&gt;Init(buf, fileHeader.scriptSize);
++			gameSetup-&gt;demoName = filename;
++			gameSetup-&gt;numDemoPlayers = GetFileHeader().maxPlayerNum+1;
+ 		}
+ #endif
+ 		delete[] buf;
+
+Modified: trunk/rts/System/Net/UDPSocket.h
+===================================================================
+--- trunk/rts/System/Net/UDPSocket.h	2008-01-26 20:13:51 UTC (rev 5401)
++++ trunk/rts/System/Net/UDPSocket.h	2008-01-27 00:39:47 UTC (rev 5402)
+@@ -11,14 +11,9 @@
+ #endif
+ 
+ namespace netcode {
+-	
+-#ifndef _WIN32
+-	typedef int SOCKET;
+-#endif
+ 
+-
+ /**
+<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">- at brief</A> Wrapper class over BSD-style UDP-sockets
+<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">+ at brief</A> Wrapper class over BSD-style UDP-sockets (non-blocking)
+ @author Karl-Robert Ernst
+ 
+ Provides easy to use access to network sockets: just construct this with a given portnum and you will have an valid, local bound UDP-Socket where you can sendto / recvfrom. If it gets deleted, the socket is closed automagically for you (this means you are not able to copy this class).
+@@ -63,6 +58,10 @@
+ 	/// Check if last error is a real error (not EWOULDBLOCK etc.)
+ 	bool IsFakeError() const;
+ 
++#ifndef _WIN32
++	typedef int SOCKET;
++#endif
++
+ 	/// our descriptor
+ 	SOCKET mySocket;
+ 	/// our local address
+
+Added: trunk/rts/System/SFloat3.h
+===================================================================
+--- trunk/rts/System/SFloat3.h	                        (rev 0)
++++ trunk/rts/System/SFloat3.h	2008-01-27 00:39:47 UTC (rev 5402)
+@@ -0,0 +1,34 @@
++#ifndef SFLOAT3_H_
++#define SFLOAT3_H_
++
++/**
++ * @brief Simple 3d vector of floats
++ * 
++ * Doesn't use streflop in contrast to float3
++ */
++class SFloat3
++{
++public:
++	/**
++	 * @brief Constructor
++	 *
++	 * With no parameters, x/y/z are just initialized to 0.
++	 */
++	inline SFloat3() : x(0), y(0), z(0) {};
++	
++	/**
++	 * @brief Constructor
++	 * @param x float x
++	 * @param y float y
++	 * @param z float z
++	 *
++	 * With parameters, initializes x/y/z to the given floats.
++	 */
++	inline SFloat3(const float x,const float y,const float z) : x(x),y(y),z(z) {};
++	
++	float x; ///&lt; x component
++	float y; ///&lt; y component
++	float z; ///&lt; z component
++};
++
++#endif /*SFLOAT3_H_*/
+
+Modified: trunk/rts/System/Script/LuaBinder.cpp
+===================================================================
+--- trunk/rts/System/Script/LuaBinder.cpp	2008-01-26 20:13:51 UTC (rev 5401)
++++ trunk/rts/System/Script/LuaBinder.cpp	2008-01-27 00:39:47 UTC (rev 5402)
+@@ -189,11 +189,11 @@
+ 			.def_readonly(&quot;mapx&quot;, &amp;CGlobalSyncedStuff::mapx)
+ 			.def_readonly(&quot;mapy&quot;, &amp;CGlobalSyncedStuff::mapy),
+ 
+-		class_&lt;float3&gt;(&quot;float3&quot;)
++		class_&lt;SFloat3&gt;(&quot;float3&quot;)
+ 			.def(constructor&lt;const float, const float, const float&gt;())
+-			.def_readwrite(&quot;x&quot;, &amp;float3::x)
+-			.def_readwrite(&quot;y&quot;, &amp;float3::y)
+-			.def_readwrite(&quot;z&quot;, &amp;float3::z)
++			.def_readwrite(&quot;x&quot;, &amp;SFloat3::x)
++			.def_readwrite(&quot;y&quot;, &amp;SFloat3::y)
++			.def_readwrite(&quot;z&quot;, &amp;SFloat3::z)
+ 			.def(&quot;__tostring&quot;, &amp;FloatToString),
+ 
+ 		class_&lt;CWorldObject&gt;(&quot;WorldObject&quot;)
+
+Added: trunk/rts/System/UnsyncedRNG.cpp
+===================================================================
+--- trunk/rts/System/UnsyncedRNG.cpp	                        (rev 0)
++++ trunk/rts/System/UnsyncedRNG.cpp	2008-01-27 00:39:47 UTC (rev 5402)
+@@ -0,0 +1,16 @@
++#include &quot;UnsyncedRNG.h&quot;
++
++UnsyncedRNG::UnsyncedRNG() : randSeed(0)
++{
++}
++
++void UnsyncedRNG::Seed(unsigned seed)
++{
++	randSeed ^= seed;
++}
++
++unsigned UnsyncedRNG::operator()()
++{
++	randSeed = (randSeed * 214013L + 2531011L);
++	return randSeed &amp; 0x7FFF;
++}
+\ No newline at end of file
+
+Added: trunk/rts/System/UnsyncedRNG.h
+===================================================================
+--- trunk/rts/System/UnsyncedRNG.h	                        (rev 0)
++++ trunk/rts/System/UnsyncedRNG.h	2008-01-27 00:39:47 UTC (rev 5402)
+@@ -0,0 +1,16 @@
++#ifndef UNSYNCEDRNG_H_
++#define UNSYNCEDRNG_H_
++
++
++class UnsyncedRNG
++{
++public:
++	UnsyncedRNG();
++	void Seed(unsigned seed);
++	unsigned operator()();
++
++private:
++	unsigned randSeed;
++};
++
++#endif /*UNSYNCEDRNG_H_*/
+
+Modified: trunk/rts/System/float3.h
+===================================================================
+--- trunk/rts/System/float3.h	2008-01-26 20:13:51 UTC (rev 5401)
++++ trunk/rts/System/float3.h	2008-01-27 00:39:47 UTC (rev 5402)
+@@ -7,6 +7,7 @@
+ #ifndef FLOAT3_H
+ #define FLOAT3_H
+ 
++#include &quot;SFloat3.h&quot;
+ #include &quot;lib/streflop/streflop_cond.h&quot;
+ #include &quot;creg/creg.h&quot;
+ 
+@@ -17,7 +18,7 @@
+  * Usually used to represent a vector in
+  * space as x/y/z.
+  */
+-class float3
++class float3 : public SFloat3
+ {
+ public:
+ 	CR_DECLARE_STRUCT(float3);
+@@ -30,7 +31,7 @@
+ 	 *
+ 	 * With no parameters, x/y/z are just initialized to 0.
+ 	 */
+-	inline float3() : x(0), y(0), z(0) {};
++	inline float3() {};
+ 
+ 	/**
+ 	 * @brief Constructor
+@@ -40,7 +41,7 @@
+ 	 *
+ 	 * With parameters, initializes x/y/z to the given floats.
+ 	 */
+-	inline float3(const float x,const float y,const float z) : x(x),y(y),z(z) {}
++	inline float3(const float x,const float y,const float z) : SFloat3(x,y,z) {}
+ 
+ 	/**
+ 	 * @brief Destructor
+@@ -409,10 +410,6 @@
+ 		return x*x+z*z;
+ 	}
+ 
+-	float x; ///&lt; x component
+-	float y; ///&lt; y component
+-	float z; ///&lt; z component
+-
+ 	/**
+ 	 * @brief max x pos
+ 	 *
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000208.html">[Taspring-linux-commit] r5401 - trunk/AI/Global/KAIK-0.13
+</A></li>
+	<LI>Next message: <A HREF="000210.html">[Taspring-linux-commit] r5403 - in trunk: rts/Game rts/System	tools/DedicatedServer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#209">[ date ]</a>
+              <a href="thread.html#209">[ thread ]</a>
+              <a href="subject.html#209">[ subject ]</a>
+              <a href="author.html#209">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

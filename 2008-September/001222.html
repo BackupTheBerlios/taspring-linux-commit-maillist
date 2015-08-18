@@ -1,0 +1,502 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6452 - in trunk/rts: Map/SMF Sim/MoveTypes	Sim/Units Sim/Units/UnitTypes System
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6452%20-%20in%20trunk/rts%3A%20Map/SMF%20Sim/MoveTypes%0A%09Sim/Units%20Sim/Units/UnitTypes%20System&In-Reply-To=%3C20080923202843.072C948A4%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001221.html">
+   <LINK REL="Next"  HREF="001223.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6452 - in trunk/rts: Map/SMF Sim/MoveTypes	Sim/Units Sim/Units/UnitTypes System</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6452%20-%20in%20trunk/rts%3A%20Map/SMF%20Sim/MoveTypes%0A%09Sim/Units%20Sim/Units/UnitTypes%20System&In-Reply-To=%3C20080923202843.072C948A4%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6452 - in trunk/rts: Map/SMF Sim/MoveTypes	Sim/Units Sim/Units/UnitTypes System">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Sep 23 22:28:42 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001221.html">[Taspring-linux-commit] r6451 - in trunk: rts/Map rts/Map/SMF	tools/unitsync tools/unitsync/test
+</A></li>
+        <LI>Next message: <A HREF="001223.html">[Taspring-linux-commit] r6453 - trunk/rts/Sim/MoveTypes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1222">[ date ]</a>
+              <a href="thread.html#1222">[ thread ]</a>
+              <a href="subject.html#1222">[ subject ]</a>
+              <a href="author.html#1222">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-09-23 22:28:42 +0200 (Tue, 23 Sep 2008)
+New Revision: 6452
+
+Modified:
+   trunk/rts/Map/SMF/BFGroundDrawer.cpp
+   trunk/rts/Sim/MoveTypes/GroundMoveType.cpp
+   trunk/rts/Sim/MoveTypes/TAAirMoveType.cpp
+   trunk/rts/Sim/Units/Unit.cpp
+   trunk/rts/Sim/Units/UnitTypes/TransportUnit.cpp
+   trunk/rts/Sim/Units/UnitTypes/TransportUnit.h
+   trunk/rts/System/float3.cpp
+   trunk/rts/System/float3.h
+Log:
+fix Mantis #1052 (units being teleported when their transporter dies)
+
+Modified: trunk/rts/Map/SMF/BFGroundDrawer.cpp
+===================================================================
+--- trunk/rts/Map/SMF/BFGroundDrawer.cpp	2008-09-23 19:55:18 UTC (rev 6451)
++++ trunk/rts/Map/SMF/BFGroundDrawer.cpp	2008-09-23 20:28:42 UTC (rev 6452)
+@@ -146,7 +146,7 @@
+ 
+ inline void CBFGroundDrawer::DrawWaterPlane(bool drawWaterReflection) {
+ 	if (!drawWaterReflection) {
+-		const bool camOutOfMap = (camera-&gt;pos.x &lt; 0 || camera-&gt;pos.z &lt; 0 || camera-&gt;pos.x &gt; float3::maxxpos || camera-&gt;pos.z &gt; float3::maxzpos);
++		const bool camOutOfMap = !camera-&gt;pos.IsInBounds();
+ 		glCallList(camOutOfMap ? waterPlaneCamOutDispList : waterPlaneCamInDispList);
+ 	}
+ }
+
+Modified: trunk/rts/Sim/MoveTypes/GroundMoveType.cpp
+===================================================================
+--- trunk/rts/Sim/MoveTypes/GroundMoveType.cpp	2008-09-23 19:55:18 UTC (rev 6451)
++++ trunk/rts/Sim/MoveTypes/GroundMoveType.cpp	2008-09-23 20:28:42 UTC (rev 6452)
+@@ -174,9 +174,9 @@
+ 	mainHeadingPos(0,0,0),
+ 	useMainHeading(false)
+ {
+-	if (owner){
+-		moveSquareX=(int)owner-&gt;pos.x/(SQUARE_SIZE*2);
+-		moveSquareY=(int)owner-&gt;pos.z/(SQUARE_SIZE*2);
++	if (owner) {
++		moveSquareX = (int) owner-&gt;pos.x / (SQUARE_SIZE * 2);
++		moveSquareY = (int) owner-&gt;pos.z / (SQUARE_SIZE * 2);
+ 	} else {
+ 		moveSquareX = 0;
+ 		moveSquareY = 0;
+@@ -203,25 +203,26 @@
+ 
+ void CGroundMoveType::Update()
+ {
+-	//Update mobility.
++	// Update mobility.
+ 	owner-&gt;mobility-&gt;maxSpeed = maxSpeed;
+ 
+-	if(owner-&gt;transporter) {
++	if (owner-&gt;transporter) {
+ 		return;
+ 	}
+-	if(OnSlope()
+-		&amp;&amp; (!floatOnWater || ground-&gt;GetHeight(owner-&gt;midPos.x, owner-&gt;midPos.z) &gt; 0))
++
++	if (OnSlope() &amp;&amp;
++		(!floatOnWater || ground-&gt;GetHeight(owner-&gt;midPos.x, owner-&gt;midPos.z) &gt; 0))
+ 	{
+ 		skidding = true;
+ 	}
+ 
+-	if(skidding){
++	if (skidding) {
+ 		UpdateSkid();
+ 		return;
+ 	}
+ 
+ 	//set drop height when we start to drop
+-	if(owner-&gt;falling) {
++	if (owner-&gt;falling) {
+ 		UpdateControlledDrop();
+ 		return;
+ 	}
+@@ -279,7 +280,7 @@
+ 					etaWaypoint2 += 100;
+ 				} else {
+ 					if (DEBUG_CONTROLLER)
+-						logOutput.Print(&quot;Goal clogged up2 %i&quot;, owner-&gt;id);
++						logOutput.Print(&quot;Goal clogged up for unit %i&quot;, owner-&gt;id);
+ 					Fail();
+ 				}
+ 			}
+@@ -344,7 +345,6 @@
+ 		}
+ 	}
+ 
+-
+ 	if (owner-&gt;pos != oldPos) {
+ 		// these checks must be executed even when we are stunned
+ 		TestNewTerrainSquare();
+@@ -430,7 +430,7 @@
+ 		owner-&gt;pos.y = wh;
+ 	}
+ 
+-	if (!(owner-&gt;pos == oldSlowUpdatePos)) {
++	if (owner-&gt;pos != oldSlowUpdatePos) {
+ 		oldSlowUpdatePos = owner-&gt;pos;
+ 
+ 		int newmapSquare = ground-&gt;GetSquare(owner-&gt;pos);
+@@ -824,8 +824,8 @@
+ 
+ void CGroundMoveType::CheckCollisionSkid(void)
+ {
+-	float3&amp; pos=owner-&gt;pos;
+-	SyncedFloat3&amp; midPos=owner-&gt;midPos;
++	float3&amp; pos = owner-&gt;pos;
++	SyncedFloat3&amp; midPos = owner-&gt;midPos;
+ 
+ 	vector&lt;CUnit*&gt; nearUnits=qf-&gt;GetUnitsExact(midPos,owner-&gt;radius);
+ 	for(vector&lt;CUnit*&gt;::iterator ui=nearUnits.begin();ui!=nearUnits.end();++ui){
+@@ -1681,7 +1681,7 @@
+ 
+ void CGroundMoveType::TestNewTerrainSquare(void)
+ {
+-	// first make sure we dont go into any terrain we cant get out of
++	// first make sure we don't go into any terrain we cant get out of
+ 	int newMoveSquareX = (int) owner-&gt;pos.x / (SQUARE_SIZE * 2);
+ 	int newMoveSquareY = (int) owner-&gt;pos.z / (SQUARE_SIZE * 2);
+ 
+
+Modified: trunk/rts/Sim/MoveTypes/TAAirMoveType.cpp
+===================================================================
+--- trunk/rts/Sim/MoveTypes/TAAirMoveType.cpp	2008-09-23 19:55:18 UTC (rev 6451)
++++ trunk/rts/Sim/MoveTypes/TAAirMoveType.cpp	2008-09-23 20:28:42 UTC (rev 6452)
+@@ -924,7 +924,7 @@
+ 	if (!autoLand)
+ 		return false;
+ 
+-	if (pos.x &lt; 0 || pos.z &lt; 0 || pos.x &gt; float3::maxxpos || pos.z &gt; float3::maxzpos)
++	if (!pos.IsInBounds())
+ 		return false;
+ 
+ 	float h = ground-&gt;GetApproximateHeight(pos.x, pos.z);
+
+Modified: trunk/rts/Sim/Units/Unit.cpp
+===================================================================
+--- trunk/rts/Sim/Units/Unit.cpp	2008-09-23 19:55:18 UTC (rev 6451)
++++ trunk/rts/Sim/Units/Unit.cpp	2008-09-23 20:28:42 UTC (rev 6452)
+@@ -837,15 +837,15 @@
+ 	}
+ 
+ 	if (uh-&gt;waterDamage) {
+-		if (pos.x &gt;= 0.0f &amp;&amp; pos.x &lt;= float3::maxxpos &amp;&amp; pos.z &gt;= 0.0f &amp;&amp; pos.z &lt;= float3::maxzpos) {
++		if (pos.IsInBounds()) {
+ 			bool inWater = (pos.y &lt;= -3);
+ 			bool isFloating = (physicalState == CSolidObject::Floating);
+ 			bool onGround = (physicalState == CSolidObject::OnGround);
+-			bool waterSquare = (readmap-&gt;mipHeightmap[1][int((pos.z / (SQUARE_SIZE * 2)) * gs-&gt;hmapx + (pos.x / (SQUARE_SIZE * 2)))] &lt; -1);
++			bool isWaterSquare = (readmap-&gt;mipHeightmap[1][int((pos.z / (SQUARE_SIZE * 2)) * gs-&gt;hmapx + (pos.x / (SQUARE_SIZE * 2)))] &lt; -1);
+ 
+ 			// old: &quot;floating or (on ground and height &lt; -3 and mapheight &lt; -1)&quot;
+ 			// new: &quot;height &lt; -3 and (floating or on ground) and mapheight &lt; -1&quot;
+-			if (inWater &amp;&amp; (isFloating || onGround) &amp;&amp; waterSquare) {
++			if (inWater &amp;&amp; (isFloating || onGround) &amp;&amp; isWaterSquare) {
+ 				DoDamage(DamageArray() * uh-&gt;waterDamage, 0, ZeroVector, -1);
+ 			}
+ 		}
+@@ -1469,15 +1469,15 @@
+ 
+ void CUnit::SetLastAttacker(CUnit* attacker)
+ {
+-	if(gs-&gt;Ally(team, attacker-&gt;team) || gs-&gt;AlliedTeams(team, attacker-&gt;team)){
++	if (gs-&gt;Ally(team, attacker-&gt;team) || gs-&gt;AlliedTeams(team, attacker-&gt;team)) {
+ 		return;
+ 	}
+-	if(lastAttacker &amp;&amp; lastAttacker!=userTarget)
++	if (lastAttacker &amp;&amp; lastAttacker != userTarget)
+ 		DeleteDeathDependence(lastAttacker);
+ 
+-	lastAttack=gs-&gt;frameNum;
+-	lastAttacker=attacker;
+-	if(attacker)
++	lastAttack = gs-&gt;frameNum;
++	lastAttacker = attacker;
++	if (attacker)
+ 		AddDeathDependence(attacker);
+ }
+ 
+@@ -1489,7 +1489,7 @@
+ 	if (o == transporter)  { transporter  = NULL; }
+ 	if (o == lastAttacker) { lastAttacker = NULL; }
+ 
+-	incomingMissiles.remove((CMissileProjectile*)o);
++	incomingMissiles.remove((CMissileProjectile*) o);
+ 
+ 	CSolidObject::DependentDied(o);
+ }
+
+Modified: trunk/rts/Sim/Units/UnitTypes/TransportUnit.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitTypes/TransportUnit.cpp	2008-09-23 19:55:18 UTC (rev 6451)
++++ trunk/rts/Sim/Units/UnitTypes/TransportUnit.cpp	2008-09-23 20:28:42 UTC (rev 6452)
+@@ -1,7 +1,7 @@
+ #include &quot;StdAfx.h&quot;
+ #include &quot;TransportUnit.h&quot;
+ #include &quot;Game/SelectedUnits.h&quot;
+-#include &quot;Rendering/UnitModels/3DOParser.h&quot;
++#include &quot;Map/Ground.h&quot;
+ #include &quot;Sim/MoveTypes/TAAirMoveType.h&quot;
+ #include &quot;Sim/MoveTypes/GroundMoveType.h&quot;
+ #include &quot;Sim/Units/CommandAI/CommandAI.h&quot;
+@@ -34,9 +34,7 @@
+ 					CR_RESERVED(8)
+ 					));
+ 
+-CTransportUnit::CTransportUnit()
+-:	transportCapacityUsed(0),
+-  transportMassUsed(0)
++CTransportUnit::CTransportUnit(): transportCapacityUsed(0), transportMassUsed(0)
+ {
+ }
+ 
+@@ -53,6 +51,7 @@
+ {
+ 	CUnit::Update();
+ 	std::list&lt;TransportedUnit&gt;::iterator ti;
++
+ 	for (ti = transported.begin(); ti != transported.end(); ++ti) {
+ 		float3 relPos;
+ 		if (ti-&gt;piece &gt;= 0) {
+@@ -60,12 +59,14 @@
+ 		} else {
+ 			relPos = float3(0.0f, -1000.0f, 0.0f);
+ 		}
+-		float3 pos = this-&gt;pos + (frontdir * relPos.z) +
++		float3 upos = this-&gt;pos + (frontdir * relPos.z) +
+ 		                         (updir    * relPos.y) +
+ 		                         (rightdir * relPos.x);
+-//		pos.y-=ti-&gt;unit-&gt;radius;
+-		ti-&gt;unit-&gt;pos = pos;
++
++		ti-&gt;unit-&gt;pos = upos;
+ 		ti-&gt;unit-&gt;UpdateMidPos();
++		ti-&gt;unit-&gt;mapSquare = mapSquare;
++
+ 		if (unitDef-&gt;holdSteady) {
+ 			ti-&gt;unit-&gt;heading  = heading;
+ 			ti-&gt;unit-&gt;updir    = updir;
+@@ -78,10 +79,11 @@
+ 
+ void CTransportUnit::DependentDied(CObject* o)
+ {
++	// a unit died while we were carrying it
+ 	for (std::list&lt;TransportedUnit&gt;::iterator ti = transported.begin(); ti != transported.end(); ++ti) {
+ 		if (ti-&gt;unit == o) {
+-			transportCapacityUsed-=ti-&gt;size;
+-			transportMassUsed-=ti-&gt;mass;
++			transportCapacityUsed -= ti-&gt;size;
++			transportMassUsed -= ti-&gt;mass;
+ 			transported.erase(ti);
+ 			break;
+ 		}
+@@ -91,34 +93,54 @@
+ }
+ 
+ 
+-void CTransportUnit::KillUnit(bool selfDestruct,bool reclaimed, CUnit *attacker)
++void CTransportUnit::KillUnit(bool selfDestruct, bool reclaimed, CUnit* attacker, bool)
+ {
+ 	std::list&lt;TransportedUnit&gt;::iterator ti;
+ 	for (ti = transported.begin(); ti != transported.end(); ++ti) {
+-		ti-&gt;unit-&gt;transporter = 0;
+-		ti-&gt;unit-&gt;DeleteDeathDependence(this);
++		CUnit* u = ti-&gt;unit;
++
++		u-&gt;transporter = 0;
++		u-&gt;DeleteDeathDependence(this);
++
++		// prevent a position teleport on the next movetype update if
++		// the transport died in a place that the unit being carried
++		// could not get to on its own
++		if (!u-&gt;pos.IsInBounds()) {
++			u-&gt;KillUnit(false, false, 0x0, false);
++			continue;
++		} else {
++			const float gh = ground-&gt;GetHeight2(u-&gt;pos.x, u-&gt;pos.z);
++
++			if (gh &lt; -u-&gt;unitDef-&gt;maxWaterDepth || gh &gt; -u-&gt;unitDef-&gt;minWaterDepth) {
++				u-&gt;KillUnit(false, false, 0x0, false);
++			}
++			continue;
++		}
++
++
+ 		if (!unitDef-&gt;releaseHeld) {
+ 			if (!selfDestruct) {
+-				ti-&gt;unit-&gt;DoDamage(DamageArray()*1000000,0,ZeroVector);	//dont want it to leave a corpse
++				// we don't want it to leave a corpse
++				u-&gt;DoDamage(DamageArray() * 1000000, 0, ZeroVector);
+ 			}
+-			ti-&gt;unit-&gt;KillUnit(selfDestruct,reclaimed,attacker);
+-		}
+-		else {
+-			ti-&gt;unit-&gt;stunned = (ti-&gt;unit-&gt;paralyzeDamage &gt; ti-&gt;unit-&gt;health);
+-			if (CGroundMoveType* mt = dynamic_cast&lt;CGroundMoveType*&gt;(ti-&gt;unit-&gt;moveType)) {
++			u-&gt;KillUnit(selfDestruct, reclaimed, attacker);
++		} else {
++			u-&gt;stunned = (u-&gt;paralyzeDamage &gt; u-&gt;health);
++			if (CGroundMoveType* mt = dynamic_cast&lt;CGroundMoveType*&gt;(u-&gt;moveType)) {
+ 				mt-&gt;StartFlying();
+ 			}
+-			ti-&gt;unit-&gt;speed = speed;
++			u-&gt;speed = speed;
+ 
+-			eventHandler.UnitUnloaded(ti-&gt;unit, this);
++			eventHandler.UnitUnloaded(u, this);
+ 		}
+ 	}
+ 
+-	CUnit::KillUnit(selfDestruct,reclaimed,attacker);
++	CUnit::KillUnit(selfDestruct, reclaimed, attacker);
+ }
+ 
+ 
+-bool CTransportUnit::CanTransport (CUnit *unit)
++
++bool CTransportUnit::CanTransport(CUnit *unit)
+ {
+ 	if (unit-&gt;transporter) {
+ 		return false;
+@@ -144,15 +166,19 @@
+ {
+ 	DetachUnit(unit);
+ 
+-	if (!CanTransport(unit))
++	if (!CanTransport(unit)) {
+ 		return;
++	}
+ 
+ 	AddDeathDependence(unit);
+-	unit-&gt;AddDeathDependence (this);
++	unit-&gt;AddDeathDependence(this);
++
+ 	unit-&gt;transporter = this;
+-	unit-&gt;toBeTransported=false;
++	unit-&gt;toBeTransported = false;
++
+ 	if (!unitDef-&gt;isFirePlatform) {
+-		unit-&gt;stunned=true;	//make sure unit doesnt fire etc in transport
++		// make sure unit doesnt fire etc in transport
++		unit-&gt;stunned = true;
+ 		selectedUnits.RemoveUnit(unit);
+ 	}
+ 	unit-&gt;UnBlock();
+@@ -216,7 +242,6 @@
+ }
+ 
+ void CTransportUnit::DetachUnitFromAir(CUnit* unit, float3 pos) {
+-
+ 	if (unit-&gt;transporter != this)
+ 		return;
+ 
+@@ -224,7 +249,7 @@
+ 		if (ti-&gt;unit==unit) {
+ 			this-&gt;DeleteDeathDependence(unit);
+ 			unit-&gt;DeleteDeathDependence(this);
+-			unit-&gt;transporter=0;
++			unit-&gt;transporter = 0;
+ 			if (dynamic_cast&lt;CTAAirMoveType*&gt;(moveType))
+ 				unit-&gt;moveType-&gt;useHeading=true;
+ 
+@@ -264,7 +289,7 @@
+ 		if (ti-&gt;unit == unit) {
+ 			this-&gt;DeleteDeathDependence(unit);
+ 			unit-&gt;DeleteDeathDependence(this);
+-			unit-&gt;transporter=0;
++			unit-&gt;transporter = 0;
+ 			if (dynamic_cast&lt;CTAAirMoveType*&gt;(moveType))
+ 				unit-&gt;moveType-&gt;useHeading=true;
+ 			unit-&gt;stunned=false; // de-stun in case it isFirePlatform=0
+
+Modified: trunk/rts/Sim/Units/UnitTypes/TransportUnit.h
+===================================================================
+--- trunk/rts/Sim/Units/UnitTypes/TransportUnit.h	2008-09-23 19:55:18 UTC (rev 6451)
++++ trunk/rts/Sim/Units/UnitTypes/TransportUnit.h	2008-09-23 20:28:42 UTC (rev 6452)
+@@ -29,7 +29,7 @@
+ 
+ 	void Update();
+ 	void DependentDied(CObject* object);
+-	void KillUnit(bool selfDestruct,bool reclaimed, CUnit *attacker);
++	void KillUnit(bool selfDestruct,bool reclaimed, CUnit *attacker, bool showDeathSeq = false);
+ 	void AttachUnit(CUnit* unit, int piece);
+ 	void DetachUnit(CUnit* unit);
+ 	bool CanTransport(CUnit* unit);
+
+Modified: trunk/rts/System/float3.cpp
+===================================================================
+--- trunk/rts/System/float3.cpp	2008-09-23 19:55:18 UTC (rev 6451)
++++ trunk/rts/System/float3.cpp	2008-09-23 20:28:42 UTC (rev 6452)
+@@ -14,6 +14,11 @@
+ float float3::maxxpos = 2048.0f; /**&lt; Maximum X position is 2048 */
+ float float3::maxzpos = 2048.0f; /**&lt; Maximum z position is 2048 */
+ 
++bool float3::IsInBounds() const
++{
++	return ((x &gt;= 0.0f &amp;&amp; x &lt;= maxxpos) &amp;&amp; (z &gt;= 0.0f &amp;&amp; z &lt;= maxzpos));
++}
++
+ /**
+  * @return whether or not it's in bounds
+  *
+@@ -24,12 +29,12 @@
+ {
+ 	bool in = true;
+ 
+-	if (x &lt; 1) {
+-		x = 1;
++	if (x &lt; 1.0f) {
++		x = 1.0f;
+ 		in = false;
+ 	}
+-	if (z &lt; 1) {
+-		z = 1;
++	if (z &lt; 1.0f) {
++		z = 1.0f;
+ 		in = false;
+ 	}
+ 	if (x &gt; maxxpos) {
+
+Modified: trunk/rts/System/float3.h
+===================================================================
+--- trunk/rts/System/float3.h	2008-09-23 19:55:18 UTC (rev 6451)
++++ trunk/rts/System/float3.h	2008-09-23 20:28:42 UTC (rev 6452)
+@@ -441,7 +441,8 @@
+ 	 */
+ 	static float maxzpos;
+ 
+-	bool CheckInBounds(); //!&lt; Check if this vector is in bounds
++	bool IsInBounds() const; //!&lt; Check if this vector is in bounds without clamping x and z
++	bool CheckInBounds(); //!&lt; Check if this vector is in bounds and clamp x and z if not
+ };
+ 
+ #endif /* FLOAT3_H */
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001221.html">[Taspring-linux-commit] r6451 - in trunk: rts/Map rts/Map/SMF	tools/unitsync tools/unitsync/test
+</A></li>
+	<LI>Next message: <A HREF="001223.html">[Taspring-linux-commit] r6453 - trunk/rts/Sim/MoveTypes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1222">[ date ]</a>
+              <a href="thread.html#1222">[ thread ]</a>
+              <a href="subject.html#1222">[ subject ]</a>
+              <a href="author.html#1222">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

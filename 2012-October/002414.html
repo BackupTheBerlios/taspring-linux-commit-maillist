@@ -1,0 +1,2737 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7644 - in Lobby/TASClient: . Python/scripts
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2012-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7644%20-%20in%20Lobby/TASClient%3A%20.%20Python/scripts&In-Reply-To=%3Cmailman.2894.1350834349.1508.taspring-linux-commit%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002413.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7644 - in Lobby/TASClient: . Python/scripts</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7644%20-%20in%20Lobby/TASClient%3A%20.%20Python/scripts&In-Reply-To=%3Cmailman.2894.1350834349.1508.taspring-linux-commit%40lists.berlios.de%3E"
+       TITLE="[Taspring-linux-commit] r7644 - in Lobby/TASClient: . Python/scripts">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Oct 21 17:45:02 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002413.html">[Taspring-linux-commit] r7643 - Lobby/TASClient
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2414">[ date ]</a>
+              <a href="thread.html#2414">[ thread ]</a>
+              <a href="subject.html#2414">[ subject ]</a>
+              <a href="author.html#2414">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2012-10-21 17:45:00 +0200 (Sun, 21 Oct 2012)
+New Revision: 7644
+
+Added:
+   Lobby/TASClient/Python/scripts/ExamplesAndOldScripts/
+   Lobby/TASClient/Python/scripts/antiPMspam.py
+   Lobby/TASClient/Python/scripts/forumIt.py
+   Lobby/TASClient/Python/scripts/googleIt.py
+   Lobby/TASClient/Python/scripts/layoutProfileManager.py
+   Lobby/TASClient/Python/scripts/layoutScripts/
+   Lobby/TASClient/Python/scripts/mapdownload.py
+   Lobby/TASClient/Python/scripts/renamers.py
+   Lobby/TASClient/Python/scripts/stick.py
+   Lobby/TASClient/Python/scripts/unlockJoin.py
+   Lobby/TASClient/Python/scripts/z_autoUnspec.py
+Removed:
+   Lobby/TASClient/Python/scripts/SubmitCrashReport.py
+   Lobby/TASClient/Python/scripts/antiPMspam.py
+   Lobby/TASClient/Python/scripts/forumIt.py
+   Lobby/TASClient/Python/scripts/googleIt.py
+   Lobby/TASClient/Python/scripts/layoutProfileManager.py
+   Lobby/TASClient/Python/scripts/layoutScripts/
+   Lobby/TASClient/Python/scripts/mapdownload.py
+   Lobby/TASClient/Python/scripts/renamers.py
+   Lobby/TASClient/Python/scripts/replaysBrowser.py
+   Lobby/TASClient/Python/scripts/stick.py
+   Lobby/TASClient/Python/scripts/subf/
+   Lobby/TASClient/Python/scripts/unlockJoin.py
+   Lobby/TASClient/Python/scripts/z_autoUnspec.py
+Modified:
+   Lobby/TASClient/BattleFormUnit.pas
+   Lobby/TASClient/HostBattleFormUnit.pas
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/ReplaysUnit.dfm
+   Lobby/TASClient/ReplaysUnit.pas
+   Lobby/TASClient/SpringDownloaderFormUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* replay start script line &gt; 1024 bytes are ignored when hosting a replay
+* download the map and/or the mod before launching a replay if they are missing
+* python scripts clean up
+
+Modified: Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.pas	2012-10-13 13:16:44 UTC (rev 7643)
++++ Lobby/TASClient/BattleFormUnit.pas	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -973,13 +973,21 @@
+     StartProgressBar.Refresh;
+ 
+     nextScriptLine := 'SCRIPT '+scriptLines[i];
+-    while Status.CumulativeDataSent+Length(nextScriptLine)-Status.CumulativeDataSentHistory.Items[0] &gt; FLOODLIMIT_BYTESPERSECOND*FLOODLIMIT_SECONDS do
++    if Length(nextScriptLine) &lt;= 1024 then
+     begin
++      while Status.CumulativeDataSent+Length(nextScriptLine)-Status.CumulativeDataSentHistory.Items[0] &gt; FLOODLIMIT_BYTESPERSECOND*FLOODLIMIT_SECONDS do
++      begin
++        Application.ProcessMessages;
++        Sleep(10);
++      end;
+       Application.ProcessMessages;
+-      Sleep(10);
++      MainForm.TryToSendCommand('SCRIPT', scriptLines[i]);
++    end
++    else
++    begin
++      Application.ProcessMessages;
++      MainForm.AddMainLog(_('A replay script line could not be sent to the server because it exceeded the maximum allowed line size. The replay may not work properly.'),Colors.Error);
+     end;
+-    Application.ProcessMessages;
+-    MainForm.TryToSendCommand('SCRIPT', scriptLines[i]);
+   end;
+   MainForm.TryToSendCommand('SCRIPTEND');
+ 
+@@ -2961,13 +2969,21 @@
+       StartProgressBar.Position := i;
+       StartProgressBar.Refresh;
+       nextScriptLine := 'SAYPRIVATE '+HostBattleForm.relayHoster.Name+' !appendscriptline '+sl[i];
+-      while Status.CumulativeDataSent+Length(nextScriptLine)-Status.CumulativeDataSentHistory.Items[0] &gt; FLOODLIMIT_BYTESPERSECOND*FLOODLIMIT_SECONDS do
++      if Length(nextScriptLine) &lt; 1024 then
+       begin
++        while Status.CumulativeDataSent+Length(nextScriptLine)-Status.CumulativeDataSentHistory.Items[0] &gt; FLOODLIMIT_BYTESPERSECOND*FLOODLIMIT_SECONDS do
++        begin
++          Application.ProcessMessages;
++          Sleep(10);
++        end;
+         Application.ProcessMessages;
+-        Sleep(10);
++        MainForm.TryToSendCommand('SAYPRIVATE',HostBattleForm.relayHoster.Name+' !appendscriptline '+sl[i]);
++      end
++      else
++      begin
++        Application.ProcessMessages;
++        MainForm.AddMainLog(_('A start script line could not be sent to the server because it exceeded the maximum allowed line size. The hosting may not work properly.'),Colors.Error);
+       end;
+-      Application.ProcessMessages;
+-      MainForm.TryToSendCommand('SAYPRIVATE',HostBattleForm.relayHoster.Name+' !appendscriptline '+sl[i]);
+     end;
+     StartButton.Visible := True;
+     StartProgressBar.Visible := False;
+
+Modified: Lobby/TASClient/HostBattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/HostBattleFormUnit.pas	2012-10-13 13:16:44 UTC (rev 7643)
++++ Lobby/TASClient/HostBattleFormUnit.pas	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -339,7 +339,7 @@
+   BattleState.AutoKickRankLimit := BattleForm.mnuLimitRankAutoKick.Checked;
+   BattleState.Password := PasswordEdit.Text;
+ 
+-  WaitForAckForm.ShowModal;
++  WaitForAckForm.Show;
+ end;
+ 
+ procedure THostBattleForm.FormCreate(Sender: TObject);
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2012-10-13 13:16:44 UTC (rev 7643)
++++ Lobby/TASClient/MainUnit.dfm	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 219
+-  Top = 112
++  Left = 661
++  Top = 426
+   Width = 882
+   Height = 567
+   Caption = 'TASClient'
+@@ -443,6 +443,7 @@
+             Header.Options = [hoAutoResize, hoColumnResize, hoDrag, hoHotTrack, hoOwnerDraw, hoShowHint, hoShowSortGlyphs, hoVisible]
+             Header.SortColumn = 4
+             Header.Style = hsFlatButtons
++            HintAnimation = hatFade
+             HintMode = hmHint
+             ParentFont = False
+             ParentShowHint = False
+@@ -5623,7 +5624,7 @@
+     object SubMenuDownload: TSpTBXSubmenuItem
+       Caption = 'Download maps,mods,scripts'
+       object mnuJobJol: TSpTBXItem
+-        Caption = 'spring.jobjol.net'
++        Caption = 'springfiles.com'
+         Hint = 'uknown-files.net'
+         OnClick = mnuJobJolClick
+       end
+@@ -5669,6 +5670,10 @@
+       Caption = 'Spring stats'
+       OnClick = SpTBXItem3Click
+     end
++    object SpTBXItem9: TSpTBXItem
++      Caption = 'TASClient Changelog'
++      OnClick = SpTBXItem9Click
++    end
+     object SpTBXSeparatorItem17: TSpTBXSeparatorItem
+     end
+   end
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2012-10-13 13:16:44 UTC (rev 7643)
++++ Lobby/TASClient/MainUnit.pas	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -412,12 +412,12 @@
+   );
+ 
+ const
+-  VERSION_NUMBER = '0.98'; // Must be float value! (with a period as a decimal seperator)
++  VERSION_NUMBER = '0.99'; // Must be float value! (with a period as a decimal seperator)
+   PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER;
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+   ASSUME_TIMEOUT_INTERVAL = 30000; // in milliseconds. Must be greater than KEEP_ALIVE_INTERVAL! If server hasn't send any data to us within this interval, then we assume timeout occured. It's us who must make sure we get constant replies from server by pinging it.
+   LOCAL_TAB = '$Local'; // caption of main (command) tab window. Must be special so that is different from channel names or user names, that is why there is a &quot;$&quot; in front of it.
+-  SUPPORTED_SERVER_VERSIONS: array[0..0] of string = ('0.35'); // client can connect ONLY to server with one of these version numbers
++  SUPPORTED_SERVER_VERSIONS: array[0..1] of string = ('0.35','0.37'); // client can connect ONLY to server with one of these version numbers
+   EOL = #13#10;
+   MAX_MSG_ID = 65535; // when sending commands to the server they may be assigned an unique ID, MAX_MSG_ID is the maximum value of this ID (note that you may assign IDs any way you want, random, consecutive, or even not at all). Currently this program assigns consecutive IDs, so once it reaches this value, the next will be 0, then 1 etc.
+ 
+@@ -464,7 +464,7 @@
+   MAX_AUTOSENDMSG = 2; // limit the auto sent msg when auto specing or kicking players
+ 
+   FLOODLIMIT_BYTESPERSECOND = 1024;
+-  FLOODLIMIT_SECONDS = 10;
++  FLOODLIMIT_SECONDS = 9; // the limit is actually 10seconds, but to be sure it won't exceed the limit we use 9seconds
+ 
+   DOWNLOADER_SEGMENTS = 4;
+ 
+@@ -1377,6 +1377,7 @@
+     pnlQuickBattleFilters: TSpTBXPanel;
+     BattleFiltersTextbox: TSpTBXButtonEdit;
+     SpacerPanel3: TSpTBXPanel;
++    SpTBXItem9: TSpTBXItem;
+     procedure mnuOpenPrivateChatClick(Sender: TObject);
+     procedure mnuSelectBattleClick(Sender: TObject);
+     procedure mnuPlayWithClick(Sender: TObject);
+@@ -1583,6 +1584,7 @@
+     procedure mnuJoinMeClick(Sender: TObject);
+     procedure BattleFiltersTextboxChange(Sender: TObject);
+     procedure BattleFiltersTextboxSubEditButton0Click(Sender: TObject);
++    procedure SpTBXItem9Click(Sender: TObject);
+   published
+     MainTitleBar: TSpTBXTitleBar;
+     ButtonImageList: TImageList;
+@@ -4171,6 +4173,7 @@
+ 
+   TranslateComponent(self);
+ 
++  Application.HintPause := 100;
+ 
+   if MainUnit.Debug.Enabled then
+     Misc.TryToAddLog(MainUnit.StartDebugLog,'Initializing variables ...');
+@@ -7569,15 +7572,15 @@
+       BattleForm.SortClientList(Preferences.BattleClientSortStyle,Preferences.BattleClientSortDirection,True);
+       BattleForm.SortBotList(Preferences.BattleClientSortStyle,Preferences.BattleClientSortDirection,True);
+ 
++      BattleState.JoiningComplete := True;
++      BattleForm.SendBattleDetailsToServer;
++      BattleForm.SendLuaOptionsDetailsToServer;
++
+       if Battle.BattleType = 1 then
+       begin
+         Misc.ShowAndSetFocus(BattleForm.InputEdit);
+         BattleForm.SendReplayScriptToServer;
+       end;
+-
+-      BattleState.JoiningComplete := True;
+-      BattleForm.SendBattleDetailsToServer;
+-      BattleForm.SendLuaOptionsDetailsToServer;
+     end
+     else if sl[0] = 'JOINBATTLEREQUEST' then
+     begin
+@@ -11774,7 +11777,7 @@
+ 
+ procedure TMainForm.mnuSpringReplaysClick(Sender: TObject);
+ begin
+-  Misc.OpenURLInDefaultBrowser('<A HREF="http://replays.adune.nl/">http://replays.adune.nl/</A>');
++  Misc.OpenURLInDefaultBrowser('<A HREF="http://replays.springrts.com/">http://replays.springrts.com/</A>');
+ end;
+ 
+ procedure TMainForm.mnuJobJolClick(Sender: TObject);
+@@ -15137,4 +15140,9 @@
+   RefreshBattleList;
+ end;
+ 
++procedure TMainForm.SpTBXItem9Click(Sender: TObject);
++begin
++  Misc.OpenURLInDefaultBrowser('<A HREF="http://springrts.com/dl/tasclient/tasclient_changelog.log">http://springrts.com/dl/tasclient/tasclient_changelog.log</A>');
++end;
++
+ end.
+
+Deleted: Lobby/TASClient/Python/scripts/SubmitCrashReport.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/SubmitCrashReport.py	2012-10-13 13:16:44 UTC (rev 7643)
++++ Lobby/TASClient/Python/scripts/SubmitCrashReport.py	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -1,170 +0,0 @@
+-#######################################################################################################
+-# SubmitCrashReport for TASClient by Zydox (2010-05-01)
+-# 
+-# If the infolog.txt contains &quot;has crashed.&quot;, this script will upload the
+-# infolog.txt, script.txt, ext.txt, unitsync.log and demo to <A HREF="http://infologs.springrts.com/upload">http://infologs.springrts.com/upload</A>
+-#
+-# Version 1.1
+-# Requries: zipfile.py, pycurl.pyd, struct.py &amp; pycurl.pyd
+-#
+-# Many thanks to Satirik for all the help understanding the api &amp; gui and to Teutooni for testing
+-########################################################################################################
+-import time
+-import lobbyscript
+-import sys
+-import re
+-import zipfile
+-import pycurl
+-import os
+-from threading import Thread
+-
+-api = lobbyscript.Callback()
+-gui = lobbyscript.GUI()
+-colors = gui.GetColors()
+-version = '1.1'
+-
+-
+-def cmd_CrashReportWindow ():
+-	SubmitCrashReport_DisplaySendForm ()
+-	return True
+-	
+-
+-def SubmitCrashReport_ButtonSubmit (Sender):
+-	SubmitCrashReport_SendCrashReport ()
+-
+-
+-def SubmitCrashReport_ButtonCancel (Sender):
+-	SubmitCrashReport_HideSendForm ()
+-
+-
+-def SubmitCrashReport_DisplaySendForm ():
+-	a = gui.GetControlProperties ('MainForm.CrashReportForm', '')
+-	b = gui.GetControlProperties ('BattleForm', '')
+-	top = b['Top'] + (b['Height'] - a['Height']) / 2
+-	left =  b['Left'] + (b['Width'] - a['Width']) / 2
+-	gui.SetControlProperties ('MainForm.CrashReportForm', '', {'Top':top, 'Left':left, 'Visible':'True'})
+-	gui.SetControlProperties ('MainForm.CrashReportForm.TitleBar.UserInformationInputBox', '', {'Height':'106', 'Lines':[]})
+-	gui.SetControlProperties ('MainForm.CrashReportForm.TitleBar', '', {'Active':'False'})
+-	gui.SetControlProperties ('MainForm.CrashReportForm.TitleBar', '', {'Active':'True'})
+-
+-
+-def SubmitCrashReport_HideSendForm ():
+-	gui.SetControlProperties ('MainForm.CrashReportForm', '', {'Visible':'False'})
+-
+-
+-def _init ():
+-	global colors
+-	gui.AddForm (&quot;CrashReportForm&quot;, &quot;CrashReportForm&quot;, 0, False)
+-	gui.SetControlProperties ('MainForm.CrashReportForm', '', {'Visible':'False', 'Width':'350', 'Height':'290'})
+-	gui.AddControl(&quot;TitleBar&quot;,&quot;MainForm.CrashReportForm&quot;,&quot;TSpTBXTitleBar&quot;)
+-	gui.AddControl(&quot;UserInformationLabel1&quot;,&quot;MainForm.CrashReportForm.TitleBar&quot;,&quot;TSpTBXLabel&quot;)
+-	gui.AddControl(&quot;UserInformationLabel2&quot;,&quot;MainForm.CrashReportForm.TitleBar&quot;,&quot;TSpTBXLabel&quot;)
+-	gui.AddControl(&quot;UserInformationLabel3&quot;,&quot;MainForm.CrashReportForm.TitleBar&quot;,&quot;TSpTBXLabel&quot;)
+-	gui.AddControl(&quot;UserInformationLabel4&quot;,&quot;MainForm.CrashReportForm.TitleBar&quot;,&quot;TSpTBXLabel&quot;)
+-	gui.AddControl(&quot;UserInformationInputBox&quot;,&quot;MainForm.CrashReportForm.TitleBar&quot;,&quot;TTntMemo&quot;)
+-	gui.AddControl(&quot;SubmitButton&quot;,&quot;MainForm.CrashReportForm.TitleBar&quot;,&quot;TSpTBXButton&quot;)
+-	gui.AddControl(&quot;CancelButton&quot;,&quot;MainForm.CrashReportForm.TitleBar&quot;,&quot;TSpTBXButton&quot;)
+-	gui.SetControlProperties ('MainForm.CrashReportForm.TitleBar.SubmitButton', '', {'Left':'92', 'Top':'252', 'Width':'77', 'Caption':'Submit'})
+-	gui.SetControlProperties ('MainForm.CrashReportForm.TitleBar.CancelButton', '', {'Left':'180', 'Top':'252', 'Width':'77', 'Caption':'Cancel'})
+-	gui.SetControlProperties ('MainForm.CrashReportForm.TitleBar.UserInformationInputBox', 'Font', {'Color':colors['SkinEditText']})
+-	gui.SetControlProperties ('MainForm.CrashReportForm.TitleBar.UserInformationInputBox', '', {'Left':'5', 'Height':'106', 'Top':'115', 'Width':'337', 'Lines':[], 'Color':colors['SkinEditBackground'], 'BorderStyle':'bsNone'})
+-	gui.SetControlProperties ('MainForm.CrashReportForm.TitleBar.UserInformationLabel1', '', {'Left':'10', 'Top':'30', 'Width':'300', 'Caption':'Your game just crashed or desynced, please press the submit button'})
+-	gui.SetControlProperties ('MainForm.CrashReportForm.TitleBar.UserInformationLabel2', '', {'Left':'10', 'Top':'45', 'Width':'300', 'Caption':'to send the demo, infolog, script, ext, settings and unitsync files'})
+-	gui.SetControlProperties ('MainForm.CrashReportForm.TitleBar.UserInformationLabel3', '', {'Left':'10', 'Top':'60', 'Width':'300', 'Caption':'in order to improve the Spring engine.'})
+-	gui.SetControlProperties ('MainForm.CrashReportForm.TitleBar.UserInformationLabel4', '', {'Left':'10', 'Top':'95', 'Width':'300', 'Caption':'Optional comments:'})
+-	gui.SetControlProperties ('MainForm.CrashReportForm.TitleBar', '', {'Active':'False'})
+-	gui.SetControlProperties ('MainForm.CrashReportForm.TitleBar', '', {'Active':'True', 'Caption':'Submit crash report', 'FixedSize':'True'})
+-	gui.SetControlProperties ('MainForm.CrashReportForm.TitleBar', 'Options', {'Minimize':'False', 'Maximize':'False'})
+-	gui.AddEvent('MainForm.CrashReportForm.TitleBar.SubmitButton', 'onClick', 'SubmitCrashReport', 'SubmitCrashReport_ButtonSubmit')
+-	gui.AddEvent('MainForm.CrashReportForm.TitleBar.CancelButton', 'onClick', 'SubmitCrashReport', 'SubmitCrashReport_ButtonCancel')
+-
+-
+-def onBackFromGame ():
+-	SubmitCrashReport_CheckCrash ()
+-
+-
+-def SubmitCrashReport_CheckCrash ():
+-	file = open ('infolog.txt', 'r')
+-	for line in file:
+-		if (re.search ('^\[[ 0-9]*\]( Spring [/d\.]*.*has crashed\.$)|( Sync error for .*[)]{1})', line)):
+-			SubmitCrashReport_DisplaySendForm ()
+-			break
+-	file.close ()
+-
+-
+-def SubmitCrashReport_SendCrashReport ():
+-	global version
+-	api.Print ('SubmitCrashReport: Submit')
+-	info = gui.GetControlProperties ('MainForm.CrashReportForm.TitleBar.UserInformationInputBox', '')
+-	file = open ('client.txt', 'w')
+-	file.write ('TASClient ' + str (api.GetVersion ()) + '\nSubmitCrashReport ' + str (version))
+-	file.close ()
+-	api.Print ('SubmitCrashReport: client.txt created')
+-	file = open ('information.txt', 'w')
+-	file.write (&quot;\n&quot;.join (info['Lines']))
+-	file.close ()
+-	api.Print ('SubmitCrashReport: information.txt created')
+-
+-	Submit = SubmitCrashReport ()
+-	Submit.start ()
+-	SubmitCrashReport_HideSendForm ()
+-
+-	
+-class SubmitCrashReport (Thread):
+-	def __init__ (self):
+-		Thread.__init__(self)
+-	
+-	def run (self):
+-		api.Print ('SubmitCrashReport: Send crash file')
+-		
+-		settings = ''
+-		demo = ''
+-		
+-		file = open ('infolog.txt', 'r')
+-		for line in file:
+-			match = re.search ('^using( default|) configuration source ', line)
+-			if (match):
+-				settings = line.replace (match.group (0), '').replace ('\n', '')[1:-1]
+-				if (not os.path.exists (settings)):
+-					settings = ''
+-			match = re.search ('^\[[ 0]*\] Recording demo ', line)
+-			if (match):
+-				demo = os.getcwd() + '\\' + line.replace (match.group (0), '').replace ('\n', '').replace ('/', '\\')
+-				if (not os.path.exists (demo)):
+-					demo = ''
+-			if (settings and demo):
+-				break
+-		file.close ()
+-		
+-		zip = zipfile.ZipFile ('CrashReport.zip', 'w', zipfile.ZIP_DEFLATED)
+-		zip.write ('client.txt')
+-		zip.write ('information.txt')
+-		zip.write ('infolog.txt')
+-		zip.write ('script.txt')
+-		zip.write ('ext.txt')
+-		zip.write ('unitsync.log')
+-		if (settings):
+-			zip.write (settings, 'settings.txt')
+-		if (demo and os.path.getsize (demo) &lt;= 5 * 1024 * 1024):
+-			zip.write (demo, 'demo.sdf')
+-		zip.close ()
+-		
+-		
+-		c = pycurl.Curl ()
+-		c.setopt (c.POST, 1)
+-		c.setopt (c.URL, &quot;<A HREF="http://infologs.springrts.com/upload">http://infologs.springrts.com/upload</A>&quot;)
+-		c.setopt (pycurl.HTTPHEADER, ['Expect:'])
+-		try:
+-			c.setopt (c.HTTPPOST, [(&quot;file&quot;, (c.FORM_FILE, os.getcwd () + '\\CrashReport.zip'))])
+-			c.perform ()
+-			api.Print ('SubmitCrashReport: Completed')
+-		except:
+-			api.Print ('SubmitCrashReport: Upload failed')
+-		c.close ()
+-
+-		try:
+-			os.remove (os.getcwd () + '\\CrashReport.zip')
+-			os.remove (os.getcwd () + '\\client.txt')
+-			os.remove (os.getcwd () + '\\information.txt')
+-		except:
+-			api.Print ('SubmitCrashReport: Cleanup failed (CrashReport.zip, client.txt &amp; information.txt)')
+\ No newline at end of file
+
+Deleted: Lobby/TASClient/Python/scripts/antiPMspam.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/antiPMspam.py	2012-10-13 13:16:44 UTC (rev 7643)
++++ Lobby/TASClient/Python/scripts/antiPMspam.py	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -1,86 +0,0 @@
+-import lobbyscript
+-import datetime
+-
+-lastSent = dict()
+-nbMsg = dict()
+-warningMsgSent = dict()
+-ignoreUsers = []
+-MaxAllowedMsgPerInterval = 100
+-IntervalInSec = 30
+-Interval = datetime.timedelta(seconds=IntervalInSec)
+-
+-api = lobbyscript.Callback()
+-gui = lobbyscript.GUI()
+-
+-colors = gui.GetColors()
+-
+-def cmd_unblock(user):
+-	global lastSent
+-	global nbMsg
+-	global warningMsgSent
+-	
+-	if user in lastSent:
+-		del lastSent[user]
+-	if user in nbMsg:
+-		del nbMsg[user]
+-	if user in warningMsgSent:
+-		del warningMsgSent[user]
+-	gui.AddToRichEdit('$current','*** Spam protection resetted for '+user+' ***',colors['Info'])
+-	return True
+-	
+-def cmd_spamprotection(user):
+-	global ignoreUsers
+-	users = api.GetUsers()
+-	if user != '':
+-		if not user in ignoreUsers:
+-			ignoreUsers.append(user)
+-			gui.AddToRichEdit('$current','*** Spam protection disabled for '+user+' ***',colors['Info'])
+-		else:
+-			ignoreUsers.remove(user)
+-			gui.AddToRichEdit('$current','*** Spam protection enabled for '+user+' ***',colors['Info'])
+-	return True
+-	
+-def in_SAID(channel,user,args):
+-	return checkSpam(user)
+-	
+-def in_SAIDEX(channel,user,args):
+-	return checkSpam(user)
+-	
+-def in_SAIDPRIVATE(user,args):
+-	return checkSpam(user)
+-	
+-def in_SAIDBATTLE(user,args):
+-	return checkSpam(user)
+-	
+-def in_SAIDBATTLEEX(user,args):
+-	return checkSpam(user)
+-
+-def checkSpam(user):
+-	global lastSent
+-	global nbMsg
+-	global warningMsgSent
+-	global ignoreUsers
+-	
+-	if not user in ignoreUsers:
+-		if not user in lastSent:
+-			lastSent[user] = datetime.datetime.now()
+-			nbMsg[user] = 1
+-		else:
+-			if nbMsg[user] &lt; MaxAllowedMsgPerInterval:
+-				if lastSent[user]+Interval &lt; datetime.datetime.now():
+-					lastSent[user] = datetime.datetime.now()
+-					nbMsg[user] = 1
+-				else:
+-					nbMsg[user] = nbMsg[user]+1
+-			else:
+-				if lastSent[user]+Interval &gt; datetime.datetime.now():
+-					lastSent[user] = datetime.datetime.now()
+-					if not user in warningMsgSent:
+-						warningMsgSent[user] = True
+-						gui.AddToRichEdit('$current','*** '+user+' is trying to spam you (received more than '+str(MaxAllowedMsgPerInterval)+' messages in less than '+str(IntervalInSec)+' seconds), to reset the spam protection for this user, type &quot;/unblock '+user+'&quot;, to disable/enable the spam protection for this user, type &quot;/spamprotection '+user+'&quot; ***',colors['Error'])
+-					return False
+-				else:
+-					lastSent[user] = datetime.datetime.now()
+-					nbMsg[user] = 1
+-					if user in warningMsgSent:
+-						del warningMsgSent[user]
+
+Added: Lobby/TASClient/Python/scripts/antiPMspam.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/antiPMspam.py	                        (rev 0)
++++ Lobby/TASClient/Python/scripts/antiPMspam.py	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -0,0 +1,86 @@
++import lobbyscript
++import datetime
++
++lastSent = dict()
++nbMsg = dict()
++warningMsgSent = dict()
++ignoreUsers = []
++MaxAllowedMsgPerInterval = 100
++IntervalInSec = 30
++Interval = datetime.timedelta(seconds=IntervalInSec)
++
++api = lobbyscript.Callback()
++gui = lobbyscript.GUI()
++
++colors = gui.GetColors()
++
++def cmd_unblock(user):
++	global lastSent
++	global nbMsg
++	global warningMsgSent
++	
++	if user in lastSent:
++		del lastSent[user]
++	if user in nbMsg:
++		del nbMsg[user]
++	if user in warningMsgSent:
++		del warningMsgSent[user]
++	gui.AddToRichEdit('$current','*** Spam protection resetted for '+user+' ***',colors['Info'])
++	return True
++	
++def cmd_spamprotection(user):
++	global ignoreUsers
++	users = api.GetUsers()
++	if user != '':
++		if not user in ignoreUsers:
++			ignoreUsers.append(user)
++			gui.AddToRichEdit('$current','*** Spam protection disabled for '+user+' ***',colors['Info'])
++		else:
++			ignoreUsers.remove(user)
++			gui.AddToRichEdit('$current','*** Spam protection enabled for '+user+' ***',colors['Info'])
++	return True
++	
++def in_SAID(channel,user,args):
++	return checkSpam(user)
++	
++def in_SAIDEX(channel,user,args):
++	return checkSpam(user)
++	
++def in_SAIDPRIVATE(user,args):
++	return checkSpam(user)
++	
++def in_SAIDBATTLE(user,args):
++	return checkSpam(user)
++	
++def in_SAIDBATTLEEX(user,args):
++	return checkSpam(user)
++
++def checkSpam(user):
++	global lastSent
++	global nbMsg
++	global warningMsgSent
++	global ignoreUsers
++	
++	if not user in ignoreUsers:
++		if not user in lastSent:
++			lastSent[user] = datetime.datetime.now()
++			nbMsg[user] = 1
++		else:
++			if nbMsg[user] &lt; MaxAllowedMsgPerInterval:
++				if lastSent[user]+Interval &lt; datetime.datetime.now():
++					lastSent[user] = datetime.datetime.now()
++					nbMsg[user] = 1
++				else:
++					nbMsg[user] = nbMsg[user]+1
++			else:
++				if lastSent[user]+Interval &gt; datetime.datetime.now():
++					lastSent[user] = datetime.datetime.now()
++					if not user in warningMsgSent:
++						warningMsgSent[user] = True
++						gui.AddToRichEdit('$current','*** '+user+' is trying to spam you (received more than '+str(MaxAllowedMsgPerInterval)+' messages in less than '+str(IntervalInSec)+' seconds), to reset the spam protection for this user, type &quot;/unblock '+user+'&quot;, to disable/enable the spam protection for this user, type &quot;/spamprotection '+user+'&quot; ***',colors['Error'])
++					return False
++				else:
++					lastSent[user] = datetime.datetime.now()
++					nbMsg[user] = 1
++					if user in warningMsgSent:
++						del warningMsgSent[user]
+
+Deleted: Lobby/TASClient/Python/scripts/forumIt.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/forumIt.py	2012-10-13 13:16:44 UTC (rev 7643)
++++ Lobby/TASClient/Python/scripts/forumIt.py	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -1,18 +0,0 @@
+-import time,thread
+-import lobbyscript
+-import webbrowser
+-import string
+-
+-api = lobbyscript.Callback()
+-gui = lobbyscript.GUI()
+-
+-def __go(url):
+-	webbrowser.open(url)
+-
+-def webBrowserThreadedOpen(url):
+-	thread.start_new_thread(__go,(url,))
+-
+-def cmd_forum(args):
+-	webBrowserThreadedOpen(&quot;<A HREF="http://springrts.com/phpbb/search.php?keywords=">http://springrts.com/phpbb/search.php?keywords=</A>&quot;+string.join(args, '' )+&quot;&amp;terms=all&amp;author=&amp;sc=1&amp;sf=all&amp;sk=t&amp;sd=d&amp;sr=topics&amp;st=0&amp;ch=300&amp;t=0&amp;submit=Search&quot;)
+-	return True
+-	
+\ No newline at end of file
+
+Added: Lobby/TASClient/Python/scripts/forumIt.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/forumIt.py	                        (rev 0)
++++ Lobby/TASClient/Python/scripts/forumIt.py	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -0,0 +1,18 @@
++import time,thread
++import lobbyscript
++import webbrowser
++import string
++
++api = lobbyscript.Callback()
++gui = lobbyscript.GUI()
++
++def __go(url):
++	webbrowser.open(url)
++
++def webBrowserThreadedOpen(url):
++	thread.start_new_thread(__go,(url,))
++
++def cmd_forum(args):
++	webBrowserThreadedOpen(&quot;<A HREF="http://springrts.com/phpbb/search.php?keywords=">http://springrts.com/phpbb/search.php?keywords=</A>&quot;+string.join(args, '' )+&quot;&amp;terms=all&amp;author=&amp;sc=1&amp;sf=all&amp;sk=t&amp;sd=d&amp;sr=topics&amp;st=0&amp;ch=300&amp;t=0&amp;submit=Search&quot;)
++	return True
++	
+\ No newline at end of file
+
+Deleted: Lobby/TASClient/Python/scripts/googleIt.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/googleIt.py	2012-10-13 13:16:44 UTC (rev 7643)
++++ Lobby/TASClient/Python/scripts/googleIt.py	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -1,157 +0,0 @@
+-import time,thread
+-import lobbyscript
+-import webbrowser
+-import sys
+-import pycurl
+-import re
+-from encodings import ascii
+-from encodings import utf_8
+-
+-api = lobbyscript.Callback()
+-gui = lobbyscript.GUI()
+-
+-autoTranslateNickList = dict()
+-
+-HexCharacters = &quot;0123456789abcdef&quot;
+-
+-def CleanCharHex(c):
+-    o = ord(c)
+-    r = HexCharacters[o / 16]
+-    r += HexCharacters[o % 16]
+-    return r
+-
+-def UrlEncode(s):
+-	r = ''
+-	for c in s:
+-		o = ord(c)
+-		if (o &gt;= 48 and o &lt;= 57) or \
+-			(o &gt;= 97 and o &lt;= 122) or \
+-			(o &gt;= 65 and o &lt;= 90) or \
+-			o == 36 or o == 45 or o == 95 or \
+-			o == 46 or o == 43 or o == 33 or \
+-			o == 42 or o == 39 or o == 40 or \
+-			o == 41 or o == 44:
+-			r += c
+-		else:
+-			r += '%' + CleanCharHex(c)
+-	return r
+-
+-class PageContent:
+-    def __init__(self):
+-        self.contents = ''
+-
+-    def body_callback(self, buf):
+-        self.contents = self.contents + buf
+-
+-
+-def translate(lang,text):
+-	pc = PageContent()
+-	c = pycurl.Curl()
+-	c.setopt(c.URL, &quot;<A HREF="http://ajax.googleapis.com/ajax/services/language/translate?v=1.0&amp;langpair=|">http://ajax.googleapis.com/ajax/services/language/translate?v=1.0&amp;langpair=|</A>&quot;+lang.encode(&quot;utf-8&quot;)+&quot;&amp;q=&quot;+UrlEncode(text.encode(&quot;utf-8&quot;)))
+-	c.setopt(c.WRITEFUNCTION, pc.body_callback)
+-	c.perform()
+-	c.close()
+-	match = re.search('&quot;translatedText&quot;:&quot;([^&quot;]*)&quot;', pc.contents)
+-	if match==None:
+-		return text
+-	else:
+-		return match.groups()[0].decode(&quot;utf-8&quot;)
+-
+-def __go(url):
+-	webbrowser.open(url)
+-
+-def webBrowserThreadedOpen(url):
+-	thread.start_new_thread(__go,(url,))
+-
+-def onGoogleItClick(channel,line,charPosInLine,selectedText):
+-	if selectedText != '':
+-		webBrowserThreadedOpen(&quot;<A HREF="http://www.google.com/search?q=">http://www.google.com/search?q=</A>&quot;+selectedText)
+-
+-def onTranslateClick(channel,line,charPosInLine,selectedText,lang):
+-	if selectedText != '':
+-		webBrowserThreadedOpen(&quot;<A HREF="http://translate.google.com/#auto|">http://translate.google.com/#auto|</A>&quot;+lang.decode(&quot;utf-8&quot;)+&quot;|&quot;+selectedText.decode(&quot;utf-8&quot;))
+-
+-def onStopAutoTranslation(user):
+-	global autoTranslateNickList
+-	if user in autoTranslateNickList:
+-		del autoTranslateNickList[user]
+-
+-def onAutoTranslateClick(user,lang):
+-	cmd_autotranslate(user,lang)
+-
+-def _init():
+-	gui.AddItemToMenu2((),onGoogleItClick,'Chat','mnuGoogleThis','Google this')
+-	gui.AddItemToMenu2(('en',),onTranslateClick,'Chat','mnuTranslateEnglish','Translate in english')
+-	gui.AddItemToMenu2(('fr',),onTranslateClick,'Chat','mnuTranslateFrench','Translate in french')
+-	gui.AddItemToMenu2(('de',),onTranslateClick,'Chat','mnuTranslateGerman','Translate in german')
+-	gui.AddItemToMenu2(('it',),onTranslateClick,'Chat','mnuTranslateItalian','Translate in italian')
+-	gui.AddItemToMenu2(('es',),onTranslateClick,'Chat','mnuTranslateSpanish','Translate in spanish')
+-	gui.AddItemToMenu2(('ru',),onTranslateClick,'Chat','mnuTranslateRussian','Translate in russian')
+-	autoTransSubMenuId = gui.AddSubmenuToMenu('PlayerItem','AutoTranslateSubMenu','Auto translate')
+-	gui.AddItemToMenu2((),onStopAutoTranslation,autoTransSubMenuId,'mnuAutoTranslateDisable','Disable')
+-	gui.AddItemToMenu2(('en',),onAutoTranslateClick,autoTransSubMenuId,'mnuAutoTranslateEnglish','in english')
+-	gui.AddItemToMenu2(('fr',),onAutoTranslateClick,autoTransSubMenuId,'mnuAutoTranslateFrench','in french')
+-	gui.AddItemToMenu2(('de',),onAutoTranslateClick,autoTransSubMenuId,'mnuAutoTranslateGerman','in german')
+-	gui.AddItemToMenu2(('it',),onAutoTranslateClick,autoTransSubMenuId,'mnuAutoTranslateItalian','in italian')
+-	gui.AddItemToMenu2(('es',),onAutoTranslateClick,autoTransSubMenuId,'mnuAutoTranslateSpanish','in spanish')
+-	gui.AddItemToMenu2(('ru',),onAutoTranslateClick,autoTransSubMenuId,'mnuAutoTranslateRussian','in russian')
+-	
+-
+-
+-def sendTranslation(command,lang,text):
+-	api.SendProtocol(command+' '+translate(lang,text))
+-	
+-def outMessage(command,text):
+-	words = text.split(' ')
+-	if words[0] == '!translate' or words[0] == '!tr':
+-		sendTranslation(command,words[1],' '.join(words[2:]))
+-		return True
+-	else:
+-		return False
+-
+-def out_SAY(channel,text):
+-	if outMessage('SAY '+channel,text):
+-		return False
+-
+-def out_SAYPRIVATE(user,text):
+-	if outMessage('SAYPRIVATE '+user,text):
+-		return False
+-		
+-def out_SAYEX(channel,text):
+-	if outMessage('SAYEX '+channel,text):
+-		return False
+-		
+-def out_SAYBATTLE(text):
+-	if outMessage('SAYBATTLE',text):
+-		return False
+-		
+-def out_SAYBATTLEEX(text):
+-	if outMessage('SAYBATTLEEX',text):
+-		return False
+-		
+-def inMessage(command,user,text):
+-	global autoTranslateNickList
+-	if user in autoTranslateNickList:
+-		return command+user+' (translated)'+translate(autoTranslateNickList[user],text)
+-	else:
+-		return command+user+' '+text
+-		
+-def in_SAID(channel,user,text):
+-	return inMessage(channel+' ',user,text)
+-	
+-def in_SAIDEX(channel,user,text):
+-	return inMessage(channel+' ',user,text)
+-	
+-def in_SAIDPRIVATE(user,text):
+-	return inMessage('',user,text)
+-	
+-def in_SAIDBATTLE(user,text):
+-	return inMessage('',user,text)
+-	
+-def in_SAIDBATTLEEX(user,text):
+-	return inMessage('',user,text)
+-
+-def cmd_autotranslate(userNick,lang):
+-	global autoTranslateNickList
+-	autoTranslateNickList[userNick] = lang
+-	return True
+
+Added: Lobby/TASClient/Python/scripts/googleIt.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/googleIt.py	                        (rev 0)
++++ Lobby/TASClient/Python/scripts/googleIt.py	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -0,0 +1,159 @@
++import time,thread
++import lobbyscript
++import webbrowser
++import sys
++import pycurl
++import re
++from encodings import ascii
++from encodings import utf_8
++
++api = lobbyscript.Callback()
++gui = lobbyscript.GUI()
++
++autoTranslateNickList = dict()
++
++HexCharacters = &quot;0123456789abcdef&quot;
++
++def CleanCharHex(c):
++    o = ord(c)
++    r = HexCharacters[o / 16]
++    r += HexCharacters[o % 16]
++    return r
++
++def UrlEncode(s):
++	r = ''
++	for c in s:
++		o = ord(c)
++		if (o &gt;= 48 and o &lt;= 57) or \
++			(o &gt;= 97 and o &lt;= 122) or \
++			(o &gt;= 65 and o &lt;= 90) or \
++			o == 36 or o == 45 or o == 95 or \
++			o == 46 or o == 43 or o == 33 or \
++			o == 42 or o == 39 or o == 40 or \
++			o == 41 or o == 44:
++			r += c
++		else:
++			r += '%' + CleanCharHex(c)
++	return r
++
++class PageContent:
++    def __init__(self):
++        self.contents = ''
++
++    def body_callback(self, buf):
++        self.contents = self.contents + buf
++
++
++def translate(lang,text):
++	pc = PageContent()
++	c = pycurl.Curl()
++	c.setopt(c.URL, &quot;<A HREF="http://ajax.googleapis.com/ajax/services/language/translate?v=1.0&amp;langpair=|">http://ajax.googleapis.com/ajax/services/language/translate?v=1.0&amp;langpair=|</A>&quot;+lang.encode(&quot;utf-8&quot;)+&quot;&amp;q=&quot;+UrlEncode(text.encode(&quot;utf-8&quot;)))
++	c.setopt(c.WRITEFUNCTION, pc.body_callback)
++	c.perform()
++	c.close()
++	match = re.search('&quot;translatedText&quot;:&quot;([^&quot;]*)&quot;', pc.contents)
++	if match==None:
++		return text
++	else:
++		return match.groups()[0].decode(&quot;utf-8&quot;)
++
++def __go(url):
++	webbrowser.open(url)
++
++def webBrowserThreadedOpen(url):
++	thread.start_new_thread(__go,(url,))
++
++def onGoogleItClick(channel,line,charPosInLine,selectedText):
++	if selectedText != '':
++		webBrowserThreadedOpen(&quot;<A HREF="http://www.google.com/search?q=">http://www.google.com/search?q=</A>&quot;+selectedText)
++
++def onTranslateClick(channel,line,charPosInLine,selectedText,lang):
++	if selectedText != '':
++		webBrowserThreadedOpen(&quot;<A HREF="http://translate.google.com/#auto|">http://translate.google.com/#auto|</A>&quot;+lang.decode(&quot;utf-8&quot;)+&quot;|&quot;+selectedText.decode(&quot;utf-8&quot;))
++
++def onStopAutoTranslation(user):
++	global autoTranslateNickList
++	if user in autoTranslateNickList:
++		del autoTranslateNickList[user]
++
++def onAutoTranslateClick(user,lang):
++	cmd_autotranslate(user,lang)
++
++def _init():
++	gui.AddItemToMenu2((),onGoogleItClick,'Chat','mnuGoogleThis','Google this')
++	gui.AddItemToMenu2(('en',),onTranslateClick,'Chat','mnuTranslateEnglish','Translate in english')
++	gui.AddItemToMenu2(('fr',),onTranslateClick,'Chat','mnuTranslateFrench','Translate in french')
++	gui.AddItemToMenu2(('de',),onTranslateClick,'Chat','mnuTranslateGerman','Translate in german')
++	gui.AddItemToMenu2(('it',),onTranslateClick,'Chat','mnuTranslateItalian','Translate in italian')
++	gui.AddItemToMenu2(('es',),onTranslateClick,'Chat','mnuTranslateSpanish','Translate in spanish')
++	gui.AddItemToMenu2(('ru',),onTranslateClick,'Chat','mnuTranslateRussian','Translate in russian')
++	# The google translation service is not available anymore for free, the feature is disabled until an alternative is found
++	# autoTransSubMenuId = gui.AddSubmenuToMenu('PlayerItem','AutoTranslateSubMenu','Auto translate')
++	# gui.AddItemToMenu2((),onStopAutoTranslation,autoTransSubMenuId,'mnuAutoTranslateDisable','Disable')
++	# gui.AddItemToMenu2(('en',),onAutoTranslateClick,autoTransSubMenuId,'mnuAutoTranslateEnglish','in english')
++	# gui.AddItemToMenu2(('fr',),onAutoTranslateClick,autoTransSubMenuId,'mnuAutoTranslateFrench','in french')
++	# gui.AddItemToMenu2(('de',),onAutoTranslateClick,autoTransSubMenuId,'mnuAutoTranslateGerman','in german')
++	# gui.AddItemToMenu2(('it',),onAutoTranslateClick,autoTransSubMenuId,'mnuAutoTranslateItalian','in italian')
++	# gui.AddItemToMenu2(('es',),onAutoTranslateClick,autoTransSubMenuId,'mnuAutoTranslateSpanish','in spanish')
++	# gui.AddItemToMenu2(('ru',),onAutoTranslateClick,autoTransSubMenuId,'mnuAutoTranslateRussian','in russian')
++	
++
++
++def sendTranslation(command,lang,text):
++	api.SendProtocol(command+' '+translate(lang,text))
++	
++def outMessage(command,text):
++	return False # The google translation service is not available anymore for free, the feature is disabled until an alternative is found
++	words = text.split(' ')
++	if words[0] == '!translate' or words[0] == '!tr':
++		sendTranslation(command,words[1],' '.join(words[2:]))
++		return True
++	else:
++		return False
++
++def out_SAY(channel,text):
++	if outMessage('SAY '+channel,text):
++		return False
++
++def out_SAYPRIVATE(user,text):
++	if outMessage('SAYPRIVATE '+user,text):
++		return False
++		
++def out_SAYEX(channel,text):
++	if outMessage('SAYEX '+channel,text):
++		return False
++		
++def out_SAYBATTLE(text):
++	if outMessage('SAYBATTLE',text):
++		return False
++		
++def out_SAYBATTLEEX(text):
++	if outMessage('SAYBATTLEEX',text):
++		return False
++		
++def inMessage(command,user,text):
++	global autoTranslateNickList
++	if user in autoTranslateNickList:
++		return command+user+' (translated)'+translate(autoTranslateNickList[user],text)
++	else:
++		return command+user+' '+text
++		
++def in_SAID(channel,user,text):
++	return inMessage(channel+' ',user,text)
++	
++def in_SAIDEX(channel,user,text):
++	return inMessage(channel+' ',user,text)
++	
++def in_SAIDPRIVATE(user,text):
++	return inMessage('',user,text)
++	
++def in_SAIDBATTLE(user,text):
++	return inMessage('',user,text)
++	
++def in_SAIDBATTLEEX(user,text):
++	return inMessage('',user,text)
++
++def cmd_autotranslate(userNick,lang):
++	global autoTranslateNickList
++	autoTranslateNickList[userNick] = lang
++	return True
+
+Deleted: Lobby/TASClient/Python/scripts/layoutProfileManager.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/layoutProfileManager.py	2012-10-13 13:16:44 UTC (rev 7643)
++++ Lobby/TASClient/Python/scripts/layoutProfileManager.py	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -1,202 +0,0 @@
+-import lobbyscript
+-import sys, os
+-
+-basepath = sys.path[1]
+-layoutsDirectory = 'layoutScripts'
+-sys.path.insert(1, os.path.join(basepath, layoutsDirectory))
+-
+-api = lobbyscript.Callback()
+-gui = lobbyscript.GUI()
+-
+-layoutProfiles = {}
+-
+-menuIdList = dict()
+-stackMenuIdList = dict()
+-
+-defaultLayoutItemId = 0
+-loadedLayout = []
+-
+-settingsFile = 'layoutSettings.txt'
+-
+-def saveSettings():
+-	file = open(os.path.join(sys.path[0],'..','scripts',settingsFile), 'w')
+-	for layoutName in loadedLayout:
+-		file.write(layoutName+'\n')
+-	file.close()
+-	
+-def readSettings():
+-	global loadedLayout
+-	if os.path.isfile(os.path.join(sys.path[0],'..','scripts',settingsFile)):
+-		loadedLayout = []
+-		file = open(os.path.join(sys.path[0],'..','scripts',settingsFile), 'r')
+-		for line in file.readlines():
+-			line = line.replace('\n','')
+-			if line != '':
+-				loadedLayout.append(line)
+-		file.close()
+-
+-
+-def _loadprofiles():
+-	print 'Loading layout profiles:',
+-	new = []
+-	for s in os.listdir(os.path.join(basepath, layoutsDirectory)):
+-		if not s.endswith('.py'): continue
+-		s = os.path.split(s)[-1].rsplit('.py',1)[0]
+-		if not s in layoutProfiles:
+-			script = __import__(s)
+-			layoutProfiles[s] = script
+-			new.append(s)
+-	print ', '.join(new)
+-	print
+-	return new
+-
+-def _reloadallprofiles():
+-	print 'Reloading layout profiles: ',
+-	reloaded = []
+-	for s in dict(layoutProfiles):
+-		script = layoutProfiles[s]
+-		result = _reloadprofile(s)
+-		reloaded.append(result)
+-	print ', '.join(reloaded)
+-	return reloaded
+-
+-def _reloadprofile(s):
+-	script = layoutProfiles[s]
+-	for a in dir(script):
+-		if not a.startswith('__') or not a.endswith('__'):
+-			exec 'del script.%s' % a # extremely hackish and will turn out something like 2.5 seconds slower
+-									 # in 1 million runs than deleting directly... oh well :)
+-	try:
+-		reload(script)
+-	except ImportError:
+-		del layoutProfiles[s]
+-		return '-%s' % s
+-	return s
+-
+-def changeComponentProp(comp,prop,subProp,value):
+-	p = gui.GetControlProperties(comp,prop)
+-	p[subProp] = value
+-	return gui.SetControlProperties(comp,prop,p)
+-
+-def _init():
+-	global menuIdList
+-	global stackMenuIdList
+-	global defaultLayoutItemId
+-	global loadedLayout
+-	global LayoutMenuId
+-	global StackLayoutMenu
+-	
+-	_loadprofiles()
+-	readSettings()
+-	
+-	LayoutMenuId = gui.AddSubmenuToMenu('Options','ScriptLayoutsSubMenu','Script layouts')
+-	
+-	#add the refresh list button to the menu
+-	gui.AddItemToMenu2((),onRefreshList,LayoutMenuId,'mnuScriptLayoutsRefresh','Refresh list')
+-	StackLayoutMenu = gui.AddSubmenuToMenu(str(LayoutMenuId),'ScriptLayoutsStackSubMenu','Stack layout')
+-	r = gui.AddSeparatorToMenu(str(LayoutMenuId),'ScriptLayoutsSeparator')
+-	
+-	#add the default layout to the menu
+-	defaultLayoutItemId = gui.AddItemToMenu2((),onDefaultClick,str(LayoutMenuId),'mnuScriptLayoutDefault','default')
+-	if len(loadedLayout) == 0:
+-		gui.SetMenuItemState(defaultLayoutItemId,True,True)
+-	
+-	#add the layout to the menus
+-	i = 1
+-	for name in layoutProfiles:
+-		menuIdList[name] = gui.AddItemToMenu2((name,),onLayoutClick,str(LayoutMenuId),'mnuScriptLayout'+str(i),name)
+-		stackMenuIdList[name] = gui.AddItemToMenu2((name,),onStackLayoutClick,str(StackLayoutMenu),'mnuScriptLayoutStack'+str(i),name)
+-		if len(loadedLayout) &gt; 0 and name in loadedLayout:
+-			gui.SetMenuItemState(menuIdList[name],True,True)
+-		i += 1
+-		
+-	#load the settings' layout
+-	if len(loadedLayout) &gt; 0:
+-		layoutsNotFound = []
+-		for layoutName in loadedLayout:
+-			if layoutName in layoutProfiles:
+-				layout = layoutProfiles[layoutName]
+-				layout.loadLayout()
+-			else:
+-				loadedLayout.remove(layoutName)
+-
+-def UnloadLayouts():
+-	global loadedLayout
+-	for layoutName in loadedLayout:
+-		layout = layoutProfiles[layoutName]
+-		layout.unloadLayout()
+-	loadedLayout = []
+-	
+-def onRefreshList(id):
+-	global loadedLayout
+-	global menuIdList
+-	global defaultLayoutItemId
+-	global LayoutMenuId
+-	global StackLayoutMenu
+-	
+-	UnloadLayouts()
+-	gui.SetMenuItemState(defaultLayoutItemId,True,True)
+-	for menuName in menuIdList:
+-		gui.SetMenuItemState(menuIdList[menuName],False,True)
+-		
+-	_reloadallprofiles()
+-	_loadprofiles()
+-	
+-	# clear the menu list
+-	for name in menuIdList:
+-		gui.RemoveFromMenu(menuIdList[name])
+-		gui.RemoveFromMenu(stackMenuIdList[name])
+-		
+-	menuIdList = dict()
+-	
+-	# reload the menu list
+-	i = 1
+-	for name in layoutProfiles:
+-		menuIdList[name] = gui.AddItemToMenu2((name,),onLayoutClick,str(LayoutMenuId),'mnuScriptLayout'+str(i),name)
+-		stackMenuIdList[name] = gui.AddItemToMenu2((name,),onStackLayoutClick,str(StackLayoutMenu),'mnuScriptLayoutStack'+str(i),name)
+-		i += 1
+-
+-def onClose():
+-	for layoutName in loadedLayout:
+-		layout = layoutProfiles[layoutName]
+-		if 'saveLayoutSettings' in dir(layout):
+-			function = layout.saveLayoutSettings
+-			if type(function) == type(onClose):
+-				layoutProfiles[layoutName].saveLayoutSettings()
+-	
+-def onDefaultClick(id):
+-	global loadedLayout
+-	
+-	if loadedLayout != '':
+-		UnloadLayouts()
+-		saveSettings()
+-		for menuName in menuIdList:
+-			gui.SetMenuItemState(menuIdList[menuName],False,True)
+-		gui.SetMenuItemState(defaultLayoutItemId,True,True)
+-		
+-  
+-def onLayoutClick(id,name):
+-	global loadedLayout
+-	
+-	if len(loadedLayout) &gt; 0:
+-		UnloadLayouts()
+-	
+-	layout = layoutProfiles[name]
+-	layout.loadLayout()
+-	loadedLayout.append(name)
+-	saveSettings()
+-	for menuName in menuIdList:
+-		gui.SetMenuItemState(menuIdList[menuName],False,True)
+-	gui.SetMenuItemState(menuIdList[name],True,True)
+-	gui.SetMenuItemState(defaultLayoutItemId,False,True)
+-	
+-def onStackLayoutClick(id,name):
+-	global loadedLayout
+-	
+-	layout = layoutProfiles[name]
+-	layout.loadLayout()
+-	loadedLayout.append(name)
+-	gui.SetMenuItemState(menuIdList[name],True,True)
+-	saveSettings()
+-
+-  
+\ No newline at end of file
+
+Added: Lobby/TASClient/Python/scripts/layoutProfileManager.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/layoutProfileManager.py	                        (rev 0)
++++ Lobby/TASClient/Python/scripts/layoutProfileManager.py	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -0,0 +1,202 @@
++import lobbyscript
++import sys, os
++
++basepath = sys.path[1]
++layoutsDirectory = 'layoutScripts'
++sys.path.insert(1, os.path.join(basepath, layoutsDirectory))
++
++api = lobbyscript.Callback()
++gui = lobbyscript.GUI()
++
++layoutProfiles = {}
++
++menuIdList = dict()
++stackMenuIdList = dict()
++
++defaultLayoutItemId = 0
++loadedLayout = []
++
++settingsFile = 'layoutSettings.txt'
++
++def saveSettings():
++	file = open(os.path.join(sys.path[0],'..','scripts',settingsFile), 'w')
++	for layoutName in loadedLayout:
++		file.write(layoutName+'\n')
++	file.close()
++	
++def readSettings():
++	global loadedLayout
++	if os.path.isfile(os.path.join(sys.path[0],'..','scripts',settingsFile)):
++		loadedLayout = []
++		file = open(os.path.join(sys.path[0],'..','scripts',settingsFile), 'r')
++		for line in file.readlines():
++			line = line.replace('\n','')
++			if line != '':
++				loadedLayout.append(line)
++		file.close()
++
++
++def _loadprofiles():
++	print 'Loading layout profiles:',
++	new = []
++	for s in os.listdir(os.path.join(basepath, layoutsDirectory)):
++		if not s.endswith('.py'): continue
++		s = os.path.split(s)[-1].rsplit('.py',1)[0]
++		if not s in layoutProfiles:
++			script = __import__(s)
++			layoutProfiles[s] = script
++			new.append(s)
++	print ', '.join(new)
++	print
++	return new
++
++def _reloadallprofiles():
++	print 'Reloading layout profiles: ',
++	reloaded = []
++	for s in dict(layoutProfiles):
++		script = layoutProfiles[s]
++		result = _reloadprofile(s)
++		reloaded.append(result)
++	print ', '.join(reloaded)
++	return reloaded
++
++def _reloadprofile(s):
++	script = layoutProfiles[s]
++	for a in dir(script):
++		if not a.startswith('__') or not a.endswith('__'):
++			exec 'del script.%s' % a # extremely hackish and will turn out something like 2.5 seconds slower
++									 # in 1 million runs than deleting directly... oh well :)
++	try:
++		reload(script)
++	except ImportError:
++		del layoutProfiles[s]
++		return '-%s' % s
++	return s
++
++def changeComponentProp(comp,prop,subProp,value):
++	p = gui.GetControlProperties(comp,prop)
++	p[subProp] = value
++	return gui.SetControlProperties(comp,prop,p)
++
++def _init():
++	global menuIdList
++	global stackMenuIdList
++	global defaultLayoutItemId
++	global loadedLayout
++	global LayoutMenuId
++	global StackLayoutMenu
++	
++	_loadprofiles()
++	readSettings()
++	
++	LayoutMenuId = gui.AddSubmenuToMenu('Options','ScriptLayoutsSubMenu','Script layouts')
++	
++	#add the refresh list button to the menu
++	gui.AddItemToMenu2((),onRefreshList,LayoutMenuId,'mnuScriptLayoutsRefresh','Refresh list')
++	StackLayoutMenu = gui.AddSubmenuToMenu(str(LayoutMenuId),'ScriptLayoutsStackSubMenu','Stack layout')
++	r = gui.AddSeparatorToMenu(str(LayoutMenuId),'ScriptLayoutsSeparator')
++	
++	#add the default layout to the menu
++	defaultLayoutItemId = gui.AddItemToMenu2((),onDefaultClick,str(LayoutMenuId),'mnuScriptLayoutDefault','default')
++	if len(loadedLayout) == 0:
++		gui.SetMenuItemState(defaultLayoutItemId,True,True)
++	
++	#add the layout to the menus
++	i = 1
++	for name in layoutProfiles:
++		menuIdList[name] = gui.AddItemToMenu2((name,),onLayoutClick,str(LayoutMenuId),'mnuScriptLayout'+str(i),name)
++		stackMenuIdList[name] = gui.AddItemToMenu2((name,),onStackLayoutClick,str(StackLayoutMenu),'mnuScriptLayoutStack'+str(i),name)
++		if len(loadedLayout) &gt; 0 and name in loadedLayout:
++			gui.SetMenuItemState(menuIdList[name],True,True)
++		i += 1
++		
++	#load the settings' layout
++	if len(loadedLayout) &gt; 0:
++		layoutsNotFound = []
++		for layoutName in loadedLayout:
++			if layoutName in layoutProfiles:
++				layout = layoutProfiles[layoutName]
++				layout.loadLayout()
++			else:
++				loadedLayout.remove(layoutName)
++
++def UnloadLayouts():
++	global loadedLayout
++	for layoutName in loadedLayout:
++		layout = layoutProfiles[layoutName]
++		layout.unloadLayout()
++	loadedLayout = []
++	
++def onRefreshList(id):
++	global loadedLayout
++	global menuIdList
++	global defaultLayoutItemId
++	global LayoutMenuId
++	global StackLayoutMenu
++	
++	UnloadLayouts()
++	gui.SetMenuItemState(defaultLayoutItemId,True,True)
++	for menuName in menuIdList:
++		gui.SetMenuItemState(menuIdList[menuName],False,True)
++		
++	_reloadallprofiles()
++	_loadprofiles()
++	
++	# clear the menu list
++	for name in menuIdList:
++		gui.RemoveFromMenu(menuIdList[name])
++		gui.RemoveFromMenu(stackMenuIdList[name])
++		
++	menuIdList = dict()
++	
++	# reload the menu list
++	i = 1
++	for name in layoutProfiles:
++		menuIdList[name] = gui.AddItemToMenu2((name,),onLayoutClick,str(LayoutMenuId),'mnuScriptLayout'+str(i),name)
++		stackMenuIdList[name] = gui.AddItemToMenu2((name,),onStackLayoutClick,str(StackLayoutMenu),'mnuScriptLayoutStack'+str(i),name)
++		i += 1
++
++def onClose():
++	for layoutName in loadedLayout:
++		layout = layoutProfiles[layoutName]
++		if 'saveLayoutSettings' in dir(layout):
++			function = layout.saveLayoutSettings
++			if type(function) == type(onClose):
++				layoutProfiles[layoutName].saveLayoutSettings()
++	
++def onDefaultClick(id):
++	global loadedLayout
++	
++	if loadedLayout != '':
++		UnloadLayouts()
++		saveSettings()
++		for menuName in menuIdList:
++			gui.SetMenuItemState(menuIdList[menuName],False,True)
++		gui.SetMenuItemState(defaultLayoutItemId,True,True)
++		
++  
++def onLayoutClick(id,name):
++	global loadedLayout
++	
++	if len(loadedLayout) &gt; 0:
++		UnloadLayouts()
++	
++	layout = layoutProfiles[name]
++	layout.loadLayout()
++	loadedLayout.append(name)
++	saveSettings()
++	for menuName in menuIdList:
++		gui.SetMenuItemState(menuIdList[menuName],False,True)
++	gui.SetMenuItemState(menuIdList[name],True,True)
++	gui.SetMenuItemState(defaultLayoutItemId,False,True)
++	
++def onStackLayoutClick(id,name):
++	global loadedLayout
++	
++	layout = layoutProfiles[name]
++	layout.loadLayout()
++	loadedLayout.append(name)
++	gui.SetMenuItemState(menuIdList[name],True,True)
++	saveSettings()
++
++  
+\ No newline at end of file
+
+Deleted: Lobby/TASClient/Python/scripts/mapdownload.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/mapdownload.py	2012-10-13 13:16:44 UTC (rev 7643)
++++ Lobby/TASClient/Python/scripts/mapdownload.py	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -1,100 +0,0 @@
+-import lobbyscript
+-
+-api = lobbyscript.Callback()
+-gui = lobbyscript.GUI()
+-
+-oldParent = dict()
+-
+-joiningBattleId = -1
+-acceptNextDownload = False
+-startDownload = False
+-dlFormName = ''
+-dlFailed = False
+-
+-def changeComponentProp(comp,prop,value):
+-	changeComponentPropFull(comp,'',prop,value)
+-	
+-def changeComponentPropFull(comp,path,prop,value):
+-	p = dict()
+-	p[prop] = value
+-	return gui.SetControlProperties(comp,path,p)
+-	
+-def out_JOINBATTLE(args):
+-	if gui.GetControlProperties(dlFormName,'') != None:
+-		gui.ExecMethod(dlFormName,'CancelButtonClick',())
+-	
+-def onDownloadProgress(progress):
+-	global dlFormName
+-	global dlFailed
+-	global oldParent
+-	if progress == -2:
+-		if gui.GetControlProperties(dlFormName,'') != None:
+-			p = gui.GetControlProperties(dlFormName+'.lblInfo','')
+-			changeComponentProp(dlFormName+'.lblProgress','Caption',p['Caption'])
+-			p = gui.GetControlProperties(dlFormName+'.lblInfo','Font')
+-			changeComponentPropFull(dlFormName+'.lblProgress','Font','Color',p['Color'])
+-			dlFailed = True
+-	if progress == -1 or progress == -3:
+-		for control in oldParent:
+-			changeComponentProp(control,'Parent',oldParent[control])
+-		oldParent = dict()
+-		changeComponentProp('BattleForm.MapDescLabel','Visible','True')
+-		dlFormName = ''
+-	return False
+-		
+-def all_in(args):
+-	global startDownload
+-	global dlFailed
+-	if startDownload and joiningBattleId &gt; -1:
+-		battles = api.GetBattles()
+-		dlFailed = False
+-		api.DownloadMap2(battles[joiningBattleId]['Map'],(),onDownloadProgress)
+-		startDownload = False
+-		
+-def in_JOINBATTLE(id,args):
+-	global joiningBattleId
+-	joiningBattleId = int(id)
+-	
+-def in_LEFTBATTLE(id,nick):
+-	global joiningBattleId
+-	if nick == api.GetMyUser()['Name']:
+-		joiningBattleId = -1
+-	
+-def onDownloadMapStart(formName,mapHash,mapName):
+-	global acceptNextDownload
+-	global startDownload
+-	global dlFormName
+-	global joiningBattleId
+-	battles = api.GetBattles()
+-	if battles != None and (acceptNextDownload or (joiningBattleId &gt; -1 and battles[joiningBattleId]['Map'] == mapName)):
+-		if acceptNextDownload:
+-			changeComponentProp('BattleForm.MapDescLabel','Visible','False')		
+-			
+-			p = gui.GetControlProperties(formName+'.ProgressBar','')
+-			oldParent[formName+'.ProgressBar'] = p['Parent']
+-			changeComponentProp(formName+'.ProgressBar','Parent','BattleForm.SpTBXPanel3')
+-			changeComponentProp(formName+'.ProgressBar','Height','20')
+-			changeComponentProp(formName+'.ProgressBar','Align','alBottom')
+-			
+-			p = gui.GetControlProperties(formName+'.lblProgress','')
+-			oldParent[formName+'.lblProgress'] = p['Parent']
+-			changeComponentProp(formName+'.lblProgress','Parent','BattleForm.SpTBXPanel3')
+-			changeComponentProp(formName+'.lblProgress','Align','alLeft')
+-			
+-			p = gui.GetControlProperties(formName+'.CancelButton','')
+-			oldParent[formName+'.CancelButton'] = p['Parent']
+-			changeComponentProp(formName+'.CancelButton','Parent','BattleForm.SpTBXPanel3')
+-			changeComponentProp(formName+'.CancelButton','Align','alRight')
+-
+-			dlFormName = formName
+-			acceptNextDownload = False
+-			return False
+-		else:
+-			acceptNextDownload = True
+-			startDownload = True
+-			if dlFormName != '':
+-				for control in oldParent:
+-					changeComponentProp(control,'Parent',oldParent[control])
+-				changeComponentProp('BattleForm.MapDescLabel','Visible','True')
+-				dlFormName = ''
+-			return True
+
+Added: Lobby/TASClient/Python/scripts/mapdownload.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/mapdownload.py	                        (rev 0)
++++ Lobby/TASClient/Python/scripts/mapdownload.py	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -0,0 +1,100 @@
++import lobbyscript
++
++api = lobbyscript.Callback()
++gui = lobbyscript.GUI()
++
++oldParent = dict()
++
++joiningBattleId = -1
++acceptNextDownload = False
++startDownload = False
++dlFormName = ''
++dlFailed = False
++
++def changeComponentProp(comp,prop,value):
++	changeComponentPropFull(comp,'',prop,value)
++	
++def changeComponentPropFull(comp,path,prop,value):
++	p = dict()
++	p[prop] = value
++	return gui.SetControlProperties(comp,path,p)
++	
++def out_JOINBATTLE(args):
++	if gui.GetControlProperties(dlFormName,'') != None:
++		gui.ExecMethod(dlFormName,'CancelButtonClick',())
++	
++def onDownloadProgress(progress):
++	global dlFormName
++	global dlFailed
++	global oldParent
++	if progress == -2:
++		if gui.GetControlProperties(dlFormName,'') != None:
++			p = gui.GetControlProperties(dlFormName+'.lblInfo','')
++			changeComponentProp(dlFormName+'.lblProgress','Caption',p['Caption'])
++			p = gui.GetControlProperties(dlFormName+'.lblInfo','Font')
++			changeComponentPropFull(dlFormName+'.lblProgress','Font','Color',p['Color'])
++			dlFailed = True
++	if progress == -1 or progress == -3:
++		for control in oldParent:
++			changeComponentProp(control,'Parent',oldParent[control])
++		oldParent = dict()
++		changeComponentProp('BattleForm.MapDescLabel','Visible','True')
++		dlFormName = ''
++	return False
++		
++def all_in(args):
++	global startDownload
++	global dlFailed
++	if startDownload and joiningBattleId &gt; -1:
++		battles = api.GetBattles()
++		dlFailed = False
++		api.DownloadMap2(battles[joiningBattleId]['Map'],(),onDownloadProgress)
++		startDownload = False
++		
++def in_JOINBATTLE(id,args):
++	global joiningBattleId
++	joiningBattleId = int(id)
++	
++def in_LEFTBATTLE(id,nick):
++	global joiningBattleId
++	if nick == api.GetMyUser()['Name']:
++		joiningBattleId = -1
++	
++def onDownloadMapStart(formName,mapHash,mapName):
++	global acceptNextDownload
++	global startDownload
++	global dlFormName
++	global joiningBattleId
++	battles = api.GetBattles()
++	if battles != None and (acceptNextDownload or (joiningBattleId &gt; -1 and battles[joiningBattleId]['Map'] == mapName)):
++		if acceptNextDownload:
++			changeComponentProp('BattleForm.MapDescLabel','Visible','False')		
++			
++			p = gui.GetControlProperties(formName+'.ProgressBar','')
++			oldParent[formName+'.ProgressBar'] = p['Parent']
++			changeComponentProp(formName+'.ProgressBar','Parent','BattleForm.SpTBXPanel3')
++			changeComponentProp(formName+'.ProgressBar','Height','20')
++			changeComponentProp(formName+'.ProgressBar','Align','alBottom')
++			
++			p = gui.GetControlProperties(formName+'.lblProgress','')
++			oldParent[formName+'.lblProgress'] = p['Parent']
++			changeComponentProp(formName+'.lblProgress','Parent','BattleForm.SpTBXPanel3')
++			changeComponentProp(formName+'.lblProgress','Align','alLeft')
++			
++			p = gui.GetControlProperties(formName+'.CancelButton','')
++			oldParent[formName+'.CancelButton'] = p['Parent']
++			changeComponentProp(formName+'.CancelButton','Parent','BattleForm.SpTBXPanel3')
++			changeComponentProp(formName+'.CancelButton','Align','alRight')
++
++			dlFormName = formName
++			acceptNextDownload = False
++			return False
++		else:
++			acceptNextDownload = True
++			startDownload = True
++			if dlFormName != '':
++				for control in oldParent:
++					changeComponentProp(control,'Parent',oldParent[control])
++				changeComponentProp('BattleForm.MapDescLabel','Visible','True')
++				dlFormName = ''
++			return True
+
+Deleted: Lobby/TASClient/Python/scripts/renamers.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/renamers.py	2012-10-13 13:16:44 UTC (rev 7643)
++++ Lobby/TASClient/Python/scripts/renamers.py	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -1,27 +0,0 @@
+-import lobbyscript
+-
+-api = lobbyscript.Callback()
+-gui = lobbyscript.GUI()
+-
+-colors = gui.GetColors()
+-
+-def cmd_renamers():
+-	users = api.GetUsers()
+-	
+-	gui.AddToRichEdit('$local', '', colors['Info'])
+-	gui.AddToRichEdit('$local', '----------------------------------------', colors['Info'])
+-	gui.AddToRichEdit('$local', 'Renamers (sorted by name history size) :', colors['Info'])
+-	gui.AddToRichEdit('$local', '----------------------------------------', colors['Info'])
+-	
+-	renamers = list()
+-	
+-	for userName,userData in users.items():
+-		if len(userData['NameHistory'])&gt;0:
+-			renamers.append(userData)
+-	
+-	renamersSorted = sorted(renamers, key=lambda renamer: len(renamer['NameHistory']), reverse=True)
+-	
+-	for renamer in renamersSorted:
+-		gui.AddToRichEdit('$local', '['+str(len(renamer['NameHistory']))+'] '+renamer['Name']+' (A.K.A. : '+', '.join(renamer['NameHistory'])+')', colors['Info'])
+-	
+-	return True
+\ No newline at end of file
+
+Added: Lobby/TASClient/Python/scripts/renamers.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/renamers.py	                        (rev 0)
++++ Lobby/TASClient/Python/scripts/renamers.py	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -0,0 +1,27 @@
++import lobbyscript
++
++api = lobbyscript.Callback()
++gui = lobbyscript.GUI()
++
++colors = gui.GetColors()
++
++def cmd_renamers():
++	users = api.GetUsers()
++	
++	gui.AddToRichEdit('$local', '', colors['Info'])
++	gui.AddToRichEdit('$local', '----------------------------------------', colors['Info'])
++	gui.AddToRichEdit('$local', 'Renamers (sorted by name history size) :', colors['Info'])
++	gui.AddToRichEdit('$local', '----------------------------------------', colors['Info'])
++	
++	renamers = list()
++	
++	for userName,userData in users.items():
++		if len(userData['NameHistory'])&gt;0:
++			renamers.append(userData)
++	
++	renamersSorted = sorted(renamers, key=lambda renamer: len(renamer['NameHistory']), reverse=True)
++	
++	for renamer in renamersSorted:
++		gui.AddToRichEdit('$local', '['+str(len(renamer['NameHistory']))+'] '+renamer['Name']+' (A.K.A. : '+', '.join(renamer['NameHistory'])+')', colors['Info'])
++	
++	return True
+\ No newline at end of file
+
+Deleted: Lobby/TASClient/Python/scripts/replaysBrowser.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/replaysBrowser.py	2012-10-13 13:16:44 UTC (rev 7643)
++++ Lobby/TASClient/Python/scripts/replaysBrowser.py	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -1,213 +0,0 @@
+-import lobbyscript
+-import zipfile
+-import pycurl
+-from threading import Thread
+-import sys, os
+-import subprocess
+-import re
+-import time
+-
+-api = lobbyscript.Callback()
+-gui = lobbyscript.GUI()
+-
+-settingsFile = 'replaysBrowserSettings.txt'
+-settings = dict()
+-
+-demoPath = ''
+-downloadingReplayOrMap = False
+-mapName = ''
+-replayDownloadWindowVisible = False
+-dlThread = None
+-
+-def onCancelDownload(Sender):
+-	global dlThread
+-	global downloadingReplayOrMap
+-	global replayDownloadWindowVisible
+-	
+-	dlThread.abort = True
+-	downloadingReplayOrMap = False
+-	
+-	if replayDownloadWindowVisible:
+-		gui.SetControlProperties ('ReplayDownload', '', {'Visible':'False'})
+-		replayDownloadWindowVisible = False
+-
+-def onMapDownloadProgress(progress):
+-	global downloadingReplayOrMap
+-	global replayDownloadWindowVisible
+-	
+-	if replayDownloadWindowVisible:
+-		gui.SetControlProperties ('ReplayDownload', '', {'Visible':'False'})
+-		replayDownloadWindowVisible = False
+-	if progress &lt; 0:
+-		downloadingReplayOrMap = False
+-	if progress == -1:
+-		p = subprocess.Popen([api.GetSpringExe(), demoPath])
+-		
+-def onModDownloadProgress(progress):
+-	global downloadingReplayOrMap
+-	global replayDownloadWindowVisible
+-	
+-	if replayDownloadWindowVisible:
+-		gui.SetControlProperties ('ReplayDownload', '', {'Visible':'False'})
+-		replayDownloadWindowVisible = False
+-	if progress &lt; -1:
+-		downloadingReplayOrMap = False
+-	if progress == -1:
+-		maps = api.GetMaps()
+-		if mapName in maps:
+-			downloadingReplayOrMap = False
+-			p = subprocess.Popen([api.GetSpringExe(), demoPath])
+-		else:
+-			api.DownloadMap2(mapName,(),onMapDownloadProgress)
+-			
+-def syncedSetControlProperties(componentName,prop,values):
+-	gui.SetControlProperties (componentName, prop, values)
+-
+-class DownloaderThread(Thread):
+-	def __init__(self, url, destFileName):
+-		Thread.__init__(self)
+-		self.url = url
+-		self.destFileName = destFileName
+-		self.abort = False
+-		
+-	def onProgress(self,dlTotal,dlNow,ulTotal, ulNow):
+-		if self.abort:
+-			return False
+-		if dlTotal &gt; 0: 
+-			gui.SynchronizedUpdate2(syncedSetControlProperties,('ReplayDownload.TitleBar.pbDownload', '', {'Position':int(100*dlNow/dlTotal)}))
+-		
+-	def onDone(self):
+-		global demoPath 
+-		global downloadingReplayOrMap
+-		global mapName
+-		global replayDownloadWindowVisible
+-		
+-		zip = zipfile.ZipFile (self.destFileName, 'r')
+-		files = zip.namelist()
+-		if len(files) == 1:
+-			if files[0].find('..') == -1:
+-				fp = open('.\\demos\\'+files[0], &quot;wb&quot;)
+-				fp.write(zip.read(files[0]))
+-				fp.close()
+-				
+-				demoPath = '.\\demos\\'+files[0]
+-				
+-				replay = open('.\\demos\\'+files[0], &quot;rb&quot;).read()
+-				mapMatch = re.findall('mapname=([^;]+);',replay,re.IGNORECASE)
+-				modMatch = re.findall('gametype=([^;]+);',replay,re.IGNORECASE)
+-				if mapMatch != None and modMatch != None and len(mapMatch)&gt;0 and len(modMatch)&gt;0:
+-					mapName = mapMatch[0]
+-					mods = api.GetMods()
+-					if modMatch[0] in mods:
+-						maps = api.GetMaps()
+-						if mapName in maps:
+-							downloadingReplayOrMap = False
+-							p = subprocess.Popen([api.GetSpringExe(), demoPath])
+-							time.sleep(2)
+-							gui.SynchronizedUpdate2(syncedSetControlProperties,('ReplayDownload', '', {'Visible':'False'}))
+-							replayDownloadWindowVisible = False
+-						else:
+-							api.DownloadMap2(mapName,(),onMapDownloadProgress)
+-					else:
+-						api.DownloadMod2(modMatch[0],(),onModDownloadProgress)
+-				else: # can't get the map name or mod name just launching the replay
+-					downloadingReplayOrMap = False
+-					p = subprocess.Popen([api.GetSpringExe(), demoPath])
+-					time.sleep(2)
+-					gui.SynchronizedUpdate2(syncedSetControlProperties,('ReplayDownload', '', {'Visible':'False'}))
+-					replayDownloadWindowVisible = False
+-
+-	def run(self):
+-		fp = open(self.destFileName, &quot;wb&quot;)
+-		curl = pycurl.Curl()
+-		curl.setopt(pycurl.URL, self.url)
+-		curl.setopt(pycurl.FOLLOWLOCATION, 1)
+-		curl.setopt(pycurl.MAXREDIRS, 5)
+-		curl.setopt(pycurl.CONNECTTIMEOUT, 30)
+-		curl.setopt(pycurl.TIMEOUT, 300)
+-		curl.setopt(pycurl.NOSIGNAL, 1)
+-		curl.setopt(pycurl.WRITEDATA, fp)
+-		curl.setopt(pycurl.NOPROGRESS, 0)
+-		curl.setopt(pycurl.PROGRESSFUNCTION, self.onProgress)
+-		
+-		curl.perform()
+-		
+-		curl.close()
+-		fp.close()
+-		
+-		if not self.abort:
+-			self.onDone()
+-
+-def onClose():
+-	global settings
+-	p = gui.GetControlProperties('ReplaysBrowser','')
+-	settings['Width'] = p['Width']
+-	settings['Height'] = p['Height']
+-	settings['Left'] = p['Left']
+-	settings['Top'] = p['Top']
+-	file(os.path.join(sys.path[0],'..','scripts',settingsFile),'w').write(repr(settings))
+-	
+-def AddTitleBar(formName,titlebarName):
+-	p = gui.GetControlProperties(formName,'')
+-	gui.AddControl(titlebarName,formName,'TSpTBXTitleBar')
+-	gui.SetControlProperties (formName+'.'+titlebarName, '', {'Active':'False','Caption':p['Caption']})
+-	if gui.GetControlProperties('MainForm.AwayMsgsButton','')['SkinType'] == 'sknSkin':
+-		if p['BorderStyle'] == 'bsSingle':
+-			gui.SetControlProperties (formName, '', {'BorderStyle':'bsSizeable'})
+-		gui.SetControlProperties (formName+'.'+titlebarName, '', {'FixedSize':'True','Active':'True','FixedSize':'False'})
+-		if p['BorderStyle'] == 'bsSingle':
+-			gui.SetControlProperties (formName, '', {'BorderIcons':'biSystemMenu'})
+-			gui.SetControlProperties (formName+'.'+titlebarName, '', {'FixedSize':'True'})
+-			gui.SetControlProperties (formName+'.'+titlebarName, 'Options', {'Maximize':'False','Minimize':'False'})
+-
+-def _init():
+-	global settings
+-	if os.path.isfile(os.path.join(sys.path[0],'..','scripts',settingsFile)):
+-		s = file(os.path.join(sys.path[0],'..','scripts',settingsFile),'r').read()
+-		settings = eval(s)
+-	
+-	if not 'Width' in settings:
+-		settings['Width'] = 800
+-	if not 'Height' in settings:
+-		settings['Height'] = 600
+-	if not 'Left' in settings:
+-		settings['Left'] = 50
+-	if not 'Top' in settings:
+-		settings['Top'] = 50
+-
+-	gui.AddForm('ReplaysBrowser','Replays Browser',2,False)
+-	gui.SetControlProperties ('ReplaysBrowser', '', {'Width':settings['Width'], 'Height':settings['Height'],'Left':settings['Left'],'Top':settings['Top'],'BorderIcons':'biSystemMenu,biMinimize,biMaximize'})
+-	AddTitleBar('ReplaysBrowser','TitleBar')
+-	gui.AddControl('WebBrowser','ReplaysBrowser.TitleBar','TWebBrowserWrapper')
+-	gui.SetControlProperties ('ReplaysBrowser.TitleBar.WebBrowser', '', {'Align':'alClient'})
+-	gui.AddEvent2('ReplaysBrowser.TitleBar.WebBrowser','OnBeforeNavigate2',WebBrowserOnBeforeNavigate2)
+-	gui.AddEvent2('ReplaysForm.DownloadButton','OnClick',DownloadButtonOnClick)
+-	
+-	gui.AddForm('ReplayDownload','Downloading replay ...',1,False)
+-	gui.SetControlProperties ('ReplayDownload', '', {'BorderIcons':'biSystemMenu,biMinimize,biMaximize'})
+-	AddTitleBar('ReplayDownload','TitleBar')
+-	gui.AddControl('pbDownload','ReplayDownload.TitleBar','TSpTBXProgressBar')
+-	gui.SetControlProperties ('ReplayDownload', '', {'Width':400, 'Height':60,'BorderIcons':'biSystemMenu','Position':'poMainFormCenter'})
+-	gui.SetControlProperties ('ReplayDownload.TitleBar.pbDownload', '', {'Align':'alClient','Max':100,'Min':0,'Position':0,'Smooth':'True','CaptionType':'pctNone'})
+-	gui.AddEvent2('ReplayDownload','OnClose',onCancelDownload)
+-
+-
+-def WebBrowserOnBeforeNavigate2(Sender,PostData,TargetFrameName,URL):
+-	global downloadingReplayOrMap
+-	global replayDownloadWindowVisible
+-	global dlThread
+-	if not downloadingReplayOrMap and URL.lower().find('<A HREF="http://replays.adune.nl/?act=download&amp;id=">http://replays.adune.nl/?act=download&amp;id=</A>') &gt; -1:
+-		gui.SetControlProperties ('ReplayDownload', '', {'Visible':'True'})
+-		replayDownloadWindowVisible = True
+-		downloadingReplayOrMap = True
+-		dlThread = DownloaderThread(URL,'tmpReplayFile.zip')
+-		dlThread.start()
+-		return True
+-	else:
+-		return False
+-	
+-def DownloadButtonOnClick(Sender):
+-	gui.SetControlProperties ('ReplaysBrowser', '', {'Visible':'True'})
+-	gui.SetControlProperties ('ReplaysBrowser.TitleBar.WebBrowser', '', {'URL':'<A HREF="http://replays.adune.nl/?customlink=Play%20now">http://replays.adune.nl/?customlink=Play%20now</A>'})
+-	
+-	
+\ No newline at end of file
+
+Deleted: Lobby/TASClient/Python/scripts/stick.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/stick.py	2012-10-13 13:16:44 UTC (rev 7643)
++++ Lobby/TASClient/Python/scripts/stick.py	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -1,119 +0,0 @@
+-import time,thread
+-import lobbyscript
+-import sys
+-
+-api = lobbyscript.Callback()
+-gui = lobbyscript.GUI()
+-
+-stickingNick = ''
+-specMode = 0
+-battleJoinedAndStatusChanged = 0
+-
+-subMenuId = 0
+-menuStickSpecId = 0
+-menuStickId = 0
+-menuUnstickId = 0
+-
+-
+-colors = gui.GetColors()
+-
+-def onUnStickClick(id):
+-	global menuUnstickId
+-	cmd_unstick()
+-	gui.RemoveFromMenu(menuUnstickId)
+-	menuUnstickId = 0
+-
+-def onStickClick(id,spec):
+-	global subMenuId
+-	global menuStickSpecId
+-	global menuStickId
+-	global menuUnstickId
+-	if spec:
+-		cmd_stick(id+' 1')
+-	else:
+-		cmd_stick(id+' 0')
+-
+-	if menuUnstickId == 0:    
+-		menuUnstickId = gui.AddItemToMenu2((),onUnStickClick,subMenuId,'mnuUnstick','UnStick')
+-    
+-
+-def _init():
+-	global subMenuId
+-	global menuStickSpecId
+-	global menuStickId
+-	global menuUnstickId
+-	subMenuId = gui.AddSubmenuToMenu('PlayerItem','StickSubMenu','Stick')
+-	menuStickSpecId = gui.AddItemToMenu2((False,),onStickClick,subMenuId,'mnuStick','Stick')
+-	menuStickId = gui.AddItemToMenu2((True,),onStickClick,subMenuId,'mnuStickSpec','Stick Spec')
+-	gui.AddSeparatorToMenu(subMenuId,'mnuStickSpecSperator')
+-  
+-
+-# exit stick mode if the sticked user left
+-def in_REMOVEUSER(nick):
+-	global stickingNick
+-	global menuUnstickId
+-	if nick == stickingNick:
+-		stickingNick = ''
+-		gui.AddToRichEdit('$current','Exiting stick mode ('+nick+' left).',colors['Info'])
+-		gui.RemoveFromMenu(menuUnstickId)
+-
+-def in_FORCEQUITBATTLE():
+-	global stickingNick
+-	global menuUnstickId
+-	if stickingNick  != '':
+-		stickingNick = ''
+-		gui.AddToRichEdit('$current','Exiting stick mode (You were kicked from the battle).',colors['Info'])
+-		gui.RemoveFromMenu(menuUnstickId)
+-
+-# the timer tryin to connect you to the sticked user
+-def timer_2():
+-	global stickingNick
+-	global specMode
+-
+-	if stickingNick != '': 
+-		curBat = api.GetCurrentBattle()
+-		if curBat != None:
+-			if stickingNick not in curBat['Battle']['Users']:
+-				api.LeaveBattle()
+-		else:
+-			users = api.GetUsers()
+-			if stickingNick in users:
+-				if 'Battle' in users[stickingNick]:
+-					api.JoinBattle(users[stickingNick]['Battle']['Id'],'',specMode=='1')
+-
+-def cmd_unstick():
+-	global stickingNick
+-	stickingNick = ''
+-	gui.AddToRichEdit('$current','Exiting stick mode.',colors['Info'])
+-	return True
+-
+-def cmd_stick(data):
+-	args = data.split(' ')
+-
+-	if len(args) != 2:
+-		gui.AddToRichEdit('$current',&quot;Stick usage : /stick user joinAsSpec={0/1} (Ex : '/stick haxor465 1' will join as spectator every battle the player haxor465 joins.&quot;,colors['Error'])
+-		return 1
+-	nick = args[0]
+-	spec = args[1]
+-	global stickingNick
+-	global specMode
+-
+-	if stickingNick != '':
+-		gui.AddToRichEdit('$current','Exiting stick mode.',colors['Info'])
+-
+-	users = api.GetUsers()
+-	if nick in users:
+-		stickingNick = nick
+-		specMode = spec
+-		if specMode == '1':
+-			gui.AddToRichEdit('$current','Entering spectator sticking mode on : '+nick,colors['Info'])
+-		else:
+-			gui.AddToRichEdit('$current','Entering sticking mode on : '+nick,colors['Info'])
+-		gui.AddToRichEdit('$current','Type /unstick to leave that mode.',colors['Info'])
+-
+-	else:
+-		stickingNick = ''
+-		gui.AddToRichEdit('$current',&quot;User '&quot;+nick+&quot;' does not exist.&quot;,colors['Error'])
+-
+-	# the command won't be processed by the lobby
+-	return True
+\ No newline at end of file
+
+Added: Lobby/TASClient/Python/scripts/stick.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/stick.py	                        (rev 0)
++++ Lobby/TASClient/Python/scripts/stick.py	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -0,0 +1,119 @@
++import time,thread
++import lobbyscript
++import sys
++
++api = lobbyscript.Callback()
++gui = lobbyscript.GUI()
++
++stickingNick = ''
++specMode = 0
++battleJoinedAndStatusChanged = 0
++
++subMenuId = 0
++menuStickSpecId = 0
++menuStickId = 0
++menuUnstickId = 0
++
++
++colors = gui.GetColors()
++
++def onUnStickClick(id):
++	global menuUnstickId
++	cmd_unstick()
++	gui.RemoveFromMenu(menuUnstickId)
++	menuUnstickId = 0
++
++def onStickClick(id,spec):
++	global subMenuId
++	global menuStickSpecId
++	global menuStickId
++	global menuUnstickId
++	if spec:
++		cmd_stick(id+' 1')
++	else:
++		cmd_stick(id+' 0')
++
++	if menuUnstickId == 0:    
++		menuUnstickId = gui.AddItemToMenu2((),onUnStickClick,subMenuId,'mnuUnstick','UnStick')
++    
++
++def _init():
++	global subMenuId
++	global menuStickSpecId
++	global menuStickId
++	global menuUnstickId
++	subMenuId = gui.AddSubmenuToMenu('PlayerItem','StickSubMenu','Stick')
++	menuStickSpecId = gui.AddItemToMenu2((False,),onStickClick,subMenuId,'mnuStick','Stick')
++	menuStickId = gui.AddItemToMenu2((True,),onStickClick,subMenuId,'mnuStickSpec','Stick Spec')
++	gui.AddSeparatorToMenu(subMenuId,'mnuStickSpecSperator')
++  
++
++# exit stick mode if the sticked user left
++def in_REMOVEUSER(nick):
++	global stickingNick
++	global menuUnstickId
++	if nick == stickingNick:
++		stickingNick = ''
++		gui.AddToRichEdit('$current','Exiting stick mode ('+nick+' left).',colors['Info'])
++		gui.RemoveFromMenu(menuUnstickId)
++
++def in_FORCEQUITBATTLE():
++	global stickingNick
++	global menuUnstickId
++	if stickingNick  != '':
++		stickingNick = ''
++		gui.AddToRichEdit('$current','Exiting stick mode (You were kicked from the battle).',colors['Info'])
++		gui.RemoveFromMenu(menuUnstickId)
++
++# the timer tryin to connect you to the sticked user
++def timer_2():
++	global stickingNick
++	global specMode
++
++	if stickingNick != '': 
++		curBat = api.GetCurrentBattle()
++		if curBat != None:
++			if stickingNick not in curBat['Battle']['Users']:
++				api.LeaveBattle()
++		else:
++			users = api.GetUsers()
++			if stickingNick in users:
++				if 'Battle' in users[stickingNick]:
++					api.JoinBattle(users[stickingNick]['Battle']['Id'],'',specMode=='1')
++
++def cmd_unstick():
++	global stickingNick
++	stickingNick = ''
++	gui.AddToRichEdit('$current','Exiting stick mode.',colors['Info'])
++	return True
++
++def cmd_stick(data):
++	args = data.split(' ')
++
++	if len(args) != 2:
++		gui.AddToRichEdit('$current',&quot;Stick usage : /stick user joinAsSpec={0/1} (Ex : '/stick haxor465 1' will join as spectator every battle the player haxor465 joins.&quot;,colors['Error'])
++		return 1
++	nick = args[0]
++	spec = args[1]
++	global stickingNick
++	global specMode
++
++	if stickingNick != '':
++		gui.AddToRichEdit('$current','Exiting stick mode.',colors['Info'])
++
++	users = api.GetUsers()
++	if nick in users:
++		stickingNick = nick
++		specMode = spec
++		if specMode == '1':
++			gui.AddToRichEdit('$current','Entering spectator sticking mode on : '+nick,colors['Info'])
++		else:
++			gui.AddToRichEdit('$current','Entering sticking mode on : '+nick,colors['Info'])
++		gui.AddToRichEdit('$current','Type /unstick to leave that mode.',colors['Info'])
++
++	else:
++		stickingNick = ''
++		gui.AddToRichEdit('$current',&quot;User '&quot;+nick+&quot;' does not exist.&quot;,colors['Error'])
++
++	# the command won't be processed by the lobby
++	return True
+\ No newline at end of file
+
+Deleted: Lobby/TASClient/Python/scripts/unlockJoin.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/unlockJoin.py	2012-10-13 13:16:44 UTC (rev 7643)
++++ Lobby/TASClient/Python/scripts/unlockJoin.py	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -1,37 +0,0 @@
+-import lobbyscript
+-import datetime
+-
+-api = lobbyscript.Callback()
+-gui = lobbyscript.GUI()
+-
+-timeoutDuration = datetime.timedelta(seconds=5)
+-timeoutLimit = datetime.datetime.now()
+-battle = None
+-
+-def in_SAYPRIVATE(user,msg):
+-	global battle
+-	if datetime.datetime.now() &lt; timeoutLimit:
+-		if user == battle['Hoster']['Name'] and msg == '!unlockspec':
+-			return False
+-		
+-def in_UPDATEBATTLEINFO(battleId,SpectatorCount,locked,other):
+-	global timeoutLimit
+-	if datetime.datetime.now() &lt; timeoutLimit and battle != None:
+-		if battleId == str(battle['Id']) and locked == '0':
+-			api.JoinBattle(battle['Id'],'',False)
+-			timeoutLimit = datetime.datetime.now()
+-			
+-def onUnlockJoin(battleId):
+-	global battle
+-	global timeoutLimit
+-	battles = api.GetBattles()
+-	if battleId in battles:
+-		battle = battles[battleId]
+-		if battle['Locked']:
+-			api.SendProtocol('SAYPRIVATE '+battle['Hoster']['Name']+' !unlockspec')
+-			timeoutLimit = datetime.datetime.now()+timeoutDuration
+-		else:
+-			api.JoinBattle(battleId,'',False)
+-
+-def _init():
+-	gui.AddItemToMenu2((),onUnlockJoin,'BattleItem','mnuUnlockSpec','!unlockspec Join')
+\ No newline at end of file
+
+Added: Lobby/TASClient/Python/scripts/unlockJoin.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/unlockJoin.py	                        (rev 0)
++++ Lobby/TASClient/Python/scripts/unlockJoin.py	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -0,0 +1,37 @@
++import lobbyscript
++import datetime
++
++api = lobbyscript.Callback()
++gui = lobbyscript.GUI()
++
++timeoutDuration = datetime.timedelta(seconds=5)
++timeoutLimit = datetime.datetime.now()
++battle = None
++
++def in_SAYPRIVATE(user,msg):
++	global battle
++	if datetime.datetime.now() &lt; timeoutLimit:
++		if user == battle['Hoster']['Name'] and msg == '!unlockspec':
++			return False
++		
++def in_UPDATEBATTLEINFO(battleId,SpectatorCount,locked,other):
++	global timeoutLimit
++	if datetime.datetime.now() &lt; timeoutLimit and battle != None:
++		if battleId == str(battle['Id']) and locked == '0':
++			api.JoinBattle(battle['Id'],'',False)
++			timeoutLimit = datetime.datetime.now()
++			
++def onUnlockJoin(battleId):
++	global battle
++	global timeoutLimit
++	battles = api.GetBattles()
++	if battleId in battles:
++		battle = battles[battleId]
++		if battle['Locked']:
++			api.SendProtocol('SAYPRIVATE '+battle['Hoster']['Name']+' !unlockspec')
++			timeoutLimit = datetime.datetime.now()+timeoutDuration
++		else:
++			api.JoinBattle(battleId,'',False)
++
++def _init():
++	gui.AddItemToMenu2((),onUnlockJoin,'BattleItem','mnuUnlockSpec','!unlockspec Join')
+\ No newline at end of file
+
+Deleted: Lobby/TASClient/Python/scripts/z_autoUnspec.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/z_autoUnspec.py	2012-10-13 13:16:44 UTC (rev 7643)
++++ Lobby/TASClient/Python/scripts/z_autoUnspec.py	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -1,93 +0,0 @@
+-import lobbyscript
+-import datetime
+-
+-api = lobbyscript.Callback()
+-gui = lobbyscript.GUI()
+-
+-autoUnspecEnabled = False
+-myName = ''
+-oldNbPlayer = 0
+-currentBattleId = -1
+-lastUnspecSent = datetime.datetime.now()
+-maxUnspecInterval = datetime.timedelta(seconds=1)
+-retryNextTime = False
+-
+-def onChkAutoSpecClick(sender):
+-	global autoUnspecEnabled
+-	global lastUnspecSent
+-	autoUnspecEnabled = gui.GetControlProperties('BattleForm.MyOptionsGroupBox.chkAutoUnspec','')['Checked'] == 'True'
+-	if autoUnspecEnabled:
+-		api.SetMyBattleStatus(False) # in case there is already a slot available
+-		lastUnspecSent = datetime.datetime.now()
+-
+-def _init():
+-	specChkBoxProp = gui.GetControlProperties('BattleForm.SpectateCheckBox','')
+-	gui.AddControl('chkAutoUnspec','BattleForm.MyOptionsGroupBox','TSpTBXCheckBox')
+-	chkAutoUnspecProp = dict()
+-	chkAutoUnspecProp['Checked'] = 'False'
+-	chkAutoUnspecProp['Left'] = specChkBoxProp['Left']+specChkBoxProp['Width']+4
+-	chkAutoUnspecProp['Top'] = specChkBoxProp['Top']
+-	chkAutoUnspecProp['Caption'] = 'Auto unspec'
+-	chkAutoUnspecProp['Enabled'] = False
+-	chkAutoUnspecProp['Visible'] = True
+-	gui.SetControlProperties('BattleForm.MyOptionsGroupBox.chkAutoUnspec','',chkAutoUnspecProp)
+-	gui.AddEvent2('BattleForm.MyOptionsGroupBox.chkAutoUnspec','OnClick',onChkAutoSpecClick)
+-
+-def out_LOGIN(userName, infos):
+-	global myName
+-	myName = userName
+-	
+-def in_JOINBATTLE(battleid,infos):
+-	global oldNbPlayer
+-	global currentBattleId
+-	currentBattleId = int(battleid)
+-	oldNbPlayer = 0
+-	gui.SetControlProperties('BattleForm.MyOptionsGroupBox.chkAutoUnspec','',{'Enabled':True, 'Checked':False})
+-		
+-def out_LEAVEBATTLE():
+-	global currentBattleId
+-	global autoUnspecEnabled
+-	currentBattleId = -1
+-	autoUnspecEnabled = False
+-	gui.SetControlProperties('BattleForm.MyOptionsGroupBox.chkAutoUnspec','',{'Checked':False})
+-	
+-def onDisconnect():
+-	gui.SetControlProperties('BattleForm.MyOptionsGroupBox.chkAutoUnspec','',{'Enabled':False, 'Checked':False})
+-	
+-def tryToUnspec():
+-	global oldNbPlayer
+-	global autoUnspecEnabled
+-	global wasSpec
+-	global lastUnspecSent
+-	global retryNextTime
+-
+-	if datetime.datetime.now()-lastUnspecSent &gt; maxUnspecInterval:
+-		iAmSpec = gui.GetControlProperties('BattleForm.SpectateCheckBox','')['Checked']
+-		
+-		currentBattle = api.GetCurrentBattle()
+-		if currentBattle != None:
+-			currentNbPlayer = len(currentBattle['Battle']['Users'])-api.GetCurrentBattle()['Battle']['SpectatorCount']
+-			if autoUnspecEnabled and oldNbPlayer &gt; currentNbPlayer and iAmSpec:
+-				api.SetMyBattleStatus(False)
+-				lastUnspecSent = datetime.datetime.now()
+-			oldNbPlayer = currentNbPlayer
+-	else:
+-		retryNextTime = True
+-	
+-def in2_CLIENTBATTLESTATUS(infos):
+-	global autoUnspecEnabled
+-	if autoUnspecEnabled:
+-		tryToUnspec()
+-
+-def in_LEFTBATTLE(id,username):
+-	global currentBattleId
+-	global autoUnspecEnabled
+-	if autoUnspecEnabled and int(id) == currentBattleId:
+-		tryToUnspec()
+-		
+-def all_in(args):
+-	global retryNextTime
+-	if retryNextTime:
+-		retryNextTime = False
+-		tryToUnspec()
+-	
+
+Added: Lobby/TASClient/Python/scripts/z_autoUnspec.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/z_autoUnspec.py	                        (rev 0)
++++ Lobby/TASClient/Python/scripts/z_autoUnspec.py	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -0,0 +1,93 @@
++import lobbyscript
++import datetime
++
++api = lobbyscript.Callback()
++gui = lobbyscript.GUI()
++
++autoUnspecEnabled = False
++myName = ''
++oldNbPlayer = 0
++currentBattleId = -1
++lastUnspecSent = datetime.datetime.now()
++maxUnspecInterval = datetime.timedelta(seconds=1)
++retryNextTime = False
++
++def onChkAutoSpecClick(sender):
++	global autoUnspecEnabled
++	global lastUnspecSent
++	autoUnspecEnabled = gui.GetControlProperties('BattleForm.MyOptionsGroupBox.chkAutoUnspec','')['Checked'] == 'True'
++	if autoUnspecEnabled:
++		api.SetMyBattleStatus(False) # in case there is already a slot available
++		lastUnspecSent = datetime.datetime.now()
++
++def _init():
++	specChkBoxProp = gui.GetControlProperties('BattleForm.SpectateCheckBox','')
++	gui.AddControl('chkAutoUnspec','BattleForm.MyOptionsGroupBox','TSpTBXCheckBox')
++	chkAutoUnspecProp = dict()
++	chkAutoUnspecProp['Checked'] = 'False'
++	chkAutoUnspecProp['Left'] = specChkBoxProp['Left']+specChkBoxProp['Width']+4
++	chkAutoUnspecProp['Top'] = specChkBoxProp['Top']
++	chkAutoUnspecProp['Caption'] = 'Auto unspec'
++	chkAutoUnspecProp['Enabled'] = False
++	chkAutoUnspecProp['Visible'] = True
++	gui.SetControlProperties('BattleForm.MyOptionsGroupBox.chkAutoUnspec','',chkAutoUnspecProp)
++	gui.AddEvent2('BattleForm.MyOptionsGroupBox.chkAutoUnspec','OnClick',onChkAutoSpecClick)
++
++def out_LOGIN(userName, infos):
++	global myName
++	myName = userName
++	
++def in_JOINBATTLE(battleid,infos):
++	global oldNbPlayer
++	global currentBattleId
++	currentBattleId = int(battleid)
++	oldNbPlayer = 0
++	gui.SetControlProperties('BattleForm.MyOptionsGroupBox.chkAutoUnspec','',{'Enabled':True, 'Checked':False})
++		
++def out_LEAVEBATTLE():
++	global currentBattleId
++	global autoUnspecEnabled
++	currentBattleId = -1
++	autoUnspecEnabled = False
++	gui.SetControlProperties('BattleForm.MyOptionsGroupBox.chkAutoUnspec','',{'Checked':False})
++	
++def onDisconnect():
++	gui.SetControlProperties('BattleForm.MyOptionsGroupBox.chkAutoUnspec','',{'Enabled':False, 'Checked':False})
++	
++def tryToUnspec():
++	global oldNbPlayer
++	global autoUnspecEnabled
++	global wasSpec
++	global lastUnspecSent
++	global retryNextTime
++
++	if datetime.datetime.now()-lastUnspecSent &gt; maxUnspecInterval:
++		iAmSpec = gui.GetControlProperties('BattleForm.SpectateCheckBox','')['Checked']
++		
++		currentBattle = api.GetCurrentBattle()
++		if currentBattle != None:
++			currentNbPlayer = len(currentBattle['Battle']['Users'])-api.GetCurrentBattle()['Battle']['SpectatorCount']
++			if autoUnspecEnabled and oldNbPlayer &gt; currentNbPlayer and iAmSpec:
++				api.SetMyBattleStatus(False)
++				lastUnspecSent = datetime.datetime.now()
++			oldNbPlayer = currentNbPlayer
++	else:
++		retryNextTime = True
++	
++def in2_CLIENTBATTLESTATUS(infos):
++	global autoUnspecEnabled
++	if autoUnspecEnabled:
++		tryToUnspec()
++
++def in_LEFTBATTLE(id,username):
++	global currentBattleId
++	global autoUnspecEnabled
++	if autoUnspecEnabled and int(id) == currentBattleId:
++		tryToUnspec()
++		
++def all_in(args):
++	global retryNextTime
++	if retryNextTime:
++		retryNextTime = False
++		tryToUnspec()
++	
+
+Modified: Lobby/TASClient/ReplaysUnit.dfm
+===================================================================
+--- Lobby/TASClient/ReplaysUnit.dfm	2012-10-13 13:16:44 UTC (rev 7643)
++++ Lobby/TASClient/ReplaysUnit.dfm	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -445,10 +445,10 @@
+           ImageIndex = -1
+           TabItem = 'GraphsTab'
+           object rscTSGChart: TRSChartPanel
+-            Left = 357
++            Left = 355
+             Top = 0
+-            Width = 342
+-            Height = 184
++            Width = 346
++            Height = 186
+             Align = alClient
+             TabOrder = 0
+             Color = clWhite
+@@ -601,10 +601,10 @@
+             UserSelect = [ssCtrl, ssRight]
+           end
+           object pnlTSGOptions: TSpTBXPanel
+-            Left = 2
++            Left = 0
+             Top = 0
+             Width = 335
+-            Height = 184
++            Height = 186
+             Caption = 'pnlTSGOptions'
+             Align = alLeft
+             TabOrder = 1
+@@ -613,7 +613,7 @@
+               Left = 2
+               Top = 2
+               Width = 100
+-              Height = 180
++              Height = 182
+               Caption = 'Bold'
+               Align = alLeft
+               TabOrder = 0
+@@ -633,7 +633,7 @@
+                 Left = 2
+                 Top = 30
+                 Width = 96
+-                Height = 148
++                Height = 150
+                 Align = alClient
+                 ItemHeight = 16
+                 Items.Strings = (
+@@ -662,7 +662,7 @@
+               Left = 102
+               Top = 2
+               Width = 100
+-              Height = 180
++              Height = 182
+               Caption = 'Thin'
+               Align = alLeft
+               TabOrder = 1
+@@ -680,7 +680,7 @@
+                 Left = 2
+                 Top = 30
+                 Width = 96
+-                Height = 148
++                Height = 150
+                 Align = alClient
+                 ItemHeight = 16
+                 Items.Strings = (
+@@ -709,7 +709,7 @@
+               Left = 202
+               Top = 2
+               Width = 131
+-              Height = 180
++              Height = 182
+               Caption = 'Players'
+               Align = alClient
+               TabOrder = 2
+@@ -717,7 +717,7 @@
+                 Left = 2
+                 Top = 15
+                 Width = 127
+-                Height = 145
++                Height = 147
+                 Align = alClient
+                 ItemHeight = 16
+                 TabOrder = 0
+@@ -726,7 +726,7 @@
+               end
+               object SpTBXPanel4: TSpTBXPanel
+                 Left = 2
+-                Top = 160
++                Top = 162
+                 Width = 127
+                 Height = 18
+                 Caption = 'SpTBXPanel4'
+@@ -759,10 +759,10 @@
+             end
+           end
+           object btTSGCollapse: TSpTBXButton
+-            Left = 340
++            Left = 338
+             Top = 0
+             Width = 17
+-            Height = 184
++            Height = 186
+             Align = alLeft
+             TabOrder = 2
+             OnClick = btTSGCollapseClick
+@@ -770,10 +770,10 @@
+             ImageIndex = 2
+           end
+           object sptTSGOptions: TSpTBXSplitter
+-            Left = 337
++            Left = 335
+             Top = 0
+             Width = 3
+-            Height = 184
++            Height = 186
+             Cursor = crSizeWE
+           end
+         end
+
+Modified: Lobby/TASClient/ReplaysUnit.pas
+===================================================================
+--- Lobby/TASClient/ReplaysUnit.pas	2012-10-13 13:16:44 UTC (rev 7643)
++++ Lobby/TASClient/ReplaysUnit.pas	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -368,7 +368,8 @@
+ uses  StrUtils, ShellAPI, BattleFormUnit, Misc, PreferencesFormUnit,
+   InitWaitFormUnit,MsMultiPartFormData, ProgressBarWindow,
+   UploadReplayUnit, LobbyScriptUnit, TipsFormUnit, gnugettext,
+-  SpringSettingsProfileFormUnit;
++  SpringSettingsProfileFormUnit, SpringDownloaderFormUnit,
++  HostBattleFormUnit;
+ 
+ {$R *.dfm}
+ 
+@@ -1227,6 +1228,8 @@
+   version2: TStringList;
+   springExe: string;
+   springVersionsMatch: boolean;
++  replayMapMissing: boolean;
++  replayModMissing: boolean;
+ begin
+   if VDTReplays.FocusedNode = nil then // just in case
+     Exit;
+@@ -1236,6 +1239,26 @@
+ 
+   Replay := GetReplayFromNode(VDTReplays.FocusedNode);
+ 
++  replayMapMissing := Utility.MapList.IndexOf(Replay.Script.ReadMapName()) = -1;
++  replayModMissing := Utility.ModList.IndexOf(Replay.Script.ReadModName()) = -1;
++  if replayModMissing then
++  begin
++    HostBattleForm.RefreshModListButton.OnClick(HostBattleForm.RefreshModListButton);
++    replayModMissing := Utility.ModList.IndexOf(Replay.Script.ReadModName()) = -1;
++  end;
++
++  if replayMapMissing or replayModMissing then
++  begin
++    if MessageDlg(_('You cannot start this replay because the map and/or the mod is/are missing. Do you want to download the missing files ?'), mtWarning, [mbYes, mbNo], 0) = mrYes then
++    begin
++      if replayModMissing then DownloadMod(0,Replay.Script.ReadModName());
++      if replayMapMissing then DownloadMap(0,Replay.Script.ReadMapName());
++      Exit;
++    end
++    else if MessageDlg(_('Do you want to start the replay anyway ?'), mtWarning, [mbYes, mbNo], 0) = mrNo then
++      Exit;
++  end;
++
+   if RunningUnderWine then
+   begin
+     springDir := ExtractFilePath(Application.ExeName);
+@@ -1378,7 +1401,7 @@
+ 
+ procedure TReplaysForm.DownloadButtonClick(Sender: TObject);
+ begin
+-  Misc.OpenURLInDefaultBrowser('<A HREF="http://replays.adune.nl/">http://replays.adune.nl/</A>');
++  Misc.OpenURLInDefaultBrowser('<A HREF="http://replays.springrts.com">http://replays.springrts.com</A>');
+ end;
+ 
+ procedure TReplaysForm.UploadButtonClick(Sender: TObject);
+
+Modified: Lobby/TASClient/SpringDownloaderFormUnit.pas
+===================================================================
+--- Lobby/TASClient/SpringDownloaderFormUnit.pas	2012-10-13 13:16:44 UTC (rev 7643)
++++ Lobby/TASClient/SpringDownloaderFormUnit.pas	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -929,7 +929,7 @@
+ 
+       if listTagsOnly then
+       begin
+-        if (tagValues.Count = 4) and ((modName = '') or (RegExpr.ExecRegExpr(LowerCase(modName),LowerCase(tagValues[0]+' '+tagValues[2]+' ' + tagValues[3])))) then
++        if (tagValues.Count = 4) and ((modName = '') or RegExpr.ExecRegExpr(LowerCase(modName),LowerCase(tagValues[0]) ) or RegExpr.ExecRegExpr(LowerCase(modName),LowerCase(tagValues[2]) ) or RegExpr.ExecRegExpr(LowerCase(modName),LowerCase(tagValues[3]) ) ) then
+         begin
+           tagInfo := TStringList.Create;
+           tagInfo.Assign(tagValues);
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2012-10-13 13:16:44 UTC (rev 7643)
++++ Lobby/TASClient/TASClient.dof	2012-10-21 15:45:00 UTC (rev 7644)
+@@ -100,7 +100,7 @@
+ DebugSourceDirs=
+ UsePackages=0
+ [Parameters]
+-RunParams=-debug
++RunParams=
+ HostApplication=C:\Program Files\Spring\TASClient.exe
+ Launcher=
+ UseLauncher=0
+@@ -113,9 +113,9 @@
+ IncludeVerInfo=1
+ AutoIncBuild=1
+ MajorVer=0
+-MinorVer=98
++MinorVer=99
+ Release=0
+-Build=1365
++Build=1373
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TASClient
+-FileVersion=0.98.0.1365
++FileVersion=0.99.0.1373
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002413.html">[Taspring-linux-commit] r7643 - Lobby/TASClient
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2414">[ date ]</a>
+              <a href="thread.html#2414">[ thread ]</a>
+              <a href="subject.html#2414">[ subject ]</a>
+              <a href="author.html#2414">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

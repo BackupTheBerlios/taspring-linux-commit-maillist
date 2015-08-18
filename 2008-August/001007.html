@@ -1,0 +1,378 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6227 - in trunk/Lobby/TASClient: . Python	Python/scripts
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6227%20-%20in%20trunk/Lobby/TASClient%3A%20.%20Python%0A%09Python/scripts&In-Reply-To=%3C20080802131451.241A74950%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001006.html">
+   <LINK REL="Next"  HREF="001008.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6227 - in trunk/Lobby/TASClient: . Python	Python/scripts</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6227%20-%20in%20trunk/Lobby/TASClient%3A%20.%20Python%0A%09Python/scripts&In-Reply-To=%3C20080802131451.241A74950%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6227 - in trunk/Lobby/TASClient: . Python	Python/scripts">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Aug  2 15:14:51 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001006.html">[Taspring-linux-commit] r6226 - trunk/rts/System/Platform/Linux
+</A></li>
+        <LI>Next message: <A HREF="001008.html">[Taspring-linux-commit] r6228 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1007">[ date ]</a>
+              <a href="thread.html#1007">[ thread ]</a>
+              <a href="subject.html#1007">[ subject ]</a>
+              <a href="author.html#1007">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2008-08-02 15:14:50 +0200 (Sat, 02 Aug 2008)
+New Revision: 6227
+
+Modified:
+   trunk/Lobby/TASClient/HttpGetUnit.pas
+   trunk/Lobby/TASClient/LobbyScriptUnit.pas
+   trunk/Lobby/TASClient/MainUnit.dfm
+   trunk/Lobby/TASClient/MainUnit.pas
+   trunk/Lobby/TASClient/Python/api.txt
+   trunk/Lobby/TASClient/Python/scripts/stick.py
+   trunk/Lobby/TASClient/TASClient.dof
+   trunk/Lobby/TASClient/TASClient.res
+Log:
+* unzipping error while updating should not make the lobby close and not restart
+* one more closing crash fixed
+* stick.py : adding a new unstick item to the menu each time it was sticking someone bug fixed
+
+Modified: trunk/Lobby/TASClient/HttpGetUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/HttpGetUnit.pas	2008-08-02 12:25:00 UTC (rev 6226)
++++ trunk/Lobby/TASClient/HttpGetUnit.pas	2008-08-02 13:14:50 UTC (rev 6227)
+@@ -176,7 +176,7 @@
+         SevenZip1.ExtrBaseDir := ExtractFilePath(appExePath);
+         e := SevenZip1.Extract(false);
+         DeleteFile(DownloadFile.FileName);
+-        if (e=0) or (e=1) then
++        if (e=0) or (e=1) and FileExists(appExePath) then
+         begin
+           paramList := TStringList.Create;
+           for i:=1 to ParamCount do
+@@ -189,7 +189,9 @@
+           if (SevenZip1.LastError &gt;= 0) and (SevenZip1.LastError &lt;= 11) then
+             MessageDlg('Error '+IntToStr(e) + ','+IntToStr(SevenZip1.LastError)+' : '+c7zipResMsg[SevenZip1.LastError], mtError, [mbOK], 0)
+           else
+-            MessageDlg('Error '+IntToStr(e) + ','+IntToStr(SevenZip1.LastError), mtError, [mbOK], 0)
++            MessageDlg('Error '+IntToStr(e) + ','+IntToStr(SevenZip1.LastError), mtError, [mbOK], 0);
++          if not RenameFile(Application.ExeName,appExePath) then
++            MessageDlg('Error : cannot rename '+Application.ExeName, mtError, [mbOK], 0);
+         end;
+     end
+     else if (DownloadFile.ServerOptions and 8) = 8 then
+
+Modified: trunk/Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/LobbyScriptUnit.pas	2008-08-02 12:25:00 UTC (rev 6226)
++++ trunk/Lobby/TASClient/LobbyScriptUnit.pas	2008-08-02 13:14:50 UTC (rev 6227)
+@@ -1141,8 +1141,6 @@
+   s: string;
+   i: integer;
+   miCb : PScriptMenuItemCallBack;
+-  argsV : Variant;
+-  args : PPyObject;
+ begin
+   AcquireMainThread;
+   with GetPythonEngine do
+@@ -1150,12 +1148,9 @@
+     miCb := PScriptMenuItemCallBack(Pointer((Sender as TSpTBXItem).Tag));
+     m := FindFunction(miCb.moduleName,miCb.functionName);
+ 
+-    // copy the list and insert the selected id as first argument (couldn't found an other way to duplicate the args)
+-    argsV := PyObjectAsVariant(miCb.args);
+-    args := VariantAsPyObject(argsV);
+-    PyList_Insert(args,0,VariantAsPyObject(GetMenuSelectedId(miCb.menu)));
++    PyList_SetItem(miCb.args,0,PyString_FromString(PChar(GetMenuSelectedId(miCb.menu))));
+ 
+-    EvalPyFunction(m,PyList_AsTuple(args));
++    EvalPyFunction(m,PyList_AsTuple(miCb.args));
+   end;
+   ReleaseMainThread;
+ end;
+@@ -1199,6 +1194,7 @@
+       itemCb.moduleName := callbackModuleName;
+       itemCb.functionName := callbackFunctionName;
+       itemCb.args := VariantAsPyObject(callInArgs);
++      PyList_Insert(itemCb.args,0,PyString_FromString('')); // adding the returning id as first arg
+       itemCb.menu := m;
+       Tag := Longint(itemCb);
+ 
+
+Modified: trunk/Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.dfm	2008-08-02 12:25:00 UTC (rev 6226)
++++ trunk/Lobby/TASClient/MainUnit.dfm	2008-08-02 13:14:50 UTC (rev 6227)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 912
+-  Top = 263
++  Left = 851
++  Top = 345
+   Width = 808
+   Height = 549
+   Caption = '.'
+
+Modified: trunk/Lobby/TASClient/MainUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.pas	2008-08-02 12:25:00 UTC (rev 6226)
++++ trunk/Lobby/TASClient/MainUnit.pas	2008-08-02 13:14:50 UTC (rev 6227)
+@@ -1632,7 +1632,7 @@
+   record
+     proc_info: TProcessInformation;
+     startinfo: TStartupInfo;
+-    Running: Boolean;
++    ExitCode: Cardinal;
+   end;
+ 
+   function Dequeue: WideString; forward;
+@@ -3669,14 +3669,9 @@
+     FillChar(SpringDownloaderProcess.startinfo, sizeof(TStartupInfo), 0);
+     SpringDownloaderProcess.startinfo.cb := sizeof(TStartupInfo);
+ 
+-    if CreateProcess(nil, PChar(ExtractFilePath(Application.ExeName) + 'SpringDownloader.exe -silentstart'), nil, nil, false, CREATE_DEFAULT_ERROR_MODE + NORMAL_PRIORITY_CLASS ,
++    if not CreateProcess(nil, PChar(ExtractFilePath(Application.ExeName) + 'SpringDownloader.exe -silentstart'), nil, nil, false, CREATE_DEFAULT_ERROR_MODE + NORMAL_PRIORITY_CLASS ,
+                    nil, PChar(ExtractFilePath(Application.ExeName)), SpringDownloaderProcess.startinfo, SpringDownloaderProcess.proc_info) then
+     begin
+-      SpringDownloaderProcess.Running := True;
+-    end
+-    else
+-    begin
+-      SpringDownloaderProcess.Running := False;
+       CloseHandle(SpringDownloaderProcess.proc_info.hProcess);
+       Application.MessageBox('Couldn''t execute SpringDownloader', 'Error', MB_ICONEXCLAMATION);
+     end;
+@@ -7817,7 +7812,8 @@
+     MenuForm.SaveSettings;
+   SaveGroups;
+ 
+-  if SpringDownloaderProcess.Running then
++  GetExitCodeProcess(SpringDownloaderProcess.proc_info.hProcess, SpringDownloaderProcess.ExitCode);
++  if SpringDownloaderProcess.ExitCode = STILL_ACTIVE then
+     try TerminateProcess(SpringDownloaderProcess.proc_info.hProcess, 0); except end;
+ end;
+ 
+@@ -8594,7 +8590,7 @@
+   if Button = mbRight then
+   begin
+     ClientsListBox.ItemIndex := ClientsListBox.ItemAtPos(Point(X, Y), True);
+-    SelectedUserName := '';
++    RichEditSelectedClient := nil;
+     ClientPopupMenuInitPopup(nil,nil);
+   end;
+ end;
+
+Modified: trunk/Lobby/TASClient/Python/api.txt
+===================================================================
+--- trunk/Lobby/TASClient/Python/api.txt	2008-08-02 12:25:00 UTC (rev 6226)
++++ trunk/Lobby/TASClient/Python/api.txt	2008-08-02 13:14:50 UTC (rev 6227)
+@@ -1,3 +1,6 @@
++Callback class
++--------------
++
+ callout :
+ 
+ - Disconnect
+@@ -18,7 +21,7 @@
+ - ShowDebugWindow
+ - SocketConnect(ip,port)
+ - HostBattle(nbPlayers, RankLimit, ModName, Description, Password, UDPHostPort, NatTraversal) return true if success
+-- JoinBattle(BattleId,PassWord)
++- JoinBattle(BattleId)
+ - GetReplays
+ - HostReplay(replayFile, nbPlayers, RankLimit, Description, Password, UDPHostPort, NatTraversal) return true if success
+ - LeaveBattle
+@@ -36,3 +39,45 @@
+ - onConnected
+ - onClose
+ 
++
++
++GUI Class
++---------
++
++callout :
++
++menuName = [HostBattle, Help, HelpWiki, HelpDownload, BattleItem (returning the BattleId), PlayerItem (Returning the Player Name), PlayerItemModeration (Returning the Player Name), BattlePlayerItem (Returning the Player Name), BattleMinimap, BattleAdmin, BattleAdminBalance, BattleAdminRankLimit, BattleLadder, ReplayItem (Returning the Replay index)] 
++
++- AddItemToMenu(menuName/SubmenuId,caption,callbackModuleName,callbackFunctionName,argsTuple) return itemId
++	The selected item id is returned as first argument added to the argsTuple.
++- AddSubmenuToMenu(menuName/SubmenuId,caption) return SubmenuId
++- AddSeparatorToMenu(menuName/SubmenuId) return SeparatorId
++- RemoveFromMenu(id)
++	Id can be an itemId or a SubmenuId or a SeparatorId.
++
++
++
++TODO :
++------
++
++callout :
++
++- SetGroups
++- SetServerList
++- SetColors ?
++- GetFilters 
++- GetPresetList
++- GetHightlightList
++- SetHighlightlist
++
++LowPriority
++- SetPerformList
++- GetPerformList
++- GetIgnoreList
++- SetIgnoreList
++- SetSkin
++- GetSkinList
++
++
++
++callin :
+
+Modified: trunk/Lobby/TASClient/Python/scripts/stick.py
+===================================================================
+--- trunk/Lobby/TASClient/Python/scripts/stick.py	2008-08-02 12:25:00 UTC (rev 6226)
++++ trunk/Lobby/TASClient/Python/scripts/stick.py	2008-08-02 13:14:50 UTC (rev 6227)
+@@ -1,15 +1,54 @@
+ import time,thread
+ import lobbyscript
++import sys
+ 
+ api = lobbyscript.Callback()
++gui = lobbyscript.GUI()
+ 
+ stickingNick = ''
+ specMode = 0
+ battleJoinedAndStatusChanged = 0
+ stickJoin = False
+ 
++subMenuId = 0
++menuStickSpecId = 0
++menuStickId = 0
++menuUnstickId = 0
++
++
+ colors = api.GetColors()
+ 
++def onUnStickClick(id):
++  global menuUnstickId
++  cmd_unstick()
++  gui.RemoveFromMenu(menuUnstickId)
++  menuUnstickId = 0
++
++def onStickClick(id,spec):
++  global subMenuId
++  global menuStickSpecId
++  global menuStickId
++  global menuUnstickId
++  if spec:
++    cmd_stick(id+' 1')
++  else:
++    cmd_stick(id+' 0')
++  
++  if menuUnstickId == 0:    
++    menuUnstickId = gui.AddItemToMenu(subMenuId,'UnStick',(),'stick','onUnStickClick')
++    
++
++def _init():
++  global subMenuId
++  global menuStickSpecId
++  global menuStickId
++  global menuUnstickId
++  subMenuId = gui.AddSubmenuToMenu('PlayerItem','Stick')
++  menuStickSpecId = gui.AddItemToMenu(subMenuId,'Stick',(False,),'stick','onStickClick')
++  menuStickId = gui.AddItemToMenu(subMenuId,'Stick Spec',(True,),'stick','onStickClick')
++  gui.AddSeparatorToMenu(subMenuId)
++  
++
+ # exit stick mode if the sticked user left
+ def in_REMOVEUSER(nick):
+   global stickingNick
+@@ -29,8 +68,9 @@
+ 
+ def in_FORCEQUITBATTLE():
+   global stickingNick
+-  stickingNick = ''
+-  api.AddToTextBox('$current','Exiting stick mode (You were kicked from the battle).',colors['Info'])
++  if stickingNick  != '':
++    stickingNick = ''
++    api.AddToTextBox('$current','Exiting stick mode (You were kicked from the battle).',colors['Info'])
+ 
+ # when joining a battle we wait for the two CLIENTBATTLESTATUS from server 
+ # and then we set us to spectator if the option is checked 
+@@ -77,7 +117,6 @@
+ def cmd_stick(data):
+   args = data.split(' ')
+ 
+-
+   if len(args) != 2:
+       api.AddToTextBox('$current',&quot;Stick usage : /stick user joinAsSpec={0/1} (Ex : '/stick haxor465 1' will join as spectator every battle the player haxor465 joins.&quot;,colors['Error'])
+       return 1
+
+Modified: trunk/Lobby/TASClient/TASClient.dof
+===================================================================
+--- trunk/Lobby/TASClient/TASClient.dof	2008-08-02 12:25:00 UTC (rev 6226)
++++ trunk/Lobby/TASClient/TASClient.dof	2008-08-02 13:14:50 UTC (rev 6227)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=3
+ Release=0
+-Build=385
++Build=387
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TA Spring lobby client
+-FileVersion=0.3.0.385
++FileVersion=0.3.0.387
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: trunk/Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001006.html">[Taspring-linux-commit] r6226 - trunk/rts/System/Platform/Linux
+</A></li>
+	<LI>Next message: <A HREF="001008.html">[Taspring-linux-commit] r6228 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1007">[ date ]</a>
+              <a href="thread.html#1007">[ thread ]</a>
+              <a href="subject.html#1007">[ subject ]</a>
+              <a href="author.html#1007">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

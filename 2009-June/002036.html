@@ -1,0 +1,270 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7267 - Lobby/TASServer
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7267%20-%20Lobby/TASServer&In-Reply-To=%3C20090610234835.A578C3B7C4%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002035.html">
+   <LINK REL="Next"  HREF="002037.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7267 - Lobby/TASServer</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7267%20-%20Lobby/TASServer&In-Reply-To=%3C20090610234835.A578C3B7C4%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7267 - Lobby/TASServer">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Jun 11 01:48:35 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002035.html">[Taspring-linux-commit] r7266 - Lobby/TASServer
+</A></li>
+        <LI>Next message: <A HREF="002037.html">[Taspring-linux-commit] r7268 - Lobby/TASServer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2036">[ date ]</a>
+              <a href="thread.html#2036">[ thread ]</a>
+              <a href="subject.html#2036">[ subject ]</a>
+              <a href="author.html#2036">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2009-06-11 01:48:35 +0200 (Thu, 11 Jun 2009)
+New Revision: 7267
+
+Modified:
+   Lobby/TASServer/Battle.java
+   Lobby/TASServer/Bot.java
+   Lobby/TASServer/Client.java
+   Lobby/TASServer/TASServer.java
+Log:
+* MYBATTLESTATUS, CLIENTBATTLESTATUS and UPDATEBOT commands improved. bytecode removed, every parameter is stored in a var and the battlestatus looks like this : TeamNo+&quot;\t&quot;+AllyNo+&quot;\t&quot;+rdy+&quot;\t&quot;+Mode+&quot;\t&quot;+Handicap+&quot;\t&quot;+Side so you can have as many id/team/side you want
+
+not tested yet but it should work
+
+Modified: Lobby/TASServer/Battle.java
+===================================================================
+--- Lobby/TASServer/Battle.java	2009-06-07 21:07:15 UTC (rev 7266)
++++ Lobby/TASServer/Battle.java	2009-06-10 23:48:35 UTC (rev 7267)
+@@ -149,8 +149,8 @@
+ 	public int spectatorCount() {
+ 		int count = 0;
+ 		for (int i = 0; i &lt; clients.size(); i++)
+-			if (Misc.getModeFromBattleStatus(clients.get(i).battleStatus) == 0) count++;
+-		if (Misc.getModeFromBattleStatus(founder.battleStatus) == 0) count++;
++			if (clients.get(i).battleStatus.Mode == 0) count++;
++		if (founder.battleStatus.Mode == 0) count++;
+ 		return count;
+ 	}
+ 	
+
+Modified: Lobby/TASServer/Bot.java
+===================================================================
+--- Lobby/TASServer/Bot.java	2009-06-07 21:07:15 UTC (rev 7266)
++++ Lobby/TASServer/Bot.java	2009-06-10 23:48:35 UTC (rev 7267)
+@@ -15,14 +15,14 @@
+ 	public String name;
+ 	public String ownerName;
+ 	public String AIDll;
+-	public int battleStatus; // see MYBATTLESTATUS command for actual values of battleStatus (Note: some bits of battle status are not used with Bot)
++	public BattleStatus battleStatus; // see MYBATTLESTATUS command for actual values of battleStatus (Note: some bits of battle status are not used with Bot)
+ 	public int teamColor;
+ 	
+ 	public Bot(String name, String ownerName, String AIDll, int battleStatus, int teamColor) {
+ 		this.name = new String(name);
+ 		this.ownerName = new String(ownerName);
+ 		this.AIDll = new String(AIDll);
+-		this.battleStatus = battleStatus;
++		this.battleStatus = new BattleStatus();
+ 		this.teamColor = teamColor;
+ 	}
+ }
+
+Modified: Lobby/TASServer/Client.java
+===================================================================
+--- Lobby/TASServer/Client.java	2009-06-07 21:07:15 UTC (rev 7266)
++++ Lobby/TASServer/Client.java	2009-06-10 23:48:35 UTC (rev 7267)
+@@ -30,7 +30,7 @@
+ 	public String localIP; // client's local IP which has to be send with LOGIN command (server can't figure out his local IP himself of course)
+ 	public int UDPSourcePort; // client's public UDP source port used with some NAT traversal techniques (e.g. &quot;hole punching&quot;)
+ 	public int status; // see MYSTATUS command for actual values of status
+-	public int battleStatus; // see MYBATTLESTATUS command for actual values of battleStatus
++	public BattleStatus battleStatus; // see MYBATTLESTATUS command for actual values of battleStatus
+ 	public int teamColor; // see MYBATTLESTATUS for info on this one
+ 	public int battleID; // battle ID in which client is participating. Must be -1 if not participating in any battle.
+ 	public ArrayList&lt;Channel&gt; channels = new ArrayList&lt;Channel&gt;(); // list of channels user is participating in
+@@ -69,7 +69,7 @@
+ 		recvBuf = new StringBuilder();
+ 		status = 0;
+ 		country = IP2Country.getCountryCode(Misc.IP2Long(IP));
+-		battleStatus = 0;
++		battleStatus = new BattleStatus();
+ 		teamColor = 0;
+ 		inGameTime = 0;
+ 		battleID = -1;
+
+Modified: Lobby/TASServer/TASServer.java
+===================================================================
+--- Lobby/TASServer/TASServer.java	2009-06-07 21:07:15 UTC (rev 7266)
++++ Lobby/TASServer/TASServer.java	2009-06-10 23:48:35 UTC (rev 7267)
+@@ -2056,7 +2056,7 @@
+ 				}
+ 
+ 				// do the actually joining and notifying:
+-				client.battleStatus = 0; // reset client's battle status
++				client.battleStatus = new BattleStatus(); // reset client's battle status
+ 				client.battleID = battleID;
+ 				bat.addClient(client);
+ 			 	client.sendLine(&quot;JOINBATTLE &quot; + bat.ID + &quot; &quot; + bat.hashCode); // notify client that he has successfully joined the battle
+@@ -2101,7 +2101,7 @@
+ 					return false;
+ 				}
+ 				Battles.addBattle(bat);
+-				client.battleStatus = 0; // reset client's battle status
++				client.battleStatus = new BattleStatus(); // reset client's battle status
+ 				client.battleID = bat.ID;
+ 
+ 				boolean local;
+@@ -2132,36 +2132,30 @@
+ 				}
+ 				client.teamColor = newTeamColor;
+ 
+-				int newStatus;
+-				try {
+-					newStatus = Integer.parseInt(commands[1]);
+-				} catch (NumberFormatException e) {
++				if(!client.battleStatus.Update(commands[1]))
+ 					return false;
+-				}
+-				// update new battle status. Note: we ignore handicap value as it can be changed only by founder with HANDICAP command!
+-				client.battleStatus = Misc.setHandicapOfBattleStatus(newStatus, Misc.getHandicapFromBattleStatus(client.battleStatus));
+ 
+ 				// if game is full or game type is &quot;battle replay&quot;, force player's mode to spectator:
+ 				if ((bat.getClientsSize()+1-bat.spectatorCount() &gt; bat.maxPlayers) || (bat.type == 1)) {
+-					client.battleStatus = Misc.setModeOfBattleStatus(client.battleStatus, 0);
++					client.battleStatus.Mode = 0;
+ 				}
+ 				// if player has chosen team number which is already used by some other player/bot,
+ 				// force his ally number and team color to be the same as of that player/bot:
+ 				if (bat.founder != client)
+-					if ((Misc.getTeamNoFromBattleStatus(bat.founder.battleStatus) == Misc.getTeamNoFromBattleStatus(client.battleStatus)) &amp;&amp; (Misc.getModeFromBattleStatus(bat.founder.battleStatus) != 0)) {
+-						client.battleStatus = Misc.setAllyNoOfBattleStatus(client.battleStatus, Misc.getAllyNoFromBattleStatus(bat.founder.battleStatus));
++					if ((bat.founder.battleStatus.TeamNo == client.battleStatus.TeamNo) &amp;&amp; (!bat.founder.battleStatus.isSpectator())) {
++						client.battleStatus.AllyNo = bat.founder.battleStatus.AllyNo;
+ 						client.teamColor = bat.founder.teamColor;
+ 					}
+ 				for (int i = 0; i &lt; bat.getClientsSize(); i++)
+ 					if (bat.getClient(i) != client)
+-						if ((Misc.getTeamNoFromBattleStatus(bat.getClient(i).battleStatus) == Misc.getTeamNoFromBattleStatus(client.battleStatus)) &amp;&amp; (Misc.getModeFromBattleStatus(bat.getClient(i).battleStatus) != 0)) {
+-							client.battleStatus = Misc.setAllyNoOfBattleStatus(client.battleStatus, Misc.getAllyNoFromBattleStatus(bat.getClient(i).battleStatus));
++						if ((bat.getClient(i).battleStatus.TeamNo == client.battleStatus.TeamNo) &amp;&amp; (!bat.getClient(i).battleStatus.isSpectator())) {
++							client.battleStatus.AllyNo = bat.getClient(i).battleStatus.AllyNo;
+ 							client.teamColor = bat.getClient(i).teamColor;
+ 							break;
+ 						}
+ 				for (int i = 0; i &lt; bat.getBotsSize(); i++)
+-					if (Misc.getTeamNoFromBattleStatus(bat.getBot(i).battleStatus) == Misc.getTeamNoFromBattleStatus(client.battleStatus)) {
+-						client.battleStatus = Misc.setAllyNoOfBattleStatus(client.battleStatus, Misc.getAllyNoFromBattleStatus(bat.getBot(i).battleStatus));
++					if (bat.getBot(i).battleStatus.TeamNo == client.battleStatus.TeamNo) {
++						client.battleStatus.AllyNo = bat.getBot(i).battleStatus.AllyNo;
+ 						client.teamColor = bat.getBot(i).teamColor;
+ 						break;
+ 					}
+@@ -2298,7 +2292,7 @@
+ 				if (target == null) return false;
+ 				if (!bat.isClientInBattle(target)) return false;
+ 
+-				target.battleStatus = Misc.setHandicapOfBattleStatus(target.battleStatus, value);
++				target.battleStatus.Handicap = value;
+ 				bat.notifyClientsOfBattleStatus(target);
+ 			}
+ 			else if (commands[0].equals(&quot;KICKFROMBATTLE&quot;)) {
+@@ -2341,7 +2335,7 @@
+ 				if (target == null) return false;
+ 				if (!bat.isClientInBattle(target)) return false;
+ 
+-				target.battleStatus = Misc.setTeamNoOfBattleStatus(target.battleStatus, value);
++				target.battleStatus.TeamNo = value;
+ 				bat.notifyClientsOfBattleStatus(target);
+ 			}
+ 			else if (commands[0].equals(&quot;FORCEALLYNO&quot;)) {
+@@ -2365,7 +2359,7 @@
+ 				if (target == null) return false;
+ 				if (!bat.isClientInBattle(target)) return false;
+ 
+-				target.battleStatus = Misc.setAllyNoOfBattleStatus(target.battleStatus, value);
++				target.battleStatus.AllyNo = value;
+ 				bat.notifyClientsOfBattleStatus(target);
+ 			}
+ 			else if (commands[0].equals(&quot;FORCETEAMCOLOR&quot;)) {
+@@ -2404,9 +2398,9 @@
+ 				if (target == null) return false;
+ 				if (!bat.isClientInBattle(target)) return false;
+ 
+-				if (Misc.getModeFromBattleStatus(target.battleStatus) == 0) return false; // no need to change it, it's already set to spectator mode!
++				if (target.battleStatus.isSpectator()) return false; // no need to change it, it's already set to spectator mode!
+ 
+-				target.battleStatus = Misc.setModeOfBattleStatus(target.battleStatus, 0);
++				target.battleStatus.Mode = 0;
+ 				bat.notifyClientsOfBattleStatus(target);
+ 			}
+ 			else if (commands[0].equals(&quot;ADDBOT&quot;)) {
+@@ -2485,13 +2479,6 @@
+ 				Bot bot = bat.getBot(commands[1]);
+ 				if (bot == null) return false;
+ 
+-				int value;
+-				try {
+-					value = Integer.parseInt(commands[2]);
+-				} catch (NumberFormatException e) {
+-					return false;
+-				}
+-
+ 				int teamColor;
+ 				try {
+ 					teamColor = Integer.parseInt(commands[3]);
+@@ -2501,8 +2488,10 @@
+ 
+ 				// only bot owner and battle host are allowed to update bot:
+ 				if (!((client.account.user.equals(bot.ownerName)) || (client.account.user.equals(bat.founder.account.user)))) return false;
+-
+-				bot.battleStatus = value;
++				
++				if( !bot.battleStatus.Update(commands[2]))
++					return false;
++				
+ 				bot.teamColor = teamColor;
+ 
+ 				//*** add: force ally and color number if someone else is using his team number already
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002035.html">[Taspring-linux-commit] r7266 - Lobby/TASServer
+</A></li>
+	<LI>Next message: <A HREF="002037.html">[Taspring-linux-commit] r7268 - Lobby/TASServer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2036">[ date ]</a>
+              <a href="thread.html#2036">[ thread ]</a>
+              <a href="subject.html#2036">[ subject ]</a>
+              <a href="author.html#2036">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

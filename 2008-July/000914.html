@@ -1,0 +1,279 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6134 - in trunk/rts: Game Game/UI System	System/Net
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6134%20-%20in%20trunk/rts%3A%20Game%20Game/UI%20System%0A%09System/Net&In-Reply-To=%3C20080710235039.66C16465C%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000913.html">
+   <LINK REL="Next"  HREF="000915.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6134 - in trunk/rts: Game Game/UI System	System/Net</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6134%20-%20in%20trunk/rts%3A%20Game%20Game/UI%20System%0A%09System/Net&In-Reply-To=%3C20080710235039.66C16465C%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6134 - in trunk/rts: Game Game/UI System	System/Net">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Jul 11 01:50:39 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000913.html">[Taspring-linux-commit] r6133 - in trunk/rts: Lua Sim/Projectiles
+</A></li>
+        <LI>Next message: <A HREF="000915.html">[Taspring-linux-commit] r6135 - in trunk/rts: Game/UI Map Map/SM3	Map/SMF Sim/Projectiles/WeaponProjectiles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#914">[ date ]</a>
+              <a href="thread.html#914">[ thread ]</a>
+              <a href="subject.html#914">[ subject ]</a>
+              <a href="author.html#914">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-07-11 01:50:38 +0200 (Fri, 11 Jul 2008)
+New Revision: 6134
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameSetup.cpp
+   trunk/rts/Game/Team.cpp
+   trunk/rts/Game/Team.h
+   trunk/rts/Game/UI/GameSetupDrawer.cpp
+   trunk/rts/System/GlobalStuff.cpp
+   trunk/rts/System/Net/UDPConnection.cpp
+Log:
+* fix bug where allyteams are not allied to themself (units try to attack itself, not seeing yourr own drawings...)
+* fix bug where teams where readied up without setting startposition first
+* fix bug where a fragmented network message with incomplete size field cause undefined behaviour
+
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-07-10 23:45:36 UTC (rev 6133)
++++ trunk/rts/Game/Game.cpp	2008-07-10 23:50:38 UTC (rev 6134)
+@@ -3427,9 +3427,10 @@
+ 					           *(float*)&amp;inbuf[12]);
+ 					if (!luaRules || luaRules-&gt;AllowStartPosition(player, pos)) {
+ 						if (inbuf[3] != 2) {
+-							gs-&gt;Team(team)-&gt;readyToStart = !!inbuf[3];
++							gs-&gt;Team(team)-&gt;StartposMessage(pos, !!inbuf[3]);
+ 						}
+-						gs-&gt;Team(team)-&gt;startPos = pos;
++						else
++							gs-&gt;Team(team)-&gt;StartposMessage(pos);
+ 						char label[128];
+ 						SNPRINTF(label, sizeof(label), &quot;Start %i&quot;, team);
+ 						inMapDrawer-&gt;LocalPoint(pos, label, player);
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-07-10 23:45:36 UTC (rev 6133)
++++ trunk/rts/Game/GameServer.cpp	2008-07-10 23:50:38 UTC (rev 6134)
+@@ -1389,7 +1389,7 @@
+ 		for (int a = 0; a &lt; MAX_TEAMS; ++a)
+ 		{
+ 			if (teams[a])
+-				Broadcast(CBaseNetProtocol::Get().SendStartPos(SERVER_PLAYER, a, 1, teams[a]-&gt;startpos.x, teams[a]-&gt;startpos.y, teams[a]-&gt;startpos.z));
++				Broadcast(CBaseNetProtocol::Get().SendStartPos(SERVER_PLAYER, a, teams[a]-&gt;readyToStart, teams[a]-&gt;startpos.x, teams[a]-&gt;startpos.y, teams[a]-&gt;startpos.z));
+ 		}
+ 	}
+ 	else
+
+Modified: trunk/rts/Game/GameSetup.cpp
+===================================================================
+--- trunk/rts/Game/GameSetup.cpp	2008-07-10 23:45:36 UTC (rev 6133)
++++ trunk/rts/Game/GameSetup.cpp	2008-07-10 23:50:38 UTC (rev 6134)
+@@ -276,6 +276,7 @@
+ 			int other = atoi(file.SGetValueDef(&quot;0&quot;,key).c_str());
+ 			allyStartingData[i].allies[other] = true;
+ 		}
++		allyStartingData[i].allies[i] = true; // team i is ally from team i
+ 
+ 		allyteamRemap[a] = i;
+ 		++i;
+
+Modified: trunk/rts/Game/Team.cpp
+===================================================================
+--- trunk/rts/Game/Team.cpp	2008-07-10 23:45:36 UTC (rev 6133)
++++ trunk/rts/Game/Team.cpp	2008-07-10 23:50:38 UTC (rev 6134)
+@@ -289,7 +289,17 @@
+ 	luaCallIns.TeamDied(teamNum);
+ }
+ 
++void CTeam::StartposMessage(const float3&amp; pos, const bool isReady)
++{
++	readyToStart = isReady;
++	startPos = pos;
++}
+ 
++void CTeam::StartposMessage(const float3&amp; pos)
++{
++	startPos = pos;
++}
++
+ void CTeam::SlowUpdate()
+ {
+ 	currentStats.metalProduced  += metalIncome;
+
+Modified: trunk/rts/Game/Team.h
+===================================================================
+--- trunk/rts/Game/Team.h	2008-07-10 23:45:36 UTC (rev 6133)
++++ trunk/rts/Game/Team.h	2008-07-10 23:50:38 UTC (rev 6134)
+@@ -36,6 +36,10 @@
+ 	
+ 	void Died();
+ 
++	void StartposMessage(const float3&amp; pos, const bool isReady);
++	void StartposMessage(const float3&amp; pos);
++	
++	inline bool IsReadyToStart() const {return readyToStart;};
+ 	enum AddType{
+ 		AddBuilt,
+ 		AddCaptured,
+@@ -52,7 +56,6 @@
+ 	void RemoveUnit(CUnit* unit,RemoveType type);
+ 
+ 	int teamNum;
+-	bool readyToStart;
+ 	bool isDead;
+ 	bool gaia;
+ 	int leader;
+@@ -149,6 +152,9 @@
+ 
+ 	std::vector&lt;float&gt;         modParams;    // mod controlled parameters
+ 	std::map&lt;std::string, int&gt; modParamsMap; // name map for mod parameters
++
++private:
++	bool readyToStart;
+ };
+ 
+ #endif /* TEAM_H */
+
+Modified: trunk/rts/Game/UI/GameSetupDrawer.cpp
+===================================================================
+--- trunk/rts/Game/UI/GameSetupDrawer.cpp	2008-07-10 23:45:36 UTC (rev 6133)
++++ trunk/rts/Game/UI/GameSetupDrawer.cpp	2008-07-10 23:50:38 UTC (rev 6134)
+@@ -80,13 +80,12 @@
+ 		GameSetupDrawer::Disable();
+ 	}
+ 
+-	float xshift = 0.0f;
+ 	std::string state = &quot;Unknown state.&quot;;
+ 	if (readyCountdown &gt; 0) {
+ 		char buf[64];
+ 		sprintf(buf, &quot;Starting in %i&quot;, readyCountdown / 1000);
+ 		state = buf;
+-	} else if (!gs-&gt;Team(gu-&gt;myTeam)-&gt;readyToStart) {
++	} else if (!gs-&gt;Team(gu-&gt;myTeam)-&gt;IsReadyToStart()) {
+ 		state = &quot;Choose start pos&quot;;
+ 	} else if (gu-&gt;myPlayerNum==0) {
+ 		state = &quot;Waiting for players, Ctrl+Return to force start&quot;;
+@@ -99,7 +98,7 @@
+ 	for (int a = 0; a &lt; gameSetup-&gt;numPlayers; a++) {
+ 		if (!gs-&gt;players[a]-&gt;readyToStart) {
+ 			playerStates[a] = &quot;missing&quot;;
+-		} else if (!gs-&gt;Team(gs-&gt;players[a]-&gt;team)-&gt;readyToStart) {
++		} else if (!gs-&gt;Team(gs-&gt;players[a]-&gt;team)-&gt;IsReadyToStart()) {
+ 			playerStates[a] = &quot;notready&quot;;
+ 		} else {
+ 			playerStates[a] = &quot;ready&quot;;
+@@ -134,7 +133,7 @@
+ 			color = white; //blue;
+ 		} else if (!gs-&gt;players[a]-&gt;readyToStart) {
+ 			color = red;
+-		} else if (!gs-&gt;Team(gs-&gt;players[a]-&gt;team)-&gt;readyToStart) {
++		} else if (!gs-&gt;Team(gs-&gt;players[a]-&gt;team)-&gt;IsReadyToStart()) {
+ 			color = yellow;
+ 		} else {
+ 			color = green;
+
+Modified: trunk/rts/System/GlobalStuff.cpp
+===================================================================
+--- trunk/rts/System/GlobalStuff.cpp	2008-07-10 23:45:36 UTC (rev 6133)
++++ trunk/rts/System/GlobalStuff.cpp	2008-07-10 23:50:38 UTC (rev 6134)
+@@ -182,10 +182,8 @@
+ 		teams[i]-&gt;energy = setup-&gt;startEnergy;
+ 		teams[i]-&gt;energyIncome = setup-&gt;startEnergy;
+ 
+-		teams[i]-&gt;startPos.x = setup-&gt;teamStartingData[i].startPos.x;
+-		teams[i]-&gt;startPos.y = setup-&gt;teamStartingData[i].startPos.y;
+-		teams[i]-&gt;startPos.z = setup-&gt;teamStartingData[i].startPos.z;
+-		teams[i]-&gt;readyToStart = (setup-&gt;startPosType != CGameSetupData::StartPos_ChooseInGame);
++		float3 start(setup-&gt;teamStartingData[i].startPos.x, setup-&gt;teamStartingData[i].startPos.y, setup-&gt;teamStartingData[i].startPos.z);
++		teams[i]-&gt;StartposMessage(start, (setup-&gt;startPosType != CGameSetupData::StartPos_ChooseInGame));
+ 		std::memcpy(teams[i]-&gt;color, setup-&gt;teamStartingData[i].color, 4);
+ 		teams[i]-&gt;handicap = setup-&gt;teamStartingData[i].handicap;
+ 		teams[i]-&gt;leader = setup-&gt;teamStartingData[i].leader;
+@@ -225,8 +223,8 @@
+ 		team-&gt;color[2] = 255;
+ 		team-&gt;color[3] = 255;
+ 		team-&gt;gaia = true;
+-		team-&gt;readyToStart = true;
+-		players[setup-&gt;numPlayers]-&gt;team = gaiaTeamID;
++		team-&gt;StartposMessage(float3(0.0, 0.0, 0.0), true);
++		//players[setup-&gt;numPlayers]-&gt;team = gaiaTeamID;
+ 		SetAllyTeam(gaiaTeamID, gaiaAllyTeamID);
+ 	}
+ }
+
+Modified: trunk/rts/System/Net/UDPConnection.cpp
+===================================================================
+--- trunk/rts/System/Net/UDPConnection.cpp	2008-07-10 23:45:36 UTC (rev 6133)
++++ trunk/rts/System/Net/UDPConnection.cpp	2008-07-10 23:50:38 UTC (rev 6134)
+@@ -172,6 +172,7 @@
+ 		{
+ 			// combine with fragment buffer
+ 			bufLength += fragmentBuffer-&gt;length;
++			assert(fragmentBuffer-&gt;length &lt; 8000);
+ 			memcpy(buf, fragmentBuffer-&gt;data, bufLength);
+ 			delete fragmentBuffer;
+ 			fragmentBuffer = NULL;
+@@ -179,6 +180,7 @@
+ 
+ 		lastInOrder++;
+ #if (BOOST_VERSION &gt;= 103400)
++		assert((wpi-&gt;second-&gt;length + bufLength) &lt; 8000);
+ 		memcpy(buf + bufLength, wpi-&gt;second-&gt;data, wpi-&gt;second-&gt;length);
+ 		bufLength += (wpi-&gt;second)-&gt;length;
+ #else
+@@ -203,7 +205,7 @@
+ 					int length_t = proto-&gt;GetLength(msgid);
+ 
+ 					// got enough data in the buffer to read the length of the message?
+-					if (bufLength &gt;= pos + -length_t)
++					if (bufLength &gt; pos - length_t)
+ 					{
+ 						// yes =&gt; read the length (as byte or word)
+ 						if (length_t == -1)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000913.html">[Taspring-linux-commit] r6133 - in trunk/rts: Lua Sim/Projectiles
+</A></li>
+	<LI>Next message: <A HREF="000915.html">[Taspring-linux-commit] r6135 - in trunk/rts: Game/UI Map Map/SM3	Map/SMF Sim/Projectiles/WeaponProjectiles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#914">[ date ]</a>
+              <a href="thread.html#914">[ thread ]</a>
+              <a href="subject.html#914">[ subject ]</a>
+              <a href="author.html#914">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

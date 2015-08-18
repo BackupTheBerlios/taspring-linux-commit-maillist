@@ -1,0 +1,676 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6445 - in trunk/rts: Map/SMF	System/Platform
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6445%20-%20in%20trunk/rts%3A%20Map/SMF%0A%09System/Platform&In-Reply-To=%3C20080922232331.26E654A61%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001214.html">
+   <LINK REL="Next"  HREF="001216.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6445 - in trunk/rts: Map/SMF	System/Platform</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6445%20-%20in%20trunk/rts%3A%20Map/SMF%0A%09System/Platform&In-Reply-To=%3C20080922232331.26E654A61%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6445 - in trunk/rts: Map/SMF	System/Platform">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Sep 23 01:23:31 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001214.html">[Taspring-linux-commit] r6444 - in trunk/rts: Map/SMF lib/gml
+</A></li>
+        <LI>Next message: <A HREF="001216.html">[Taspring-linux-commit] r6446 - trunk/tools/unitsync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1215">[ date ]</a>
+              <a href="thread.html#1215">[ thread ]</a>
+              <a href="subject.html#1215">[ subject ]</a>
+              <a href="author.html#1215">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-09-23 01:23:30 +0200 (Tue, 23 Sep 2008)
+New Revision: 6445
+
+Added:
+   trunk/rts/Map/SMF/SmfMapFile.cpp
+   trunk/rts/Map/SMF/SmfMapFile.h
+Modified:
+   trunk/rts/Map/SMF/BFGroundTextures.cpp
+   trunk/rts/Map/SMF/SmfReadMap.cpp
+   trunk/rts/Map/SMF/SmfReadMap.h
+   trunk/rts/System/Platform/byteorder.h
+Log:
+* Separate map reading from map rendering.
+
+
+
+Modified: trunk/rts/Map/SMF/BFGroundTextures.cpp
+===================================================================
+--- trunk/rts/Map/SMF/BFGroundTextures.cpp	2008-09-21 00:14:25 UTC (rev 6444)
++++ trunk/rts/Map/SMF/BFGroundTextures.cpp	2008-09-22 23:23:30 UTC (rev 6445)
+@@ -26,10 +26,11 @@
+ 		usePBO = true;
+ 	}
+ 
+-	CFileHandler* ifs = rm-&gt;ifs;
++	// todo: refactor: put reading code in CSmfFile and keep errorhandling/progress reporting here..
++	CFileHandler* ifs = rm-&gt;GetFile().GetFileHandler();
+ 	map = rm;
+ 
+-	SMFHeader* header = &amp;map-&gt;header;
++	const SMFHeader* header = &amp;map-&gt;GetFile().GetHeader();
+ 	ifs-&gt;Seek(header-&gt;tilesPtr);
+ 
+ 	tileSize = header-&gt;tilesize;
+
+Added: trunk/rts/Map/SMF/SmfMapFile.cpp
+===================================================================
+--- trunk/rts/Map/SMF/SmfMapFile.cpp	                        (rev 0)
++++ trunk/rts/Map/SMF/SmfMapFile.cpp	2008-09-22 23:23:30 UTC (rev 6445)
+@@ -0,0 +1,169 @@
++/* Author: Tobi Vollebregt */
++
++#include &quot;StdAfx.h&quot;     // ugh
++#include &quot;SmfMapFile.h&quot;
++#include &quot;mapfile.h&quot;
++#include &quot;mmgr.h&quot;
++
++using std::string;
++
++
++CSmfMapFile::CSmfMapFile(const string&amp; mapname)
++	: ifs(string(&quot;maps/&quot;) + mapname), featureFileOffset(0)
++{
++	memset(&amp;header, 0, sizeof(header));
++	memset(&amp;featureHeader, 0, sizeof(featureHeader));
++
++	if (!ifs.FileExists())
++		throw content_error(&quot;Couldn't open map file &quot; + mapname);
++	READPTR_MAPHEADER(header, (&amp;ifs));
++
++	if (strcmp(header.magic, &quot;spring map file&quot;) != 0 ||
++	    header.version != 1 || header.tilesize != 32 ||
++	    header.texelPerSquare != 8 || header.squareSize != 8)
++		throw content_error(&quot;Incorrect map file &quot; + mapname);
++}
++
++
++void CSmfMapFile::ReadMinimap(void* data)
++{
++	ifs.Seek(header.minimapPtr);
++	ifs.Read(data, MINIMAP_SIZE);
++}
++
++
++void CSmfMapFile::ReadHeightmap(unsigned short* heightmap)
++{
++	const int hmx = header.mapx + 1;
++	const int hmy = header.mapy + 1;
++
++	ifs.Seek(header.heightmapPtr);
++	ifs.Read(heightmap, hmx * hmy * sizeof(short));
++
++	for (int y = 0; y &lt; hmx * hmy; ++y) {
++		heightmap[y] = swabword(heightmap[y]);
++	}
++}
++
++
++void CSmfMapFile::ReadHeightmap(float* heightmap, float base, float mod)
++{
++	const int hmx = header.mapx + 1;
++	const int hmy = header.mapy + 1;
++	unsigned short* temphm = SAFE_NEW unsigned short[hmx * hmy];
++
++	ifs.Seek(header.heightmapPtr);
++	ifs.Read(temphm, hmx * hmy * 2);
++
++	for (int y = 0; y &lt; hmx * hmy; ++y) {
++		heightmap[y] = base + swabword(temphm[y]) * mod;
++	}
++
++	delete[] temphm;
++}
++
++
++void CSmfMapFile::ReadFeatureInfo()
++{
++	ifs.Seek(header.featurePtr);
++	READ_MAPFEATUREHEADER(featureHeader, (&amp;ifs));
++
++	featureTypes.resize(featureHeader.numFeatureType);
++
++	for(int a = 0; a &lt; featureHeader.numFeatureType; ++a) {
++		char c;
++		ifs.Read(&amp;c, 1);
++		while (c) {
++			featureTypes[a] += c;
++			ifs.Read(&amp;c, 1);
++		}
++	}
++	featureFileOffset = ifs.GetPos();
++}
++
++
++void CSmfMapFile::ReadFeatureInfo(MapFeatureInfo* f)
++{
++	assert(featureFileOffset != 0);
++	ifs.Seek(featureFileOffset);
++	for(int a = 0; a &lt; featureHeader.numFeatures; ++a) {
++		MapFeatureStruct ffs;
++		READ_MAPFEATURESTRUCT(ffs, (&amp;ifs));
++
++		f[a].featureType = ffs.featureType;
++		f[a].pos = float3(ffs.xpos, ffs.ypos, ffs.zpos);
++		f[a].rotation = ffs.rotation;
++	}
++}
++
++
++const char* CSmfMapFile::GetFeatureType(int typeID) const
++{
++	assert(typeID &gt;= 0 &amp;&amp; typeID &lt; featureHeader.numFeatureType);
++	return featureTypes[typeID].c_str();
++}
++
++
++bool CSmfMapFile::ReadInfoMap(const string&amp; name, unsigned char* data, MapBitmapInfo* bmInfo)
++{
++	if (name == &quot;grass&quot;) {
++		bmInfo-&gt;width = header.mapx / 4;
++		bmInfo-&gt;height = header.mapy / 4;
++
++		if (data != NULL) {
++			ReadGrassMap(data);
++		}
++		return true;
++	}
++	else if(name == &quot;metal&quot;) {
++		bmInfo-&gt;width = header.mapx / 2;
++		bmInfo-&gt;height = header.mapy / 2;
++
++		if (data != NULL) {
++			ifs.Seek(header.metalmapPtr);
++			ifs.Read(data, bmInfo-&gt;width * bmInfo-&gt;height);
++		}
++		return true;
++	}
++	else if(name == &quot;type&quot;) {
++		bmInfo-&gt;width = header.mapx / 2;
++		bmInfo-&gt;height = header.mapy / 2;
++
++		if (data != NULL) {
++			ifs.Seek(header.typeMapPtr);
++			ifs.Read(data, bmInfo-&gt;width * bmInfo-&gt;height);
++		}
++		return true;
++	}
++
++	return false;
++}
++
++
++void CSmfMapFile::ReadGrassMap(void *data)
++{
++	ifs.Seek(sizeof(SMFHeader));
++
++	for (int a = 0; a &lt; header.numExtraHeaders; ++a) {
++		int size;
++		ifs.Read(&amp;size, 4);
++		size = swabdword(size);
++		int type;
++		ifs.Read(&amp;type, 4);
++		type = swabdword(type);
++		if (type == MEH_Vegetation) {
++			int pos;
++			ifs.Read(&amp;pos, 4);
++			pos = swabdword(pos);
++			ifs.Seek(pos);
++			ifs.Read(data, header.mapx * header.mapy / 16);
++			/* char; no swabbing. */
++			break; //we arent interested in other extensions anyway
++		}
++		else {
++			// assumes we can use data as scratch memory
++			assert(size - 8 &lt;= header.mapx * header.mapy / 16);
++			ifs.Read(data, size - 8);
++		}
++	}
++}
+
+Added: trunk/rts/Map/SMF/SmfMapFile.h
+===================================================================
+--- trunk/rts/Map/SMF/SmfMapFile.h	                        (rev 0)
++++ trunk/rts/Map/SMF/SmfMapFile.h	2008-09-22 23:23:30 UTC (rev 6445)
+@@ -0,0 +1,48 @@
++/* Author: Tobi Vollebregt */
++
++#ifndef SMFMAPFILE_H
++#define SMFMAPFILE_H
++
++#include &quot;FileSystem/FileHandler.h&quot;
++#include &quot;Map/ReadMap.h&quot;
++#include &quot;mapfile.h&quot;
++#include &lt;string&gt;
++#include &lt;vector&gt;
++
++
++class CSmfMapFile
++{
++public:
++
++	CSmfMapFile(const std::string&amp; mapname);
++
++	void ReadMinimap(void* data);
++	void ReadHeightmap(unsigned short* heightmap);
++	void ReadHeightmap(float* heightmap, float base, float mod);
++	void ReadFeatureInfo();
++	void ReadFeatureInfo(MapFeatureInfo* f);
++	bool ReadInfoMap(const std::string&amp; name, unsigned char* infomap, MapBitmapInfo* bmInfo);
++
++	int GetNumFeatures()     const { return featureHeader.numFeatures; }
++	int GetNumFeatureTypes() const { return featureHeader.numFeatureType; }
++
++	const char* GetFeatureType(int typeID) const;
++
++	const SMFHeader&amp; GetHeader() const { return header; }
++
++	// todo: do not use, just here for backward compatibility with BFGroundTextures.cpp
++	CFileHandler* GetFileHandler() { return &ifs; }
++
++private:
++
++	void ReadGrassMap(void* data);
++
++	SMFHeader header;
++	CFileHandler ifs;
++
++	MapFeatureHeader featureHeader;
++	std::vector&lt;std::string&gt; featureTypes;
++	int featureFileOffset;
++};
++
++#endif // SMFMAPFILE_H
+
+Modified: trunk/rts/Map/SMF/SmfReadMap.cpp
+===================================================================
+--- trunk/rts/Map/SMF/SmfReadMap.cpp	2008-09-21 00:14:25 UTC (rev 6444)
++++ trunk/rts/Map/SMF/SmfReadMap.cpp	2008-09-22 23:23:30 UTC (rev 6445)
+@@ -35,6 +35,7 @@
+ 
+ 
+ CSmfReadMap::CSmfReadMap(std::string mapname)
++	: file(mapname)
+ {
+ 	PrintLoadMsg(&quot;Opening map file&quot;);
+ 
+@@ -49,17 +50,8 @@
+ 		waterHeightColors[a*4+3]=1;
+ 	}
+ 
+-	PUSH_CODE_MODE;
+-	ENTER_MIXED;
+-	ifs=SAFE_NEW CFileHandler(string(&quot;maps/&quot;)+mapname);
+-	if(!ifs-&gt;FileExists())
+-		throw content_error(&quot;Couldn't open map file &quot; + mapname);
+-	POP_CODE_MODE;
+-	READPTR_MAPHEADER(header,ifs);
++	const SMFHeader&amp; header = file.GetHeader();
+ 
+-	if(strcmp(header.magic,&quot;spring map file&quot;)!=0 || header.version!=1 || header.tilesize!=32 || header.texelPerSquare!=8 || header.squareSize!=8)
+-		throw content_error(&quot;Incorrect map file &quot; + mapname);
+-
+ 	width=header.mapx;
+ 	height=header.mapy;
+ 	gs-&gt;mapx=header.mapx;
+@@ -85,18 +77,8 @@
+ 	const float base = minH;
+ 	const float mod = (maxH - minH) / 65536.0f;
+ 
+-	const int hmx = gs-&gt;mapx + 1;
+-	const int hmy = gs-&gt;mapy + 1;
+-	unsigned short* temphm = SAFE_NEW unsigned short[hmx * hmy];
+-	ifs-&gt;Seek(header.heightmapPtr);
+-	ifs-&gt;Read(temphm, hmx * hmy * 2);
++	file.ReadHeightmap(heightmap, base, mod);
+ 
+-	for (int y = 0; y &lt; hmx * hmy; ++y) {
+-		heightmap[y] = base + swabword(temphm[y]) * mod;
+-	}
+-
+-	delete[] temphm;
+-
+ 	CReadMap::Initialize();
+ 
+ 	for (unsigned int a = 0; a &lt; mapname.size(); ++a) {
+@@ -124,8 +106,8 @@
+ 	PrintLoadMsg(&quot;Creating overhead texture&quot;);
+ 
+ 	unsigned char* buf=SAFE_NEW unsigned char[MINIMAP_SIZE];
+-	ifs-&gt;Seek(header.minimapPtr);
+-	ifs-&gt;Read(buf,MINIMAP_SIZE);
++	file.ReadMinimap(buf);
++
+ 	glGenTextures(1, &amp;minimapTex);
+ 	glBindTexture(GL_TEXTURE_2D, minimapTex);
+ 	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+@@ -163,20 +145,20 @@
+ 
+ 	groundDrawer=SAFE_NEW CBFGroundDrawer(this);
+ 
+-	ReadFeatureInfo ();
++	file.ReadFeatureInfo ();
+ }
+ 
+-CSmfReadMap::~CSmfReadMap(void)
++
++CSmfReadMap::~CSmfReadMap()
+ {
+-	delete[] featureTypes;
+ 	delete groundDrawer;
+-	delete ifs;
+ 	delete[] heightmap;
+ 	if (detailTex) glDeleteTextures (1, &amp;detailTex);
+ 	if (minimapTex) glDeleteTextures (1, &amp;minimapTex);
+ 	if (shadowTex) glDeleteTextures (1, &amp;shadowTex);
+ }
+ 
++
+ void CSmfReadMap::HeightmapUpdated(int x1, int x2, int y1, int y2)
+ {
+ 	x1-=x1&amp;3;
+@@ -229,6 +211,7 @@
+ 
+ }
+ 
++
+ float3 CSmfReadMap::GetLightValue(int x, int y)
+ {
+ 	float3 n1 = facenormals[((y * gs-&gt;mapx) + x) * 2] +
+@@ -315,8 +298,11 @@
+ 	glDisable(GL_TEXTURE_2D);
+ }
+ 
++
+ void CSmfReadMap::GridVisibility (CCamera *cam, int quadSize, float maxdist, CReadMap::IQuadDrawer *qd, int extraSize)
+ {
++	const SMFHeader&amp; header = file.GetHeader();
++
+ 	int cx=(int)(cam-&gt;pos.x/(SQUARE_SIZE*quadSize));
+ 	int cy=(int)(cam-&gt;pos.z/(SQUARE_SIZE*quadSize));
+ 
+@@ -337,7 +323,7 @@
+ 	int exi=cx+drawSquare;
+ 	if(exi&gt;drawQuadsX-1)
+ 		exi=drawQuadsX-1;
+- 
++
+ 	for(int y=sy;y&lt;=ey;y++){
+ 		int sx=sxi;
+ 		int ex=exi;
+@@ -367,118 +353,50 @@
+ 	}
+ }
+ 
++
+ int CSmfReadMap::GetNumFeatures ()
+ {
+-	return featureHeader.numFeatures;
++	return file.GetNumFeatures();
+ }
+ 
++
+ int CSmfReadMap::GetNumFeatureTypes ()
+ {
+-	return featureHeader.numFeatureType;
++	return file.GetNumFeatureTypes();
+ }
+ 
++
+ void CSmfReadMap::GetFeatureInfo (MapFeatureInfo* f)
+ {
+-	ifs-&gt;Seek (featureFileOffset);
+-	for(int a=0;a&lt;featureHeader.numFeatures;++a){
+-		MapFeatureStruct ffs;
+-		READ_MAPFEATURESTRUCT(ffs, ifs);
+-
+-		f[a].featureType = ffs.featureType;
+-		f[a].pos = float3(ffs.xpos, ffs.ypos, ffs.zpos);
+-		f[a].rotation = ffs.rotation;
+-	}
++	file.ReadFeatureInfo(f);
+ }
+ 
++
+ const char *CSmfReadMap::GetFeatureType (int typeID)
+ {
+-	assert (typeID &gt;= 0 &amp;&amp; typeID &lt; featureHeader.numFeatureType);
+-	return featureTypes[typeID].c_str();
++	return file.GetFeatureType(typeID);
+ }
+ 
++
+ unsigned char *CSmfReadMap::GetInfoMap (const std::string&amp; name, MapBitmapInfo* bmInfo)
+ {
+-	if (name == &quot;grass&quot;) {
+-		bmInfo-&gt;width = header.mapx / 4;
+-		bmInfo-&gt;height = header.mapy / 4;
++	// get size
++	if (!file.ReadInfoMap(name, NULL, bmInfo))
++		return NULL;
+ 
+-		unsigned char *data = SAFE_NEW unsigned char[bmInfo-&gt;width*bmInfo-&gt;height];
+-		ReadGrassMap (data);
+-		return data;
+-	}
+-	else if(name == &quot;metal&quot;) {
+-		bmInfo-&gt;width = header.mapx/2;
+-		bmInfo-&gt;height = header.mapy/2;
+-
+-		unsigned char *data = SAFE_NEW unsigned char[bmInfo-&gt;width*bmInfo-&gt;height];
+-		ifs-&gt;Seek(header.metalmapPtr);
+-		ifs-&gt;Read(data,header.mapx/2*header.mapy/2);
+-        return data;
+-	}
+-	else if(name == &quot;type&quot;) {
+-		bmInfo-&gt;width = header.mapx/2;
+-		bmInfo-&gt;height = header.mapy/2;
+-		unsigned char *data = SAFE_NEW unsigned char[bmInfo-&gt;width*bmInfo-&gt;height];
+-		ifs-&gt;Seek(header.typeMapPtr);
+-		ifs-&gt;Read(data,gs-&gt;mapx*gs-&gt;mapy/4);
+-		return data;
+-	}
+-
+-	return false;
++	// get data
++	unsigned char* data = SAFE_NEW unsigned char[bmInfo-&gt;width * bmInfo-&gt;height];
++	file.ReadInfoMap(name, data, bmInfo);
++	return data;
+ }
+ 
++
+ void CSmfReadMap::FreeInfoMap (const std::string&amp; name, unsigned char *data)
+ {
+ 	delete[] data;
+ }
+ 
+ 
+-void CSmfReadMap::ReadGrassMap(void *data)
+-{
+-	CFileHandler* fh=ifs;
+-	fh-&gt;Seek(sizeof(SMFHeader));
+-
+-	for(int a=0;a&lt;header.numExtraHeaders;++a){
+-		int size;
+-		fh-&gt;Read(&amp;size,4);
+-		size=swabdword(size);
+-		int type;
+-		fh-&gt;Read(&amp;type,4);
+-		type=swabdword(type);
+-		if(type==MEH_Vegetation){
+-			int pos;
+-			fh-&gt;Read(&amp;pos,4);
+-			pos=swabdword(pos);
+-			fh-&gt;Seek(pos);
+-			fh-&gt;Read(data,gs-&gt;mapx*gs-&gt;mapy/16);
+-			/* char; no swabbing. */
+-			break;	//we arent interested in other extensions anyway
+-		} else {
+-			unsigned char buf[100];	//todo: fix this if we create larger extensions
+-			fh-&gt;Read(buf,size-8);
+-		}
+-	}
+-}
+-
+-void CSmfReadMap::ReadFeatureInfo()
+-{
+-	ifs-&gt;Seek(header.featurePtr);
+-	READ_MAPFEATUREHEADER(featureHeader, ifs);
+-
+-	featureTypes=SAFE_NEW string[featureHeader.numFeatureType];
+-
+-	for(int a=0;a&lt;featureHeader.numFeatureType;++a){
+-		char c;
+-		ifs-&gt;Read(&amp;c,1);
+-		while(c){
+-			featureTypes[a]+=c;
+-			ifs-&gt;Read(&amp;c,1);
+-		}
+-	}
+-	featureFileOffset = ifs-&gt;GetPos();
+-}
+-
+-
+ void CSmfReadMap::ConfigureAnisotropy()
+ {
+ 	if (!GLEW_EXT_texture_filter_anisotropic) {
+
+Modified: trunk/rts/Map/SMF/SmfReadMap.h
+===================================================================
+--- trunk/rts/Map/SMF/SmfReadMap.h	2008-09-21 00:14:25 UTC (rev 6444)
++++ trunk/rts/Map/SMF/SmfReadMap.h	2008-09-22 23:23:30 UTC (rev 6445)
+@@ -1,9 +1,7 @@
+ #ifndef SMFREADMAP_H
+ #define SMFREADMAP_H
+ 
+-#include &quot;Map/ReadMap.h&quot;
+-#include &lt;string&gt;
+-#include &quot;mapfile.h&quot;
++#include &quot;SmfMapFile.h&quot;
+ 
+ class CBFGroundDrawer;
+ 
+@@ -13,7 +11,7 @@
+ 	CR_DECLARE(CSmfReadMap)
+ 
+ 	CSmfReadMap(std::string mapname);
+-	~CSmfReadMap(void);
++	~CSmfReadMap();
+ 
+ 	void HeightmapUpdated(int x1, int x2, int y1, int y2);
+ 	GLuint GetShadingTexture () { return shadowTex; }
+@@ -38,34 +36,31 @@
+ 	int GetNumFeatures ();
+ 	void GetFeatureInfo (MapFeatureInfo* f);// returns all feature info in MapFeatureInfo[NumFeatures]
+ 	const char *GetFeatureType (int typeID);
+-	
++
+ 	unsigned char *GetInfoMap (const std::string&amp; name, MapBitmapInfo* bm);
+ 	void FreeInfoMap(const std::string&amp; name, unsigned char *data);
+ 
+-	std::string detailTexName;
+-	GLuint detailTex;
+-	SMFHeader header;
+-	CFileHandler *ifs;
++	// todo: do not use, just here for backward compatibility with BFGroundTextures.cpp
++	CSmfMapFile&amp; GetFile() { return file; }
+ 
+ 	bool usePBO;
+ 	float anisotropy;
+ 
+-	unsigned char waterHeightColors[1024*4];
+ protected:
+-	void ReadGrassMap (void *data);
+-	void ReadFeatureInfo ();
+-
+ 	void ConfigureAnisotropy();
+ 
++	CSmfMapFile file;
++
++	std::string detailTexName;
++	GLuint detailTex;
++
++	unsigned char waterHeightColors[1024*4];
++
+ 	GLuint shadowTex;
+ 	GLuint minimapTex;
+ 
+ 	float* heightmap;
+ 
+-	MapFeatureHeader featureHeader;
+-	std::string* featureTypes;
+-	int featureFileOffset;
+-
+ 	CBFGroundDrawer *groundDrawer;
+ 
+ 	float3 GetLightValue(int x, int y);
+
+Modified: trunk/rts/System/Platform/byteorder.h
+===================================================================
+--- trunk/rts/System/Platform/byteorder.h	2008-09-21 00:14:25 UTC (rev 6444)
++++ trunk/rts/System/Platform/byteorder.h	2008-09-22 23:23:30 UTC (rev 6445)
+@@ -20,6 +20,8 @@
+ #ifndef BYTEORDER_H
+ #define BYTEORDER_H
+ 
++#include &lt;string.h&gt;
++
+ /*
+  * The swabbing stuff looks backwards, but the files
+  * are _originally_ little endian (win32 x86).
+@@ -33,10 +35,10 @@
+ #if __BYTE_ORDER == __BIG_ENDIAN
+ #define swabword(w)	(bswap_16(w))
+ #define swabdword(w)	(bswap_32(w))
+-/* 
++/*
+    My brother tells me that a C compiler must store floats in memory
+    by a particular standard, except for the endianness; hence, this
+-   will work on all C compilers. 
++   will work on all C compilers.
+  */
+ static inline float swabfloat(float w) {
+ 	char octets[4];
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001214.html">[Taspring-linux-commit] r6444 - in trunk/rts: Map/SMF lib/gml
+</A></li>
+	<LI>Next message: <A HREF="001216.html">[Taspring-linux-commit] r6446 - trunk/tools/unitsync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1215">[ date ]</a>
+              <a href="thread.html#1215">[ thread ]</a>
+              <a href="subject.html#1215">[ subject ]</a>
+              <a href="author.html#1215">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

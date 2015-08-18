@@ -1,0 +1,3223 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6882 - trunk/tools/unitsync
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6882%20-%20trunk/tools/unitsync&In-Reply-To=%3C20081025133414.4B00D4742%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001650.html">
+   <LINK REL="Next"  HREF="001652.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6882 - trunk/tools/unitsync</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6882%20-%20trunk/tools/unitsync&In-Reply-To=%3C20081025133414.4B00D4742%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6882 - trunk/tools/unitsync">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Oct 25 15:34:14 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001650.html">[Taspring-linux-commit] r6881 - in trunk/rts: Game Rendering	Sim/Projectiles/Unsynced Sim/Units/CommandAI Sim/Units/UnitTypes
+</A></li>
+        <LI>Next message: <A HREF="001652.html">[Taspring-linux-commit] r6883 - in trunk/rts/System/Platform: .	Linux
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1651">[ date ]</a>
+              <a href="thread.html#1651">[ thread ]</a>
+              <a href="subject.html#1651">[ subject ]</a>
+              <a href="author.html#1651">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-10-25 15:34:13 +0200 (Sat, 25 Oct 2008)
+New Revision: 6882
+
+Removed:
+   trunk/tools/unitsync/SyncServer.cpp
+   trunk/tools/unitsync/SyncServer.h
+   trunk/tools/unitsync/unitsyncLogOutput.h
+Modified:
+   trunk/tools/unitsync/CMakeLists.txt
+   trunk/tools/unitsync/Syncer.cpp
+   trunk/tools/unitsync/Syncer.h
+   trunk/tools/unitsync/unitsync.cpp
+   trunk/tools/unitsync/unitsync.h
+   trunk/tools/unitsync/unitsync_api.h
+Log:
+Made unitsync better:
+* Doesn't leak exceptions anymore over C interface.
+* Doesn't just crash by design anymore after something goes wrong.
+* Added API GetNextError, can be used to get error queue (currently limited to 1 error)
+* Deprecated APIs:
+  - GetCurrentList
+  - AddClient
+  - RemoveClient
+  - GetClientDiff
+  - InstallClientDiff
+  - IsUnitDisabled
+  - IsUnitDisabledByClient
+* Removed all code supporting those functions.
+* These deprecated functions pop up MessageBox once on windows to nag lobby devs.
+* Use engine's logOutput, still writes to unitsync.log (overwrites, doesn't append)
+* ProcessUnitsNoChecksum is now identical to ProcessUnits.
+* ProcessUnits now returns 0 immediately (but should still be called in loop
+  until it returns 0, in case it's changed sometime later)
+
+
+
+Modified: trunk/tools/unitsync/CMakeLists.txt
+===================================================================
+--- trunk/tools/unitsync/CMakeLists.txt	2008-10-25 13:26:35 UTC (rev 6881)
++++ trunk/tools/unitsync/CMakeLists.txt	2008-10-25 13:34:13 UTC (rev 6882)
+@@ -54,6 +54,7 @@
+ 
+ AUX_SOURCE_DIRECTORY(../../rts/System/FileSystem/ fsfiles)
+ set(unitsync_files
++	../../rts/System/LogOutput
+ 	../../rts/System/TdfParser
+ 	../../rts/Sim/SideParser
+ 	../../rts/Game/GameVersion
+@@ -71,7 +72,7 @@
+ if (JAVA_FOUND)
+ 	list(APPEND unitsync_files javabind)
+ endif (JAVA_FOUND)
+-ADD_LIBRARY(unitsync SHARED ${platformfiles} ${unitsync_files} ${fsfiles} unitsync LuaParserAPI Syncer SyncServer stdafx)
++ADD_LIBRARY(unitsync SHARED ${platformfiles} ${unitsync_files} ${fsfiles} unitsync LuaParserAPI Syncer stdafx)
+ TARGET_LINK_LIBRARIES(unitsync ${unitsync_libs} hpiutil2 7zip minizip lua ${Boost_REGEX_LIBRARY} ${DEVIL_ILU_LIBRARY} ${SDL_LIBRARY})
+ if (PYTHONLIBS_FOUND)
+ 	TARGET_LINK_LIBRARIES(unitsync ${PYTHON_LIBRARIES})
+
+Deleted: trunk/tools/unitsync/SyncServer.cpp
+===================================================================
+--- trunk/tools/unitsync/SyncServer.cpp	2008-10-25 13:26:35 UTC (rev 6881)
++++ trunk/tools/unitsync/SyncServer.cpp	2008-10-25 13:34:13 UTC (rev 6882)
+@@ -1,210 +0,0 @@
+-#include &quot;StdAfx.h&quot;
+-#include &quot;SyncServer.h&quot;
+-#include &lt;sstream&gt;
+-
+-using namespace std;
+-
+-CSyncServer::CSyncServer(int id) :
+-	CSyncer(id)
+-{
+-}
+-
+-CSyncServer::~CSyncServer(void)
+-{
+-}
+-
+-void CSyncServer::AddClient(int id, const string&amp; unitList)
+-{
+-	istringstream s(unitList);
+-	Unit u;
+-	string name;
+-
+-	while (s &gt;&gt; name) {
+-		s &gt;&gt; u.fbi;
+-		s &gt;&gt; u.cob;
+-		s &gt;&gt; u.model;
+-
+-		clientLists[id][name] = u;
+-	}
+-
+-	//The time has come, to calculate diffs! ohnoes!
+-	curDiff.clear();
+-	lastDiffClient = id;
+-	lastWasRemove = false;
+-
+-	for (map&lt;string, Unit&gt;::iterator i = clientLists[id].begin(); i != clientLists[id].end(); ++i) {
+-
+-		//Check with each other client if they have this unit
+-		for (map&lt;int, unitlist_t&gt;::iterator clientId = clientLists.begin(); clientId != clientLists.end(); ++clientId) {
+-			
+-			//No need to compare with ourselves
+-			if (clientId-&gt;first == id)
+-				continue;
+-
+-			//Now, determine if this unit is here, and if so, if it has the same crc
+-			map&lt;string, Unit&gt;::iterator curUnit = clientLists[clientId-&gt;first].find(i-&gt;first);
+-			bool unitOk = false;
+-			if (curUnit != clientLists[clientId-&gt;first].end()) {
+-				if ((curUnit-&gt;second.fbi   == i-&gt;second.fbi) &amp;&amp;
+-				    (curUnit-&gt;second.cob   == i-&gt;second.cob) &amp;&amp;
+-				    (curUnit-&gt;second.model == i-&gt;second.model)) {
+-					unitOk = true;
+-				}
+-			}
+-
+-			if (unitOk) {
+-				//No need to say anything about this unit
+-			}
+-			else {
+-				// If a unit has a bad crc, that client is added to the differing list
+-				map&lt;string, MissingList&gt;::iterator mli = curDiff.find(i-&gt;first);
+-				if (mli != curDiff.end()) {
+-					curDiff[i-&gt;first].clients.insert(clientId-&gt;first);
+-				}
+-				else {
+-					MissingList ml;
+-					ml.clients.insert(clientId-&gt;first);
+-					curDiff[i-&gt;first] = ml;
+-				}
+-			}
+-		}
+-	}
+-
+-	//Now we need to check the other way around.. If any client had a unit that we did not
+-	//if we find such a unit, it must be added to the difflist for that client
+-	//this could possibly be optimized by flagging everything that we do find in the above pass..
+-	for (map&lt;int, unitlist_t&gt;::iterator client = clientLists.begin(); client != clientLists.end(); ++client) {
+-		
+-		//No need to diff with ourselves
+-		if (client-&gt;first == id)
+-			continue;
+-
+-		for (map&lt;string, Unit&gt;::iterator unit = client-&gt;second.begin(); unit != client-&gt;second.end(); ++unit) {
+-			map&lt;string, Unit&gt;::iterator found = clientLists[id].find(unit-&gt;first);
+-
+-			//If not found, we should do things
+-			if (found == clientLists[id].end()) {
+-				map&lt;string, MissingList&gt;::iterator mli = curDiff.find(unit-&gt;first);
+-				if (mli != curDiff.end()) {
+-					curDiff[unit-&gt;first].clients.insert(client-&gt;first);
+-				}
+-				else {
+-					MissingList ml;
+-					ml.clients.insert(client-&gt;first);
+-					curDiff[unit-&gt;first] = ml;
+-				}
+-			}
+-		}
+-	}
+-
+-	//Alright, now we have a map that for each unit contains id's of clients that need to know that
+-	//this unit should now be disabled
+-
+-	// Since we are the server, we should install the diff for ourselves automatically
+-	string diff = GetClientDiff(localId);
+-	InstallClientDiff(diff);
+-}
+-
+-void CSyncServer::RemoveClient(int id)
+-{
+-	//Since each client keeps a list of who caused a unit to be disabled, it should suffice to let them
+-	//keep their lists in order if we just tell them who left
+-
+-	lastDiffClient = id;
+-	lastWasRemove = true;
+-
+-	// Remove it from our list of units
+-	clientLists.erase(id);
+-
+-	// We are the server (but also a client) so we will do it for ourselves automatically
+-	string diff = GetClientDiff(localId);
+-	InstallClientDiff(diff);
+-}
+-
+-const string CSyncServer::GetClientDiff(int id)
+-{
+-	ostringstream s(&quot;&quot;);
+-
+-	if (id == lastDiffClient) {
+-		// For us, we need to know which other clients caused our units to be disabled
+-		
+-		// This should not need to be called, but still..
+-		if (lastWasRemove) {
+-			s &lt;&lt; id &lt;&lt; &quot; &quot; &lt;&lt; lastWasRemove &lt;&lt; &quot; &quot;;
+-		}
+-		else {
+-			// Go through the difflist for each client
+-			for (map&lt;int, unitlist_t&gt;::iterator client = clientLists.begin(); client != clientLists.end(); ++client) {
+-				int count = 0;
+-				ostringstream us(&quot;&quot;);
+-
+-				for (map&lt;string, MissingList&gt;::iterator i = curDiff.begin(); i != curDiff.end(); ++i) {
+-					set&lt;int&gt;::iterator clientId = i-&gt;second.clients.find(client-&gt;first);
+-
+-					//If found, add the name of the disabled unit
+-					if (clientId != i-&gt;second.clients.end()) {
+-						us &lt;&lt; i-&gt;first &lt;&lt; &quot; &quot;;
+-						count++;
+-					}
+-				}
+-
+-				// Only generate the list if needed
+-				if (count &gt; 0) {
+-					s &lt;&lt; client-&gt;first &lt;&lt; &quot; &quot; &lt;&lt; lastWasRemove &lt;&lt; &quot; &quot; &lt;&lt; count &lt;&lt; &quot; &quot;;
+-					s &lt;&lt; us.str();
+-				}
+-			}
+-		}
+-
+-	}
+-	else {
+-
+-		// For the others, it is always the new guy's fault
+-		s &lt;&lt; lastDiffClient &lt;&lt; &quot; &quot;;
+-
+-		//and of what they are guilt
+-		s &lt;&lt; lastWasRemove &lt;&lt; &quot; &quot;;
+-
+-		//If remove, we are done now
+-		if (lastWasRemove)
+-			return s.str();
+-
+-		ostringstream us(&quot;&quot;);
+-		int count = 0;
+-
+-		for (map&lt;string, MissingList&gt;::iterator i = curDiff.begin(); i != curDiff.end(); ++i) {
+-			set&lt;int&gt;::iterator client = i-&gt;second.clients.find(id);
+-
+-			//If found, add the name of the disabled unit
+-			if (client != i-&gt;second.clients.end()) {
+-				us &lt;&lt; i-&gt;first &lt;&lt; &quot; &quot;;
+-				count++;
+-			}
+-		}
+-
+-		s &lt;&lt; count &lt;&lt; &quot; &quot;;
+-		s &lt;&lt; us.str();
+-	}
+-
+-	return s.str();
+-}
+-
+-void CSyncServer::InitMasterList() 
+-{
+-	//Add our info as a clientList to avoid special handling
+-
+-	for (map&lt;string, Unit&gt;::iterator i = units.begin(); i != units.end(); ++i) {
+-		clientLists[localId][i-&gt;first] = i-&gt;second;
+-	}
+-}
+-
+-int CSyncServer::ProcessUnits()
+-{
+-	const int unitsLeft = CSyncer::ProcessUnits();
+-
+-	if (unitsLeft == 0) {
+-		InitMasterList();
+-	}
+-
+-	return unitsLeft;
+-}
+
+Deleted: trunk/tools/unitsync/SyncServer.h
+===================================================================
+--- trunk/tools/unitsync/SyncServer.h	2008-10-25 13:26:35 UTC (rev 6881)
++++ trunk/tools/unitsync/SyncServer.h	2008-10-25 13:34:13 UTC (rev 6882)
+@@ -1,32 +0,0 @@
+-#ifndef SYNCSERVER_H
+-#define SYNCSERVER_H
+-
+-#include &quot;Syncer.h&quot;
+-#include &lt;string&gt;
+-#include &lt;set&gt;
+-
+-typedef std::map&lt;std::string, Unit&gt; unitlist_t;
+-
+-struct MissingList {
+-    std::set&lt;int&gt; clients;
+-};
+-
+-class CSyncServer : 
+-	public CSyncer
+-{
+-protected:
+-    std::map&lt;int, unitlist_t&gt; clientLists;
+-	int lastDiffClient;
+-	bool lastWasRemove;
+-	std::map&lt;std::string, MissingList&gt; curDiff;
+-	void InitMasterList();
+-public:
+-	CSyncServer(int id);
+-	~CSyncServer(void);
+-	void AddClient(int id, const std::string&amp; unitList);
+-	void RemoveClient(int id);
+-	const std::string GetClientDiff(int id);
+-	virtual int ProcessUnits();
+-};
+-
+-#endif
+
+Modified: trunk/tools/unitsync/Syncer.cpp
+===================================================================
+--- trunk/tools/unitsync/Syncer.cpp	2008-10-25 13:26:35 UTC (rev 6881)
++++ trunk/tools/unitsync/Syncer.cpp	2008-10-25 13:34:13 UTC (rev 6882)
+@@ -1,9 +1,9 @@
+-
+ #include &quot;StdAfx.h&quot;
+ #include &quot;Syncer.h&quot;
++#include &quot;Exceptions.h&quot;
+ #include &quot;FileSystem/FileHandler.h&quot;
+ #include &quot;Lua/LuaParser.h&quot;
+-#include &quot;unitsyncLogOutput.h&quot;
++#include &quot;LogOutput.h&quot;
+ #include &lt;vector&gt;
+ #include &lt;string&gt;
+ #include &lt;algorithm&gt;
+@@ -11,55 +11,27 @@
+ 
+ using namespace std;
+ 
+-CSyncer::CSyncer(int id)
+-: unitsLeft(-1)
++CSyncer::CSyncer()
+ {
+-	localId = id;
+ }
+ 
+ 
+-CSyncer::~CSyncer(void)
++CSyncer::~CSyncer()
+ {
+ }
+ 
+ 
+-crc_t CSyncer::CalculateCRC(const string&amp; fileName)
++void CSyncer::LoadUnits()
+ {
+-	CFileHandler file(fileName);
+-	if (!file.FileExists()) {
+-		return 0;
+-	}
+-
+-	long size = file.FileSize();
+-	char *data = new char[size];
+-	file.Read(data, size);
+-
+-	//todo: do a less silly algorithm
+-	crc_t cur = 0;
+-	for (int i = 0; i &lt; size; ++i) {
+-		cur += data[i];
+-	}
+-
+-	delete[] data;
+-	return cur;
+-}
+-
+-
+-void CSyncer::LoadUnits(bool checksum)
+-{
+-	unitsLeft = 0;
+-
+ 	LuaParser luaParser(&quot;gamedata/defs.lua&quot;,
+ 	                    SPRING_VFS_MOD_BASE, SPRING_VFS_ZIP);
+ 	if (!luaParser.Execute()) {
+-		logOutput.Print(&quot;luaParser.Execute() failed&quot;);
+-		return;
++		throw content_error(&quot;luaParser.Execute() failed: &quot; + luaParser.GetErrorLog());
+ 	}
+ 
+ 	LuaTable rootTable = luaParser.GetRoot().SubTable(&quot;UnitDefs&quot;);
+ 	if (!rootTable.IsValid()) {
+-		logOutput.Print(&quot;root unitdef table invalid&quot;);
+-		return;
++		throw content_error(&quot;root unitdef table invalid&quot;);
+ 	}
+ 
+ 	vector&lt;string&gt; unitDefNames;
+@@ -75,18 +47,6 @@
+ 
+ 		u.fullName = udTable.GetString(&quot;name&quot;, udName);
+ 
+-		if (checksum) {
+-			const string fileName  = udTable.GetString(&quot;filename&quot;, &quot;&quot;);
+-			const string deadName  = udTable.GetString(&quot;corpse&quot;, udName + &quot;_dead&quot;);
+-			const string modelName = udTable.GetString(&quot;objectname&quot;, udName);
+-
+-			u.fbi    = CalculateCRC(fileName);
+-			u.cob    = CalculateCRC(&quot;scripts/&quot; + udName + &quot;.cob&quot;);
+-			u.model  = CalculateCRC(&quot;objects3d/&quot; + modelName); // s3o ?
+-			u.model += CalculateCRC(&quot;objects3d/&quot; + modelName + &quot;.3do&quot;);
+-			u.model += CalculateCRC(&quot;objects3d/&quot; +  deadName + &quot;.3do&quot;);
+-		}
+-
+ 		units[udName] = u;
+ 	}
+ 
+@@ -95,94 +55,17 @@
+ 	for (mit = units.begin(); mit != units.end(); ++mit) {
+ 		unitIds.push_back(mit-&gt;first);
+ 	}
+-
+-	unitsLeft = count;
+-
+-	return;
+ }
+ 
+ 
+-int CSyncer::ProcessUnits(bool checksum)
++int CSyncer::ProcessUnits()
+ {
+-	if (unitsLeft &lt; 0) {
+-		LoadUnits(checksum);
+-	}
++	LoadUnits();
+ 
+-	if (unitsLeft &lt;= 0) {
+-		return 0;
+-	}
+-
+-	unitsLeft--;
+-
+-	return unitsLeft;
++	return 0;
+ }
+ 
+ 
+-string CSyncer::GetCurrentList()
+-{
+-	ostringstream s(&quot;&quot;);
+-
+-	for (map&lt;string,Unit&gt;::iterator i = units.begin(); i != units.end(); ++i) {
+-		s &lt;&lt; i-&gt;first &lt;&lt; &quot; &quot;;
+-		s &lt;&lt; i-&gt;second.fbi &lt;&lt; &quot; &quot;;
+-		s &lt;&lt; i-&gt;second.cob &lt;&lt; &quot; &quot;;
+-		s &lt;&lt; i-&gt;second.model &lt;&lt; &quot; &quot;;
+-	}
+-
+-	return s.str();
+-}
+-
+-
+-void CSyncer::InstallClientDiff(const string&amp; diff)
+-{
+-	istringstream i(diff);
+-
+-	int client;
+-	string name;
+-	bool wasRemove;
+-	int count;
+-
+-	while (i &gt;&gt; client) {
+-		i &gt;&gt; wasRemove;
+-
+-		//Handle remove if so
+-		if (wasRemove) {
+-			RemoveClient(client);
+-			return;
+-		}
+-
+-		// Alas, it was not..
+-		i &gt;&gt; count;
+-		for (int a = 0; a &lt; count; ++a) {
+-			i &gt;&gt; name;
+-			map&lt;string, DisabledUnit&gt;::iterator found = disabledUnits.find(name);
+-			if (found != disabledUnits.end()) {
+-				disabledUnits[name].clients.insert(client);
+-			}
+-			else {
+-				DisabledUnit mu;
+-				mu.clients.insert(client);
+-				disabledUnits[name] = mu;
+-			}
+-		}
+-	}
+-}
+-
+-
+-void CSyncer::RemoveClient(int id)
+-{
+-	for (map&lt;string, DisabledUnit&gt;::iterator i = disabledUnits.begin(); i != disabledUnits.end(); ++i) {
+-		set&lt;int&gt;::iterator clientId = i-&gt;second.clients.find(id);
+-		if (clientId != i-&gt;second.clients.end()) {
+-			i-&gt;second.clients.erase(clientId);
+-
+-			//could delete the unit from the map if the list is empty now
+-			//the speed increase should be insignificant though I guess
+-		}
+-	}
+-}
+-
+-
+ int CSyncer::GetUnitCount()
+ {
+ 	return units.size();
+@@ -201,28 +84,3 @@
+ 	const string&amp; unitName = unitIds[unit];
+ 	return units[unitName].fullName;
+ }
+-
+-
+-bool CSyncer::IsUnitDisabled(int unit)
+-{
+-	string unitName = unitIds[unit];
+-	map&lt;string, DisabledUnit&gt;::iterator found = disabledUnits.find(unitName);
+-	if (found != disabledUnits.end())
+-		return found-&gt;second.clients.size() &gt; 0;
+-	else
+-		return false;
+-}
+-
+-
+-bool CSyncer::IsUnitDisabledByClient(int unit, int clientId)
+-{
+-	string unitName = unitIds[unit];
+-
+-	map&lt;string, DisabledUnit&gt;::iterator found = disabledUnits.find(unitName);
+-	if (found == disabledUnits.end())
+-		return false;
+-
+-	set&lt;int&gt; &amp;clients = found-&gt;second.clients;
+-	set&lt;int&gt;::iterator foundId = clients.find(clientId);
+-	return foundId != clients.end();
+-}
+
+Modified: trunk/tools/unitsync/Syncer.h
+===================================================================
+--- trunk/tools/unitsync/Syncer.h	2008-10-25 13:26:35 UTC (rev 6881)
++++ trunk/tools/unitsync/Syncer.h	2008-10-25 13:34:13 UTC (rev 6882)
+@@ -6,51 +6,28 @@
+ #include &lt;set&gt;
+ #include &lt;string&gt;
+ 
+-typedef unsigned int crc_t;
+-
+-
+-struct Unit
+-{
+-	crc_t fbi;
+-	crc_t cob;
+-	crc_t model;
+-
+-	std::string fullName;
+-};
+-
+-
+-struct DisabledUnit {
+-    std::set&lt;int&gt; clients;
+-};
+-
+-
+ class CSyncer
+ {
+ 	public:
+-		CSyncer(int id);
+-		~CSyncer(void);
+-		std::string GetCurrentList();
+-		void InstallClientDiff(const std::string&amp; diff);
+-		virtual int ProcessUnits(bool checksum = true);
+-		
++		CSyncer();
++		~CSyncer();
++		virtual int ProcessUnits();
++
+ 		int GetUnitCount();
+ 		std::string GetUnitName(int unit);
+ 		std::string GetFullUnitName(int unit);
+-		bool IsUnitDisabled(int unit);
+-		bool IsUnitDisabledByClient(int unit, int clientId);
+ 
+ 	protected:
+-		void LoadUnits(bool checksum);
+-		void RemoveClient(int id);
+-		crc_t CalculateCRC(const std::string&amp; fileName);
++		void LoadUnits();
+ 
+ 	protected:
+-		int localId;
+-		int unitsLeft; // decrements for each ProcessUnits() call,
+-		               // causes LoadUnits() to be called when set to -1
++		struct Unit
++		{
++			std::string fullName;
++		};
++
+ 		std::vector&lt;std::string&gt; unitIds;
+ 		std::map&lt;std::string, Unit&gt; units;
+-		std::map&lt;std::string, DisabledUnit&gt; disabledUnits;
+ };
+ 
+ #endif
+
+Modified: trunk/tools/unitsync/unitsync.cpp
+===================================================================
+--- trunk/tools/unitsync/unitsync.cpp	2008-10-25 13:26:35 UTC (rev 6881)
++++ trunk/tools/unitsync/unitsync.cpp	2008-10-25 13:34:13 UTC (rev 6882)
+@@ -1,14 +1,12 @@
+ #include &quot;StdAfx.h&quot;
+ #include &quot;unitsync.h&quot;
+ 
++#include &lt;algorithm&gt;
+ #include &lt;string&gt;
+-#include &lt;string.h&gt;
+ #include &lt;vector&gt;
+ #include &lt;set&gt;
+-#include &lt;algorithm&gt;
+-#include &lt;cstdio&gt;
+-#include &lt;cstdarg&gt;
+ 
++// shared with spring:
+ #include &quot;LuaInclude.h&quot;
+ #include &quot;FileSystem/ArchiveFactory.h&quot;
+ #include &quot;FileSystem/ArchiveScanner.h&quot;
+@@ -22,98 +20,119 @@
+ #include &quot;Platform/FileSystem.h&quot;
+ #include &quot;Rendering/Textures/Bitmap.h&quot;
+ #include &quot;Sim/SideParser.h&quot;
++#include &quot;System/Exceptions.h&quot;
++#include &quot;System/LogOutput.h&quot;
+ #include &quot;System/Util.h&quot;
+-#include &quot;System/Exceptions.h&quot;
+ 
++// unitsync only:
+ #include &quot;LuaParserAPI.h&quot;
+ #include &quot;Syncer.h&quot;
+-#include &quot;SyncServer.h&quot;
+-#include &quot;unitsyncLogOutput.h&quot;
+ 
+-
+ using std::string;
+ 
++//////////////////////////
++//////////////////////////
+ 
+-#define ASSERT(condition, message) \
+-	do { \
+-		if (!(condition)) { \
+-			char buf[256]; \
+-			sprintf(buf, &quot;%s:%d: %s: %s&quot;, __FILE__, __LINE__, __FUNCTION__, message); \
+-			MessageBox(0, buf, &quot;Unitsync assertion failed&quot;, MB_OK); \
+-		} \
+-		assert(condition); /* just crash after the error in release mode */ \
+-	} while(0)
++static CLogSubsystem LOG_UNITSYNC(&quot;unitsync&quot;, true);
+ 
+-#define CHECK_INIT() \
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init first.&quot;)
+-
+-#define CHECK_NULL(condition) \
+-	ASSERT((condition) != NULL, #condition &quot; may not be null.&quot;)
+-
+-#define CHECK_NULL_OR_EMPTY(condition) \
+-	ASSERT((condition) != NULL &amp;&amp; *(condition) != 0, #condition &quot; may not be null or empty.&quot;)
+-
+ //This means that the DLL can only support one instance. Don't think this should be a problem.
+-static CSyncer *syncer = NULL;
++static CSyncer* syncer;
+ 
+ // I'd rather not include globalstuff
+ #define SQUARE_SIZE 8
+ 
+-// And the following makes the hpihandler happy
+-CLogOutput logOutput;
+ 
+-CLogOutput::CLogOutput()
++#ifdef WIN32
++BOOL __stdcall DllMain(HINSTANCE hInst, DWORD dwReason, LPVOID lpReserved)
+ {
+-	file = fopen(&quot;unitsync.log&quot;, &quot;at&quot;);
+-	ASSERT(file != NULL, &quot;couldn't open logfile\n&quot;);
+-	setbuf(file, NULL);
++	return TRUE;
+ }
++#endif
+ 
+-CLogOutput::~CLogOutput()
++
++namespace
+ {
+-	fclose(file);
++	struct COneTimeInit
++	{
++		COneTimeInit() { logOutput.SetFilename(&quot;unitsync.log&quot;); }
++	};
+ }
++static COneTimeInit global_initializer;
+ 
+-void CLogOutput::Print (const string&amp; text)
++//////////////////////////
++//////////////////////////
++
++// function argument checking
++
++static void CheckInit()
+ {
+-	if (*text.rbegin() != '\n')
+-		fprintf(file, &quot;%s\n&quot;, text.c_str());
+-	else
+-		fprintf(file, &quot;%s&quot;, text.c_str());
+-	fflush(file);
++	if (!archiveScanner || !vfsHandler)
++		throw std::logic_error(&quot;Unitsync not initialized. Call Init first.&quot;);
+ }
+ 
+-void CLogOutput::Print(const char* fmt, ...)
++static void _CheckNull(void* condition, const char* name)
+ {
+-	va_list ap;
+-	va_start(ap, fmt);
+-	vfprintf(file, fmt, ap);
+-	va_end(ap);
+-	if (fmt[strlen(fmt)-1] != '\n') {
+-		fputc('\n', file);
+-	}
++	if (!condition)
++		throw std::invalid_argument(&quot;Argument &quot; + string(name) + &quot; may not be null.&quot;);
+ }
+ 
+-void ErrorMessageBox(const char *msg, const char *capt, unsigned int) {
+-	MessageBox(0,msg,capt,MB_OK);
++static void _CheckNullOrEmpty(const char* condition, const char* name)
++{
++	if (!condition || *condition == 0)
++		throw std::invalid_argument(&quot;Argument &quot; + string(name) + &quot; may not be null or empty.&quot;);
+ }
+ 
++static void _CheckBounds(int index, int size, const char* name)
++{
++	if (index &lt; 0 || index &gt;= size)
++		throw std::out_of_range(&quot;Argument &quot; + string(name) + &quot; out of bounds. Index: &quot; +
++		                         IntToString(index) + &quot; Array size: &quot; + IntToString(size));
++}
+ 
+-#ifdef WIN32
+-BOOL __stdcall DllMain(HINSTANCE hInst,
+-                       DWORD dwReason,
+-                       LPVOID lpReserved) {
+-	logOutput.Print(&quot;----\nunitsync loaded\n&quot;);
+-	return TRUE;
++static void _CheckPositive(int value, const char* name)
++{
++	if (value &lt;= 0)
++		throw std::out_of_range(&quot;Argument &quot; + string(name) + &quot; must be positive.&quot;);
+ }
+-#endif
+ 
++#define CheckNull(arg)         _CheckNull((arg), #arg)
++#define CheckNullOrEmpty(arg)  _CheckNullOrEmpty((arg), #arg)
++#define CheckBounds(arg, size) _CheckBounds((arg), (size), #arg)
++#define CheckPositive(arg)     _CheckPositive((arg), #arg);
+ 
++//////////////////////////
++//////////////////////////
++
++// error handling
++
++static string lastError;
++
++static void _SetLastError(string err)
++{
++	logOutput.Print(LOG_UNITSYNC, &quot;error: &quot; + err);
++	lastError = err;
++}
++
++#define SetLastError(str) \
++	_SetLastError(string(__FUNCTION__) + &quot;: &quot; + (str))
++
++#define UNITSYNC_CATCH_BLOCKS \
++	catch (const std::exception&amp; e) { \
++		SetLastError(e.what()); \
++	} \
++	catch (...) { \
++		SetLastError(&quot;an unknown exception was thrown&quot;); \
++	}
++
++//////////////////////////
++//////////////////////////
++
+ // Helper class for loading a map archive temporarily
+ 
+ class ScopedMapLoader {
+ 	public:
+-		ScopedMapLoader(const string&amp; mapName) : oldHandler(vfsHandler) {
++		ScopedMapLoader(const string&amp; mapName) : oldHandler(vfsHandler)
++		{
+ 			CFileHandler f(&quot;maps/&quot; + mapName);
+ 			if (f.FileExists()) {
+ 				return;
+@@ -128,7 +147,8 @@
+ 			}
+ 		}
+ 
+-		~ScopedMapLoader() {
++		~ScopedMapLoader()
++		{
+ 			if (vfsHandler != oldHandler) {
+ 				delete vfsHandler;
+ 				vfsHandler = oldHandler;
+@@ -139,8 +159,45 @@
+ 		CVFSHandler* oldHandler;
+ };
+ 
++//////////////////////////
++//////////////////////////
+ 
+ /**
++ * @brief returns next error in queue of errors and removes this error from queue
++ *
++ * Use this method to get a (short) description of errors that occurred in any
++ * other unitsync methods. Call this in a loop until it returns NULL to get all
++ * errors.
++ *
++ * The error messages may be varying in detail etc.; nothing is guaranteed about
++ * them, not even whether they have terminating newline or not.
++ *
++ * Example:
++ *		const char* err;
++ *		while ((err = GetNextError()) != NULL)
++ *			printf(&quot;unitsync error: %s\n&quot;, err);
++ */
++DLL_EXPORT const char* __stdcall GetNextError()
++{
++	try {
++		// queue is only 1 element long now for simplicity :-)
++
++		if (lastError.empty()) return NULL;
++
++		string err = lastError;
++		lastError.clear();
++		return GetStr(err);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++
++	// Oops, can't even return errors anymore...
++	// Returning anything but NULL might cause infinite loop in lobby client...
++	//return __FUNCTION__ &quot;: fatal error: an exception was thrown in GetNextError&quot;;
++	return NULL;
++}
++
++
++/**
+  * @brief returns the version fo spring this was compiled with
+  *
+  * Returns a const char* string specifying the version of spring used to build this library with.
+@@ -151,6 +208,7 @@
+ 	return VERSION_STRING;
+ }
+ 
++
+ /**
+  * @brief Creates a messagebox with said message
+  * @param p_szMessage const char* string holding the message
+@@ -159,10 +217,20 @@
+  */
+ DLL_EXPORT void __stdcall Message(const char* p_szMessage)
+ {
+-	MessageBox(NULL, p_szMessage, &quot;Message from DLL&quot;, MB_OK);
++	try {
++		logOutput.Print(LOG_UNITSYNC, &quot;Message from DLL: %s\n&quot;, p_szMessage);
++#ifdef WIN32
++		MessageBox(NULL, p_szMessage, &quot;Message from DLL&quot;, MB_OK);
++#else
++		// this may cause message to be printed on console twice, if StdoutDebug is on
++		fprintf(stderr, &quot;unitsync: Message from DLL: %s\n&quot;, p_szMessage);
++#endif
++	}
++	UNITSYNC_CATCH_BLOCKS;
+ }
+ 
+-DLL_EXPORT void __stdcall UnInit()
++
++static void _UnInit()
+ {
+ 	lpClose();
+ 
+@@ -170,260 +238,303 @@
+ 
+ 	if ( syncer )
+ 	{
+-		delete syncer;
+-		syncer = 0;
+-		logOutput.Print(&quot;unitsync deinitialized\n----\n&quot;);
++		SafeDelete(syncer);
++		logOutput.Print(LOG_UNITSYNC, &quot;deinitialized&quot;);
+ 	}
+ 
+ 	ConfigHandler::Deallocate();
+ }
+ 
+-DLL_EXPORT int __stdcall Init(bool isServer, int id)
++
++/**
++ * @brief uninitialize the unitsync library
++ */
++DLL_EXPORT void __stdcall UnInit()
+ {
+-	UnInit();
+-	logOutput.Print(&quot;unitsync initialized\n&quot;);
+-
+ 	try {
+-		// first call to GetInstance() initializes the VFS
+-		FileSystemHandler::Initialize(false);
+-
+-		if (isServer) {
+-			logOutput.Print(&quot;unitsync: hosting\n&quot;);
+-			syncer = new CSyncServer(id);
+-		}
+-		else {
+-			logOutput.Print(&quot;unitsync: joining\n&quot;);
+-			syncer = new CSyncer(id);
+-		}
++		_UnInit();
+ 	}
+-	catch (const std::exception&amp; e) {
+-		Message(e.what());
+-		return 0;
+-	}
+-
+-	return 1;
++	UNITSYNC_CATCH_BLOCKS;
+ }
+ 
++
+ /**
+- * @brief process another unit and return how many are left to process
+- * @return int The number of unprocessed units to be handled
++ * @brief initialize the unitsync library
+  *
+- * Call this function repeatedly untill it returns 0 before calling any other function related to units.
++ * Call this function before calling any other function in unitsync.
++ * In case unitsync was already initialized, it is uninitialized and then
++ * reinitialized.
++ *
++ * @return zero on failure, non-zero on success
+  */
+-DLL_EXPORT int __stdcall ProcessUnits(void)
++DLL_EXPORT int __stdcall Init(bool isServer, int id)
+ {
+-	logOutput.Print(&quot;syncer: process units\n&quot;);
+-	return syncer-&gt;ProcessUnits();
++	try {
++		_UnInit();
++
++		FileSystemHandler::Initialize(false);
++
++		std::vector&lt;string&gt; filesToCheck;
++		filesToCheck.push_back(&quot;base/springcontent.sdz&quot;);
++		filesToCheck.push_back(&quot;base/maphelper.sdz&quot;);
++		filesToCheck.push_back(&quot;base/spring/bitmaps.sdz&quot;);
++		filesToCheck.push_back(&quot;base/cursors.sdz&quot;);
++
++		for (std::vector&lt;string&gt;::const_iterator it = filesToCheck.begin(); it != filesToCheck.end(); ++it) {
++			CFileHandler f(*it, SPRING_VFS_RAW);
++			if (!f.FileExists()) {
++				throw content_error(&quot;Required base file '&quot; + *it + &quot;' does not exist.&quot;);
++			}
++		}
++
++		syncer = new CSyncer();
++		logOutput.Print(LOG_UNITSYNC, &quot;initialized\n&quot;);
++		logOutput.Print(LOG_UNITSYNC, &quot;%s\n&quot;, isServer ? &quot;hosting&quot; : &quot;joining&quot;);
++		return 1;
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
++
+ /**
+- * @brief process another unit and return how many are left to process without checksumming
++ * @brief process another unit and return how many are left to process
+  * @return int The number of unprocessed units to be handled
+  *
+- * Call this function repeatedly untill it returns 0 before calling any other function related to units.
+- * This function performs the same operations as ProcessUnits() but it does not generate checksums.
++ * Call this function repeatedly until it returns 0 before calling any other function related to units.
++ *
++ * Because of risk for infinite loops, this function can not return any error code.
++ * It is advised to poll GetNextError() after calling this function.
+  */
+-DLL_EXPORT int __stdcall ProcessUnitsNoChecksum(void)
++DLL_EXPORT int __stdcall ProcessUnits()
+ {
+-	logOutput.Print(&quot;syncer: process units\n&quot;);
+-	return syncer-&gt;ProcessUnits(false);
+-}
+-
+-DLL_EXPORT const char * __stdcall GetCurrentList()
+-{
+-	logOutput.Print(&quot;syncer: get current list\n&quot;);
+-	string tmp = syncer-&gt;GetCurrentList();
+-/*	int tmpLen = (int)tmp.length();
+-
+-	if (tmpLen &gt; *bufLen) {
+-		*bufLen = tmpLen;
+-		return -1;
++	try {
++		logOutput.Print(LOG_UNITSYNC, &quot;syncer: process units\n&quot;);
++		return syncer-&gt;ProcessUnits();
+ 	}
+-
+-	strcpy(buffer, tmp.c_str());
+-	buffer[tmpLen] = 0;
+-	*bufLen = tmpLen;
+-
+-	return tmpLen; */
+-
+-	return GetStr(tmp);
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+-DLL_EXPORT void __stdcall AddClient(int id, const char *unitList)
+-{
+-	logOutput.Print(&quot;syncer: add client\n&quot;);
+-	((CSyncServer *)syncer)-&gt;AddClient(id, unitList);
+-}
+ 
+-DLL_EXPORT void __stdcall RemoveClient(int id)
++/**
++ * @brief identical to ProcessUnits, neither generates checksum anymore
++ */
++DLL_EXPORT int __stdcall ProcessUnitsNoChecksum()
+ {
+-	logOutput.Print(&quot;syncer: remove client\n&quot;);
+-	((CSyncServer *)syncer)-&gt;RemoveClient(id);
++	return ProcessUnits();
+ }
+ 
+-DLL_EXPORT const char * __stdcall GetClientDiff(int id)
+-{
+-	logOutput.Print(&quot;syncer: get client diff\n&quot;);
+-	string tmp = ((CSyncServer *)syncer)-&gt;GetClientDiff(id);
+-	return GetStr(tmp);
+-}
+ 
+-DLL_EXPORT void __stdcall InstallClientDiff(const char *diff)
+-{
+-	logOutput.Print(&quot;syncer: install client diff\n&quot;);
+-	syncer-&gt;InstallClientDiff(diff);
+-}
+-
+ /**
+  * @brief returns the number of units
+- * @return int number of units processed and available
++ * @return int number of units processed and available, 0 on error
+  *
+- * Will return the number of units. Remember to call processUnits() beforehand untill it returns 0
++ * Will return the number of units. Remember to call processUnits() beforehand until it returns 0.
+  * As ProcessUnits is called the number of processed units goes up, and so will the value returned
+  * by this function.
+  *
+- * while(processUnits()){}
+- * int unit_number = GetUnitCount();
++ * Example:
++ *		while (ProcessUnits()) {}
++ *		int unit_number = GetUnitCount();
+  */
+ DLL_EXPORT int __stdcall GetUnitCount()
+ {
+-	logOutput.Print(&quot;syncer: get unit count\n&quot;);
+-	return syncer-&gt;GetUnitCount();
++	try {
++		logOutput.Print(LOG_UNITSYNC, &quot;syncer: get unit count\n&quot;);
++		return syncer-&gt;GetUnitCount();
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
++
+ /**
+  * @brief returns the units internal mod name
+  * @param int the units id number
+- * @return const char* The units internal modname
++ * @return const char* The units internal modname or NULL on error.
+  *
+  * This function returns the units internal mod name. For example it would return armck and not
+  * Arm Construction kbot.
+  */
+ DLL_EXPORT const char * __stdcall GetUnitName(int unit)
+ {
+-	logOutput.Print(&quot;syncer: get unit %d name\n&quot;, unit);
+-	string tmp = syncer-&gt;GetUnitName(unit);
+-	return GetStr(tmp);
++	try {
++		logOutput.Print(LOG_UNITSYNC, &quot;syncer: get unit %d name\n&quot;, unit);
++		string tmp = syncer-&gt;GetUnitName(unit);
++		return GetStr(tmp);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
++
+ /**
+  * @brief returns The units human readable name
+  * @param int The units id number
+- * @return const char* The Units human readable name
++ * @return const char* The Units human readable name or NULL on error.
+  *
+  * This function returns the units human name. For example it would return Arm Construction kbot
+  * and not armck.
+  */
+ DLL_EXPORT const char * __stdcall GetFullUnitName(int unit)
+ {
+-	logOutput.Print(&quot;syncer: get full unit %d name\n&quot;, unit);
+-	string tmp = syncer-&gt;GetFullUnitName(unit);
+-	return GetStr(tmp);
++	try {
++		logOutput.Print(LOG_UNITSYNC, &quot;syncer: get full unit %d name\n&quot;, unit);
++		string tmp = syncer-&gt;GetFullUnitName(unit);
++		return GetStr(tmp);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+-DLL_EXPORT int __stdcall IsUnitDisabled(int unit)
+-{
+-	logOutput.Print(&quot;syncer: is unit %d disabled\n&quot;, unit);
+-	if (syncer-&gt;IsUnitDisabled(unit))
+-		return 1;
+-	else
+-		return 0;
+-}
+-
+-DLL_EXPORT int __stdcall IsUnitDisabledByClient(int unit, int clientId)
+-{
+-	logOutput.Print(&quot;syncer: is unit %d disabled by client %d\n&quot;, unit, clientId);
+-	if (syncer-&gt;IsUnitDisabledByClient(unit, clientId))
+-		return 1;
+-	else
+-		return 0;
+-}
+-
+ //////////////////////////
+ //////////////////////////
+ 
++/**
++ * @brief adds an archive to the VFS (Virtual File System)
++ *
++ * After this, the contents of the archive are available to other unitsync functions,
++ * for example: OpenFileVFS, ReadFileVFS, FileSizeVFS, etc.
++ */
+ DLL_EXPORT void __stdcall AddArchive(const char* name)
+ {
+-	CHECK_INIT();
+-	CHECK_NULL_OR_EMPTY(name);
++	try {
++		CheckInit();
++		CheckNullOrEmpty(name);
+ 
+-	vfsHandler-&gt;AddArchive(name, false);
++		logOutput.Print(LOG_UNITSYNC, &quot;adding archive: %s\n&quot;, name);
++		vfsHandler-&gt;AddArchive(name, false);
++	}
++	UNITSYNC_CATCH_BLOCKS;
+ }
+ 
++
++/**
++ * @brief adds an achive and all it's dependencies to the VFS
++ *
++ * After this, the contents of the archive are available to other unitsync functions,
++ * for example: OpenFileVFS, ReadFileVFS, FileSizeVFS, etc.
++ */
+ DLL_EXPORT void __stdcall AddAllArchives(const char* root)
+ {
+-	CHECK_INIT();
+-	CHECK_NULL_OR_EMPTY(root);
++	try {
++		CheckInit();
++		CheckNullOrEmpty(root);
+ 
+-	vector&lt;string&gt; ars = archiveScanner-&gt;GetArchives(root);
+-//	Message(root);
+-	for (vector&lt;string&gt;::iterator i = ars.begin(); i != ars.end(); ++i) {
+-		logOutput.Print(&quot;adding archive: %s\n&quot;, i-&gt;c_str());
+-		vfsHandler-&gt;AddArchive(*i, false);
++		vector&lt;string&gt; ars = archiveScanner-&gt;GetArchives(root);
++		for (vector&lt;string&gt;::iterator i = ars.begin(); i != ars.end(); ++i) {
++			logOutput.Print(LOG_UNITSYNC, &quot;adding archive: %s\n&quot;, i-&gt;c_str());
++			vfsHandler-&gt;AddArchive(*i, false);
++		}
+ 	}
++	UNITSYNC_CATCH_BLOCKS;
+ }
+ 
++
++/**
++ * @brief gets checksum of an archive
++ *
++ * This checksum depends only on the contents from the archive itself, and not
++ * on the contents from dependencies of this archive (if any).
++ */
+ DLL_EXPORT unsigned int __stdcall GetArchiveChecksum(const char* arname)
+ {
+-	CHECK_INIT();
+-	CHECK_NULL_OR_EMPTY(arname);
++	try {
++		CheckInit();
++		CheckNullOrEmpty(arname);
+ 
+-	logOutput.Print(&quot;archive checksum: %s\n&quot;, arname);
+-	return archiveScanner-&gt;GetArchiveChecksum(arname);
++		logOutput.Print(LOG_UNITSYNC, &quot;archive checksum: %s\n&quot;, arname);
++		return archiveScanner-&gt;GetArchiveChecksum(arname);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
++
++/**
++ * @brief gets the real path to the archive
++ */
+ DLL_EXPORT const char* __stdcall GetArchivePath(const char* arname)
+ {
+-	CHECK_INIT();
+-	CHECK_NULL_OR_EMPTY(arname);
++	try {
++		CheckInit();
++		CheckNullOrEmpty(arname);
+ 
+-	logOutput.Print(&quot;archive path: %s\n&quot;, arname);
+-	return GetStr(archiveScanner-&gt;GetArchivePath(arname));
++		logOutput.Print(LOG_UNITSYNC, &quot;archive path: %s\n&quot;, arname);
++		return GetStr(archiveScanner-&gt;GetArchivePath(arname));
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
++
+ // Updated on every call to getmapcount
+ static vector&lt;string&gt; mapNames;
+ 
++
++/**
++ * @brief gets the number of maps available
++ *
++ * Call this before any of the map functions which take a map index as parameter.
++ */
+ DLL_EXPORT int __stdcall GetMapCount()
+ {
+-	CHECK_INIT();
++	try {
++		CheckInit();
+ 
+-	//vector&lt;string&gt; files = CFileHandler::FindFiles(&quot;{maps/*.smf,maps/*.sm3}&quot;);
+-	vector&lt;string&gt; files = CFileHandler::FindFiles(&quot;maps/&quot;, &quot;{*.smf,*.sm3}&quot;);
+-	vector&lt;string&gt; ars = archiveScanner-&gt;GetMaps();
+-/*	vector&lt;string&gt; files2 = CFileHandler::FindFiles(&quot;maps/*.sm3&quot;);
+-	unsigned int nfiles=files.size();
+-	files.resize(files.size()+files2.size());
+-	copy(files2.begin(),files2.end(),files.begin()+nfiles);
+-*/
+-	mapNames.clear();
+-	for (vector&lt;string&gt;::iterator i = files.begin(); i != files.end(); ++i) {
+-		string mn = *i;
+-		mn = mn.substr(mn.find_last_of('/') + 1);
+-		mapNames.push_back(mn);
++		//vector&lt;string&gt; files = CFileHandler::FindFiles(&quot;{maps/*.smf,maps/*.sm3}&quot;);
++		vector&lt;string&gt; files = CFileHandler::FindFiles(&quot;maps/&quot;, &quot;{*.smf,*.sm3}&quot;);
++		vector&lt;string&gt; ars = archiveScanner-&gt;GetMaps();
++
++		mapNames.clear();
++		for (vector&lt;string&gt;::iterator i = files.begin(); i != files.end(); ++i) {
++			string mn = *i;
++			mn = mn.substr(mn.find_last_of('/') + 1);
++			mapNames.push_back(mn);
++		}
++		for (vector&lt;string&gt;::iterator i = ars.begin(); i != ars.end(); ++i)
++			mapNames.push_back(*i);
++		sort(mapNames.begin(), mapNames.end());
++
++		return mapNames.size();
+ 	}
+-	for (vector&lt;string&gt;::iterator i = ars.begin(); i != ars.end(); ++i)
+-		mapNames.push_back(*i);
+-	sort(mapNames.begin(), mapNames.end());
+-
+-	return mapNames.size();
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
++
++/**
++ * @brief get the name of a map, e.g. &quot;SmallDivide.smf&quot;
++ */
+ DLL_EXPORT const char* __stdcall GetMapName(int index)
+ {
+-	CHECK_INIT();
+-	ASSERT((unsigned)index &lt; mapNames.size(), &quot;Array index out of bounds. Call GetMapCount before GetMapName.&quot;);
++	try {
++		CheckInit();
++		CheckBounds(index, mapNames.size());
+ 
+-	return GetStr(mapNames[index]);
++		return GetStr(mapNames[index]);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+-DLL_EXPORT int __stdcall GetMapInfoEx(const char* name, MapInfo* outInfo, int version)
++static void safe_strzcpy(char* dst, std::string src, size_t max)
+ {
+-	CHECK_INIT();
+-	CHECK_NULL_OR_EMPTY(name);
+-	CHECK_NULL(outInfo);
++	if (src.length() &gt; max-1) {
++		src = src.substr(0, max-1);
++	}
++	strcpy(dst, src.c_str());
++}
+ 
++
++static int _GetMapInfoEx(const char* name, MapInfo* outInfo, int version)
++{
++	CheckInit();
++	CheckNullOrEmpty(name);
++	CheckNull(outInfo);
++
+ 	const string mapName = name;
+ 	ScopedMapLoader mapLoader(mapName);
+ 
+@@ -468,11 +579,9 @@
+ 	}
+ 
+ 	// If the map didn't parse, say so now
+-	if (err.length() &gt; 0) {
+-		if (err.length() &gt; 254) {
+-			err = err.substr(0, 254);
+-		}
+-		strcpy(outInfo-&gt;description, err.c_str());
++	if (!err.empty()) {
++		lastError = err;
++		safe_strzcpy(outInfo-&gt;description, err, 255);
+ 
+ 		// Fill in stuff so tasclient won't crash
+ 		outInfo-&gt;posCount = 0;
+@@ -483,7 +592,7 @@
+ 	}
+ 
+ 	const string desc = mapTable.GetString(&quot;description&quot;, &quot;&quot;);
+-	strncpy(outInfo-&gt;description, desc.c_str(), 254);
++	safe_strzcpy(outInfo-&gt;description, desc, 255);
+ 
+ 	outInfo-&gt;tidalStrength   = mapTable.GetInt(&quot;tidalstrength&quot;, 0);
+ 	outInfo-&gt;gravity         = mapTable.GetInt(&quot;gravity&quot;, 0);
+@@ -492,7 +601,7 @@
+ 
+ 	if (version &gt;= 1) {
+ 		const string author = mapTable.GetString(&quot;author&quot;, &quot;&quot;);
+-		strncpy(outInfo-&gt;author, author.c_str(), 200);
++		safe_strzcpy(outInfo-&gt;author, author, 200);
+ 	}
+ 
+ 	const LuaTable atmoTable = mapTable.SubTable(&quot;atmosphere&quot;);
+@@ -516,47 +625,89 @@
+ }
+ 
+ 
++/**
++ * @brief get map info
++ * @param name name of the map, e.g. &quot;SmallDivide.smf&quot;
++ * @param outInfo pointer to structure which is filled with map info
++ * @param version this determines which fields of the MapInfo structure are filled
++ * @return zero on failure, non-zero on success
++ *
++ * If version &gt;= 1, then the author field is filled.
++ */
++DLL_EXPORT int __stdcall GetMapInfoEx(const char* name, MapInfo* outInfo, int version)
++{
++	try {
++		return _GetMapInfoEx(name, outInfo, version);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
++}
++
++
++/**
++ * @brief get map info, equivalent to GetMapInfoEx(name, outInfo, 0)
++ * @param name name of the map, e.g. &quot;SmallDivide.smf&quot;
++ * @param outInfo pointer to structure which is filled with map info
++ * @return zero on failure, non-zero on success
++ */
+ DLL_EXPORT int __stdcall GetMapInfo(const char* name, MapInfo* outInfo)
+ {
+-	CHECK_INIT();
+-	CHECK_NULL_OR_EMPTY(name);
+-	CHECK_NULL(outInfo);
+-
+-	return GetMapInfoEx(name, outInfo, 0);
++	try {
++		return _GetMapInfoEx(name, outInfo, 0);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
++
+ static vector&lt;string&gt; mapArchives;
+ 
+ DLL_EXPORT int __stdcall GetMapArchiveCount(const char* mapName)
+ {
+-	CHECK_INIT();
+-	CHECK_NULL_OR_EMPTY(mapName);
++	try {
++		CheckInit();
++		CheckNullOrEmpty(mapName);
+ 
+-	mapArchives = archiveScanner-&gt;GetArchivesForMap(mapName);
+-	return mapArchives.size();
++		mapArchives = archiveScanner-&gt;GetArchivesForMap(mapName);
++		return mapArchives.size();
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+ DLL_EXPORT const char* __stdcall GetMapArchiveName(int index)
+ {
+-	CHECK_INIT();
+-	ASSERT((unsigned)index &lt; mapArchives.size(), &quot;Array index out of bounds. Call GetMapArchiveCount before GetMapArchiveName.&quot;);
++	try {
++		CheckInit();
++		CheckBounds(index, mapArchives.size());
+ 
+-	return GetStr(mapArchives[index]);
++		return GetStr(mapArchives[index]);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ DLL_EXPORT unsigned int __stdcall GetMapChecksum(int index)
+ {
+-	CHECK_INIT();
+-	ASSERT((unsigned)index &lt; mapNames.size(), &quot;Array index out of bounds. Call GetMapCount before GetMapChecksum.&quot;);
++	try {
++		CheckInit();
++		CheckBounds(index, mapNames.size());
+ 
+-	return archiveScanner-&gt;GetMapChecksum(mapNames[index]);
++		return archiveScanner-&gt;GetMapChecksum(mapNames[index]);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+ DLL_EXPORT unsigned int __stdcall GetMapChecksumFromName(const char* mapName)
+ {
+-	CHECK_INIT();
++	try {
++		CheckInit();
+ 
+-	return archiveScanner-&gt;GetMapChecksum(mapName);
++		return archiveScanner-&gt;GetMapChecksum(mapName);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+ #define RM	0x0000F800
+@@ -569,7 +720,7 @@
+ #define PACKRGB(r, g, b) (((r&lt;&lt;11)&amp;RM) | ((g &lt;&lt; 5)&amp;GM) | (b&amp;BM) )
+ 
+ // Used to return the image
+-char* imgbuf[1024*1024*2];
++static char* imgbuf[1024*1024*2];
+ 
+ static void* GetMinimapSM3(string mapName, int miplevel)
+ {
+@@ -615,8 +766,7 @@
+ 	int mipsize = 1024;
+ 	int offset = 0;
+ 
+-	for ( int i = 0; i &lt; miplevel; i++ )
+-	{
++	for ( int i = 0; i &lt; miplevel; i++ ) {
+ 		int size = ((mipsize+3)/4)*((mipsize+3)/4)*8;
+ 		offset += size;
+ 		mipsize &gt;&gt;= 1;
+@@ -627,77 +777,62 @@
+ 
+ 	// Read the map data
+ 	CFileHandler in(&quot;maps/&quot; + mapName);
+-	unsigned char* buffer = (unsigned char*)malloc(size);
+ 
+-	if (in.FileExists()) {
+-		SMFHeader mh;
+-		in.Read(&amp;mh, sizeof(mh));
+-		in.Seek(mh.minimapPtr + offset);
+-		in.Read(buffer, size);
++	if (!in.FileExists()) {
++		throw content_error(&quot;File '&quot; + mapName + &quot;' does not exist&quot;);
+ 	}
+-	else {
+-		free(buffer);
+-		return NULL;
+-	}
+ 
++	unsigned char* buffer = (unsigned char*)malloc(size);
++
++	SMFHeader mh;
++	in.Read(&amp;mh, sizeof(mh));
++	in.Seek(mh.minimapPtr + offset);
++	in.Read(buffer, size);
++
+ 	// Do stuff
+ 
+-	//void* ret = malloc(mipsize*mipsize*2);
+ 	void* ret = (void*)imgbuf;
+ 	unsigned short* colors = (unsigned short*)ret;
+ 
+ 	unsigned char* temp = buffer;
+ 
+-	for ( int i = 0; i &lt; numblocks; i++ )
+-	{
++	for ( int i = 0; i &lt; numblocks; i++ ) {
+ 		unsigned short color0 = (*(unsigned short*)&amp;temp[0]);
+ 		unsigned short color1 = (*(unsigned short*)&amp;temp[2]);
+ 		unsigned int bits = (*(unsigned int*)&amp;temp[4]);
+ 
+-		for ( int a = 0; a &lt; 4; a++ )
+-		{
+-			for ( int b = 0; b &lt; 4; b++ )
+-			{
++		for ( int a = 0; a &lt; 4; a++ ) {
++			for ( int b = 0; b &lt; 4; b++ ) {
+ 				int x = 4*(i % ((mipsize+3)/4))+b;
+ 				int y = 4*(i / ((mipsize+3)/4))+a;
+ 				unsigned char code = bits &amp; 0x3;
+ 				bits &gt;&gt;= 2;
+ 
+-				if ( color0 &gt; color1 )
+-				{
+-					if ( code == 0 )
+-					{
++				if ( color0 &gt; color1 ) {
++					if ( code == 0 ) {
+ 						colors[y*mipsize+x] = color0;
+ 					}
+-					else if ( code == 1 )
+-					{
++					else if ( code == 1 ) {
+ 						colors[y*mipsize+x] = color1;
+ 					}
+-					else if ( code == 2 )
+-					{
++					else if ( code == 2 ) {
+ 						colors[y*mipsize+x] = PACKRGB((2*RED_RGB565(color0)+RED_RGB565(color1))/3, (2*GREEN_RGB565(color0)+GREEN_RGB565(color1))/3, (2*BLUE_RGB565(color0)+BLUE_RGB565(color1))/3);
+ 					}
+-					else
+-					{
++					else {
+ 						colors[y*mipsize+x] = PACKRGB((2*RED_RGB565(color1)+RED_RGB565(color0))/3, (2*GREEN_RGB565(color1)+GREEN_RGB565(color0))/3, (2*BLUE_RGB565(color1)+BLUE_RGB565(color0))/3);
+ 					}
+ 				}
+-				else
+-				{
+-					if ( code == 0 )
+-					{
++				else {
++					if ( code == 0 ) {
+ 						colors[y*mipsize+x] = color0;
+ 					}
+-					else if ( code == 1 )
+-					{
++					else if ( code == 1 ) {
+ 						colors[y*mipsize+x] = color1;
+ 					}
+-					else if ( code == 2 )
+-					{
++					else if ( code == 2 ) {
+ 						colors[y*mipsize+x] = PACKRGB((RED_RGB565(color0)+RED_RGB565(color1))/2, (GREEN_RGB565(color0)+GREEN_RGB565(color1))/2, (BLUE_RGB565(color0)+BLUE_RGB565(color1))/2);
+ 					}
+-					else
+-					{
++					else {
+ 						colors[y*mipsize+x] = 0;
+ 					}
+ 				}
+@@ -723,28 +858,34 @@
+  * An example usage would be GetMinimap(&quot;SmallDivide.smf&quot;, 2).
+  * This would return a 16 bit packed RGB-565 256x256 (= 1024/2^2) bitmap.
+  *
+- * Be sure you've made a calls to Init prior to using this.
++ * Be sure you've made a call to Init prior to using this.
+  */
+ DLL_EXPORT void* __stdcall GetMinimap(const char* filename, int miplevel)
+ {
+-	CHECK_INIT();
+-	CHECK_NULL_OR_EMPTY(filename);
+-	ASSERT(miplevel &gt;= 0 &amp;&amp; miplevel &lt;= 8, &quot;Miplevel must be between 0 and 8 (inclusive) in GetMinimap.&quot;);
++	try {
++		CheckInit();
++		CheckNullOrEmpty(filename);
+ 
+-	const string mapName = filename;
+-	ScopedMapLoader mapLoader(mapName);
++		if (miplevel &lt; 0 || miplevel &gt; 8)
++			throw std::out_of_range(&quot;Miplevel must be between 0 and 8 (inclusive) in GetMinimap.&quot;);
+ 
+-	const string extension = mapName.substr(mapName.length() - 3);
++		const string mapName = filename;
++		ScopedMapLoader mapLoader(mapName);
+ 
+-	void* ret = NULL;
++		const string extension = mapName.substr(mapName.length() - 3);
+ 
+-	if (extension == &quot;smf&quot;) {
+-		ret = GetMinimapSMF(mapName, miplevel);
+-	} else if (extension == &quot;sm3&quot;) {
+-		ret = GetMinimapSM3(mapName, miplevel);
++		void* ret = NULL;
++
++		if (extension == &quot;smf&quot;) {
++			ret = GetMinimapSMF(mapName, miplevel);
++		} else if (extension == &quot;sm3&quot;) {
++			ret = GetMinimapSM3(mapName, miplevel);
++		}
++
++		return ret;
+ 	}
+-
+-	return ret;
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+@@ -759,13 +900,13 @@
+  */
+ DLL_EXPORT int __stdcall GetInfoMapSize(const char* filename, const char* name, int* width, int* height)
+ {
+-	CHECK_INIT();
+-	CHECK_NULL_OR_EMPTY(filename);
+-	CHECK_NULL_OR_EMPTY(name);
+-	CHECK_NULL(width);
+-	CHECK_NULL(height);
++	try {
++		CheckInit();
++		CheckNullOrEmpty(filename);
++		CheckNullOrEmpty(name);
++		CheckNull(width);
++		CheckNull(height);
+ 
+-	try {
+ 		ScopedMapLoader mapLoader(filename);
+ 		CSmfMapFile file(filename);
+ 		MapBitmapInfo bmInfo = file.GetInfoMapSize(name);
+@@ -775,9 +916,7 @@
+ 
+ 		return bmInfo.width &gt; 0;
+ 	}
+-	catch (content_error&amp;) {
+-	}
+-
++	UNITSYNC_CATCH_BLOCKS;
+ 	return 0;
+ }
+ 
+@@ -800,14 +939,13 @@
+  */
+ DLL_EXPORT int __stdcall GetInfoMap(const char* filename, const char* name, void* data, int typeHint)
+ {
+-	CHECK_INIT();
+-	CHECK_NULL_OR_EMPTY(filename);
+-	CHECK_NULL_OR_EMPTY(name);
+-	CHECK_NULL(data);
++	try {
++		CheckInit();
++		CheckNullOrEmpty(filename);
++		CheckNullOrEmpty(name);
++		CheckNull(data);
+ 
+-	string n = name;
+-
+-	try {
++		string n = name;
+ 		ScopedMapLoader mapLoader(filename);
+ 		CSmfMapFile file(filename);
+ 		int actualType = (n == &quot;height&quot; ? bm_grayscale_16 : bm_grayscale_8);
+@@ -837,13 +975,10 @@
+ 			return 1;
+ 		}
+ 		else if (actualType == bm_grayscale_8 &amp;&amp; typeHint == bm_grayscale_16) {
+-			// converting from 8 bits per pixel to 16 bits per pixel is unsupported
+-			return 0;
++			throw content_error(&quot;converting from 8 bits per pixel to 16 bits per pixel is unsupported&quot;);
+ 		}
+ 	}
+-	catch (content_error&amp;) {
+-	}
+-
++	UNITSYNC_CATCH_BLOCKS;
+ 	return 0;
+ }
+ 
+@@ -863,10 +998,14 @@
+  */
+ DLL_EXPORT int __stdcall GetPrimaryModCount()
+ {
+-	CHECK_INIT();
++	try {
++		CheckInit();
+ 
+-	modData = archiveScanner-&gt;GetPrimaryMods();
+-	return modData.size();
++		modData = archiveScanner-&gt;GetPrimaryMods();
++		return modData.size();
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+ 
+@@ -880,11 +1019,15 @@
+  */
+ DLL_EXPORT const char* __stdcall GetPrimaryModName(int index)
+ {
+-	CHECK_INIT();
+-	ASSERT((unsigned)index &lt; modData.size(), &quot;Array index out of bounds. Call GetPrimaryModCount before GetPrimaryModName.&quot;);
++	try {
++		CheckInit();
++		CheckBounds(index, modData.size());
+ 
+-	string x = modData[index].name;
+-	return GetStr(x);
++		string x = modData[index].name;
++		return GetStr(x);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+@@ -898,11 +1041,15 @@
+  */
+ DLL_EXPORT const char* __stdcall GetPrimaryModShortName(int index)
+ {
+-	CHECK_INIT();
+-	ASSERT((unsigned)index &lt; modData.size(), &quot;Array index out of bounds. Call GetPrimaryModCount before GetPrimaryModShortName.&quot;);
++	try {
++		CheckInit();
++		CheckBounds(index, modData.size());
+ 
+-	string x = modData[index].shortName;
+-	return GetStr(x);
++		string x = modData[index].shortName;
++		return GetStr(x);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+@@ -916,11 +1063,15 @@
+  */
+ DLL_EXPORT const char* __stdcall GetPrimaryModVersion(int index)
+ {
+-	CHECK_INIT();
+-	ASSERT((unsigned)index &lt; modData.size(), &quot;Array index out of bounds. Call GetPrimaryModCount before GetPrimaryModMutator.&quot;);
++	try {
++		CheckInit();
++		CheckBounds(index, modData.size());
+ 
+-	string x = modData[index].version;
+-	return GetStr(x);
++		string x = modData[index].version;
++		return GetStr(x);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+@@ -934,11 +1085,15 @@
+  */
+ DLL_EXPORT const char* __stdcall GetPrimaryModMutator(int index)
+ {
+-	CHECK_INIT();
+-	ASSERT((unsigned)index &lt; modData.size(), &quot;Array index out of bounds. Call GetPrimaryModCount before GetPrimaryModMutator.&quot;);
++	try {
++		CheckInit();
++		CheckBounds(index, modData.size());
+ 
+-	string x = modData[index].mutator;
+-	return GetStr(x);
++		string x = modData[index].mutator;
++		return GetStr(x);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+@@ -952,11 +1107,15 @@
+  */
+ DLL_EXPORT const char* __stdcall GetPrimaryModGame(int index)
+ {
+-	CHECK_INIT();
+-	ASSERT((unsigned)index &lt; modData.size(), &quot;Array index out of bounds. Call GetPrimaryModCount before GetPrimaryModName.&quot;);
++	try {
++		CheckInit();
++		CheckBounds(index, modData.size());
+ 
+-	string x = modData[index].game;
+-	return GetStr(x);
++		string x = modData[index].game;
++		return GetStr(x);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+@@ -970,11 +1129,15 @@
+  */
+ DLL_EXPORT const char* __stdcall GetPrimaryModShortGame(int index)
+ {
+-	CHECK_INIT();
+-	ASSERT((unsigned)index &lt; modData.size(), &quot;Array index out of bounds. Call GetPrimaryModCount before GetPrimaryModShortGame.&quot;);
++	try {
++		CheckInit();
++		CheckBounds(index, modData.size());
+ 
+-	string x = modData[index].shortGame;
+-	return GetStr(x);
++		string x = modData[index].shortGame;
++		return GetStr(x);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+@@ -988,20 +1151,28 @@
+  */
+ DLL_EXPORT const char* __stdcall GetPrimaryModDescription(int index)
+ {
+-	CHECK_INIT();
+-	ASSERT((unsigned)index &lt; modData.size(), &quot;Array index out of bounds. Call GetPrimaryModCount before GetPrimaryModDescription.&quot;);
++	try {
++		CheckInit();
++		CheckBounds(index, modData.size());
+ 
+-	string x = modData[index].description;
+-	return GetStr(x);
++		string x = modData[index].description;
++		return GetStr(x);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+ DLL_EXPORT const char* __stdcall GetPrimaryModArchive(int index)
+ {
+-	CHECK_INIT();
+-	ASSERT((unsigned)index &lt; modData.size(), &quot;Array index out of bounds. Call GetPrimaryModCount before GetPrimaryModArchive.&quot;);
++	try {
++		CheckInit();
++		CheckBounds(index, modData.size());
+ 
+-	return GetStr(modData[index].dependencies[0]);
++		return GetStr(modData[index].dependencies[0]);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+@@ -1019,11 +1190,15 @@
+  */
+ DLL_EXPORT int __stdcall GetPrimaryModArchiveCount(int index)
+ {
+-	CHECK_INIT();
+-	ASSERT((unsigned)index &lt; modData.size(), &quot;Array index out of bounds. Call GetPrimaryModCount before GetPrimaryModArchiveCount.&quot;);
++	try {
++		CheckInit();
++		CheckBounds(index, modData.size());
+ 
+-	primaryArchives = archiveScanner-&gt;GetArchives(modData[index].dependencies[0]);
+-	return primaryArchives.size();
++		primaryArchives = archiveScanner-&gt;GetArchives(modData[index].dependencies[0]);
++		return primaryArchives.size();
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+ /**
+@@ -1034,39 +1209,54 @@
+  */
+ DLL_EXPORT const char* __stdcall GetPrimaryModArchiveList(int arnr)
+ {
+-	CHECK_INIT();
+-	ASSERT((unsigned)arnr &lt; primaryArchives.size(), &quot;Array index out of bounds. Call GetPrimaryModArchiveCount before GetPrimaryModArchiveList.&quot;);
++	try {
++		CheckInit();
++		CheckBounds(arnr, primaryArchives.size());
+ 
+-	logOutput.Print(&quot;primary mod archive list: %s\n&quot;, primaryArchives[arnr].c_str());
+-	return GetStr(primaryArchives[arnr]);
++		logOutput.Print(LOG_UNITSYNC, &quot;primary mod archive list: %s\n&quot;, primaryArchives[arnr].c_str());
++		return GetStr(primaryArchives[arnr]);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ DLL_EXPORT int __stdcall GetPrimaryModIndex(const char* name)
+ {
+-	CHECK_INIT();
++	try {
++		CheckInit();
+ 
+-	string n(name);
+-	for (unsigned i = 0; i &lt; modData.size(); ++i) {
+-		if (modData[i].name == n)
+-			return i;
++		string n(name);
++		for (unsigned i = 0; i &lt; modData.size(); ++i) {
++			if (modData[i].name == n)
++				return i;
++		}
+ 	}
++	UNITSYNC_CATCH_BLOCKS;
++
+ 	// if it returns -1, make sure you call GetPrimaryModCount before GetPrimaryModIndex.
+ 	return -1;
+ }
+ 
+ DLL_EXPORT unsigned int __stdcall GetPrimaryModChecksum(int index)
+ {
+-	CHECK_INIT();
+-	ASSERT((unsigned)index &lt; modData.size(), &quot;Array index out of bounds. Call GetPrimaryModCount before GetPrimaryModChecksum.&quot;);
++	try {
++		CheckInit();
++		CheckBounds(index, modData.size());
+ 
+-	return archiveScanner-&gt;GetModChecksum(GetPrimaryModArchive(index));
++		return archiveScanner-&gt;GetModChecksum(GetPrimaryModArchive(index));
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+ DLL_EXPORT unsigned int __stdcall GetPrimaryModChecksumFromName(const char* name)
+ {
+-	CHECK_INIT();
++	try {
++		CheckInit();
+ 
+-	return archiveScanner-&gt;GetModChecksum(archiveScanner-&gt;ModNameToModArchive(name));
++		return archiveScanner-&gt;GetModChecksum(archiveScanner-&gt;ModNameToModArchive(name));
++	}
++	UNITSYNC_CATCH_BLOCKS;
+ }
+ 
+ 
+@@ -1075,28 +1265,43 @@
+ 
+ DLL_EXPORT int __stdcall GetSideCount()
+ {
+-	if (!sideParser.Load()) {
+-		logOutput.Print(&quot;failed: %s\n&quot;, sideParser.GetErrorLog().c_str());
+-		return 0;
++	try {
++		CheckInit();
++
++		if (!sideParser.Load()) {
++			throw content_error(&quot;failed: &quot; + sideParser.GetErrorLog());
++		}
++		return sideParser.GetCount();
+ 	}
+-	return sideParser.GetCount();
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+ 
+ DLL_EXPORT const char* __stdcall GetSideName(int side)
+ {
+-	ASSERT((unsigned int)side &lt; sideParser.GetCount(),
+-	       &quot;Array index out of bounds. Call GetSideCount before GetSideName.&quot;);
+-	// the full case name  (not the lowered version)
+-	return GetStr(sideParser.GetCaseName(side));
++	try {
++		CheckInit();
++		CheckBounds(side, sideParser.GetCount());
++
++		// the full case name  (not the lowered version)
++		return GetStr(sideParser.GetCaseName(side));
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+ DLL_EXPORT const char* __stdcall GetSideStartUnit(int side)
+ {
+-	ASSERT((unsigned int)side &lt; sideParser.GetCount(),
+-	       &quot;Array index out of bounds. Call GetSideCount before GetSideStartUnit.&quot;);
+-	return GetStr(sideParser.GetStartUnit(side));
++	try {
++		CheckInit();
++		CheckBounds(side, sideParser.GetCount());
++
++		return GetStr(sideParser.GetStartUnit(side));
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+@@ -1156,26 +1361,40 @@
+ 
+ DLL_EXPORT int __stdcall GetLuaAICount()
+ {
+-	GetLuaAIOptions();
+-	return luaAIOptions.size();
++	try {
++		CheckInit();
++
++		GetLuaAIOptions();
++		return luaAIOptions.size();
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+ 
+ DLL_EXPORT const char* __stdcall GetLuaAIName(int aiIndex)
+ {
+-	if ((aiIndex &lt; 0) || (aiIndex &gt;= luaAIOptions.size())) {
+-		return NULL;
++	try {
++		CheckInit();
++		CheckBounds(aiIndex, luaAIOptions.size());
++
++		return GetStr(luaAIOptions[aiIndex].name);
+ 	}
+-	return GetStr(luaAIOptions[aiIndex].name);
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+ DLL_EXPORT const char* __stdcall GetLuaAIDesc(int aiIndex)
+ {
+-	if ((aiIndex &lt; 0) || (aiIndex &gt;= luaAIOptions.size())) {
+-		return NULL;
++	try {
++		CheckInit();
++		CheckBounds(aiIndex, luaAIOptions.size());
++
++		return GetStr(luaAIOptions[aiIndex].desc);
+ 	}
+-	return GetStr(luaAIOptions[aiIndex].desc);
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+@@ -1347,7 +1566,7 @@
+ 	}
+ 
+ 	if (!luaParser.Execute()) {
+-		logOutput.Print(&quot;ParseOptions(%s) ERROR: %s\n&quot;,
++		logOutput.Print(LOG_UNITSYNC, &quot;ParseOptions(%s) ERROR: %s\n&quot;,
+ 		       fileName.c_str(), luaParser.GetErrorLog().c_str());
+ 		return;
+ 	}
+@@ -1368,58 +1587,70 @@
+ };
+ 
+ 
+-static bool InvalidOptionIndex(int optIndex)
++static void CheckOptionIndex(int optIndex)
+ {
+-	if ((optIndex &lt; 0) || (optIndex &gt;= (int)options.size())) {
+-		return true;
+-	}
+-	return false;
++	CheckInit();
++	CheckBounds(optIndex, options.size());
+ }
+ 
++static void CheckOptionType(int optIndex, int type)
++{
++	CheckOptionIndex(optIndex);
+ 
+-static bool WrongOptionType(int optIndex, int type)
+-{
+-	if (InvalidOptionIndex(optIndex)) {
+-		return true;
+-	}
+-	if (options[optIndex].typeCode != type) {
+-		return true;
+-	}
+-	return false;
++	if (options[optIndex].typeCode != type)
++		throw std::invalid_argument(&quot;wrong option type&quot;);
+ }
+ 
+ 
+ DLL_EXPORT int __stdcall GetMapOptionCount(const char* name)
+ {
+-	CHECK_INIT();
+-	CHECK_NULL_OR_EMPTY(name);
++	try {
++		CheckInit();
++		CheckNullOrEmpty(name);
+ 
+-	ScopedMapLoader mapLoader(name);
++		ScopedMapLoader mapLoader(name);
+ 
+-	options.clear();
+-	optionsSet.clear();
++		options.clear();
++		optionsSet.clear();
+ 
+-	ParseOptions(&quot;MapOptions.lua&quot;, SPRING_VFS_MAP, SPRING_VFS_MAP, name);
++		ParseOptions(&quot;MapOptions.lua&quot;, SPRING_VFS_MAP, SPRING_VFS_MAP, name);
+ 
++		optionsSet.clear();
++
++		return (int)options.size();
++	}
++	UNITSYNC_CATCH_BLOCKS;
++
++	options.clear();
+ 	optionsSet.clear();
+ 
+-	return (int)options.size();
++	return 0;
+ }
+ 
+ 
+ DLL_EXPORT int __stdcall GetModOptionCount()
+ {
+-	options.clear();
+-	optionsSet.clear();
++	try {
++		CheckInit();
+ 
+-	// EngineOptions must be read first, so accidentally &quot;overloading&quot; engine
+-	// options with mod options with identical names is not possible.
+-	ParseOptions(&quot;EngineOptions.lua&quot;, SPRING_VFS_MOD_BASE, SPRING_VFS_MOD_BASE);
+-	ParseOptions(&quot;ModOptions.lua&quot;, SPRING_VFS_MOD, SPRING_VFS_MOD);
++		options.clear();
++		optionsSet.clear();
+ 
++		// EngineOptions must be read first, so accidentally &quot;overloading&quot; engine
++		// options with mod options with identical names is not possible.
++		ParseOptions(&quot;EngineOptions.lua&quot;, SPRING_VFS_MOD_BASE, SPRING_VFS_MOD_BASE);
++		ParseOptions(&quot;ModOptions.lua&quot;, SPRING_VFS_MOD, SPRING_VFS_MOD);
++
++		optionsSet.clear();
++
++		return (int)options.size();
++	}
++	UNITSYNC_CATCH_BLOCKS;
++
++	options.clear();
+ 	optionsSet.clear();
+ 
+-	return (int)options.size();
++	return 0;
+ }
+ 
+ 
+@@ -1427,52 +1658,64 @@
+ 
+ DLL_EXPORT const char* __stdcall GetOptionKey(int optIndex)
+ {
+-	if (InvalidOptionIndex(optIndex)) {
+-		return NULL;
++	try {
++		CheckOptionIndex(optIndex);
++		return GetStr(options[optIndex].key);
+ 	}
+-	return GetStr(options[optIndex].key);
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+ DLL_EXPORT const char* __stdcall GetOptionName(int optIndex)
+ {
+-	if (InvalidOptionIndex(optIndex)) {
+-		return NULL;
++	try {
++		CheckOptionIndex(optIndex);
++		return GetStr(options[optIndex].name);
+ 	}
+-	return GetStr(options[optIndex].name);
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ DLL_EXPORT const char* __stdcall GetOptionSection(int optIndex)
+ {
+-	if (InvalidOptionIndex(optIndex)) {
+-		return NULL;
++	try {
++		CheckOptionIndex(optIndex);
++		return GetStr(options[optIndex].section);
+ 	}
+-	return GetStr(options[optIndex].section);
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ DLL_EXPORT const char* __stdcall GetOptionStyle(int optIndex)
+ {
+-	if (InvalidOptionIndex(optIndex)) {
+-		return NULL;
++	try {
++		CheckOptionIndex(optIndex);
++		return GetStr(options[optIndex].style);
+ 	}
+-	return GetStr(options[optIndex].style);
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ DLL_EXPORT const char* __stdcall GetOptionDesc(int optIndex)
+ {
+-	if (InvalidOptionIndex(optIndex)) {
+-		return NULL;
++	try {
++		CheckOptionIndex(optIndex);
++		return GetStr(options[optIndex].desc);
+ 	}
+-	return GetStr(options[optIndex].desc);
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+ DLL_EXPORT int __stdcall GetOptionType(int optIndex)
+ {
+-	if (InvalidOptionIndex(optIndex)) {
+-		return 0;
++	try {
++		CheckOptionIndex(optIndex);
++		return options[optIndex].typeCode;
+ 	}
+-	return options[optIndex].typeCode;
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+ 
+@@ -1480,10 +1723,12 @@
+ 
+ DLL_EXPORT int __stdcall GetOptionBoolDef(int optIndex)
+ {
+-	if (WrongOptionType(optIndex, opt_bool)) {
+-		return 0;
++	try {
++		CheckOptionType(optIndex, opt_bool);
++		return options[optIndex].boolDef ? 1 : 0;
+ 	}
+-	return options[optIndex].boolDef ? 1 : 0;
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+ 
+@@ -1491,37 +1736,45 @@
+ 
+ DLL_EXPORT float __stdcall GetOptionNumberDef(int optIndex)
+ {
+-	if (WrongOptionType(optIndex, opt_number)) {
+-		return 0.0f;
++	try {
++		CheckOptionType(optIndex, opt_number);
++		return options[optIndex].numberDef;
+ 	}
+-	return options[optIndex].numberDef;
++	UNITSYNC_CATCH_BLOCKS;
++	return 0.0f;
+ }
+ 
+ 
+ DLL_EXPORT float __stdcall GetOptionNumberMin(int optIndex)
+ {
+-	if (WrongOptionType(optIndex, opt_number)) {
+-		return -1.0e30f; // FIXME ?
++	try {
++		CheckOptionType(optIndex, opt_number);
++		return options[optIndex].numberMin;
+ 	}
+-	return options[optIndex].numberMin;
++	UNITSYNC_CATCH_BLOCKS;
++	return -1.0e30f; // FIXME ?
+ }
+ 
+ 
+ DLL_EXPORT float __stdcall GetOptionNumberMax(int optIndex)
+ {
+-	if (WrongOptionType(optIndex, opt_number)) {
+-		return +1.0e30f; // FIXME ?
++	try {
++		CheckOptionType(optIndex, opt_number);
++		return options[optIndex].numberMax;
+ 	}
+-	return options[optIndex].numberMax;
++	UNITSYNC_CATCH_BLOCKS;
++	return +1.0e30f; // FIXME ?
+ }
+ 
+ 
+ DLL_EXPORT float __stdcall GetOptionNumberStep(int optIndex)
+ {
+-	if (WrongOptionType(optIndex, opt_number)) {
+-		return 0.0f;
++	try {
++		CheckOptionType(optIndex, opt_number);
++		return options[optIndex].numberStep;
+ 	}
+-	return options[optIndex].numberStep;
++	UNITSYNC_CATCH_BLOCKS;
++	return 0.0f;
+ }
+ 
+ 
+@@ -1529,19 +1782,23 @@
+ 
+ DLL_EXPORT const char* __stdcall GetOptionStringDef(int optIndex)
+ {
+-	if (WrongOptionType(optIndex, opt_string)) {
+-		return NULL;
++	try {
++		CheckOptionType(optIndex, opt_string);
++		return GetStr(options[optIndex].stringDef);
+ 	}
+-	return GetStr(options[optIndex].stringDef);
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+ DLL_EXPORT int __stdcall GetOptionStringMaxLen(int optIndex)
+ {
+-	if (WrongOptionType(optIndex, opt_string)) {
+-		return 0;
++	try {
++		CheckOptionType(optIndex, opt_string);
++		return options[optIndex].stringMaxLen;
+ 	}
+-	return options[optIndex].stringMaxLen;
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+ 
+@@ -1549,58 +1806,62 @@
+ 
+ DLL_EXPORT int __stdcall GetOptionListCount(int optIndex)
+ {
+-	if (WrongOptionType(optIndex, opt_list)) {
+-		return 0;
++	try {
++		CheckOptionType(optIndex, opt_list);
++		return options[optIndex].list.size();
+ 	}
+-	return options[optIndex].list.size();
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+ 
+ DLL_EXPORT const char* __stdcall GetOptionListDef(int optIndex)
+ {
+-	if (WrongOptionType(optIndex, opt_list)) {
+-		return 0;
++	try {
++		CheckOptionType(optIndex, opt_list);
++		return GetStr(options[optIndex].listDef);
+ 	}
+-	return GetStr(options[optIndex].listDef);
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+ DLL_EXPORT const char* __stdcall GetOptionListItemKey(int optIndex, int itemIndex)
+ {
+-	if (WrongOptionType(optIndex, opt_list)) {
+-		return NULL;
++	try {
++		CheckOptionType(optIndex, opt_list);
++		const vector&lt;ListItem&gt;&amp; list = options[optIndex].list;
++		CheckBounds(itemIndex, list.size());
++		return GetStr(list[itemIndex].key);
+ 	}
+-	const vector&lt;ListItem&gt;&amp; list = options[optIndex].list;
+-	if ((itemIndex &lt; 0) || (itemIndex &gt;= (int)list.size())) {
+-		return NULL;
+-	}
+-	return GetStr(list[itemIndex].key);
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+ DLL_EXPORT const char* __stdcall GetOptionListItemName(int optIndex, int itemIndex)
+ {
+-	if (WrongOptionType(optIndex, opt_list)) {
+-		return NULL;
++	try {
++		CheckOptionType(optIndex, opt_list);
++		const vector&lt;ListItem&gt;&amp; list = options[optIndex].list;
++		CheckBounds(itemIndex, list.size());
++		return GetStr(list[itemIndex].name);
+ 	}
+-	const vector&lt;ListItem&gt;&amp; list = options[optIndex].list;
+-	if ((itemIndex &lt; 0) || (itemIndex &gt;= (int)list.size())) {
+-		return NULL;
+-	}
+-	return GetStr(list[itemIndex].name);
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+ DLL_EXPORT const char* __stdcall GetOptionListItemDesc(int optIndex, int itemIndex)
+ {
+-	if (WrongOptionType(optIndex, opt_list)) {
+-		return NULL;
++	try {
++		CheckOptionType(optIndex, opt_list);
++		const vector&lt;ListItem&gt;&amp; list = options[optIndex].list;
++		CheckBounds(itemIndex, list.size());
++		return GetStr(list[itemIndex].desc);
+ 	}
+-	const vector&lt;ListItem&gt;&amp; list = options[optIndex].list;
+-	if ((itemIndex &lt; 0) || (itemIndex &gt;= (int)list.size())) {
+-		return NULL;
+-	}
+-	return GetStr(list[itemIndex].desc);
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+@@ -1689,39 +1950,48 @@
+ // Map names should be complete  (including the .smf or .sm3 extension)
+ DLL_EXPORT int __stdcall GetModValidMapCount()
+ {
+-	modValidMaps.clear();
++	try {
++		CheckInit();
+ 
+-	LuaParser luaParser(&quot;ValidMaps.lua&quot;, SPRING_VFS_MOD, SPRING_VFS_MOD);
+-	luaParser.GetTable(&quot;Spring&quot;);
+-	luaParser.AddFunc(&quot;GetMapList&quot;, LuaGetMapList);
+-	luaParser.AddFunc(&quot;GetMapInfo&quot;, LuaGetMapInfo);
+-	luaParser.EndTable();
+-	if (!luaParser.Execute()) {
+-		return 0;
+-	}
++		modValidMaps.clear();
+ 
+-	const LuaTable root = luaParser.GetRoot();
+-	if (!root.IsValid()) {
+-		return 0;
+-	}
++		LuaParser luaParser(&quot;ValidMaps.lua&quot;, SPRING_VFS_MOD, SPRING_VFS_MOD);
++		luaParser.GetTable(&quot;Spring&quot;);
++		luaParser.AddFunc(&quot;GetMapList&quot;, LuaGetMapList);
++		luaParser.AddFunc(&quot;GetMapInfo&quot;, LuaGetMapInfo);
++		luaParser.EndTable();
++		if (!luaParser.Execute()) {
++			throw content_error(&quot;luaParser.Execute() failed: &quot; + luaParser.GetErrorLog());
++		}
+ 
+-	for (int index = 1; root.KeyExists(index); index++) {
+-		const string map = root.GetString(index, &quot;&quot;);
+-		if (!map.empty()) {
+-			modValidMaps.push_back(map);
++		const LuaTable root = luaParser.GetRoot();
++		if (!root.IsValid()) {
++			throw content_error(&quot;root table invalid&quot;);
+ 		}
++
++		for (int index = 1; root.KeyExists(index); index++) {
++			const string map = root.GetString(index, &quot;&quot;);
++			if (!map.empty()) {
++				modValidMaps.push_back(map);
++			}
++		}
++
++		return modValidMaps.size();
+ 	}
+-
+-	return (int)modValidMaps.size();
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+ 
+ DLL_EXPORT const char* __stdcall GetModValidMap(int index)
+ {
+-	if ((index &lt; 0) || (index &gt;= modValidMaps.size())) {
+-		return NULL;
++	try {
++		CheckInit();
++		CheckBounds(index, modValidMaps.size());
++		return GetStr(modValidMaps[index]);
+ 	}
+-	return GetStr(modValidMaps[index]);
++	UNITSYNC_CATCH_BLOCKS;
++	return NULL;
+ }
+ 
+ 
+@@ -1734,50 +2004,74 @@
+ static int nextFile = 0;
+ static vector&lt;string&gt; curFindFiles;
+ 
++static void CheckFileHandle(int handle)
++{
++	CheckInit();
++
++	if (openFiles.find(handle) == openFiles.end())
++		throw content_error(&quot;Unregistered handle. Pass a handle returned by OpenFileVFS.&quot;);
++}
++
+ DLL_EXPORT int __stdcall OpenFileVFS(const char* name)
+ {
+-	CHECK_NULL_OR_EMPTY(name);
++	try {
++		CheckInit();
++		CheckNullOrEmpty(name);
+ 
+-	logOutput.Print(&quot;openfilevfs: %s\n&quot;, name);
++		logOutput.Print(LOG_UNITSYNC, &quot;openfilevfs: %s\n&quot;, name);
+ 
+-	CFileHandler* fh = new CFileHandler(name);
+-	if (!fh-&gt;FileExists()) {
+-		delete fh;
+-		return 0;
+-	}
++		CFileHandler* fh = new CFileHandler(name);
++		if (!fh-&gt;FileExists()) {
++			delete fh;
++			throw content_error(&quot;File '&quot; + string(name) + &quot;' does not exist&quot;);
++		}
+ 
+-	nextFile++;
+-	openFiles[nextFile] = fh;
++		nextFile++;
++		openFiles[nextFile] = fh;
+ 
+-	return nextFile;
++		return nextFile;
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+ DLL_EXPORT void __stdcall CloseFileVFS(int handle)
+ {
+-	ASSERT(openFiles.find(handle) != openFiles.end(), &quot;Unregistered handle. Pass the handle returned by OpenFileVFS to CloseFileVFS.&quot;);
++	try {
++		CheckFileHandle(handle);
+ 
+-	logOutput.Print(&quot;closefilevfs: %d\n&quot;, handle);
+-	delete openFiles[handle];
+-	openFiles.erase(handle);
++		logOutput.Print(LOG_UNITSYNC, &quot;closefilevfs: %d\n&quot;, handle);
++		delete openFiles[handle];
++		openFiles.erase(handle);
++	}
++	UNITSYNC_CATCH_BLOCKS;
+ }
+ 
+ DLL_EXPORT void __stdcall ReadFileVFS(int handle, void* buf, int length)
+ {
+-	ASSERT(openFiles.find(handle) != openFiles.end(), &quot;Unregistered handle. Pass the handle returned by OpenFileVFS to ReadFileVFS.&quot;);
+-	CHECK_NULL(buf);
++	try {
++		CheckFileHandle(handle);
++		CheckNull(buf);
++		CheckPositive(length);
+ 
+-	logOutput.Print(&quot;readfilevfs: %d\n&quot;, handle);
+-	CFileHandler* fh = openFiles[handle];
+-	fh-&gt;Read(buf, length);
++		logOutput.Print(LOG_UNITSYNC, &quot;readfilevfs: %d\n&quot;, handle);
++		CFileHandler* fh = openFiles[handle];
++		fh-&gt;Read(buf, length);
++	}
++	UNITSYNC_CATCH_BLOCKS;
+ }
+ 
+ DLL_EXPORT int __stdcall FileSizeVFS(int handle)
+ {
+-	ASSERT(openFiles.find(handle) != openFiles.end(), &quot;Unregistered handle. Pass the handle returned by OpenFileVFS to FileSizeVFS.&quot;);
++	try {
++		CheckFileHandle(handle);
+ 
+-	logOutput.Print(&quot;filesizevfs: %d\n&quot;, handle);
+-	CFileHandler* fh = openFiles[handle];
+-	return fh-&gt;FileSize();
++		logOutput.Print(LOG_UNITSYNC, &quot;filesizevfs: %d\n&quot;, handle);
++		CFileHandler* fh = openFiles[handle];
++		return fh-&gt;FileSize();
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return -1;
+ }
+ 
+ 
+@@ -1785,49 +2079,72 @@
+ // pass the returned handle to findfiles to get the results
+ DLL_EXPORT int __stdcall InitFindVFS(const char* pattern)
+ {
+-	string path = filesystem.GetDirectory(pattern);
+-	string patt = filesystem.GetFilename(pattern);
+-	logOutput.Print(&quot;initfindvfs: %s\n&quot;, pattern);
+-	curFindFiles = CFileHandler::FindFiles(path, patt);
+-	return 0;
++	try {
++		CheckInit();
++		CheckNullOrEmpty(pattern);
++
++		string path = filesystem.GetDirectory(pattern);
++		string patt = filesystem.GetFilename(pattern);
++		logOutput.Print(LOG_UNITSYNC, &quot;initfindvfs: %s\n&quot;, pattern);
++		curFindFiles = CFileHandler::FindFiles(path, patt);
++		return 0;
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return -1;
+ }
+ 
+ // Does not currently support more than one call at a time (a new call to initfind destroys data from previous ones)
+ // pass the returned handle to findfiles to get the results
+ DLL_EXPORT int __stdcall InitDirListVFS(const char* path, const char* pattern, const char* modes)
+ {
+-	if (path    == NULL) { path = &quot;&quot;;              }
+-	if (modes   == NULL) { modes = SPRING_VFS_ALL; }
+-	if (pattern == NULL) { pattern = &quot;*&quot;;          }
+-	logOutput.Print(&quot;InitDirListVFS: '%s' '%s' '%s'\n&quot;, path, pattern, modes);
+-	curFindFiles = CFileHandler::DirList(path, pattern, modes);
+-	return 0;
++	try {
++		CheckInit();
++
++		if (path    == NULL) { path = &quot;&quot;;              }
++		if (modes   == NULL) { modes = SPRING_VFS_ALL; }
++		if (pattern == NULL) { pattern = &quot;*&quot;;          }
++		logOutput.Print(LOG_UNITSYNC, &quot;InitDirListVFS: '%s' '%s' '%s'\n&quot;, path, pattern, modes);
++		curFindFiles = CFileHandler::DirList(path, pattern, modes);
++		return 0;
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return -1;
+ }
+ 
+ // Does not currently support more than one call at a time (a new call to initfind destroys data from previous ones)
+ // pass the returned handle to findfiles to get the results
+ DLL_EXPORT int __stdcall InitSubDirsVFS(const char* path, const char* pattern, const char* modes)
+ {
+-	if (path    == NULL) { path = &quot;&quot;;              }
+-	if (modes   == NULL) { modes = SPRING_VFS_ALL; }
+-	if (pattern == NULL) { pattern = &quot;*&quot;;          }
+-	logOutput.Print(&quot;InitSubDirsVFS: '%s' '%s' '%s'\n&quot;, path, pattern, modes);
+-	curFindFiles = CFileHandler::SubDirs(path, pattern, modes);
+-	return 0;
++	try {
++		CheckInit();
++		if (path    == NULL) { path = &quot;&quot;;              }
++		if (modes   == NULL) { modes = SPRING_VFS_ALL; }
++		if (pattern == NULL) { pattern = &quot;*&quot;;          }
++		logOutput.Print(LOG_UNITSYNC, &quot;InitSubDirsVFS: '%s' '%s' '%s'\n&quot;, path, pattern, modes);
++		curFindFiles = CFileHandler::SubDirs(path, pattern, modes);
++		return 0;
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return -1;
+ }
+ 
+ // On first call, pass handle from initfind. pass the return value of this function on subsequent calls
+ // until 0 is returned. size should be set to max namebuffer size on call
+ DLL_EXPORT int __stdcall FindFilesVFS(int handle, char* nameBuf, int size)
+ {
+-	CHECK_NULL(nameBuf);
+-	ASSERT(size &gt; 0, &quot;Negative or zero buffer length doesn't make sense.&quot;);
++	try {
++		CheckInit();
++		CheckNull(nameBuf);
++		CheckPositive(size);
+ 
+-	logOutput.Print(&quot;findfilesvfs: %d\n&quot;, handle);
+-	if ((unsigned)handle &gt;= curFindFiles.size())
+-		return 0;
+-	strncpy(nameBuf, curFindFiles[handle].c_str(), size);
+-	return handle + 1;
++		logOutput.Print(LOG_UNITSYNC, &quot;findfilesvfs: %d\n&quot;, handle);
++		if ((unsigned)handle &gt;= curFindFiles.size())
++			return 0;
++		strncpy(nameBuf, curFindFiles[handle].c_str(), size);
++		return handle + 1;
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return -1;
+ }
+ 
+ 
+@@ -1837,99 +2154,139 @@
+ static map&lt;int, CArchiveBase*&gt; openArchives;
+ static int nextArchive = 0;
+ 
++static void CheckArchiveHandle(int handle)
++{
++	CheckInit();
++
++	if (openArchives.find(handle) == openArchives.end())
++		throw content_error(&quot;Unregistered handle. Pass a handle returned by OpenArchive.&quot;);
++}
++
+ // returns 0 on error, a handle otherwise
+ DLL_EXPORT int __stdcall OpenArchive(const char* name)
+ {
+-	CHECK_NULL_OR_EMPTY(name);
++	try {
++		CheckInit();
++		CheckNullOrEmpty(name);
+ 
+-	CArchiveBase* a = CArchiveFactory::OpenArchive(name);
+-	if (a) {
++		CArchiveBase* a = CArchiveFactory::OpenArchive(name);
++
++		if (!a) {
++			throw content_error(&quot;Archive '&quot; + string(name) + &quot;' could not be opened&quot;);
++		}
++
+ 		nextArchive++;
+ 		openArchives[nextArchive] = a;
+ 		return nextArchive;
+ 	}
+-	else {
+-		return 0;
+-	}
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+ // returns 0 on error, a handle otherwise
+ DLL_EXPORT int __stdcall OpenArchiveType(const char* name, const char* type)
+ {
+-	CHECK_NULL_OR_EMPTY(name);
+-	CHECK_NULL_OR_EMPTY(type);
++	try {
++		CheckInit();
++		CheckNullOrEmpty(name);
++		CheckNullOrEmpty(type);
+ 
+-	CArchiveBase* a = CArchiveFactory::OpenArchive(name, type);
+-	if (a) {
++		CArchiveBase* a = CArchiveFactory::OpenArchive(name, type);
++
++		if (!a) {
++			throw content_error(&quot;Archive '&quot; + string(name) + &quot;' could not be opened&quot;);
++		}
++
+ 		nextArchive++;
+ 		openArchives[nextArchive] = a;
+ 		return nextArchive;
+ 	}
+-	else {
+-		return 0;
+-	}
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+ DLL_EXPORT void __stdcall CloseArchive(int archive)
+ {
+-	ASSERT(openArchives.find(archive) != openArchives.end(), &quot;Unregistered archive. Pass the handle returned by OpenArchive to CloseArchive.&quot;);
++	try {
++		CheckArchiveHandle(archive);
+ 
+-	delete openArchives[archive];
+-	openArchives.erase(archive);
++		delete openArchives[archive];
++		openArchives.erase(archive);
++	}
++	UNITSYNC_CATCH_BLOCKS;
+ }
+ 
+ DLL_EXPORT int __stdcall FindFilesArchive(int archive, int cur, char* nameBuf, int* size)
+ {
+-	ASSERT(openArchives.find(archive) != openArchives.end(), &quot;Unregistered archive. Pass the handle returned by OpenArchive to FindFilesArchive.&quot;);
+-	CHECK_NULL(nameBuf);
+-	CHECK_NULL(size);
++	try {
++		CheckArchiveHandle(archive);
++		CheckNull(nameBuf);
++		CheckNull(size);
+ 
+-	CArchiveBase* a = openArchives[archive];
++		CArchiveBase* a = openArchives[archive];
+ 
+-	logOutput.Print(&quot;findfilesarchive: %d\n&quot;, archive);
++		logOutput.Print(LOG_UNITSYNC, &quot;findfilesarchive: %d\n&quot;, archive);
+ 
+-	string name;
+-	int s;
++		string name;
++		int s;
+ 
+-	int ret = a-&gt;FindFiles(cur, &amp;name, &amp;s);
+-	strcpy(nameBuf, name.c_str());
+-	*size = s;
+-
+-	return ret;
++		int ret = a-&gt;FindFiles(cur, &amp;name, &amp;s);
++		strcpy(nameBuf, name.c_str());
++		*size = s;
++		return ret;
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+ DLL_EXPORT int __stdcall OpenArchiveFile(int archive, const char* name)
+ {
+-	ASSERT(openArchives.find(archive) != openArchives.end(), &quot;Unregistered archive. Pass the handle returned by OpenArchive to OpenArchiveFile.&quot;);
+-	CHECK_NULL_OR_EMPTY(name);
++	try {
++		CheckArchiveHandle(archive);
++		CheckNullOrEmpty(name);
+ 
+-	CArchiveBase* a = openArchives[archive];
+-	return a-&gt;OpenFile(name);
++		CArchiveBase* a = openArchives[archive];
++		return a-&gt;OpenFile(name);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+ DLL_EXPORT int __stdcall ReadArchiveFile(int archive, int handle, void* buffer, int numBytes)
+ {
+-	ASSERT(openArchives.find(archive) != openArchives.end(), &quot;Unregistered archive. Pass the handle returned by OpenArchive to ReadArchiveFile.&quot;);
+-	CHECK_NULL(buffer);
++	try {
++		CheckArchiveHandle(archive);
++		CheckNull(buffer);
++		CheckPositive(numBytes);
+ 
+-	CArchiveBase* a = openArchives[archive];
+-	return a-&gt;ReadFile(handle, buffer, numBytes);
++		CArchiveBase* a = openArchives[archive];
++		return a-&gt;ReadFile(handle, buffer, numBytes);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+ DLL_EXPORT void __stdcall CloseArchiveFile(int archive, int handle)
+ {
+-	ASSERT(openArchives.find(archive) != openArchives.end(), &quot;Unregistered archive. Pass the handle returned by OpenArchive to CloseArchiveFile.&quot;);
++	try {
++		CheckArchiveHandle(archive);
+ 
+-	CArchiveBase* a = openArchives[archive];
+-	return a-&gt;CloseFile(handle);
++		CArchiveBase* a = openArchives[archive];
++		a-&gt;CloseFile(handle);
++	}
++	UNITSYNC_CATCH_BLOCKS;
+ }
+ 
+ DLL_EXPORT int __stdcall SizeArchiveFile(int archive, int handle)
+ {
+-	ASSERT(openArchives.find(archive) != openArchives.end(), &quot;Unregistered archive. Pass the handle returned by OpenArchive to SizeArchiveFile.&quot;);
++	try {
++		CheckArchiveHandle(archive);
+ 
+-	CArchiveBase* a = openArchives[archive];
+-	return a-&gt;FileSize(handle);
++		CArchiveBase* a = openArchives[archive];
++		return a-&gt;FileSize(handle);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return -1;
+ }
+ 
+ //////////////////////////
+@@ -1968,8 +2325,12 @@
+  */
+ DLL_EXPORT const char* __stdcall GetSpringConfigString( const char* name, const char* defvalue )
+ {
+-	string res = configHandler.GetString( name, defvalue );
+-	return GetStr(res);
++	try {
++		string res = configHandler.GetString( name, defvalue );
++		return GetStr(res);
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return defvalue;
+ }
+ 
+ /**
+@@ -1980,7 +2341,11 @@
+  */
+ DLL_EXPORT int __stdcall GetSpringConfigInt( const char* name, const int defvalue )
+ {
+-	return configHandler.GetInt( name, defvalue );
++	try {
++		return configHandler.GetInt( name, defvalue );
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return defvalue;
+ }
+ 
+ /**
+@@ -1991,7 +2356,11 @@
+  */
+ DLL_EXPORT float __stdcall GetSpringConfigFloat( const char* name, const float defvalue )
+ {
+-	return configHandler.GetFloat( name, defvalue );
++	try {
++		return configHandler.GetFloat( name, defvalue );
++	}
++	UNITSYNC_CATCH_BLOCKS;
++	return defvalue;
+ }
+ 
+ /**
+@@ -2001,7 +2370,10 @@
+  */
+ DLL_EXPORT void __stdcall SetSpringConfigString(const char* name, const char* value)
+ {
+-	configHandler.SetString( name, value );
++	try {
++		configHandler.SetString( name, value );
++	}
++	UNITSYNC_CATCH_BLOCKS;
+ }
+ 
+ /**
+@@ -2011,7 +2383,10 @@
+  */
+ DLL_EXPORT void __stdcall SetSpringConfigInt(const char* name, const int value)
+ {
+-	configHandler.SetInt( name, value );
++	try {
++		configHandler.SetInt( name, value );
++	}
++	UNITSYNC_CATCH_BLOCKS;
+ }
+ 
+ /**
+@@ -2021,6 +2396,79 @@
+  */
+ DLL_EXPORT void __stdcall SetSpringConfigFloat(const char* name, const float value)
+ {
+-	configHandler.SetFloat( name, value );
++	try {
++		configHandler.SetFloat( name, value );
++	}
++	UNITSYNC_CATCH_BLOCKS;
+ }
+ 
++//////////////////////////
++//////////////////////////
++
++// Helper class for popping up a MessageBox only once
++
++class CMessageOnce
++{
++	private:
++		bool alreadyDone;
++
++	public:
++		void operator() (const string&amp; msg)
++		{
++			if (alreadyDone) return;
++			alreadyDone = true;
++			Message(msg.c_str());
++		}
++};
++
++#define DEPRECATED \
++	static CMessageOnce msg; \
++	msg(string(__FUNCTION__) + &quot;: deprecated unitsync function called, please update your lobby client&quot;); \
++	SetLastError(&quot;deprecated unitsync function called&quot;)
++
++
++// deprecated 2008/10
++DLL_EXPORT const char * __stdcall GetCurrentList()
++{
++	DEPRECATED;
++	return NULL;
++}
++
++// deprecated 2008/10
++DLL_EXPORT void __stdcall AddClient(int id, const char *unitList)
++{
++	DEPRECATED;
++}
++
++// deprecated 2008/10
++DLL_EXPORT void __stdcall RemoveClient(int id)
++{
++	DEPRECATED;
++}
++
++// deprecated 2008/10
++DLL_EXPORT const char * __stdcall GetClientDiff(int id)
++{
++	DEPRECATED;
++	return NULL;
++}
++
++// deprecated 2008/10
++DLL_EXPORT void __stdcall InstallClientDiff(const char *diff)
++{
++	DEPRECATED;
++}
++
++// deprecated 2008/10
++DLL_EXPORT int __stdcall IsUnitDisabled(int unit)
++{
++	DEPRECATED;
++	return 0;
++}
++
++// deprecated 2008/10
++DLL_EXPORT int __stdcall IsUnitDisabledByClient(int unit, int clientId)
++{
++	DEPRECATED;
++	return 0;
++}
+
+Modified: trunk/tools/unitsync/unitsync.h
+===================================================================
+--- trunk/tools/unitsync/unitsync.h	2008-10-25 13:26:35 UTC (rev 6881)
++++ trunk/tools/unitsync/unitsync.h	2008-10-25 13:34:13 UTC (rev 6882)
+@@ -15,7 +15,7 @@
+ 
+ struct MapInfo
+ {
+-	char* description;
++	char* description; // max 255 chars
+ 	int tidalStrength;
+ 	int gravity;
+ 	float maxMetal;
+@@ -54,17 +54,11 @@
+ 
+ 
+ #ifdef WIN32
+-#define DLL_EXPORT extern &quot;C&quot; __declspec(dllexport)
+-#include &lt;windows.h&gt;
++#  define DLL_EXPORT extern &quot;C&quot; __declspec(dllexport)
++#  include &lt;windows.h&gt;
+ #else
+-#include &lt;iostream&gt;
+-#define DLL_EXPORT extern &quot;C&quot; __attribute__ ((visibility(&quot;default&quot;)))
+-#define __stdcall
+-#define MB_OK 0
+-static inline void MessageBox(void*, const char* msg, const char* capt, unsigned int)
+-{
+-	std::cerr &lt;&lt; &quot;unitsync: &quot; &lt;&lt; capt &lt;&lt; &quot;: &quot; &lt;&lt; msg &lt;&lt; std::endl;
+-}
++#  define DLL_EXPORT extern &quot;C&quot; __attribute__ ((visibility(&quot;default&quot;)))
++#  define __stdcall
+ #endif
+ 
+ #endif
+
+Deleted: trunk/tools/unitsync/unitsyncLogOutput.h
+===================================================================
+--- trunk/tools/unitsync/unitsyncLogOutput.h	2008-10-25 13:26:35 UTC (rev 6881)
++++ trunk/tools/unitsync/unitsyncLogOutput.h	2008-10-25 13:34:13 UTC (rev 6882)
+@@ -1,18 +0,0 @@
+-#ifndef UNITSYNC_LOGGING_H
+-#define UNITSYNC_LOGGING_H
+-
+-#include &lt;cstdio&gt;
+-
+-class CLogOutput {
+-	std::FILE* file;
+-public:
+-//	void AddLine(const char *, ...);
+-	CLogOutput();
+-	~CLogOutput();
+-	void Print(const string&amp; text);
+-	void Print(const char* fmt, ...);
+-};
+-
+-extern CLogOutput logOutput;
+-
+-#endif
+
+Modified: trunk/tools/unitsync/unitsync_api.h
+===================================================================
+--- trunk/tools/unitsync/unitsync_api.h	2008-10-25 13:26:35 UTC (rev 6881)
++++ trunk/tools/unitsync/unitsync_api.h	2008-10-25 13:34:13 UTC (rev 6882)
+@@ -6,6 +6,7 @@
+ 
+ // from unitsync.cpp:
+ 
++DLL_EXPORT const char*  __stdcall GetNextError();
+ DLL_EXPORT const char*  __stdcall GetSpringVersion();
+ 
+ DLL_EXPORT void         __stdcall Message(const char* p_szMessage);
+@@ -13,21 +14,12 @@
+ DLL_EXPORT int          __stdcall Init(bool isServer, int id);
+ DLL_EXPORT void         __stdcall UnInit();
+ 
+-DLL_EXPORT int          __stdcall ProcessUnits(void);
+-DLL_EXPORT int          __stdcall ProcessUnitsNoChecksum(void);
+-DLL_EXPORT const char*  __stdcall GetCurrentList();
++DLL_EXPORT int          __stdcall ProcessUnits();
++DLL_EXPORT int          __stdcall ProcessUnitsNoChecksum();
+ 
+-DLL_EXPORT void         __stdcall AddClient(int id, const char *unitList);
+-DLL_EXPORT void         __stdcall RemoveClient(int id);
+-
+-DLL_EXPORT const char*  __stdcall GetClientDiff(int id);
+-DLL_EXPORT void         __stdcall InstallClientDiff(const char *diff);
+-
+ DLL_EXPORT int          __stdcall GetUnitCount();
+ DLL_EXPORT const char*  __stdcall GetUnitName(int unit);
+ DLL_EXPORT const char*  __stdcall GetFullUnitName(int unit);
+-DLL_EXPORT int          __stdcall IsUnitDisabled(int unit);
+-DLL_EXPORT int          __stdcall IsUnitDisabledByClient(int unit, int clientId);
+ 
+ DLL_EXPORT void         __stdcall AddArchive(const char* name);
+ DLL_EXPORT void         __stdcall AddAllArchives(const char* root);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001650.html">[Taspring-linux-commit] r6881 - in trunk/rts: Game Rendering	Sim/Projectiles/Unsynced Sim/Units/CommandAI Sim/Units/UnitTypes
+</A></li>
+	<LI>Next message: <A HREF="001652.html">[Taspring-linux-commit] r6883 - in trunk/rts/System/Platform: .	Linux
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1651">[ date ]</a>
+              <a href="thread.html#1651">[ thread ]</a>
+              <a href="subject.html#1651">[ subject ]</a>
+              <a href="author.html#1651">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

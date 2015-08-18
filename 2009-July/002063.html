@@ -1,0 +1,724 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7293 - in Lobby/TASClient: .	LobbyComponents/DockPanel Python Python/scripts
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7293%20-%20in%20Lobby/TASClient%3A%20.%0A%09LobbyComponents/DockPanel%20Python%20Python/scripts&In-Reply-To=%3C20090713211612.6BC733B6F1%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002062.html">
+   <LINK REL="Next"  HREF="002064.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7293 - in Lobby/TASClient: .	LobbyComponents/DockPanel Python Python/scripts</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7293%20-%20in%20Lobby/TASClient%3A%20.%0A%09LobbyComponents/DockPanel%20Python%20Python/scripts&In-Reply-To=%3C20090713211612.6BC733B6F1%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7293 - in Lobby/TASClient: .	LobbyComponents/DockPanel Python Python/scripts">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon Jul 13 23:16:12 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002062.html">[Taspring-linux-commit] r7292 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002064.html">[Taspring-linux-commit] r7294 - in Lobby/TASClient: .	LobbyComponents/DockPanel
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2063">[ date ]</a>
+              <a href="thread.html#2063">[ thread ]</a>
+              <a href="subject.html#2063">[ subject ]</a>
+              <a href="author.html#2063">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2009-07-13 23:16:11 +0200 (Mon, 13 Jul 2009)
+New Revision: 7293
+
+Removed:
+   Lobby/TASClient/Python/scripts/layouts/
+   Lobby/TASClient/Python/scripts/popupChat.py
+Modified:
+   Lobby/TASClient/ExceptionUnit.pas
+   Lobby/TASClient/LobbyComponents/DockPanel/DockPanel.pas
+   Lobby/TASClient/LobbyScriptUnit.pas
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/Misc.pas
+   Lobby/TASClient/PreferencesFormUnit.pas
+   Lobby/TASClient/Python/api.txt
+   Lobby/TASClient/Python/scripts/layoutProfileManager.py
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* Options menu added
+* View menu added to the options to list all dockable panels and allow to hide or show any of them
+* lock panels item added to the options menu
+* dbl click on a player to open a private chat bug fixed
+* switching between chat tabs not displaying the right client list bug fixed
+* PYTHON: layoutManager updated (doesn't make layout button anymore but adds its item to the options menu)
+* PYTHON: options menu added to the menu list
+* PYTHON: old layouts removed
+* PYTHON: popupchat removed
+
+
+Modified: Lobby/TASClient/ExceptionUnit.pas
+===================================================================
+--- Lobby/TASClient/ExceptionUnit.pas	2009-07-13 04:49:56 UTC (rev 7292)
++++ Lobby/TASClient/ExceptionUnit.pas	2009-07-13 21:16:11 UTC (rev 7293)
+@@ -35,7 +35,7 @@
+ 
+ uses
+   Windows, Messages, SysUtils, Classes, Graphics, Controls, Forms, Dialogs,
+-  StdCtrls, ExtCtrls, JclDebug, JclMapi, gnugettext;
++  StdCtrls, ExtCtrls, JclDebug, JclMapi, gnugettext, Consts;
+ 
+ const
+   UM_CREATEDETAILS = WM_USER + $100;
+@@ -502,6 +502,7 @@
+ 
+ class procedure TExceptionDialog.ExceptionHandler(Sender: TObject; E: Exception);
+ begin
++  if E.Message = SCannotDragForm then Exit;
+   if ExceptionShowing then
+     Application.ShowException(E)
+   else
+
+Modified: Lobby/TASClient/LobbyComponents/DockPanel/DockPanel.pas
+===================================================================
+--- Lobby/TASClient/LobbyComponents/DockPanel/DockPanel.pas	2009-07-13 04:49:56 UTC (rev 7292)
++++ Lobby/TASClient/LobbyComponents/DockPanel/DockPanel.pas	2009-07-13 21:16:11 UTC (rev 7293)
+@@ -154,6 +154,8 @@
+     property OnSetOtherHostsAsString: TSetOtherHostAsStringEvent Read m_OnSetOtherHostsAsString Write m_OnSetOtherHostsAsString;
+     property OnGetOtherHostsAsString: TGetOtherHostAsStringEvent Read m_OnGetOtherHostsAsString Write m_OnGetOtherHostsAsString;
+     property TabType: TTabType Read TType Write SetTType;
++
++    procedure AddDockedPanelsToList(var l: TList;recursive: TControl=nil);
+   end;
+   TPageControlHost = class(TForm)
+     PageControl: TPageControl;
+@@ -451,7 +453,36 @@
+   inc(m_nLockRefreshCount);
+ end;
+ 
++procedure TDockHandler.AddDockedPanelsToList(var l: TList;recursive: TControl=nil);
++var
++  i: integer;
++begin
++  if recursive = nil then
++  begin
++    for i:=0 to DockClientCount-1 do
++      l.Add(DockClients[i]);
++    for i:=0 to DockPanelCount-1 do
++      AddDockedPanelsToList(l,DockPanels[i]);
++    for i:=0 to PageControlHostCount-1 do
++      AddDockedPanelsToList(l,PageControlHosts[i].PageControl);
++  end
++  else
++  begin
++    try
++      if not (recursive is TDockableForm) and not TPanel(recursive).DockSite then
++        l.Add(recursive)
++    except
++    end;
+ 
++    try
++      for i:=0 to TWinControl(recursive).DockClientCount-1 do
++        AddDockedPanelsToList(l,TWinControl(recursive).DockClients[i]);
++    except
++    end;
++  end;
++end;
++
++
+ procedure TDockHandler.UnlockRefresh;
+ begin
+   if m_nLockRefreshCount &gt; 0 then dec(m_nLockRefreshCount);
+@@ -745,8 +776,8 @@
+     // Hide and float all registered dock clients
+     for i := 0 to m_slDockClients.Count - 1 do begin
+       ctrl := TControl(m_slDockClients.Objects[i]);
++      TControl(m_slDockClients.Objects[i]).Hide;
+       TControl(m_slDockClients.Objects[i]).ManualDock(m_pcShadow);
+-      TControl(m_slDockClients.Objects[i]).Hide;
+       if ctrl is TDockableForm then TDockableForm(ctrl).m_LastHostDockSiteClass := nil;
+       rct := ctrl.BoundsRect;
+       if ctrl.Parent &lt;&gt; nil then begin
+
+Modified: Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- Lobby/TASClient/LobbyScriptUnit.pas	2009-07-13 04:49:56 UTC (rev 7292)
++++ Lobby/TASClient/LobbyScriptUnit.pas	2009-07-13 21:16:11 UTC (rev 7293)
+@@ -1468,6 +1468,8 @@
+ begin
+   if name = 'HostBattle' then
+     Result := MainForm.HostBattlePopupMenu.Items
++  else if name = 'Options' then
++    Result := MainForm.OptionsPopupMenu.Items
+   else if name = 'Help' then
+     Result := MainForm.HelpPopupMenu.Items
+   else if name = 'HelpWiki' then
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2009-07-13 04:49:56 UTC (rev 7292)
++++ Lobby/TASClient/MainUnit.dfm	2009-07-13 21:16:11 UTC (rev 7293)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 363
+-  Top = 375
++  Left = 349
++  Top = 100
+   Width = 855
+   Height = 546
+   Caption = '.'
+@@ -1090,7 +1090,7 @@
+         Width = 121
+         Height = 25
+         Caption = 'Options'
+-        OnClick = OptionsSpeedButtonClick
++        DropDownMenu = OptionsPopupMenu
+         LinkFont.Charset = DEFAULT_CHARSET
+         LinkFont.Color = clBlue
+         LinkFont.Height = -11
+@@ -7276,4 +7276,25 @@
+     Left = 632
+     Top = 231
+   end
++  object OptionsPopupMenu: TSpTBXPopupMenu
++    OnInitPopup = OptionsPopupMenuInitPopup
++    Left = 500
++    Top = 70
++    object mnuPreferences: TSpTBXItem
++      Caption = 'Preferences'
++      OnClick = mnuPreferencesClick
++    end
++    object SpTBXSeparatorItem24: TSpTBXSeparatorItem
++    end
++    object ViewSubMenu: TSpTBXSubmenuItem
++      Caption = 'View'
++    end
++    object mnuLockView: TSpTBXItem
++      Caption = 'Panels locked'
++      AutoCheck = True
++      OnClick = mnuLockViewClick
++    end
++    object SpTBXSeparatorItem25: TSpTBXSeparatorItem
++    end
++  end
+ end
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2009-07-13 04:49:56 UTC (rev 7292)
++++ Lobby/TASClient/MainUnit.pas	2009-07-13 21:16:11 UTC (rev 7293)
+@@ -531,6 +531,7 @@
+   TMyTabSheet = class(TDockableForm)
+   protected
+     procedure MyTabSheetOnActivate(Sender:TObject);
++    procedure MyTabSheetOnClose(Sender: TObject; var Action: TCloseAction);
+   public
+     Clients: TList; // do not free any of the clients in this list! See AllClients list's comments
+     History: TWideStringList; // here we store everything user has typed in. User can access it by pressing UP/DOWN keys
+@@ -1121,12 +1122,19 @@
+     PlayersFilter: TSpTBXCheckBox;
+     EnableFilters: TSpTBXCheckBox;
+     FiltersButton: TSpTBXButton;
++    OptionsPopupMenu: TSpTBXPopupMenu;
++    mnuPreferences: TSpTBXItem;
++    SpTBXSeparatorItem24: TSpTBXSeparatorItem;
++    mnuLockView: TSpTBXItem;
++    SpTBXSeparatorItem25: TSpTBXSeparatorItem;
++    ViewSubMenu: TSpTBXSubmenuItem;
+     procedure mnuOpenPrivateChatClick(Sender: TObject);
+     procedure mnuSelectBattleClick(Sender: TObject);
+     procedure SpTBXItem1Click(Sender: TObject);
+     procedure mnuManageGroupsClick(Sender: TObject);
+     procedure mnuNewGroupClick(Sender: TObject);
+     procedure AddToGroupItemClick(Sender: TObject);
++    procedure ViewItemClick(Sender: TObject);
+     procedure ResortClientsLists;
+     procedure SortClientInLists(client: TClient);
+     procedure ClientsListBoxClick(Sender: TObject);
+@@ -1275,6 +1283,10 @@
+     procedure SpTBXButton1Click(Sender: TObject);
+     procedure SpTBXItem5Click(Sender: TObject);
+     procedure OnDockHandlerRefresh(Sender: TObject);
++    procedure OptionsPopupMenuInitPopup(Sender: TObject;
++      PopupView: TTBView);
++    procedure mnuPreferencesClick(Sender: TObject);
++    procedure mnuLockViewClick(Sender: TObject);
+   published
+     MainTitleBar: TSpTBXTitleBar;
+     ButtonImageList: TImageList;
+@@ -3463,6 +3475,7 @@
+   AutoScroll := True;
+   LogFile := nil;
+   Self.OnActivate := MyTabSheetOnActivate;
++  Self.OnClose := MyTabSheetOnClose;
+ end;
+ 
+ procedure TMyTabSheet.MyTabSheetOnActivate(Sender:TObject);
+@@ -3471,6 +3484,12 @@
+   MainForm.UpdateClientsListBox;
+ end;
+ 
++
++procedure TMyTabSheet.MyTabSheetOnClose(Sender: TObject; var Action: TCloseAction);
++begin
++  MainForm.TryToCloseTab(Self);
++end;
++
+ destructor TMyTabSheet.Destroy;
+ var
+   i:integer;
+@@ -3625,7 +3644,7 @@
+   MainPCH.ManualDock(MainDockPanel,nil,alClient);
+   MainPCH.Visible := True;
+   MainPCH.Name := 'MainPCH';
+-  ChatTabs.Add(AddTabWindow(LOCAL_TAB, True));
++  ChatTabs.Add(AddTabWindow(LOCAL_TAB, False));
+ 
+   PlayerListPanel.ManualDock(MainDockPanel,nil,alRight);
+   BattlesPanel.ManualDock(MainDockPanel,nil,alBottom);
+@@ -3812,7 +3831,12 @@
+       Misc.TryToAddLog(MainUnit.StartDebugLog,'Loading autojoin settings ...');
+     AutoJoinForm.LoadAutoJoinPresetLists;
+ 
++    initLobbyScript;
++
++    if MainUnit.Debug.Enabled then
++      Misc.TryToAddLog(MainUnit.StartDebugLog,'Loading user docking layout ...');
+     DockHandler.LoadDesktop(TASCLIENT_REGISTRY_KEY+'\Layout');
++    MainForm.mnuLockViewClick(nil);
+ 
+     // small fix for weird tab captions
+     for j:=0 to DockHandler.PageControlHostCount-1 do
+@@ -4018,7 +4042,6 @@
+ 
+ procedure TMainForm.FinaliseStart;
+ begin
+-  initLobbyScript;
+   UpdateFilters(CurrentFilters);
+   if Preferences.EnableSpringDownloader then
+     StartSpringDownloader;
+@@ -4153,9 +4176,18 @@
+   Result := nil;
+ 
+   tmpts := TMyTabSheet.CreateNew(MainForm,0);
+-  tmpts.DragKind := dkDock;
+-  tmpts.DragMode := dmAutomatic;
+ 
++  if mnuLockView.Checked then
++  begin
++    tmpts.DragMode := dmManual;
++    tmpts.DragKind := dkDrag;
++  end
++  else
++  begin
++    tmpts.DragMode := dmAutomatic;
++    tmpts.DragKind := dkDock;
++  end;
++
+   tmpts.ManualDock(MainPCH.PageControl);
+   tmpts.Show;
+   MainPCH.Visible := True;
+@@ -4234,9 +4266,14 @@
+     end;
+   end;
+ 
++  // scroll to bottom
++  tmpre.SelLength := 0;
++  tmpre.SelStart := 0;
++  tmpre.SelStart := Length(tmpre.text);
++
+   // finally:
+-  //if SetFocus then
+-  //  ChangeActivePageAndUpdate(PageControl1, PageControl1.PageCount-1);
++  if SetFocus then
++    ShowAndSetFocus(tmped);
+ 
+   Result := tmpts;
+ end;
+@@ -7192,19 +7229,29 @@
+ begin
+   if TabSheet.Caption = LOCAL_TAB then Exit;
+ 
+-  pc := TTabSheet(TabSheet.Parent).PageControl;
++  if TabSheet.Parent is TTabSheet then
++    pc := TTabSheet(TabSheet.Parent).PageControl;
+ 
+   if TabSheet.Caption[1] = '#' then
+     if Status.ConnectionState = Connected then TryToSendCommand('LEAVE', Copy(TabSheet.Caption, 2, Length(TabSheet.Caption)-1));
+ 
+-  index := TTabSheet(TabSheet.Parent).PageIndex;
+-  pc.ActivePageIndex := Min(pc.PageCount-1, index+1);
+-  if pc.ActivePage.Controls[0] is TMyTabSheet then
+-    lastActiveTab := TMyTabSheet(pc.ActivePage.Controls[0])
++  if TabSheet.Parent is TTabSheet then
++  begin
++    index := TTabSheet(TabSheet.Parent).PageIndex;
++    pc.ActivePageIndex := Min(pc.PageCount-1, index+1);
++    if pc.ActivePage.Controls[0] is TMyTabSheet then
++      lastActiveTab := TMyTabSheet(pc.ActivePage.Controls[0])
++    else
++      lastActiveTab := ChatTabs[0];
++    pc.OnChange(pc);
++  end
+   else
++  begin
+     lastActiveTab := ChatTabs[0];
++    UpdateClientsListBox;
++    ShowAndSetFocus(TWinControl(lastActiveTab.FindComponent('InputEdit')));
++  end;
+   TabSheet.Free;
+-  pc.OnChange(pc); // because it doesn't get triggered automatically
+ end;
+ 
+ 
+@@ -7984,7 +8031,7 @@
+ 
+ procedure TMainForm.OptionsSpeedButtonClick(Sender: TObject);
+ begin
+-  PreferencesForm.ShowModal;
++  
+ end;
+ 
+ procedure TMainForm.SocketChangeState(Sender: TObject; OldState,
+@@ -8188,6 +8235,10 @@
+ 
+ procedure TMainForm.PageControl1Change(Sender: TObject); // this event does not get always triggered when ActivePageIndex change but only when user clicks on new tab or presses CTRL+TAB / CTRL+SHIFT+TAB, but not when we add or remove tabs or change activepageindex manually. That is why we MUST trigger this event everytime we add/remove tab or change activepageindex or activepage!
+ begin
++  try
++    TMyTabSheet(TPageControl(Sender).ActivePage.Controls[0]).OnActivate(TPageControl(Sender).ActivePage.Controls[0]);
++  except
++  end;
+   UpdateClientsListBox;
+ //***  windows.beep(500, 300);
+ 
+@@ -12048,4 +12099,72 @@
+   end;
+ end;
+ 
++procedure TMainForm.OptionsPopupMenuInitPopup(Sender: TObject;
++  PopupView: TTBView);
++var
++  i: integer;
++  l: TList;
++begin
++  l := TList.Create;
++  DockHandler.AddDockedPanelsToList(l);
++
++  ViewSubMenu.Clear;
++  for i:=0 to l.Count-1 do
++  begin
++    ViewSubMenu.Add(TSpTBXItem.Create(ViewSubMenu));
++    with ViewSubMenu.Items[ViewSubMenu.Count-1] as TSpTBXItem do
++    begin
++      if TObject(l[i]) is TPageControlHost then
++        Caption := TPageControl(l[i]).Name
++      else
++        Caption := TPanel(l[i]).Caption;
++      Checked := TPanel(l[i]).Visible;
++      OnClick := ViewItemClick;
++      Tag := Integer(TControl(l[i]));
++    end;
++  end;
++end;
++
++procedure TMainForm.ViewItemClick(Sender: TObject);
++begin
++  TControl(TSpTBXItem(Sender).Tag).Visible := not TControl(TSpTBXItem(Sender).Tag).Visible;
++end;
++
++procedure TMainForm.mnuPreferencesClick(Sender: TObject);
++begin
++  PreferencesForm.ShowModal;
++end;
++
++procedure TMainForm.mnuLockViewClick(Sender: TObject);
++var
++  l: TList;
++  i,j: integer;
++begin
++  l := TList.Create;
++  DockHandler.AddDockedPanelsToList(l);
++  for i:=0 to l.Count-1 do
++    if mnuLockView.Checked then
++    begin
++      try
++        TPanel(l[i]).DragMode := dmManual;
++      except
++      end;
++      try
++        TDockableForm(l[i]).DragKind := dkDrag;
++      except
++      end;
++    end
++    else
++    begin
++      try
++        TPanel(l[i]).DragMode := dmAutomatic;
++      except
++      end;
++      try
++        TDockableForm(l[i]).DragKind := dkDock;
++      except
++      end;
++    end;
++end;
++
+ end.
+
+Modified: Lobby/TASClient/Misc.pas
+===================================================================
+--- Lobby/TASClient/Misc.pas	2009-07-13 04:49:56 UTC (rev 7292)
++++ Lobby/TASClient/Misc.pas	2009-07-13 21:16:11 UTC (rev 7293)
+@@ -2531,7 +2531,7 @@
+   end;
+ 
+   for i:=controlList.Count-1 downto 0 do
+-    if (TWinControl(controlList[i]).ClassType = TTabSheet) or (TWinControl(controlList[i]).ClassType = TMyTabSheet) then
++    if (TWinControl(controlList[i]).ClassType = TTabSheet) then
+       TTabSheet(controlList[i]).PageControl.ActivePage := TTabSheet(controlList[i])
+     else if (TWinControl(controlList[i]).ClassType = TSpTBXTabSheet) then
+       TSpTBXTabSheet(controlList[i]).TabControl.ActivePage := TSpTBXTabSheet(controlList[i])
+
+Modified: Lobby/TASClient/PreferencesFormUnit.pas
+===================================================================
+--- Lobby/TASClient/PreferencesFormUnit.pas	2009-07-13 04:49:56 UTC (rev 7292)
++++ Lobby/TASClient/PreferencesFormUnit.pas	2009-07-13 21:16:11 UTC (rev 7293)
+@@ -461,6 +461,8 @@
+     //try MainForm.Panel3.Height := Misc.GetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\MainForm', 'Splitter2'); except end;
+     try MainForm.EnableFilters.Checked := Misc.GetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\MainForm', 'EnableFilters'); except end;
+     try MainForm.FiltersTabs.ActiveTabIndex := Misc.GetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\MainForm', 'FiltersActiveTab'); except end;
++    try MainForm.mnuLockView.Checked := Misc.GetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\MainForm', 'LockView'); except end;
++
+     try ReplaysForm.FiltersTabs.ActiveTabIndex := Misc.GetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\MainForm', 'ReplayFiltersActiveTab'); except end;
+ 
+     with MainForm.VDTBattles.Header.Columns do
+@@ -580,6 +582,7 @@
+     Misc.SetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\MainForm', 'EnableFilters', rdInteger, Misc.BoolToInt(MainForm.EnableFilters.Checked));
+     Misc.SetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\MainForm', 'FiltersActiveTab', rdInteger, MainForm.FiltersTabs.ActiveTabIndex);
+     Misc.SetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\MainForm', 'ReplayFiltersActiveTab', rdInteger, ReplaysForm.FiltersTabs.ActiveTabIndex);
++    Misc.SetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\MainForm', 'LockView', rdInteger, Misc.BoolToInt(MainForm.mnuLockView.Checked));
+ 
+     with MainForm.VDTBattles.Header.Columns do
+       for i := 0 to Count-1 do
+
+Modified: Lobby/TASClient/Python/api.txt
+===================================================================
+--- Lobby/TASClient/Python/api.txt	2009-07-13 04:49:56 UTC (rev 7292)
++++ Lobby/TASClient/Python/api.txt	2009-07-13 21:16:11 UTC (rev 7293)
+@@ -77,7 +77,7 @@
+ GUI Class
+ ---------
+ 
+-menuName = [HostBattle, Help, HelpWiki, HelpDownload, BattleItem (returning the BattleId), PlayerItem (Returning the Player Name), PlayerItemModeration (Returning the Player Name), BattlePlayerItem (Returning the Player Name), BattleMinimap, BattleAdmin, BattleAdminBalance, BattleAdminRankLimit, BattleLadder, ReplayItem (Returning the Replay index)] 
++menuName = [HostBattle, Options, Help, HelpWiki, HelpDownload, BattleItem (returning the BattleId), PlayerItem (Returning the Player Name), PlayerItemModeration (Returning the Player Name), BattlePlayerItem (Returning the Player Name), BattleMinimap, BattleAdmin, BattleAdminBalance, BattleAdminRankLimit, BattleLadder, ReplayItem (Returning the Replay index)] 
+ 
+ - AddItemToMenu(menuName/SubmenuId,caption,callbackModuleName,callbackFunctionName,argsTuple,name) return itemId
+ 	The selected item id is returned as first argument added to the argsTuple.
+
+Modified: Lobby/TASClient/Python/scripts/layoutProfileManager.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/layoutProfileManager.py	2009-07-13 04:49:56 UTC (rev 7292)
++++ Lobby/TASClient/Python/scripts/layoutProfileManager.py	2009-07-13 21:16:11 UTC (rev 7293)
+@@ -2,7 +2,7 @@
+ import sys, os
+ 
+ basepath = sys.path[1]
+-layoutsDirectory = 'layouts'
++layoutsDirectory = 'layoutScripts'
+ sys.path.insert(1, os.path.join(basepath, layoutsDirectory))
+ 
+ api = lobbyscript.Callback()
+@@ -83,34 +83,26 @@
+ 	global stackMenuIdList
+ 	global defaultLayoutItemId
+ 	global loadedLayout
++	global LayoutMenuId
+ 	
+ 	_loadprofiles()
+ 	readSettings()
+ 	
+-	# add the layout selection button
+-	gui.AddDropDownButton('Layout','LayoutButton','LayoutMenu','MainForm.Panel4')
++	LayoutMenuId = gui.AddSubmenuToMenu('Options','Script layouts')
+ 	
+-	# move the button next to the search button
+-	p = gui.GetControlProperties('MainForm.SearchButton','')
+-	changeComponentProp('MainForm.Panel4.LayoutButton','','ThemeType','thtTBX')
+-	changeComponentProp('MainForm.Panel4.LayoutButton','','Top',p['Top'])
+-	changeComponentProp('MainForm.Panel4.LayoutButton','','Left',p['Left']+p['Width']+7)
+-	changeComponentProp('MainForm.Panel4.LayoutButton','','Width',p['Width'])
+-	changeComponentProp('MainForm.Panel4.LayoutButton','','Height',p['Height'])
+-	
+ 	#add the refresh list button to the menu
+-	gui.AddItemToMenu('MainForm.Panel4.LayoutMenu','Refresh list',(),'layoutProfileManager','onRefreshList')
+-	StackLayoutMenu = gui.AddSubmenuToMenu('MainForm.Panel4.LayoutMenu','Stack layout')
+-	gui.AddSeparatorToMenu('MainForm.Panel4.LayoutMenu')
++	gui.AddItemToMenu(LayoutMenuId,'Refresh list',(),'layoutProfileManager','onRefreshList')
++	StackLayoutMenu = gui.AddSubmenuToMenu(LayoutMenuId,'Stack layout')
++	gui.AddSeparatorToMenu(LayoutMenuId)
+ 	
+ 	#add the default layout to the menu
+-	defaultLayoutItemId = gui.AddItemToMenu('MainForm.Panel4.LayoutMenu','default',(),'layoutProfileManager','onDefaultClick')
++	defaultLayoutItemId = gui.AddItemToMenu(LayoutMenuId,'default',(),'layoutProfileManager','onDefaultClick')
+ 	if len(loadedLayout) == 0:
+ 		gui.SetMenuItemState(defaultLayoutItemId,True,True)
+ 	
+ 	#add the layout to the menus
+ 	for name in layoutProfiles:
+-		menuIdList[name] = gui.AddItemToMenu('MainForm.Panel4.LayoutMenu',name,(name,),'layoutProfileManager','onLayoutClick')
++		menuIdList[name] = gui.AddItemToMenu(LayoutMenuId,name,(name,),'layoutProfileManager','onLayoutClick')
+ 		stackMenuIdList[name] = gui.AddItemToMenu(StackLayoutMenu,name,(name,),'layoutProfileManager','onStackLayoutClick')
+ 		if len(loadedLayout) &gt; 0 and name in loadedLayout:
+ 			gui.SetMenuItemState(menuIdList[name],True,True)
+@@ -136,6 +128,7 @@
+ 	global loadedLayout
+ 	global menuIdList
+ 	global defaultLayoutItemId
++	global LayoutMenuId
+ 	
+ 	UnloadLayouts()
+ 	gui.SetMenuItemState(defaultLayoutItemId,True,True)
+@@ -153,7 +146,7 @@
+ 	
+ 	# reload the menu list
+ 	for name in layoutProfiles:
+-		menuIdList[name] = gui.AddItemToMenu('MainForm.Panel4.LayoutMenu',name,(name,),'layoutProfileManager','onLayoutClick')
++		menuIdList[name] = gui.AddItemToMenu(LayoutMenuId,name,(name,),'layoutProfileManager','onLayoutClick')
+ 		
+ 
+ 
+
+Deleted: Lobby/TASClient/Python/scripts/popupChat.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/popupChat.py	2009-07-13 04:49:56 UTC (rev 7292)
++++ Lobby/TASClient/Python/scripts/popupChat.py	2009-07-13 21:16:11 UTC (rev 7293)
+@@ -1,67 +0,0 @@
+-import lobbyscript
+-
+-api = lobbyscript.Callback()
+-gui = lobbyscript.GUI()
+-
+-controlToDestroy = []
+-
+-formList = dict()
+-
+-def _init():
+-	gui.AddDropDownButton('#','PopupChatWindowBt','PopupChatWindowMenu','MainForm.PageControl1')
+-	gui.AddItemToMenu('MainForm.PageControl1.PopupChatWindowMenu','Popup',(),'popupChat','onPopup')
+-	changeComponentProp('MainForm.PageControl1.PopupChatWindowBt','ThemeType','thtTBX')
+-	changeComponentProp('MainForm.PageControl1.PopupChatWindowBt','Width',20)
+-	changeComponentProp('MainForm.PageControl1.PopupChatWindowBt','Align','alRight')
+-	changeComponentProp('MainForm.PageControl1.PopupChatWindowBt','Align','alNone')
+-	changeComponentProp('MainForm.PageControl1.PopupChatWindowBt','Width',24)
+-	changeComponentProp('MainForm.PageControl1.PopupChatWindowBt','Height',20)
+-	changeComponentProp('MainForm.PageControl1.PopupChatWindowBt','Top',0)
+-	changeComponentProp('MainForm.PageControl1.PopupChatWindowBt','Anchors','akRight,akTop')
+-	
+-def onPopup(id):
+-	cmd_popup('')
+-
+-def changeComponentProp(comp,prop,value):
+-	p = gui.GetControlProperties(comp,'')
+-	p[prop] = value
+-	return gui.SetControlProperties(comp,'',p)
+-
+-def cmd_popup(data):
+-	global controlToDestroy
+-	for ctrl in controlToDestroy:
+-		gui.DeleteControl(ctrl)
+-	controlToDestroy = []
+-		
+-	p = gui.GetControlProperties('MainForm.PageControl1','ActivePage')
+-	
+-	if p['Caption'] != '$Local':
+-		gui.AddForm(p['Name']+'Form',p['Caption'],2)
+-		formList[p['Name']+'Form'] = 'MainForm.PageControl1.'+p['Name']
+-		gui.AddEvent(p['Name']+'Form','OnClose','popupChat','onPopupChatClose')
+-		
+-		changeComponentProp('MainForm.PageControl1.'+p['Name'],'Parent',p['Name']+'Form')
+-		changeComponentProp('MainForm.PageControl1.'+p['Name'],'Align','alClient')
+-		changeComponentProp('MainForm.PageControl1.'+p['Name'],'TabVisible','False')
+-		changeComponentProp('MainForm.PageControl1.'+p['Name'],'Visible','True')
+-		
+-		gui.AddControl('AlwaysOnTopCheckBox',p['Name']+'Form','TSpTBXCheckBox')
+-		changeComponentProp(p['Name']+'Form.AlwaysOnTopCheckBox','Align','alTop')
+-		changeComponentProp(p['Name']+'Form.AlwaysOnTopCheckBox','Caption','Always on top')
+-		gui.AddEvent(p['Name']+'Form.AlwaysOnTopCheckBox','OnClick','popupChat','onAlwayOnTopCheckBoxClick')
+-	
+-	return True
+-	
+-def onAlwayOnTopCheckBoxClick(Sender):
+-	p = gui.GetControlProperties(Sender,'')
+-	if p['Checked'] == 'True':
+-		changeComponentProp(p['Parent'],'FormStyle','fsStayOnTop')
+-	else:
+-		changeComponentProp(p['Parent'],'FormStyle','fsNormal')
+-	
+-def onPopupChatClose(Sender):
+-	changeComponentProp(formList[Sender],'Parent','MainForm.PageControl1')
+-	changeComponentProp(formList[Sender],'TabVisible','True')
+-	changeComponentProp(formList[Sender],'Visible','False')
+-	controlToDestroy.append(Sender)
+-	
+\ No newline at end of file
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2009-07-13 04:49:56 UTC (rev 7292)
++++ Lobby/TASClient/TASClient.dof	2009-07-13 21:16:11 UTC (rev 7293)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=50
+ Release=0
+-Build=642
++Build=643
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.50.0.642
++FileVersion=0.50.0.643
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002062.html">[Taspring-linux-commit] r7292 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002064.html">[Taspring-linux-commit] r7294 - in Lobby/TASClient: .	LobbyComponents/DockPanel
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2063">[ date ]</a>
+              <a href="thread.html#2063">[ thread ]</a>
+              <a href="subject.html#2063">[ subject ]</a>
+              <a href="author.html#2063">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

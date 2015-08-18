@@ -1,0 +1,677 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5420 - trunk/Lobby/TASServer
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5420%20-%20trunk/Lobby/TASServer&In-Reply-To=%3CE1JK1Wm-00071v-NI%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000226.html">
+   <LINK REL="Next"  HREF="000228.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5420 - trunk/Lobby/TASServer</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5420%20-%20trunk/Lobby/TASServer&In-Reply-To=%3CE1JK1Wm-00071v-NI%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5420 - trunk/Lobby/TASServer">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Jan 30 02:14:12 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000226.html">[Taspring-linux-commit] r5419 - trunk/Lobby/TASServer
+</A></li>
+        <LI>Next message: <A HREF="000228.html">[Taspring-linux-commit] r5421 - trunk/Documentation/Lobby
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#227">[ date ]</a>
+              <a href="thread.html#227">[ thread ]</a>
+              <a href="subject.html#227">[ subject ]</a>
+              <a href="author.html#227">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: betalord
+Date: 2008-01-30 02:14:12 +0100 (Wed, 30 Jan 2008)
+New Revision: 5420
+
+Removed:
+   trunk/Lobby/TASServer/DBConnectionPool.java
+Modified:
+   trunk/Lobby/TASServer/BanSystem.java
+   trunk/Lobby/TASServer/DBInterface.java
+   trunk/Lobby/TASServer/TASServer.java
+Log:
+replaced current mysql connection code with Jakarta's commons-dbcp components. This should finally fix the connection timeouts that occurred with previous code. Also added OUTPUTDBDRIVERSTATUS command (for debugging purposes).
+
+If server should be ran in &quot;normal&quot; mode, these jar files should be added to classpath:
+
+commons-dbcp-1.2.2.jar
+commons-pool-1.4.jar
+
+(can be downloaded at <A HREF="http://commons.apache.org/">http://commons.apache.org/</A>)
+
+Modified: trunk/Lobby/TASServer/BanSystem.java
+===================================================================
+--- trunk/Lobby/TASServer/BanSystem.java	2008-01-29 14:27:49 UTC (rev 5419)
++++ trunk/Lobby/TASServer/BanSystem.java	2008-01-30 01:14:12 UTC (rev 5420)
+@@ -9,52 +9,70 @@
+  */
+ 
+ import java.util.*;
++import java.sql.Connection;
++import java.sql.DriverManager;
+ import java.sql.ResultSet;
+ import java.sql.SQLException;
++import java.sql.Statement;
+ import java.sql.Timestamp;
+ 
+ public class BanSystem {
+-	
++
+ 	private static ArrayList&lt;BanEntry&gt; banEntries = new ArrayList&lt;BanEntry&gt;();
+-	
++
+ 	/**
+ 	 * Will retrieve latest ban entries from the database
+ 	 * */
+ 	public static void fetchLatestBanList() {
+ 		System.out.println(&quot;Trying to update ban list ...&quot;);
+-		
++
+ 		banEntries.clear();
+-		
+-		ResultSet rs = TASServer.database.execQuery(&quot;SELECT ExpirationDate, Username, IP_start, IP_end, userID, PublicReason FROM BanEntries WHERE (Enabled=1 AND (ExpirationDate IS NULL OR ExpirationDate &gt; CURRENT_TIMESTAMP))&quot;);
+-		
+-		if (rs == null) {
+-			System.out.println(&quot;Fetching of ban list failed (result set is null). Check your connection with the database!&quot;);
+-			return ;
+-		}
+-		
++
++		String query = &quot;SELECT ExpirationDate, Username, IP_start, IP_end, userID, PublicReason FROM BanEntries WHERE (Enabled=1 AND (ExpirationDate IS NULL OR ExpirationDate &gt; CURRENT_TIMESTAMP))&quot;; 
++
++		Connection conn = null;
++		Statement stmt = null;
++		ResultSet rset = null;
++
+ 		try {
+-			while (rs.next()) {
++			conn = DriverManager.getConnection(TASServer.database.getConnectionURL());
++			stmt = conn.createStatement();
++			rset = stmt.executeQuery(query);
++
++			while (rset.next()) {
+ 				BanEntry ban = new BanEntry();
+-				ban.expireDate = (rs.getTimestamp(&quot;ExpirationDate&quot;) != null ? rs.getTimestamp(&quot;ExpirationDate&quot;).getTime() : 0);
+-				ban.username = rs.getString(&quot;Username&quot;);
+-				ban.IP_start = rs.getLong(&quot;IP_start&quot;);
+-				ban.IP_end = rs.getLong(&quot;IP_end&quot;);
+-				ban.userID = rs.getInt(&quot;userID&quot;);
+-				ban.publicReason = rs.getString(&quot;PublicReason&quot;);
+-				
++				ban.expireDate = (rset.getTimestamp(&quot;ExpirationDate&quot;) != null ? rset.getTimestamp(&quot;ExpirationDate&quot;).getTime() : 0);
++				ban.username = rset.getString(&quot;Username&quot;);
++				ban.IP_start = rset.getLong(&quot;IP_start&quot;);
++				ban.IP_end = rset.getLong(&quot;IP_end&quot;);
++				ban.userID = rset.getInt(&quot;userID&quot;);
++				ban.publicReason = rset.getString(&quot;PublicReason&quot;);
++
+ 				if ((ban.expireDate != 0) &amp;&amp; (ban.expireDate &lt; System.currentTimeMillis()))
+ 					continue; // already expired
+ 				banEntries.add(ban);
+ 			}
++
+ 		} catch (SQLException e) {
+ 			System.out.println(&quot;Error reading ResultSet while reading ban entries!&quot;);
+ 			TASServer.database.printSQLException(e);
+ 			System.out.println(&quot;Error while trying to update ban list!&quot;);
+ 			return ;
+-		}
++		} catch (Exception e) {
++			Clients.sendToAllAdministrators(&quot;SERVERMSG [broadcast to all admins]: Serious problem detected: error while trying to access the database.&quot;);
++			System.out.println(&quot;Error reading ResultSet while reading ban entries! Error message: &quot; + e.getMessage());
++			e.printStackTrace(); //*** DEBUG
++			return ;
++		} finally {
++			// always return connection back to pool, no matter what!
++			try { rset.close(); } catch(Exception e) { }
++			try { stmt.close(); } catch(Exception e) { }
++			try { conn.close(); } catch(Exception e) { }
++		}		
++
+ 		System.out.println(&quot;Ban list successfully updated.&quot;);
+ 	}
+-	
++
+ 	/**
+ 	 * returns null if IP/username/userID is not banned, or corresponding BanEntry object otherwise 
+ 	 * */
+@@ -74,7 +92,7 @@
+ 				if (userID == ban.userID)
+ 					return ban;
+ 			}
+-			
++
+ 			// check if banned by username:
+ 			if (ban.username != null) {
+ 				if (username.equals(ban.username))
+@@ -89,7 +107,7 @@
+ 		}
+ 		return null;
+ 	}
+-	
++
+ 	/**
+ 	 * returns true if this IP is within the given range
+ 	 * */
+@@ -97,7 +115,7 @@
+ 		String[] ip = IP.split(&quot;\\.&quot;);
+ 		String[] start = IP_start.split(&quot;\\.&quot;);
+ 		String[] end = IP_end.split(&quot;\\.&quot;);
+-		
++
+ 		if (Integer.parseInt(ip[0]) &lt; Integer.parseInt(start[0])) return false;
+ 		else if (Integer.parseInt(ip[0]) == Integer.parseInt(start[0]))
+ 			if (Integer.parseInt(ip[1]) &lt; Integer.parseInt(start[1])) return false;
+@@ -107,7 +125,7 @@
+ 					if (Integer.parseInt(ip[3]) &lt; Integer.parseInt(start[3])) return false;
+ 					else if (Integer.parseInt(ip[3]) == Integer.parseInt(start[3]))
+ 						if (Integer.parseInt(ip[4]) &lt; Integer.parseInt(start[4])) return false;
+-		
++
+ 		if (Integer.parseInt(ip[0]) &gt; Integer.parseInt(end[0])) return false;
+ 		else if (Integer.parseInt(ip[0]) == Integer.parseInt(end[0]))
+ 			if (Integer.parseInt(ip[1]) &gt; Integer.parseInt(end[1])) return false;
+@@ -117,16 +135,16 @@
+ 					if (Integer.parseInt(ip[3]) &gt; Integer.parseInt(end[3])) return false;
+ 					else if (Integer.parseInt(ip[3]) == Integer.parseInt(end[3]))
+ 						if (Integer.parseInt(ip[4]) &gt; Integer.parseInt(end[4])) return false;
+-		
++
+ 		return true; // IP is obviously within the range
+ 	}
+-	
++
+ 	/**
+ 	 * returns true if this IP is within the given range
+ 	 * */
+ 	private static boolean checkIPAgainstRange(long IP, long IP_start, long IP_end) {
+ 		return ((IP &gt;= IP_start) &amp;&amp; (IP &lt;= IP_end));
+ 	}
+-	
+-	
++
++
+ }
+
+Deleted: trunk/Lobby/TASServer/DBConnectionPool.java
+===================================================================
+--- trunk/Lobby/TASServer/DBConnectionPool.java	2008-01-29 14:27:49 UTC (rev 5419)
++++ trunk/Lobby/TASServer/DBConnectionPool.java	2008-01-30 01:14:12 UTC (rev 5420)
+@@ -1,166 +0,0 @@
+-/*
+- * Created on 2008.1.26
+- * 
+- */
+-
+-/**
+- * @author Betalord
+- * 
+- * This class has been copied from the following example/tutorial:
+- * <A HREF="http://www.javareference.com/jrexamples/viewexample.jsp?id=41">http://www.javareference.com/jrexamples/viewexample.jsp?id=41</A>
+- * Which has been copied from this tutorial:
+- * <A HREF="http://www.javareference.com/articles/viewarticle.jsp?id=30">http://www.javareference.com/articles/viewarticle.jsp?id=30</A>
+- * 
+- * I did minor modifications to it (for example eliminating closed connections).
+- * 
+- * WARNING: Make sure you return the Connection object back to the pool or else
+- * there will be more and more ghosted connections over time. In order to do this,
+- * enclose any code that retrieves Connection object in try..finally clause.
+- * 
+- */
+-
+-import java.util.*;
+-import java.sql.*;
+-
+-public class DBConnectionPool implements Runnable {
+-
+-	// Number of initial connections to make.
+-	private int m_InitialConnectionCount = 5;    
+-	// A list of available connections for use.
+-	private Vector&lt;Connection&gt; m_AvailableConnections = new Vector&lt;Connection&gt;();
+-	// A list of connections being used currently.
+-	private Vector&lt;Connection&gt; m_UsedConnections = new Vector&lt;Connection&gt;();
+-	// The URL string used to connect to the database
+-	private String m_URLString = null;
+-	// The username used to connect to the database
+-	private String m_UserName = null;    
+-	// The password used to connect to the database
+-	private String m_Password = null;    
+-	// The cleanup thread
+-	private Thread m_CleanupThread = null;
+-
+-
+-	//Constructor
+-	public DBConnectionPool(String urlString, String user, String passwd) throws SQLException {
+-		// Initialize the required parameters
+-		m_URLString = urlString;
+-		m_UserName = user;
+-		m_Password = passwd;
+-
+-		for (int cnt = 0; cnt &lt; m_InitialConnectionCount; cnt++)
+-		{
+-			// Add a new connection to the available list.
+-			m_AvailableConnections.addElement(getConnection());
+-		}
+-
+-		// Create the cleanup thread
+-		m_CleanupThread = new Thread(this);
+-		m_CleanupThread.start();
+-	}    
+-
+-	private Connection getConnection() throws SQLException
+-	{
+-		return DriverManager.getConnection(m_URLString, m_UserName, m_Password);
+-	}
+-
+-	public synchronized Connection checkout() throws SQLException
+-	{
+-		Connection newConnxn = null;
+-
+-		if(m_AvailableConnections.size() == 0)
+-		{
+-			// I'm out of connections. Create one more.
+-			newConnxn = getConnection();
+-			// Add this connection to the &quot;Used&quot; list.
+-			m_UsedConnections.addElement(newConnxn);
+-			// We don't have to do anything else since this is
+-			// a new connection.
+-		}
+-		else
+-		{
+-			// Connections exist !
+-			// Get a connection object
+-			newConnxn = (Connection)m_AvailableConnections.lastElement();
+-			// Remove it from the available list.
+-			m_AvailableConnections.removeElement(newConnxn);
+-			// Add it to the used list.
+-			m_UsedConnections.addElement(newConnxn);            
+-		}        
+-
+-		// Either way, we should have a connection object now.
+-		return newConnxn;
+-	}
+-
+-
+-	public synchronized void checkin(Connection c)
+-	{
+-		checkin(c, true);
+-	}
+-
+-	/** Set 'success' to false to tell the pool that the connection object is invalid. Pool will automatically remove such
+-	 * connection (and create a new one when needed). This is needed because the connection pool can't figure out itself if
+-	 * the connection is valid (it can check isClosed() method, but that won't tell if some fatal error occurred in the connection
+-	 * and is now invalid). */
+-	public synchronized void checkin(Connection c, boolean success) {
+-		if (c == null) return ; // shouldn't really happen!
+-		m_UsedConnections.removeElement(c);
+-
+-		// Remove from used list.
+-		m_UsedConnections.removeElement(c);
+-		// Add to the available list
+-		if (success) {
+-			m_AvailableConnections.addElement(c);        
+-		}
+-	}
+-
+-	public int availableCount()
+-	{
+-		return m_AvailableConnections.size();
+-	}
+-
+-	public void run()
+-	{
+-		try
+-		{
+-			while(true)
+-			{
+-				synchronized(this)
+-				{
+-					// remove any superfluous connections:
+-					while(m_AvailableConnections.size() &gt; m_InitialConnectionCount)
+-					{
+-						// Clean up extra available connections.
+-						Connection c = (Connection)m_AvailableConnections.lastElement();
+-						m_AvailableConnections.removeElement(c);
+-
+-						// Close the connection to the database.
+-						c.close();
+-					}
+-					
+-					// remove any dead connections (this doesn't detect invalid connections judging by the documentation, 
+-					// however it should detect connections that were closed due to some fatal error):
+-					for (int i = 0; i &lt; m_AvailableConnections.size(); i++) {
+-						if (m_AvailableConnections.get(i).isClosed()) {
+-							m_AvailableConnections.remove(i);
+-							i--;
+-							continue;
+-						}
+-					}
+-
+-					// Clean up is done
+-				}
+-
+-				// Now sleep for 1 minute
+-				Thread.sleep(60000 * 1);
+-			}    
+-		}
+-		catch(SQLException sqle)
+-		{
+-			sqle.printStackTrace();
+-		}
+-		catch(Exception e)
+-		{
+-			e.printStackTrace();
+-		}
+-	} 
+-}
+
+Modified: trunk/Lobby/TASServer/DBInterface.java
+===================================================================
+--- trunk/Lobby/TASServer/DBInterface.java	2008-01-29 14:27:49 UTC (rev 5419)
++++ trunk/Lobby/TASServer/DBInterface.java	2008-01-30 01:14:12 UTC (rev 5420)
+@@ -5,29 +5,40 @@
+ 
+ /**
+  * @author Betalord
+- *
++ * 
++ * See this example:
++ * <A HREF="http://svn.apache.org/viewvc/commons/proper/dbcp/trunk/doc/ManualPoolingDriverExample.java?view=markup">http://svn.apache.org/viewvc/commons/proper/dbcp/trunk/doc/ManualPoolingDriverExample.java?view=markup</A>
+  */
+ 
+ import java.sql.*;
++import org.apache.commons.pool.*;
++import org.apache.commons.pool.impl.GenericObjectPool;
++import org.apache.commons.dbcp.*;
+ 
+ public class DBInterface {
+-	private DBConnectionPool connPool;
+ 
+ 	// database information:
+ 	private String url;
+ 	private String username;
+ 	private String password;
+-	
++	private String validationQuery = &quot;show variables like 'version'&quot;; // see <A HREF="http://bugs.sakaiproject.org/jira/browse/SAK-9302;jsessionid=3DFD583309611E0D2F76C1E9BC3FDCB0?page=com.atlassian.jira.plugin.system.issuetabpanels:all-tabpanel">http://bugs.sakaiproject.org/jira/browse/SAK-9302;jsessionid=3DFD583309611E0D2F76C1E9BC3FDCB0?page=com.atlassian.jira.plugin.system.issuetabpanels:all-tabpanel</A>
++	private String connectionPoolName = &quot;TAS_DB_Pool&quot;; // not much important (would only be important if we had more pools)
++
+ 	public DBInterface() {
+ 		// TODO
+ 	}
+-	
++
+ 	public boolean initialize(String url, String username, String password) {
++
++		this.url = url;
++		this.username = username;
++		this.password = password;
++
+ 		// load JDBC driver:
+ 		try {
+ 			// The newInstance() call is a work around for some 
+ 			// broken Java implementations
+-			
++
+ 			Class.forName(&quot;com.mysql.jdbc.Driver&quot;).newInstance();
+ 			System.out.println(&quot;JDBC driver loaded.&quot;);
+ 		} catch (Exception e) {
+@@ -35,95 +46,97 @@
+ 			return false;
+ 		}
+ 
+-		// create connection(s) to database, etc.:
+-		this.url = url;
+-		this.username = username;
+-		this.password = password;
+-		
+-		System.out.println(&quot;Trying to connect to database ...&quot;);
++		// now comes the setting up of the driver etc.:
++
++		// Lets prepare config for our pool ...
++		// Useful links:
++		// <A HREF="http://commons.apache.org/pool/apidocs/org/apache/commons/pool/impl/GenericObjectPool.html">http://commons.apache.org/pool/apidocs/org/apache/commons/pool/impl/GenericObjectPool.html</A> 
++		// <A HREF="http://commons.apache.org/pool/apidocs/org/apache/commons/pool/impl/GenericObjectPool.Config.html">http://commons.apache.org/pool/apidocs/org/apache/commons/pool/impl/GenericObjectPool.Config.html</A>
++		GenericObjectPool.Config config = new GenericObjectPool.Config();
++		config.maxWait = 3000; // never wait more than 3 seconds. After that time, return NoSuchElementException
++		config.timeBetweenEvictionRunsMillis = 30 * 1000; // 30 seconds
++		config.minEvictableIdleTimeMillis = 30 * 60 * 1000; // 30 minutes
++		config.testOnBorrow = true; // check that connection is valid before taking it out from the pool
++		config.testWhileIdle = true; // test connections periodically to ensure they are valid (or else throw them out of the pool)
++
++		//
++		// First, we'll need a ObjectPool that serves as the
++		// actual pool of connections.
++		//
++		// We'll use a GenericObjectPool instance, although
++		// any ObjectPool implementation will suffice.
++		//
++		ObjectPool connectionPool = new GenericObjectPool(null, config);
++
++		//
++		// Next, we'll create a ConnectionFactory that the
++		// pool will use to create Connections.
++		// We'll use the DriverManagerConnectionFactory.
++		//
++		ConnectionFactory connectionFactory = new DriverManagerConnectionFactory(url, username, password);
++
++		//
++		// Now we'll create the PoolableConnectionFactory, which wraps
++		// the &quot;real&quot; Connections created by the ConnectionFactory with
++		// the classes that implement the pooling functionality.
++		//
++		PoolableConnectionFactory poolableConnectionFactory = new PoolableConnectionFactory(connectionFactory,connectionPool,null,validationQuery,false,true);
++
++		//
++		// Finally, we create the PoolingDriver itself...
++		//
++		PoolingDriver driver;
+ 		try {
+-			connPool = new DBConnectionPool(url, username, password); 
+-		} catch (SQLException e) {
+-			printSQLException(e);
++			Class.forName(&quot;org.apache.commons.dbcp.PoolingDriver&quot;);
++			driver = (PoolingDriver) DriverManager.getDriver(&quot;jdbc:apache:commons:dbcp:&quot;);
++		} catch (Exception e) {
+ 			System.out.println(&quot;Unable to connect to database!&quot;);
++			e.printStackTrace();
+ 			return false;
+ 		}
+-		
+-		System.out.println(&quot;Connection to database established.&quot;);
++
++		//
++		// ...and register our pool with it.
++		//
++		driver.registerPool(connectionPoolName,connectionPool);
++
++		//
++		// Now we can just use the connect string &quot;jdbc:apache:commons:dbcp:TAS_DB_Pool&quot;
++		// to access our pool of Connections.
++		//        
++
++		System.out.println(&quot;Connection to database has been set up.&quot;);
+ 		return true;
+ 	}
+-	
+-	
+-	/** returns null if error occurred */
+-	public ResultSet execQuery(String query) {
+-		ResultSet result = execQueryInternal(query);
+-		// if it failed, lets retry it one more time (and then give up):
+-		if (result == null) {
+-			result = execQueryInternal(query);
+-		}
+-		
+-		return result;
++
++	public void printSQLException(SQLException e) {
++		System.out.println(&quot;SQLException: &quot; + e.getMessage());
++		System.out.println(&quot;SQLState: &quot; + e.getSQLState());
++		System.out.println(&quot;VendorError: &quot; + e.getErrorCode());
+ 	}
+-	
+-	/** returns null if error occurred */
+-	private ResultSet execQueryInternal(String query) {
+-		Connection conn = null;
+-		boolean success = true;
++
++	public void printDriverStats() {
++		PoolingDriver driver = null;
++		ObjectPool connectionPool = null;
++		System.out.println(&quot;--------- DB driver status ---------&quot;);
+ 		try {
+-			conn = connPool.checkout();
+-			Statement stmt = conn.createStatement();
+-			ResultSet rs = stmt.executeQuery(query);
+-			return rs;
+-		} catch (SQLException e) {
+-			printSQLException(e);
+-			System.out.println(&quot;SQLException getMessage() string: &quot; + e.getMessage());
+-			success = false;
+-			return null;
++			driver = (PoolingDriver) DriverManager.getDriver(&quot;jdbc:apache:commons:dbcp:&quot;);
++			connectionPool = driver.getConnectionPool(connectionPoolName);
+ 		} catch (Exception e) {
+-			Clients.sendToAllAdministrators(&quot;SERVERMSG [broadcast to all admins]: Serious problem detected: connection to mysql has been broken. Will now attempt to reconnect ...&quot;);
+-			
+-			// add server notification:
+-			ServerNotification sn = new ServerNotification(&quot;Connection to mysql broken&quot;);
+-			sn.addLine(&quot;Serious problem detected: connection to mysql has been broken.&quot;);
+-			sn.addLine(&quot;Exception description:&quot;);
+-			sn.addLine(e.toString());
+-			ServerNotifications.addNotification(sn);
++			System.out.println(&quot;Error while trying to get driver status. Error message: &quot; + e.getMessage());
++		}
+ 
+-			e.printStackTrace(); //*** DEBUG
+-			
+-			success = false;
+-			
+-			return null;
+-		} finally {
+-			// always return connection back to pool, no matter what!
+-			connPool.checkin(conn, success);
+-		}		
++		System.out.println(&quot;NumActive: &quot; + connectionPool.getNumActive());
++		System.out.println(&quot;NumIdle: &quot; + connectionPool.getNumIdle());
++		System.out.println(&quot;------------------------------------&quot;);
+ 	}
+-	
+-	/** use only for those SQL statements that do not return any result.
+-	 * Returns false in case of any error. */
+-	public boolean execUpdate(String query) {
+-		Connection conn = null;
+-		boolean success = true;
+-		try {
+-			conn = connPool.checkout();
+-			Statement stmt = conn.createStatement();
+-			stmt.executeUpdate(query);
+-			return true;
+-		} catch (SQLException e) {
+-			printSQLException(e);
+-			success = false;
+-			return false;
+-		} finally {
+-			// always return connection back to pool, no matter what!
+-			connPool.checkin(conn, success);
+-		}
++
++	public void shutdownDriver() throws Exception {
++		PoolingDriver driver = (PoolingDriver) DriverManager.getDriver(&quot;jdbc:apache:commons:dbcp:&quot;);
++		driver.closePool(connectionPoolName);
+ 	}
+-	
+-	public void printSQLException(SQLException e) {
+-		System.out.println(&quot;SQLException: &quot; + e.getMessage());
+-		System.out.println(&quot;SQLState: &quot; + e.getSQLState());
+-		System.out.println(&quot;VendorError: &quot; + e.getErrorCode());
++
++	public String getConnectionURL() {
++		return &quot;jdbc:apache:commons:dbcp:&quot; + connectionPoolName;
+ 	}
+-
+ }
+
+Modified: trunk/Lobby/TASServer/TASServer.java
+===================================================================
+--- trunk/Lobby/TASServer/TASServer.java	2008-01-29 14:27:49 UTC (rev 5419)
++++ trunk/Lobby/TASServer/TASServer.java	2008-01-30 01:14:12 UTC (rev 5420)
+@@ -410,6 +410,11 @@
+ 		} catch(Exception e) {
+ 			// nevermind
+ 		}
++		try {
++			database.shutdownDriver();
++		} catch (Exception e) {
++			// ignore
++		}
+ 		running = false;
+ 		System.exit(0);
+ 	}
+@@ -1532,6 +1537,13 @@
+ 				while (Clients.getClientsSize() &gt; 0) {
+ 					Clients.killClient(Clients.getClient(0), (reason.length() == 0 ? &quot;Disconnected by server&quot; : &quot;Disconnected by server: &quot; + reason));
+ 				}
++			}
++			else if (commands[0].equals(&quot;OUTPUTDBDRIVERSTATUS&quot;)) {
++				if (client.account.accessLevel() &lt; Account.ADMIN_ACCESS) return false;
++				
++				database.printDriverStats();
++				
++				client.sendLine(&quot;SERVERMSG DB driver status was printed to the console.&quot;);
+ 			}			
+ 			else if (commands[0].equals(&quot;CHANNELS&quot;)) {
+ 				if (client.account.accessLevel() &lt; Account.NORMAL_ACCESS) return false;
+@@ -3102,6 +3114,11 @@
+ 		} catch (Exception e) {
+ 		  // ignore
+ 		}
++		try {
++			database.shutdownDriver();
++		} catch (Exception e) {
++			// ignore
++		}
+ 	    
+ 		// add server notification:
+ 		sn = new ServerNotification(&quot;Server stopped&quot;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000226.html">[Taspring-linux-commit] r5419 - trunk/Lobby/TASServer
+</A></li>
+	<LI>Next message: <A HREF="000228.html">[Taspring-linux-commit] r5421 - trunk/Documentation/Lobby
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#227">[ date ]</a>
+              <a href="thread.html#227">[ thread ]</a>
+              <a href="subject.html#227">[ subject ]</a>
+              <a href="author.html#227">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

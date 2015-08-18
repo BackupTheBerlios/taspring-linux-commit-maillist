@@ -1,0 +1,810 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5554 - trunk/rts/System/creg
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-March/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5554%20-%20trunk/rts/System/creg&In-Reply-To=%3C20080303191617.B7B844679%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000334.html">
+   <LINK REL="Next"  HREF="000336.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5554 - trunk/rts/System/creg</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5554%20-%20trunk/rts/System/creg&In-Reply-To=%3C20080303191617.B7B844679%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5554 - trunk/rts/System/creg">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon Mar  3 20:16:17 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000334.html">[Taspring-linux-commit] r5553 - in trunk/tools/springie/Springie: .	autohost client
+</A></li>
+        <LI>Next message: <A HREF="000336.html">[Taspring-linux-commit] r5555 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#335">[ date ]</a>
+              <a href="thread.html#335">[ thread ]</a>
+              <a href="subject.html#335">[ subject ]</a>
+              <a href="author.html#335">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Victor
+Date: 2008-03-03 20:16:16 +0100 (Mon, 03 Mar 2008)
+New Revision: 5554
+
+Modified:
+   trunk/rts/System/creg/ISerializer.h
+   trunk/rts/System/creg/STL_List.h
+   trunk/rts/System/creg/STL_Map.h
+   trunk/rts/System/creg/STL_Set.h
+   trunk/rts/System/creg/Serializer.cpp
+   trunk/rts/System/creg/Serializer.h
+   trunk/rts/System/creg/VarTypes.cpp
+   trunk/rts/System/creg/creg.cpp
+   trunk/rts/System/creg/creg.h
+Log:
+* Added saving objects structure to savegame.
+* Added SerializeInt for integer types serialization
+
+Modified: trunk/rts/System/creg/ISerializer.h
+===================================================================
+--- trunk/rts/System/creg/ISerializer.h	2008-03-03 00:24:27 UTC (rev 5553)
++++ trunk/rts/System/creg/ISerializer.h	2008-03-03 19:16:16 UTC (rev 5554)
+@@ -16,6 +16,9 @@
+ 		/// Serialize a memory buffer
+ 		virtual void Serialize (void *data, int byteSize) = 0;
+ 
++		/// Serialize integer value - char, short or int
++		virtual void SerializeInt (void *data, int byteSize) = 0;
++
+ 		/// Serialize a pointer to an instance of a creg registered class/struct
+ 		virtual void SerializeObjectPtr (void **ptr, Class *objectClass) = 0;
+ 		
+
+Modified: trunk/rts/System/creg/STL_List.h
+===================================================================
+--- trunk/rts/System/creg/STL_List.h	2008-03-03 00:24:27 UTC (rev 5553)
++++ trunk/rts/System/creg/STL_List.h	2008-03-03 19:16:16 UTC (rev 5554)
+@@ -15,12 +15,12 @@
+ 			T&amp; ct = *(T*)inst;
+ 			if (s-&gt;IsWriting ()) {
+ 				int size = (int)ct.size();
+-				s-&gt;Serialize (&amp;size,sizeof(int));
++				s-&gt;SerializeInt (&amp;size,sizeof(int));
+ 				for (typename T::iterator it = ct.begin(); it!=ct.end(); ++it)
+ 					elemType-&gt;Serialize (s, &amp;*it);
+ 			} else {
+ 				int size;
+-				s-&gt;Serialize (&amp;size, sizeof(int));
++				s-&gt;SerializeInt (&amp;size, sizeof(int));
+ 				ct.resize (size);
+ 				for (typename T::iterator it = ct.begin(); it!=ct.end(); ++it)
+ 					elemType-&gt;Serialize (s, &amp;*it);
+
+Modified: trunk/rts/System/creg/STL_Map.h
+===================================================================
+--- trunk/rts/System/creg/STL_Map.h	2008-03-03 00:24:27 UTC (rev 5553)
++++ trunk/rts/System/creg/STL_Map.h	2008-03-03 19:16:16 UTC (rev 5554)
+@@ -48,14 +48,14 @@
+ 			T&amp; ct = *(T*)instance;
+ 			if (s-&gt;IsWriting ()) {
+ 				int size=ct.size();
+-				s-&gt;Serialize (&amp;size, sizeof(int));
++				s-&gt;SerializeInt (&amp;size, sizeof(int));
+ 				for (iterator i=ct.begin();i!=ct.end();++i)  {
+ 					keyType-&gt;Serialize (s, (void*) &amp;i-&gt;first);
+ 					mappedType-&gt;Serialize (s, &amp;i-&gt;second);
+ 				}
+ 			} else {
+ 				int size;
+-				s-&gt;Serialize (&amp;size, sizeof(int));
++				s-&gt;SerializeInt (&amp;size, sizeof(int));
+ 				for (int a=0;a&lt;size;a++) {
+ 					typename T::value_type pt;
+ 					// only allow copying of the key type
+
+Modified: trunk/rts/System/creg/STL_Set.h
+===================================================================
+--- trunk/rts/System/creg/STL_Set.h	2008-03-03 00:24:27 UTC (rev 5553)
++++ trunk/rts/System/creg/STL_Set.h	2008-03-03 19:16:16 UTC (rev 5554)
+@@ -24,12 +24,12 @@
+ 			T&amp; ct = *(T*)instance;
+ 			if (s-&gt;IsWriting ()) {
+ 				int size=ct.size();
+-				s-&gt;Serialize (&amp;size, sizeof(int));
++				s-&gt;SerializeInt (&amp;size, sizeof(int));
+ 				for (iterator i=ct.begin();i!=ct.end();++i) 
+ 					elemType-&gt;Serialize (s, (void*) &amp;*i);
+ 			} else {
+ 				int size;
+-				s-&gt;Serialize (&amp;size, sizeof(int));
++				s-&gt;SerializeInt (&amp;size, sizeof(int));
+ 				for (int i=0;i&lt;size;i++) {
+ 					typename T::value_type v;
+ 					elemType-&gt;Serialize (s, &amp;v);
+@@ -68,3 +68,4 @@
+ };
+ #endif
+ 
++
+
+Modified: trunk/rts/System/creg/Serializer.cpp
+===================================================================
+--- trunk/rts/System/creg/Serializer.cpp	2008-03-03 00:24:27 UTC (rev 5553)
++++ trunk/rts/System/creg/Serializer.cpp	2008-03-03 19:16:16 UTC (rev 5554)
+@@ -85,6 +85,58 @@
+ 	f.write (s.c_str(),c+1);
+ }
+ 
++static int MakeStrHash(const char *str)
++{
++	int result = 0xDA38E7AB;
++	for (const char *pos=str;*pos;pos++) {
++		int rotcnt = *pos%31;
++		result = (result&lt;&lt;rotcnt) | (result&gt;&gt;(32-rotcnt));
++		result*=(0xE66ED34E+*pos);
++		result^=0x3D7E5ED5;
++		result+=0x1BF942A-*pos;
++	}
++	return result;
++}
++
++void WriteVarSizeUInt(std::ostream *stream, unsigned int val)
++{
++	if (val&lt;0x80) {
++		unsigned char a = val;
++		stream-&gt;write ((char*)&amp;a, sizeof(char));
++	} else if (val&lt;0x4000) {
++		unsigned char a = val&amp;0x7F | 0x80;
++		unsigned char b = val&gt;&gt;7;
++		stream-&gt;write ((char*)&amp;a, sizeof(char));
++		stream-&gt;write ((char*)&amp;b, sizeof(char));
++	} else if (val&lt;0x40000000) {
++		unsigned char a = val&amp;0x7F | 0x80;
++		unsigned char b = (val&gt;&gt;7)&amp;0x7F | 0x80;
++		unsigned short c = swabword(val&gt;&gt;14);
++		stream-&gt;write ((char*)&amp;a, sizeof(char));
++		stream-&gt;write ((char*)&amp;b, sizeof(char));
++		stream-&gt;write ((char*)&amp;c, sizeof(short));
++	} else throw &quot;Cannot save varible-size int&quot;;
++}
++
++void ReadVarSizeUInt(std::istream *stream, unsigned int *buf)
++{
++	unsigned char a;
++	stream-&gt;read ((char*)&amp;a, sizeof(char));
++	if (a&amp;0x80) {
++		unsigned char b;
++		stream-&gt;read ((char*)&amp;b, sizeof(char));
++		if (b&amp;0x80) {
++			unsigned short c;
++			stream-&gt;read ((char*)&amp;c, sizeof(short));
++			*buf = (a&amp;0x7F) | ((b&amp;0x7F)&lt;&lt;7) | (c&lt;&lt;14);
++		} else {
++			*buf = (a&amp;0x7F) | ((b&amp;0x7F)&lt;&lt;7);
++		}
++	} else {
++		*buf = a&amp;0x7F;
++	}
++}
++
+ //-------------------------------------------------------------------------
+ // Base output serializer
+ //-------------------------------------------------------------------------
+@@ -108,6 +160,49 @@
+ 	return 0;
+ }
+ 
++void COutputStreamSerializer::SerializeObject (Class *c, void *ptr, ObjectRef *objr)
++{
++	if (c-&gt;base)
++		SerializeObject(c-&gt;base, ptr, objr);
++
++	ObjectMemberGroup omg;
++	omg.membersClass = c;
++
++	for (uint a=0;a&lt;c-&gt;members.size();a++)
++	{
++		creg::Class::Member* m = c-&gt;members [a];
++		if (m-&gt;flags &amp; CM_NoSerialize)
++			continue;
++
++		ObjectMember om;
++		om.member = m;
++		om.memberId = a;
++		void *memberAddr = ((char*)ptr) + m-&gt;offset;
++		unsigned mstart = stream-&gt;tellp();
++		m-&gt;type-&gt;Serialize (this, memberAddr);
++		unsigned mend = stream-&gt;tellp();
++		om.size = mend-mstart;
++		omg.members.push_back(om);
++		omg.size+=om.size;
++	}
++
++
++	if (c-&gt;serializeProc) {
++		ObjectMember om;
++		om.member = NULL;
++		om.memberId = -1;
++		unsigned mstart = stream-&gt;tellp();
++		_DummyStruct *obj = (_DummyStruct*)ptr;
++		(obj-&gt;*(c-&gt;serializeProc))(*this);
++		unsigned mend = stream-&gt;tellp();
++		om.size = mend-mstart;
++		omg.members.push_back(om);
++		omg.size+=om.size;
++	}
++
++	objr-&gt;memberGroups.push_back(omg);
++}
++
+ void COutputStreamSerializer::SerializeObjectInstance (void *inst, creg::Class *objClass)
+ {
+ 	// register the object, and mark it as embedded if a pointer was already referencing it
+@@ -132,11 +227,10 @@
+ //	printf (&quot;writepos of %s (%d): %d\n&quot;, objClass-&gt;name.c_str(), obj-&gt;id,(int)stream-&gt;tellp());
+ 
+ 	// write an object ID
+-	int id = swabdword (obj-&gt;id);
+-	stream-&gt;write ((char*)&amp;id, sizeof(int));
++	WriteVarSizeUInt(stream,obj-&gt;id);
+ 
+ 	// write the object
+-	objClass-&gt;SerializeInstance (this, inst);
++	SerializeObject(objClass, inst, obj);
+ }
+ 
+ void COutputStreamSerializer::SerializeObjectPtr (void **ptr, creg::Class *objClass)
+@@ -153,12 +247,12 @@
+ 		} else
+ 			id = obj-&gt;id;
+ 
+-		*stream &lt;&lt; (char)1;
+-		id = swabdword(id);
+-		stream-&gt;write ((char*)&amp;id, sizeof(int));
++//		*stream &lt;&lt; (char)1;
++		WriteVarSizeUInt(stream,id);
+ 	} else {
+ 		// null pointer, write a zero
+-		*stream &lt;&lt; (char)0;
++		WriteVarSizeUInt(stream,0);
++//		*stream &lt;&lt; (char)0;
+ 	}
+ }
+ 
+@@ -167,14 +261,34 @@
+ 	stream-&gt;write ((char*)data, byteSize);
+ }
+ 
++void COutputStreamSerializer::SerializeInt (void *data, int byteSize)
++{
++	char buf[4];
++	switch (byteSize) {
++		case 1:{
++			*(char *)buf = *(char *) data;
++			break;
++		}
++		case 2:{
++			*(short *)buf = swabword(*(short *) data);
++			break;
++		}
++		case 4:{
++			*(long *)buf = swabdword(*(long *) data);
++			break;
++		}
++		default: throw &quot;Unknown int type&quot;;
++	}
++	stream-&gt;write ((char*)data, byteSize);
++}
+ 
++
+ struct COutputStreamSerializer::ClassRef
+ {
+ 	int index;
+ 	creg::Class* class_;
+ };
+ 
+-
+ void COutputStreamSerializer::SavePackage (std::ostream *s, void *rootObj, Class *rootObjClass)
+ {
+ 	PackageHeader ph;
+@@ -185,8 +299,12 @@
+ 	stream-&gt;seekp (startOffset + sizeof (PackageHeader));
+ 	ph.objDataOffset = (int)stream-&gt;tellp();
+ 
++	// Insert dummy object with id 0
++	ObjectRef *obj = &amp;*objects.insert(objects.end(),ObjectRef(0,0,true,0));
++	obj-&gt;classIndex = 0;
++
+ 	// Insert the first object that will provide references to everything
+-	ObjectRef *obj = &amp;*objects.insert(objects.end(),ObjectRef(rootObj,objects.size(),false,rootObjClass));
++	obj = &amp;*objects.insert(objects.end(),ObjectRef(rootObj,objects.size(),false,rootObjClass));
+ 	ptrToId[rootObj].push_back(obj);
+ 	pendingObjects.push_back (obj);
+ 
+@@ -201,7 +319,7 @@
+ 		{
+ 			ObjectRef* obj = *i;
+ 			unsigned objstart = stream-&gt;tellp();
+-			obj-&gt;class_-&gt;SerializeInstance (this, obj-&gt;ptr);
++			SerializeObject(obj-&gt;class_, obj-&gt;ptr, obj);
+ 			unsigned objend = stream-&gt;tellp();
+ 			int sz = objend-objstart;
+ 			classSizes[obj-&gt;class_]+=sz;
+@@ -213,6 +331,7 @@
+ 	vector &lt;ClassRef*&gt; classRefs;
+ 	map&lt;int,int&gt; classObjects;
+ 	for (std::list &lt;ObjectRef&gt;::iterator i=objects.begin();i!=objects.end();i++) {
++		if (i-&gt;ptr==NULL) continue; //Object with id 0 - dummy
+ 		//printf (&quot;Obj: %s\n&quot;, oi-&gt;second.class_-&gt;name.c_str());
+ 		map&lt;creg::Class*,ClassRef&gt;::iterator cr = classMap.find (i-&gt;class_);
+ 		if (cr == classMap.end()) {
+@@ -222,6 +341,17 @@
+ 
+ 			classRefs.push_back (pRef);
+ 			i-&gt;classIndex = pRef-&gt;index;
++
++			for (creg::Class *c = i-&gt;class_-&gt;base;c;c = c-&gt;base) {
++				map&lt;creg::Class*,ClassRef&gt;::iterator cr = classMap.find (c);
++				if (cr == classMap.end()) {
++					ClassRef *pRef = &amp;classMap[c];
++					pRef-&gt;index = classRefs.size();
++					pRef-&gt;class_ = c;
++
++					classRefs.push_back (pRef);
++				}
++			}
+ 		} else
+ 			i-&gt;classIndex = cr-&gt;second.index;
+ 		classObjects[i-&gt;classIndex]++;
+@@ -237,21 +367,52 @@
+ 	for (uint a=0;a&lt;classRefs.size();a++) {
+ 		WriteZStr (*stream, classRefs[a]-&gt;class_-&gt;name);
+ 		// write a checksum (unused atm)
+-		int checksum = swabdword(0);
+-		stream-&gt;write ((char*)&amp;checksum, sizeof(int));
++//		int checksum = swabdword(0);
++//		stream-&gt;write ((char*)&amp;checksum, sizeof(int));
++		int cnt = classRefs[a]-&gt;class_-&gt;members.size();
++		WriteVarSizeUInt(stream,cnt);
++		for (int b=0;b&lt;cnt;b++) {
++			creg::Class::Member* m = classRefs[a]-&gt;class_-&gt;members [b];
++			int namehash = swabdword(MakeStrHash(m-&gt;name));
++			std::string typeName = m-&gt;type-&gt;GetName();
++			int typehash1 = MakeStrHash(typeName.c_str());
++			char typehash2 = ((typehash1&gt;&gt;0)&amp;0xFF) ^ ((typehash1&gt;&gt;8)&amp;0xFF) ^ ((typehash1&gt;&gt;16)&amp;0xFF) ^ ((typehash1&gt;&gt;24)&amp;0xFF);
++			stream-&gt;write ((char*)&amp;namehash, sizeof(int));
++			stream-&gt;write ((char*)&amp;typehash2, sizeof(char));
++		}
+ 	}
+ 
+ 	// Write object info
+ 	ph.objTableOffset = (int)stream-&gt;tellp();
+ 	ph.numObjects = objects.size();
+ 	for (std::list &lt;ObjectRef&gt;::iterator i=objects.begin();i!=objects.end();i++) {
+-		PackageObject d;
+-
+-		d.classRefIndex = i-&gt;classIndex;
+-		d.isEmbedded = i-&gt;isEmbedded ? 1 : 0;
+-
+-		d.SwapBytes ();
+-		stream-&gt;write ((char*)&amp;d, sizeof(PackageObject));
++		int classRefIndex = i-&gt;classIndex;
++		char isEmbedded = i-&gt;isEmbedded ? 1 : 0;
++		WriteVarSizeUInt(stream,classRefIndex);
++		stream-&gt;write ((char*)&amp;isEmbedded, sizeof(char));
++		char mgcnt = i-&gt;memberGroups.size();
++		WriteVarSizeUInt(stream,mgcnt);
++		for (std::vector&lt;COutputStreamSerializer::ObjectMemberGroup&gt;::iterator j=i-&gt;memberGroups.begin();j!=i-&gt;memberGroups.end();j++) {
++			map&lt;creg::Class*,ClassRef&gt;::iterator cr = classMap.find(j-&gt;membersClass);
++			if (cr == classMap.end()) throw &quot;Cannot find member class ref&quot;;
++			int cid = cr-&gt;second.index;
++			WriteVarSizeUInt(stream,cid);
++			unsigned int mcnt = j-&gt;members.size();
++			WriteVarSizeUInt(stream,mcnt);
++			bool hasSerializerMember = false;
++			char groupFlags = 0;
++			if (!j-&gt;members.empty() &amp;&amp; j-&gt;members.back().memberId==-1) {
++				groupFlags|=0x01;
++				hasSerializerMember = true;
++			}
++			stream-&gt;write ((char*)&amp;groupFlags, sizeof(char));
++			int midx=0;
++			for (std::vector&lt;COutputStreamSerializer::ObjectMember&gt;::iterator k=j-&gt;members.begin();k!=j-&gt;members.end();k++,midx++) {
++				if (k-&gt;memberId!=midx &amp;&amp; (!hasSerializerMember || k!=j-&gt;members.end()-1))
++					throw &quot;Invalid member id&quot;;
++				WriteVarSizeUInt(stream,k-&gt;size);
++			}
++		}
+ 	}
+ 
+ 	// Calculate a checksum for metadata verification
+@@ -293,25 +454,61 @@
+ 	return false;
+ }
+ 
++void CInputStreamSerializer::SerializeObject (Class *c, void *ptr)
++{
++	if (c-&gt;base)
++		SerializeObject(c-&gt;base, ptr);
++
++	for (uint a=0;a&lt;c-&gt;members.size();a++)
++	{
++		creg::Class::Member* m = c-&gt;members [a];
++		if (m-&gt;flags &amp; CM_NoSerialize)
++			continue;
++
++		void *memberAddr = ((char*)ptr) + m-&gt;offset;
++		m-&gt;type-&gt;Serialize (this, memberAddr);
++	}
++
++	if (c-&gt;serializeProc) {
++		_DummyStruct *obj = (_DummyStruct*)ptr;
++		(obj-&gt;*(c-&gt;serializeProc))(*this);
++	}
++}
++
+ void CInputStreamSerializer::Serialize (void *data, int byteSize)
+ {
+ 	stream-&gt;read ((char*)data, byteSize);
+ }
+ 
++void CInputStreamSerializer::SerializeInt (void *data, int byteSize)
++{
++	stream-&gt;read ((char*)data, byteSize);
++	switch (byteSize) {
++		case 2:{
++			*(short *) data = swabword(*(short *) data);
++			break;
++		}
++		case 4:{
++			*(long *) data = swabdword(*(long *) data);
++			break;
++		}
++		default: throw &quot;Unknown int type&quot;;
++	}
++}
++
+ void CInputStreamSerializer::SerializeObjectPtr (void **ptr, creg::Class *cls)
+ {
+-	char v;
++//	char v;
+ //	printf (&quot;reading ptr %s* at %d\n&quot;, cls-&gt;name.c_str(), (int)stream-&gt;tellg());
+-	*stream &gt;&gt; v;
+-	if (v) {
+-		int id;
+-		stream-&gt;read ((char*)&amp;id, sizeof(int));
+-		id = swabdword (id);
+-
++//	*stream &gt;&gt; v;
++	unsigned int id;
++	ReadVarSizeUInt(stream, &amp;id);
++	if (id) {
+ 		StoredObject &amp;o = objects [id];
+ 		if (o.obj) *ptr = o.obj;
+ 		else {
+ 			// The object is not yet avaiable, so it needs fixing afterwards
++			*ptr = (void*) 1;
+ 			UnfixedPtr ufp;
+ 			ufp.objID = id;
+ 			ufp.ptrAddr = ptr;
+@@ -324,19 +521,19 @@
+ // Serialize an instance of an object embedded into another object
+ void CInputStreamSerializer::SerializeObjectInstance (void *inst, creg::Class *cls)
+ {
+-	int id;
+-	stream-&gt;read((char*)&amp;id, sizeof(int));
++	unsigned int id;
++	ReadVarSizeUInt(stream, &amp;id);
+ 
++	if (id==0)
++		return; // this is old save game and it has not this object - skip it
++
+ //	printf (&quot;readpos of embedded %s (%d): %d\n&quot;, cls-&gt;name.c_str(), id, ((int)stream-&gt;tellg())-4);
+-	StoredObject&amp; o = objects[swabdword(id)];
+-	if (id==0 &amp;&amp; o.obj) {	
+-		return; // this is old save game and it has not this object - skip it
+-	}
++	StoredObject&amp; o = objects[id];
+ 	assert (!o.obj);
+ 	assert (o.isEmbedded);
+ 
+ 	o.obj = inst;
+-	cls-&gt;SerializeInstance (this, inst);
++	SerializeObject(cls, inst);
+ }
+ 
+ void CInputStreamSerializer::AddPostLoadCallback(void (*cb)(void*), void *ud)
+@@ -365,13 +562,17 @@
+ 	for (int a=0;a&lt;ph.numObjClassRefs;a++)
+ 	{
+ 		string className = ReadZStr (*s);
+-		int checksum;
+-		s-&gt;read ((char*)&amp;checksum, sizeof(int));
+-		checksum = swabdword(checksum); // ignored for now
+ 		creg::Class *class_ = System::GetClass (className);
+-
+ 		if (!class_)
+ 			throw std::runtime_error (&quot;Package file contains reference to unknown class &quot; + className);
++		unsigned int cnt;
++		ReadVarSizeUInt(stream, &amp;cnt);
++		for (int b=0;b&lt;cnt;b++) {
++			int namehash;
++			stream-&gt;read ((char*)&amp;namehash, sizeof(int));
++			char typehash;
++			stream-&gt;read ((char*)&amp;typehash, sizeof(char));
++		}
+ 
+ 		classRefs[a] = class_;
+ 	}
+@@ -388,18 +589,32 @@
+ 	objects.resize (ph.numObjects);
+ 	for (int a=0;a&lt;ph.numObjects;a++)
+ 	{
+-		PackageObject d;
+-		s-&gt;read ((char*)&amp;d, sizeof(PackageObject));
+-		d.SwapBytes ();
++		unsigned int classRefIndex;
++		char isEmbedded;
++		ReadVarSizeUInt(stream,&amp;classRefIndex);
++		stream-&gt;read ((char*)&amp;isEmbedded, sizeof(char));
++		unsigned int mgcnt;
++		ReadVarSizeUInt(stream,&amp;mgcnt);
++		for (int b=0;b&lt;mgcnt;b++) {
++			unsigned int cid,mcnt;
++			char groupFlags;
++			ReadVarSizeUInt(stream,&amp;cid);
++			ReadVarSizeUInt(stream,&amp;mcnt);
++			stream-&gt;read ((char*)&amp;groupFlags, sizeof(char));
++			for (int c=0;c&lt;mcnt;c++) {
++				unsigned int size;
++				ReadVarSizeUInt(stream,&amp;size);
++			}
++		}
+ 
+-		if (!d.isEmbedded) {
++		if (!isEmbedded) {
+ 			// Allocate and construct
+-			ClassBinder *binder = classRefs[d.classRefIndex]-&gt;binder;
++			ClassBinder *binder = classRefs[classRefIndex]-&gt;binder;
+ 			void *inst = binder-&gt;class_-&gt;CreateInstance ();
+ 			objects [a].obj = inst;
+ 		} else objects[a].obj = 0;
+-		objects [a].isEmbedded = !!d.isEmbedded;
+-		objects [a].classRef = d.classRefIndex;
++		objects [a].isEmbedded = !!isEmbedded;
++		objects [a].classRef = classRefIndex;
+ 	}
+ 
+ 	int endOffset = s-&gt;tellg();
+@@ -412,7 +627,7 @@
+ 	{
+ 		if (!objects[a].isEmbedded) {
+ 			creg::Class *cls = classRefs[objects[a].classRef];
+-			cls-&gt;SerializeInstance (this, objects[a].obj);
++			SerializeObject(cls, objects[a].obj);
+ 		}
+ 	}
+ 
+@@ -428,7 +643,7 @@
+ 	}
+ 
+ 	// Run post load functions on all objects
+-	for (uint a=0;a&lt;objects.size();a++) {
++	for (uint a=1;a&lt;objects.size();a++) {
+ 		StoredObject&amp; o = objects[a];
+ 		Class *c = classRefs[objects[a].classRef];
+ 		std::vector&lt;Class*&gt; hierarchy;
+@@ -449,8 +664,8 @@
+ 	}
+ 
+ 	// The first object is the root object
+-	root = objects[0].obj;
+-	rootCls = classRefs[objects[0].classRef];
++	root = objects[1].obj;
++	rootCls = classRefs[objects[1].classRef];
+ 
+ 	s-&gt;seekg (endOffset);
+ 	unfixedPointers.clear();
+
+Modified: trunk/rts/System/creg/Serializer.h
+===================================================================
+--- trunk/rts/System/creg/Serializer.h	2008-03-03 00:24:27 UTC (rev 5553)
++++ trunk/rts/System/creg/Serializer.h	2008-03-03 19:16:16 UTC (rev 5554)
+@@ -16,6 +16,16 @@
+ 	class COutputStreamSerializer : public ISerializer
+ 	{
+ 	protected:
++		struct ObjectMember {
++			creg::Class::Member* member;
++			int memberId;
++			int size;
++		};
++		struct ObjectMemberGroup {
++			creg::Class *membersClass;
++			std::vector&lt;COutputStreamSerializer::ObjectMember&gt; members;
++			int size;
++		};
+ 		struct ObjectRef {
+ 			ObjectRef() {
+ 				ptr = 0;
+@@ -31,7 +41,7 @@
+ 				this-&gt;isEmbedded=isEmbedded;
+ 				this-&gt;class_=class_;
+ 			}
+-			ObjectRef(const ObjectRef&amp;src) {
++			ObjectRef(const ObjectRef&amp;src) :memberGroups(src.memberGroups){
+ 				ptr=src.ptr;
+ 				id=src.id;
+ 				classIndex=src.classIndex;
+@@ -42,6 +52,7 @@
+ 			int id, classIndex;
+ 			bool isEmbedded;
+ 			creg::Class *class_;
++			std::vector&lt;COutputStreamSerializer::ObjectMemberGroup&gt; memberGroups;
+ 			bool isThisObject(void *objPtr,creg::Class *objClass,bool objEmbedded) const
+ 			{
+ 				if (ptr!=objPtr) return false;
+@@ -74,6 +85,8 @@
+ 
+ 		ObjectRef* FindObjectRef(void *inst, creg::Class *objClass, bool isEmbedded);
+ 
++		void SerializeObject (Class *c, void *ptr, ObjectRef *objr);
++
+ 	public:
+ 		COutputStreamSerializer ();
+ 
+@@ -97,6 +110,9 @@
+ 		/** @see ISerializer::Serialize */
+ 		void Serialize (void *data, int byteSize);
+ 
++		/** @see ISerializer::SerializeInt */
++		void SerializeInt (void *data, int byteSize);
++
+ 		/** Empty function, only applies to loading */
+ 		void AddPostLoadCallback (void (*cb)(void *d), void *d) {}
+ 	};
+@@ -132,6 +148,7 @@
+ 		};
+ 		std::vector &lt;PostLoadCallback&gt; callbacks;
+ 
++		void SerializeObject (Class *c, void *ptr);
+ 	public:
+ 		CInputStreamSerializer ();
+ 		~CInputStreamSerializer ();
+@@ -148,6 +165,9 @@
+ 		/** @see ISerializer::Serialize */
+ 		void Serialize (void *data, int byteSize);
+ 
++		/** @see ISerializer::SerializeInt */
++		void SerializeInt (void *data, int byteSize);
++
+ 		/** @see ISerializer::AddPostLoadCallback */
+ 		void AddPostLoadCallback (void (*cb)(void *userdata), void *userdata);
+ 
+
+Modified: trunk/rts/System/creg/VarTypes.cpp
+===================================================================
+--- trunk/rts/System/creg/VarTypes.cpp	2008-03-03 00:24:27 UTC (rev 5553)
++++ trunk/rts/System/creg/VarTypes.cpp	2008-03-03 19:16:16 UTC (rev 5554)
+@@ -22,7 +22,7 @@
+ #endif
+ 	case crInt:
+ 	case crUInt:
+-		s-&gt;Serialize (inst, 4);
++		s-&gt;SerializeInt (inst, 4);
+ 		break;
+ #if defined(SYNCDEBUG) || defined(SYNCCHECK)
+ 	case <A HREF="crSyncedSshort://FIXME">crSyncedSshort://FIXME</A>
+@@ -30,7 +30,7 @@
+ #endif
+ 	case crShort:
+ 	case crUShort:
+-		s-&gt;Serialize (inst, 2);
++		s-&gt;SerializeInt (inst, 2);
+ 		break;
+ #if defined(SYNCDEBUG) || defined(SYNCCHECK)
+ 	case <A HREF="crSyncedSchar://FIXME">crSyncedSchar://FIXME</A>
+
+Modified: trunk/rts/System/creg/creg.cpp
+===================================================================
+--- trunk/rts/System/creg/creg.cpp	2008-03-03 00:24:27 UTC (rev 5553)
++++ trunk/rts/System/creg/creg.cpp	2008-03-03 19:16:16 UTC (rev 5554)
+@@ -168,31 +168,6 @@
+ 		}
+ }
+ 
+-void Class::SerializeInstance (ISerializer *s, void *ptr)
+-{
+-	if (base)
+-		base-&gt;SerializeInstance (s, ptr);
+-
+-	for (uint a=0;a&lt;members.size();a++)
+-	{
+-		creg::Class::Member* m = members [a];
+-		if (m-&gt;flags &amp; CM_NoSerialize)
+-			continue;
+-
+-		void *memberAddr = ((char*)ptr) + m-&gt;offset;
+-/*		if (s-&gt;IsWriting ())
+-			printf (&quot;writing %s at %d\n&quot;, m-&gt;name,  (int)((COutputStreamSerializer *)s)-&gt;stream-&gt;tellp ());
+-		else
+-			printf (&quot;reading %s at %d\n&quot;, m-&gt;name,  (int)((CInputStreamSerializer *)s)-&gt;stream-&gt;tellg ());*/
+-		m-&gt;type-&gt;Serialize (s, memberAddr);
+-	}
+-
+-	if (serializeProc) {
+-		_DummyStruct *obj = (_DummyStruct*)ptr;
+-		(obj-&gt;*serializeProc)(*s);
+-	}
+-}
+-
+ void* Class::CreateInstance()
+ {
+ 	void *inst = ::operator new(binder-&gt;size);
+@@ -235,3 +210,4 @@
+ IMemberRegistrator::~IMemberRegistrator() {
+ }
+ 
++
+
+Modified: trunk/rts/System/creg/creg.h
+===================================================================
+--- trunk/rts/System/creg/creg.h	2008-03-03 00:24:27 UTC (rev 5553)
++++ trunk/rts/System/creg/creg.h	2008-03-03 19:16:16 UTC (rev 5554)
+@@ -130,8 +130,6 @@
+ 
+ 		/// Returns true if this class is equal to or derived from other
+ 		bool IsSubclassOf (Class* other);
+-		/// Serialize all the registered members
+-		void SerializeInstance (ISerializer* s, void *instance);
+ 		void DeleteInstance (void *inst);
+ 		/// Allocate an instance of the class
+ 		void* CreateInstance ();
+@@ -180,12 +178,12 @@
+ 			T&amp; ct = *(T*)inst;
+ 			if (s-&gt;IsWriting ()) {
+ 				int size = (int)ct.size();
+-				s-&gt;Serialize (&amp;size,sizeof(int));
++				s-&gt;SerializeInt (&amp;size,sizeof(int));
+ 				for (int a=0;a&lt;size;a++)
+ 					elemType-&gt;Serialize (s, &amp;ct[a]);
+ 			} else {
+ 				int size;
+-				s-&gt;Serialize (&amp;size, sizeof(int));
++				s-&gt;SerializeInt (&amp;size, sizeof(int));
+ 				ct.resize (size);
+ 				for (int a=0;a&lt;size;a++)
+ 					elemType-&gt;Serialize (s, &amp;ct[a]);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000334.html">[Taspring-linux-commit] r5553 - in trunk/tools/springie/Springie: .	autohost client
+</A></li>
+	<LI>Next message: <A HREF="000336.html">[Taspring-linux-commit] r5555 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#335">[ date ]</a>
+              <a href="thread.html#335">[ thread ]</a>
+              <a href="subject.html#335">[ subject ]</a>
+              <a href="author.html#335">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

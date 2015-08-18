@@ -1,0 +1,313 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6275 - trunk/Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6275%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080819171958.2BE5948A3%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001044.html">
+   <LINK REL="Next"  HREF="001046.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6275 - trunk/Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6275%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080819171958.2BE5948A3%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6275 - trunk/Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Aug 19 19:19:58 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001044.html">[Taspring-linux-commit] r6274 - trunk/Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="001046.html">[Taspring-linux-commit] r6276 - in trunk/rts: Lua build/vstudio8
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1045">[ date ]</a>
+              <a href="thread.html#1045">[ thread ]</a>
+              <a href="subject.html#1045">[ subject ]</a>
+              <a href="author.html#1045">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2008-08-19 19:19:56 +0200 (Tue, 19 Aug 2008)
+New Revision: 6275
+
+Modified:
+   trunk/Lobby/TASClient/BattleFormUnit.pas
+   trunk/Lobby/TASClient/ColorPicker.pas
+   trunk/Lobby/TASClient/MainUnit.pas
+   trunk/Lobby/TASClient/MenuFormUnit.dfm
+   trunk/Lobby/TASClient/TASClient.dof
+   trunk/Lobby/TASClient/TASClient.res
+Log:
+* 20 default colors changed to make them all different
+* joining with id = 1 and team = 1 bug fixed, it should also try to pick a color not used
+* hex color value showing the BGR instead of RGB bug fixed
+
+Modified: trunk/Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/BattleFormUnit.pas	2008-08-19 14:30:04 UTC (rev 6274)
++++ trunk/Lobby/TASClient/BattleFormUnit.pas	2008-08-19 17:19:56 UTC (rev 6275)
+@@ -849,6 +849,8 @@
+ begin
+   if not IsBattleActive then Exit; // we are not allowed to call it if we are not participating in a battle
+ 
++  if not Status.BattleStatusRequestReceived then Exit;
++
+   if not AllowBattleStatusUpdate then Exit;
+ 
+   MainForm.TryToSendCommand('MYBATTLESTATUS', IntToStr(GetMyBattleStatus) +  ' ' + IntToStr(TeamColors[MyTeamColorIndex]));
+@@ -890,10 +892,14 @@
+   these values should be reset. }
+ function TBattleForm.FigureOutBestPossibleTeamAllyAndColor(IgnoreMyself: Boolean; var BestTeam, BestAlly, BestColorIndex: Integer): Boolean;
+ var
+-  i: Integer;
++  i,j: Integer;
+   team, ally, color: Integer;
+   found: Boolean;
++  usedInt : TIntegerList;
+ begin
++  usedInt := TIntegerList.Create;
++
++
+   Result := False;
+ 
+   if not IsBattleActive then Exit; // should not happen!
+@@ -902,55 +908,48 @@
+ 
+   // find first available team and ally:
+   team := 0;
+-  found := False;
+-  while not Found do
+-  begin
+-    Found := True;
+-    for i := 0 to BattleState.Battle.Clients.Count - 1 do
+-      if (not IgnoreMyself) or (TClient(BattleState.Battle.Clients[i]).Name &lt;&gt; Status.Username) then // ignore ourselves only if set so by IgnoreMyself
+-        if TClient(BattleState.Battle.Clients[i]).GetMode &lt;&gt; 0 then
+-          if TClient(BattleState.Battle.Clients[i]).GetTeamNo = team then
+-          begin
+-            Inc(team);
+-            Found := False;
+-            Break;
+-          end;
+-    for i := 0 to BattleState.Battle.Bots.Count - 1 do
+-      if TBot(BattleState.Battle.Bots[i]).GetTeamNo = team then
+-      begin
+-        Inc(team);
+-        Found := False;
+-        Break;
+-      end;
+-  end;
+-  ally := team;
++  for i := 0 to BattleState.Battle.Clients.Count - 1 do
++    if (not IgnoreMyself) or (TClient(BattleState.Battle.Clients[i]).Name &lt;&gt; Status.Username) then // ignore ourselves only if set so by IgnoreMyself
++      if TClient(BattleState.Battle.Clients[i]).GetMode &lt;&gt; 0 then
++        usedInt.Add(TClient(BattleState.Battle.Clients[i]).GetTeamNo);
++  for i := 0 to BattleState.Battle.Bots.Count - 1 do
++    usedInt.Add( TBot(BattleState.Battle.Bots[i]).GetTeamNo);
++  for i:=0 to 15 do
++    if usedInt.IndexOf(i) = -1 then
++    begin
++      team := i;
++      ally := team;
++      break;
++    end;
+ 
+   // find first available team color:
+-  color := 0; // color index in TeamColors array
+-  found := False;
+-  while not Found do
++  usedInt.Clear;
++  for i := 0 to BattleState.Battle.Clients.Count - 1 do
++    if (not IgnoreMyself) or (TClient(BattleState.Battle.Clients[i]).Name &lt;&gt; Status.Username) then // ignore ourselves only if set so by IgnoreMyself
++      if TClient(BattleState.Battle.Clients[i]).GetMode &lt;&gt; 0 then
++        usedInt.Add(TClient(BattleState.Battle.Clients[i]).TeamColor);
++  for i := 0 to BattleState.Battle.Bots.Count - 1 do
++    usedInt.Add(TBot(BattleState.Battle.Bots[i]).TeamColor);
++
++  color := -1;
++  i := 0;
++  while (i &lt;= High(TeamColors)) and (color = -1)  do
+   begin
+-    Found := True;
+-    for i := 0 to BattleState.Battle.Clients.Count - 1 do
+-      if (not IgnoreMyself) or (TClient(BattleState.Battle.Clients[i]).Name &lt;&gt; Status.Username) then // ignore ourselves only if set so by IgnoreMyself
+-        if TClient(BattleState.Battle.Clients[i]).GetMode &lt;&gt; 0 then
+-          if TClient(BattleState.Battle.Clients[i]).TeamColor = TeamColors[color] then
+-          begin
+-            Inc(color);
+-            Found := False;
+-            Break;
+-          end;
+-    for i := 0 to BattleState.Battle.Bots.Count - 1 do
+-      if TBot(BattleState.Battle.Bots[i]).TeamColor = TeamColors[color] then
++    j := 0;
++    color := i;
++    while (j &lt; usedInt.Count) do
++    begin
++      if ColorDistance(TeamColors[i],usedInt.Items[j]) &lt; 90 then
+       begin
+-        Inc(color);
+-        Found := False;
+-        Break;
++        color := -1;
++        break;
+       end;
++      Inc(j);
++    end;
++    Inc(i);
+   end;
+-  if color &gt; 9 then color := 0;
+-  if team &gt; MAX_TEAMS-1 then team := 0;
+-  if ally &gt; MAX_TEAMS-1 then ally := 0;
++  if color = -1 then
++    color := 0;
+ 
+   BestTeam := team;
+   BestAlly := ally;
+
+Modified: trunk/Lobby/TASClient/ColorPicker.pas
+===================================================================
+--- trunk/Lobby/TASClient/ColorPicker.pas	2008-08-19 14:30:04 UTC (rev 6274)
++++ trunk/Lobby/TASClient/ColorPicker.pas	2008-08-19 17:19:56 UTC (rev 6275)
+@@ -172,7 +172,7 @@
+     txtG.Refresh;
+     txtB.Text := IntToStr(Misc.ColorToB(ColorPanel.Color));
+     txtB.Refresh;
+-    txtColorHex.Text := IntToHex(ColorPanel.Color,6);
++    txtColorHex.Text := IntToHex(ColorToStandardRGB(ColorPanel.Color),6);
+     txtColorHex.Refresh;
+   end;
+   if FSelectedColorIndex = -1 then Exit; // we haven't selected a color yet
+
+Modified: trunk/Lobby/TASClient/MainUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.pas	2008-08-19 14:30:04 UTC (rev 6274)
++++ trunk/Lobby/TASClient/MainUnit.pas	2008-08-19 17:19:56 UTC (rev 6275)
+@@ -506,23 +506,23 @@
+   $0000FFFF, // yellow
+   $00323232, // black
+   $00DCC898, // ltblue
+-  $0083ABAB,  // tan
+-  $0083ABAB,  // tan
+-  $0083ABAB,  // tan
+-  $0083ABAB,  // tan
+-  $0083ABAB,  // tan
+-  $0083ABAB,  // tan
+-  $0083ABAB,  // tan
+-  $0083ABAB,  // tan
+-  $0083ABAB,  // tan
+-  $0083ABAB,  // tan
+-  $0083ABAB  // tan
++  $00AAAAAA,  // light grey
++  $00666666,  // dark grey
++  $0000FF1A,  // light green
++  $00FFD6F4,  // pink
++  $0000A6FF,  // orange
++  $00FFEE00,
++  $00FF69E3,
++  $0081BD00,
++  $000D0073,
++  $00009191,
++  $000000FF
+   );
+ 
+ const
+   VERSION_NUMBER = '0.38'; // Must be float value! (with a period as a decimal seperator)
+   CHECK_BETA_LOBBY_URL = '<A HREF="http://tasclient.no-ip.org/TASClient_update_v2.txt">http://tasclient.no-ip.org/TASClient_update_v2.txt</A>';
+-  PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER + ' RC1';
++  PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER + ' RC2';
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+   ASSUME_TIMEOUT_INTERVAL = 30000; // in milliseconds. Must be greater than KEEP_ALIVE_INTERVAL! If server hasn't send any data to us within this interval, then we assume timeout occured. It's us who must make sure we get constant replies from server by pinging it.
+   LOCAL_TAB = '$Local'; // caption of main (command) tab window. Must be special so that is different from channel names or user names, that is why there is a &quot;$&quot; in front of it.
+@@ -5389,7 +5389,7 @@
+       else
+       begin
+         BattleForm.SetMyBattleStatus(BattleForm.MySideButton.Tag, False, team, ally, BoolToInt(not JoinAsSpectator));
+-//        MyTeamColorIndex := color;   -&gt; not needed anymore, we should keep last used color anyway
++        MyTeamColorIndex := color;   //-&gt; not needed anymore, we should keep last used color anyway
+       end;
+ 
+       Status.BattleStatusRequestReceived := True;
+@@ -5466,8 +5466,6 @@
+         if not Status.Synced then
+           BattleForm.AddTextToChat('Your mod differs from the host''s one.',Colors.Error,1);
+ 
+-        BattleForm.CheckMapSync;
+-
+         Status.Hashing := False;
+ 
+         if Status.BattleStatusRequestReceived and not Status.BattleStatusRequestSent then
+
+Modified: trunk/Lobby/TASClient/MenuFormUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/MenuFormUnit.dfm	2008-08-19 14:30:04 UTC (rev 6274)
++++ trunk/Lobby/TASClient/MenuFormUnit.dfm	2008-08-19 17:19:56 UTC (rev 6275)
+@@ -1,6 +1,6 @@
+ object MenuForm: TMenuForm
+-  Left = 422
+-  Top = 132
++  Left = 987
++  Top = 299
+   BorderStyle = bsNone
+   Caption = 'MenuForm'
+   ClientHeight = 671
+
+Modified: trunk/Lobby/TASClient/TASClient.dof
+===================================================================
+--- trunk/Lobby/TASClient/TASClient.dof	2008-08-19 14:30:04 UTC (rev 6274)
++++ trunk/Lobby/TASClient/TASClient.dof	2008-08-19 17:19:56 UTC (rev 6275)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=3
+ Release=0
+-Build=406
++Build=407
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TA Spring lobby client
+-FileVersion=0.3.0.406
++FileVersion=0.3.0.407
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: trunk/Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001044.html">[Taspring-linux-commit] r6274 - trunk/Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="001046.html">[Taspring-linux-commit] r6276 - in trunk/rts: Lua build/vstudio8
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1045">[ date ]</a>
+              <a href="thread.html#1045">[ thread ]</a>
+              <a href="subject.html#1045">[ subject ]</a>
+              <a href="author.html#1045">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

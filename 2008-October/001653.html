@@ -1,0 +1,373 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6884 - trunk/rts/System/FileSystem
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6884%20-%20trunk/rts/System/FileSystem&In-Reply-To=%3C20081025133759.E8A6E4742%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001652.html">
+   <LINK REL="Next"  HREF="001654.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6884 - trunk/rts/System/FileSystem</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6884%20-%20trunk/rts/System/FileSystem&In-Reply-To=%3C20081025133759.E8A6E4742%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6884 - trunk/rts/System/FileSystem">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Oct 25 15:37:59 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001652.html">[Taspring-linux-commit] r6883 - in trunk/rts/System/Platform: .	Linux
+</A></li>
+        <LI>Next message: <A HREF="001654.html">[Taspring-linux-commit] r6885 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1653">[ date ]</a>
+              <a href="thread.html#1653">[ thread ]</a>
+              <a href="subject.html#1653">[ subject ]</a>
+              <a href="author.html#1653">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-10-25 15:37:59 +0200 (Sat, 25 Oct 2008)
+New Revision: 6884
+
+Modified:
+   trunk/rts/System/FileSystem/Archive7Zip.cpp
+   trunk/rts/System/FileSystem/ArchiveBuffered.cpp
+   trunk/rts/System/FileSystem/ArchiveBuffered.h
+   trunk/rts/System/FileSystem/ArchiveDir.cpp
+   trunk/rts/System/FileSystem/ArchiveHPI.cpp
+   trunk/rts/System/FileSystem/ArchiveZip.cpp
+Log:
+Don't crash/abort() on invalid handles, but throw exception instead.
+This makes unitsync *VFS methods not crash/abort() when you pass them an invalid handle.
+
+
+
+Modified: trunk/rts/System/FileSystem/Archive7Zip.cpp
+===================================================================
+--- trunk/rts/System/FileSystem/Archive7Zip.cpp	2008-10-25 13:36:28 UTC (rev 6883)
++++ trunk/rts/System/FileSystem/Archive7Zip.cpp	2008-10-25 13:37:59 UTC (rev 6884)
+@@ -1,12 +1,12 @@
+ #include &quot;StdAfx.h&quot;
+-#include &quot;mmgr.h&quot;
+ #include &quot;Archive7Zip.h&quot;
+-
+ #include &lt;algorithm&gt;
++#include &lt;stdexcept&gt;
+ #include &lt;string.h&gt;
+-
+ #include &quot;Util.h&quot;
++#include &quot;mmgr.h&quot;
+ 
++
+ // Most of this code is taken from 7zMain.c
+ 
+ SZ_RESULT SzFileReadImp(void *object, void *buffer, size_t size, size_t *processedSize)
+@@ -96,7 +96,7 @@
+ 
+ 	// Figure out the file index
+ 	std::string fileName = StringToLower(fName);
+-	
++
+ 	if (fileData.find(fileName) == fileData.end())
+ 		return NULL;
+ 
+@@ -105,13 +105,13 @@
+ 	// Get 7zip to decompress it
+ 	size_t offset;
+ 	size_t outSizeProcessed;
+-	
++
+ 	SZ_RESULT res;
+ 
+ 	// We don't really support solid archives anyway, so these can be reset for each file
+-	UInt32 blockIndex = 0xFFFFFFFF; // it can have any value before first call (if outBuffer = 0) 
+-	Byte *outBuffer = 0; // it must be 0 before first call for each new archive. 
+-	size_t outBufferSize = 0;  // it can have any value before first call (if outBuffer = 0) 
++	UInt32 blockIndex = 0xFFFFFFFF; // it can have any value before first call (if outBuffer = 0)
++	Byte *outBuffer = 0; // it must be 0 before first call for each new archive.
++	size_t outBufferSize = 0;  // it can have any value before first call (if outBuffer = 0)
+ 
+ 	res = SzExtract(&amp;archiveStream.InStream, &amp;db, fd.fp, &amp;blockIndex, &amp;outBuffer, &amp;outBufferSize, &amp;offset, &amp;outSizeProcessed, &amp;allocImp, &amp;allocTempImp);
+ 
+@@ -120,7 +120,7 @@
+ 		of = SAFE_NEW ABOpenFile_t;
+ 		of-&gt;pos = 0;
+ 		of-&gt;size = outSizeProcessed;
+-		of-&gt;data = (char*)malloc(of-&gt;size); 
++		of-&gt;data = (char*)malloc(of-&gt;size);
+ 
+ 		memcpy(of-&gt;data, outBuffer + offset, outSizeProcessed);
+ 	}
+@@ -149,6 +149,9 @@
+ 		searchHandles[cur] = fileData.begin();
+ 	}
+ 
++	if (searchHandles.find(cur) == searchHandles.end())
++		throw std::runtime_error(&quot;Unregistered handle. Pass a handle returned by CArchive7Zip::FindFiles.&quot;);
++
+ 	if (searchHandles[cur] == fileData.end()) {
+ 		searchHandles.erase(cur);
+ 		return 0;
+
+Modified: trunk/rts/System/FileSystem/ArchiveBuffered.cpp
+===================================================================
+--- trunk/rts/System/FileSystem/ArchiveBuffered.cpp	2008-10-25 13:36:28 UTC (rev 6883)
++++ trunk/rts/System/FileSystem/ArchiveBuffered.cpp	2008-10-25 13:37:59 UTC (rev 6884)
+@@ -1,11 +1,20 @@
+ #include &quot;StdAfx.h&quot;
++#include &quot;ArchiveBuffered.h&quot;
++#include &lt;string.h&gt;
++#include &lt;stdexcept&gt;
+ #include &quot;mmgr.h&quot;
+ 
+-#include &quot;ArchiveBuffered.h&quot;
+ 
+-#include &lt;string.h&gt;
+-#include &lt;cstdlib&gt;
++inline ABOpenFile_t* CArchiveBuffered::GetOpenFile(int handle)
++{
++	std::map&lt;int, ABOpenFile_t*&gt;::iterator it = fileHandles.find(handle);
+ 
++	if (it == fileHandles.end())
++		throw std::runtime_error(&quot;Unregistered handle. Pass a handle returned by CArchiveBuffered::OpenFile.&quot;);
++
++	return it-&gt;second;
++}
++
+ CArchiveBuffered::CArchiveBuffered(const std::string&amp; name):
+ 	CArchiveBase(name),
+ 	curFileHandle(1)
+@@ -34,7 +43,7 @@
+ 
+ int CArchiveBuffered::ReadFile(int handle, void* buffer, int numBytes)
+ {
+-	ABOpenFile_t* of = fileHandles[handle];
++	ABOpenFile_t* of = GetOpenFile(handle);
+ 
+ 	int maxRead = std::min(numBytes, of-&gt;size - of-&gt;pos);
+ 	memcpy(buffer, of-&gt;data + of-&gt;pos, maxRead);
+@@ -45,20 +54,22 @@
+ 
+ void CArchiveBuffered::CloseFile(int handle)
+ {
+-	free(fileHandles[handle]-&gt;data);
+-	delete fileHandles[handle];
++	ABOpenFile_t* of = GetOpenFile(handle);
++
++	free(of-&gt;data);
++	delete of;
+ 	fileHandles.erase(handle);
+ }
+ 
+ void CArchiveBuffered::Seek(int handle, int pos)
+ {
+-	ABOpenFile_t* of = fileHandles[handle];
++	ABOpenFile_t* of = GetOpenFile(handle);
+ 	of-&gt;pos = std::min(pos, of-&gt;size);
+ }
+ 
+ int CArchiveBuffered::Peek(int handle)
+ {
+-	ABOpenFile_t* of = fileHandles[handle];
++	ABOpenFile_t* of = GetOpenFile(handle);
+ 	if (of-&gt;pos &gt;= of-&gt;size)
+ 		return -1;
+ 	return of-&gt;data[of-&gt;pos];
+@@ -66,11 +77,12 @@
+ 
+ bool CArchiveBuffered::Eof(int handle)
+ {
+-	ABOpenFile_t* of = fileHandles[handle];
++	ABOpenFile_t* of = GetOpenFile(handle);
+ 	return (of-&gt;pos &gt;= of-&gt;size);
+ }
+ 
+ int CArchiveBuffered::FileSize(int handle)
+ {
+-	return fileHandles[handle]-&gt;size;
++	ABOpenFile_t* of = GetOpenFile(handle);
++	return of-&gt;size;
+ }
+
+Modified: trunk/rts/System/FileSystem/ArchiveBuffered.h
+===================================================================
+--- trunk/rts/System/FileSystem/ArchiveBuffered.h	2008-10-25 13:36:28 UTC (rev 6883)
++++ trunk/rts/System/FileSystem/ArchiveBuffered.h	2008-10-25 13:37:59 UTC (rev 6884)
+@@ -19,6 +19,7 @@
+ 	int curFileHandle;
+ 	std::map&lt;int, ABOpenFile_t*&gt; fileHandles;
+ 	virtual ABOpenFile_t* GetEntireFile(const std::string&amp; fileName) = 0;
++	ABOpenFile_t* GetOpenFile(int handle);
+ public:
+ 	CArchiveBuffered(const std::string&amp; name);
+ 	virtual ~CArchiveBuffered(void);
+
+Modified: trunk/rts/System/FileSystem/ArchiveDir.cpp
+===================================================================
+--- trunk/rts/System/FileSystem/ArchiveDir.cpp	2008-10-25 13:36:28 UTC (rev 6883)
++++ trunk/rts/System/FileSystem/ArchiveDir.cpp	2008-10-25 13:37:59 UTC (rev 6884)
+@@ -1,18 +1,21 @@
+ /* Author: Tobi Vollebregt */
+ 
+ #include &quot;StdAfx.h&quot;
++#include &quot;ArchiveDir.h&quot;
+ #include &lt;assert.h&gt;
++#include &lt;stdexcept&gt;
++#include &quot;Platform/FileSystem.h&quot;
++#include &quot;Util.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
+-#include &quot;ArchiveDir.h&quot;
+-#include &quot;Platform/FileSystem.h&quot;
+ 
+-#include &quot;Util.h&quot;
+-
+ inline CFileHandler* CArchiveDir::GetFileHandler(int handle)
+ {
+ 	std::map&lt;int, CFileHandler*&gt;::iterator it = fileHandles.find(handle);
+-	assert(it != fileHandles.end());
++
++	if (it == fileHandles.end())
++		throw std::runtime_error(&quot;Unregistered handle. Pass a handle returned by CArchiveDir::OpenFile.&quot;);
++
+ 	return it-&gt;second;
+ }
+ 
+@@ -20,7 +23,10 @@
+ inline std::vector&lt;std::string&gt;::iterator&amp; CArchiveDir::GetSearchHandle(int handle)
+ {
+ 	std::map&lt;int, std::vector&lt;std::string&gt;::iterator&gt;::iterator it = searchHandles.find(handle);
+-	assert(it != searchHandles.end());
++
++	if (it == searchHandles.end())
++		throw std::runtime_error(&quot;Unregistered handle. Pass a handle returned by CArchiveDir::FindFiles.&quot;);
++
+ 	return it-&gt;second;
+ }
+ 
+
+Modified: trunk/rts/System/FileSystem/ArchiveHPI.cpp
+===================================================================
+--- trunk/rts/System/FileSystem/ArchiveHPI.cpp	2008-10-25 13:36:28 UTC (rev 6883)
++++ trunk/rts/System/FileSystem/ArchiveHPI.cpp	2008-10-25 13:37:59 UTC (rev 6884)
+@@ -1,12 +1,12 @@
+ #include &quot;StdAfx.h&quot;
++#include &quot;ArchiveHPI.h&quot;
+ #include &lt;algorithm&gt;
++#include &lt;stdexcept&gt;
++#include &quot;Util.h&quot;
+ #include &quot;mmgr.h&quot;
++using namespace hpiutil;
+ 
+-#include &quot;ArchiveHPI.h&quot;
+ 
+-#include &quot;Util.h&quot;
+-using namespace hpiutil;
+-
+ CArchiveHPI::CArchiveHPI(const std::string&amp; name):
+ 	CArchiveBuffered(name),
+ 	curSearchHandle(1)
+@@ -67,6 +67,9 @@
+ 		searchHandles[cur] = fileSizes.begin();
+ 	}
+ 
++	if (searchHandles.find(cur) == searchHandles.end())
++		throw std::runtime_error(&quot;Unregistered handle. Pass a handle returned by CArchiveHPI::FindFiles.&quot;);
++
+ 	if (searchHandles[cur] == fileSizes.end()) {
+ 		searchHandles.erase(cur);
+ 		return 0;
+
+Modified: trunk/rts/System/FileSystem/ArchiveZip.cpp
+===================================================================
+--- trunk/rts/System/FileSystem/ArchiveZip.cpp	2008-10-25 13:36:28 UTC (rev 6883)
++++ trunk/rts/System/FileSystem/ArchiveZip.cpp	2008-10-25 13:37:59 UTC (rev 6884)
+@@ -1,11 +1,11 @@
+ #include &quot;StdAfx.h&quot;
++#include &quot;ArchiveZip.h&quot;
+ #include &lt;algorithm&gt;
++#include &lt;stdexcept&gt;
++#include &quot;Util.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
+-#include &quot;ArchiveZip.h&quot;
+ 
+-#include &quot;Util.h&quot;
+-
+ CArchiveZip::CArchiveZip(const std::string&amp; name):
+ 	CArchiveBuffered(name),
+ 	curSearchHandle(1)
+@@ -75,7 +75,7 @@
+ 
+ 	std::string fileName = StringToLower(fName);
+ 
+-	//if (unzLocateFile(zip, fileName.c_str(), 2) != UNZ_OK) 
++	//if (unzLocateFile(zip, fileName.c_str(), 2) != UNZ_OK)
+ 	//	return 0;
+ 
+ 	if (fileData.find(fileName) == fileData.end())
+@@ -90,16 +90,16 @@
+ 	ABOpenFile_t* of = SAFE_NEW ABOpenFile_t;
+ 	of-&gt;pos = 0;
+ 	of-&gt;size = fi.uncompressed_size;
+-	of-&gt;data = (char*)malloc(of-&gt;size); 
++	of-&gt;data = (char*)malloc(of-&gt;size);
+ 
+ 	// If anything fails, we abort
+ 	try {
+ 		if (unzOpenCurrentFile(zip) != UNZ_OK)
+ 			throw zip_exception();
+-		if (unzReadCurrentFile(zip, of-&gt;data, of-&gt;size) &lt; 0) 
++		if (unzReadCurrentFile(zip, of-&gt;data, of-&gt;size) &lt; 0)
+ 			throw zip_exception();
+ 		if (unzCloseCurrentFile(zip) == UNZ_CRCERROR)
+-			throw zip_exception(); 
++			throw zip_exception();
+ 	}
+ 	catch (zip_exception) {
+ 		free(of-&gt;data);
+@@ -118,6 +118,9 @@
+ 		searchHandles[cur] = fileData.begin();
+ 	}
+ 
++	if (searchHandles.find(cur) == searchHandles.end())
++		throw std::runtime_error(&quot;Unregistered handle. Pass a handle returned by CArchiveZip::FindFiles.&quot;);
++
+ 	if (searchHandles[cur] == fileData.end()) {
+ 		searchHandles.erase(cur);
+ 		return 0;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001652.html">[Taspring-linux-commit] r6883 - in trunk/rts/System/Platform: .	Linux
+</A></li>
+	<LI>Next message: <A HREF="001654.html">[Taspring-linux-commit] r6885 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1653">[ date ]</a>
+              <a href="thread.html#1653">[ thread ]</a>
+              <a href="subject.html#1653">[ subject ]</a>
+              <a href="author.html#1653">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,148 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5231 - trunk/Lobby/TASServer/ChanServ
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5231%20-%20trunk/Lobby/TASServer/ChanServ&In-Reply-To=%3CE1JAFWy-0007Kw-Cr%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000038.html">
+   <LINK REL="Next"  HREF="000040.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5231 - trunk/Lobby/TASServer/ChanServ</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5231%20-%20trunk/Lobby/TASServer/ChanServ&In-Reply-To=%3CE1JAFWy-0007Kw-Cr%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5231 - trunk/Lobby/TASServer/ChanServ">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Jan  3 03:10:00 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000038.html">[Taspring-linux-commit] r5230 - trunk/Documentation
+</A></li>
+        <LI>Next message: <A HREF="000040.html">[Taspring-linux-commit] r5232 - trunk/Lobby/TASServer/WebInterface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#39">[ date ]</a>
+              <a href="thread.html#39">[ thread ]</a>
+              <a href="subject.html#39">[ subject ]</a>
+              <a href="author.html#39">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: betalord
+Date: 2008-01-03 03:09:58 +0100 (Thu, 03 Jan 2008)
+New Revision: 5231
+
+Modified:
+   trunk/Lobby/TASServer/ChanServ/RemoteAccessServer.java
+Log:
+added some more helper functions to chanserv
+
+Modified: trunk/Lobby/TASServer/ChanServ/RemoteAccessServer.java
+===================================================================
+--- trunk/Lobby/TASServer/ChanServ/RemoteAccessServer.java	2008-01-02 23:01:23 UTC (rev 5230)
++++ trunk/Lobby/TASServer/ChanServ/RemoteAccessServer.java	2008-01-03 02:09:58 UTC (rev 5231)
+@@ -31,11 +31,28 @@
+  * * LOGINBAD
+  *   Sent by server as a response to a failed TESTLOGIN command.
+  *   
++ * * OK
++ *   Sent by server as a response to commands that don't return anything else. 
++ *   Serves also as positive confirmation (also see &quot;NOTOK&quot; command).
++ *   
++ * * NOTOK
++ *   Sent by server as a response to commands that require some positive/negative response (in this case, the response is negative).
++ *   Also see &quot;OK&quot; command.  
++ *   
++ * * ISONLINE username
++ *   Queries the server trying to find out if user &lt;username&gt; is currently online.
++ *   Returns either OK or NOTOK (OK if user is online, NOTOK otherwise).  
++ *   
+  * * GETACCESS username
+  *   Sent by client trying to figure out access status of some user.
+  *   Returns 1 for &quot;normal&quot;, 2 for &quot;moderator&quot;, 3 for &quot;admin&quot;.
+  *   If user is not found, returns 0 as a result.
+  *   If the operation fails for some reason, socket will simply get disconnected.
++ *
++ * * GENERATEUSERID username
++ *   Will send acquireuserid command to &lt;username&gt;. This command doesn't return anything, you won't
++ *   be notified if the command succeeded or not (but new notification will be added to TASServer if
++ *   specified user responded with a USERID command properly).  
+  *   
+  * * QUERYSERVER {server command}  
+  *   This will forward the given command directly to server and then forward server's response back to the client.
+@@ -65,7 +82,8 @@
+ 		&quot;RELOADUPDATEPROPERTIES&quot;,
+ 		&quot;GETLOBBYVERSION&quot;,
+ 		&quot;UPDATEMOTD&quot;,
+-		&quot;RETRIEVELATESTBANLIST&quot;
++		&quot;RETRIEVELATESTBANLIST&quot;,
++		&quot;GETUSERID&quot;
+ 		};
+ 	
+ 	public Vector threads = new Vector(); // here we keep a list of all currently running client threads
+@@ -251,6 +269,33 @@
+ 				return ; 
+ 			}
+ 			sendLine(&quot;&quot; + (access &amp; 0x7));
++		} else if (params[0].equals(&quot;GENERATEUSERID&quot;)) {
++			if (!identified) return ;
++			if (params.length != 2) return ; // malformed command
++			if (!ChanServ.isConnected()) {
++				kill();
++				return ;
++			}
++			queryTASServer(&quot;FORGEMSG &quot; + params[1] + &quot; ACQUIREUSERID&quot;);
++			sendLine(&quot;OK&quot;);
++		} else if (params[0].equals(&quot;ISONLINE&quot;)) {
++			if (!identified) return ;
++			if (params.length != 2) return ; // malformed command
++			if (!ChanServ.isConnected()) {
++				kill();
++				return ;
++			}
++
++			boolean success = false;
++			synchronized(ChanServ.clients) {
++				for (int i = 0; i &lt; ChanServ.clients.size(); i++) {
++					if (((Client)ChanServ.clients.get(i)).name.equals(params[1])) {
++						success = true;
++						break;
++					}
++				}
++			} // end of synchronized
++			sendLine(success ? &quot;OK&quot; : &quot;NOTOK&quot;);
+ 		} else if (params[0].equals(&quot;QUERYSERVER&quot;)) {
+ 			if (!identified) return ;
+ 			if (params.length &lt; 2) return ; // malformed command
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000038.html">[Taspring-linux-commit] r5230 - trunk/Documentation
+</A></li>
+	<LI>Next message: <A HREF="000040.html">[Taspring-linux-commit] r5232 - trunk/Lobby/TASServer/WebInterface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#39">[ date ]</a>
+              <a href="thread.html#39">[ thread ]</a>
+              <a href="subject.html#39">[ subject ]</a>
+              <a href="author.html#39">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

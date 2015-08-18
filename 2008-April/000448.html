@@ -1,0 +1,488 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5667 - in trunk: rts/Game rts/System	rts/System/Net tools/DedicatedServer
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5667%20-%20in%20trunk%3A%20rts/Game%20rts/System%0A%09rts/System/Net%20tools/DedicatedServer&In-Reply-To=%3C20080405155636.653E446B1%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000447.html">
+   <LINK REL="Next"  HREF="000449.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5667 - in trunk: rts/Game rts/System	rts/System/Net tools/DedicatedServer</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5667%20-%20in%20trunk%3A%20rts/Game%20rts/System%0A%09rts/System/Net%20tools/DedicatedServer&In-Reply-To=%3C20080405155636.653E446B1%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5667 - in trunk: rts/Game rts/System	rts/System/Net tools/DedicatedServer">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Apr  5 17:56:36 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000447.html">[Taspring-linux-commit] r5666 - in trunk/rts: Game Sim/Weapons
+</A></li>
+        <LI>Next message: <A HREF="000449.html">[Taspring-linux-commit] r5668 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#448">[ date ]</a>
+              <a href="thread.html#448">[ thread ]</a>
+              <a href="subject.html#448">[ subject ]</a>
+              <a href="author.html#448">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-04-05 17:56:35 +0200 (Sat, 05 Apr 2008)
+New Revision: 5667
+
+Modified:
+   trunk/rts/Game/SelectedUnits.cpp
+   trunk/rts/System/BaseNetProtocol.cpp
+   trunk/rts/System/Net/Net.h
+   trunk/rts/System/Net/PackPacket.cpp
+   trunk/rts/System/Net/PackPacket.h
+   trunk/tools/DedicatedServer/CMakeLists.txt
+Log:
+* get rid of SendSTLData-templates
+
+
+Modified: trunk/rts/Game/SelectedUnits.cpp
+===================================================================
+--- trunk/rts/Game/SelectedUnits.cpp	2008-04-05 14:15:29 UTC (rev 5666)
++++ trunk/rts/Game/SelectedUnits.cpp	2008-04-05 15:56:35 UTC (rev 5667)
+@@ -11,6 +11,7 @@
+ #include &quot;WaitCommandsAI.h&quot;
+ #include &quot;Rendering/GL/myGL.h&quot;
+ #include &quot;NetProtocol.h&quot;
++#include &quot;Net/PackPacket.h&quot;
+ #include &quot;ExternalAI/GroupHandler.h&quot;
+ #include &quot;ExternalAI/Group.h&quot;
+ #include &quot;ExternalAI/GlobalAIHandler.h&quot;
+@@ -786,8 +787,7 @@
+ }
+ 
+ 
+-void CSelectedUnits::SendCommandsToUnits(const vector&lt;int&gt;&amp; unitIDs,
+-                                         const vector&lt;Command&gt;&amp; commands)
++void CSelectedUnits::SendCommandsToUnits(const vector&lt;int&gt;&amp; unitIDs, const vector&lt;Command&gt;&amp; commands)
+ {
+ 	// NOTE: does not check for invalid unitIDs
+ 
+@@ -795,59 +795,40 @@
+ 		return; // don't waste bandwidth
+ 	}
+ 
+-	int u, c;
+-	unsigned char buf[8192];
+-	const int unitIDCount  = (int)unitIDs.size();
+-	const int commandCount = (int)commands.size();
++	const unsigned unitIDCount  = unitIDs.size();
++	const unsigned commandCount = commands.size();
+ 
+-	if ((unitIDCount &lt;= 0) || (commandCount &lt;= 0)) {
++	if ((unitIDCount == 0) || (commandCount == 0)) {
+ 		return;
+ 	}
+ 
+-	int totalParams = 0;
+-	for (c = 0; c &lt; commandCount; c++) {
++	unsigned totalParams = 0;
++	for (unsigned c = 0; c &lt; commandCount; c++) {
+ 		totalParams += commands[c].params.size();
+ 	}
+ 
+-	int msgLen = 0;
++	unsigned msgLen = 0;
+ 	msgLen += (1 + 2 + 1); // msg type, msg size, player ID
+ 	msgLen += 2; // unitID count
+ 	msgLen += unitIDCount * 2;
+ 	msgLen += 2; // command count
+ 	msgLen += commandCount * (4 + 1 + 2); // id, options, params size
+ 	msgLen += totalParams * 4;
+-	if (msgLen &gt; sizeof(buf)) {
++	if (msgLen &gt; 8192) {
+ 		logOutput.Print(&quot;Discarded oversized NETMSG_AICOMMANDS packet: %i\n&quot;,
+ 		                msgLen);
+ 		return; // drop the oversized packet
+ 	}
+-
+-	unsigned char* ptr = buf;
+-
+-// FIXME -- hackish
+-#define PACK(type, value) *((type*)(ptr)) = value; ptr = ptr + sizeof(type)
+-
+-	PACK(unsigned char,  NETMSG_AICOMMANDS);
+-	PACK(unsigned short, msgLen);
+-	PACK(unsigned char,  gu-&gt;myPlayerNum);
+-
+-	PACK(unsigned short, unitIDCount);
+-	for (u = 0; u &lt; unitIDCount; u++) {
+-		PACK(unsigned short, unitIDs[u]);
++	netcode::PackPacket* packet = new netcode::PackPacket(msgLen);
++	*packet &lt;&lt; static_cast&lt;unsigned char&gt;(NETMSG_AICOMMANDS) &lt;&lt; static_cast&lt;unsigned short&gt;(msgLen) &lt;&lt; static_cast&lt;unsigned char&gt;(gu-&gt;myPlayerNum);
++	
++	*packet &lt;&lt; static_cast&lt;unsigned short&gt;(unitIDCount) &lt;&lt; unitIDs;
++	*packet &lt;&lt; static_cast&lt;unsigned short&gt;(commandCount);
++	for (unsigned i = 0; i &lt; commandCount; ++i) {
++		const Command&amp; cmd = commands[i];
++		*packet &lt;&lt; static_cast&lt;unsigned int&gt;(cmd.id) &lt;&lt; cmd.options &lt;&lt; static_cast&lt;unsigned short&gt;(cmd.params.size()) &lt;&lt; cmd.params;
+ 	}
+ 
+-	PACK(unsigned short, commandCount);
+-	for (c = 0; c &lt; commandCount; c++) {
+-		const Command&amp; cmd = commands[c];
+-		PACK(unsigned int,   cmd.id);
+-		PACK(unsigned char,  cmd.options);
+-		PACK(unsigned short, cmd.params.size());
+-		for (int p = 0; p &lt; (int)cmd.params.size(); p++) {
+-			PACK(float, cmd.params[p]);
+-		}
+-	}
+-
+-	net-&gt;RawSend(buf, msgLen);
+-
++	net-&gt;SendData(packet);
+ 	return;
+ }
+
+Modified: trunk/rts/System/BaseNetProtocol.cpp
+===================================================================
+--- trunk/rts/System/BaseNetProtocol.cpp	2008-04-05 14:15:29 UTC (rev 5666)
++++ trunk/rts/System/BaseNetProtocol.cpp	2008-04-05 15:56:35 UTC (rev 5667)
+@@ -1,8 +1,9 @@
+ #include &quot;BaseNetProtocol.h&quot;
+ 
+ #include &quot;Rendering/InMapDraw.h&quot;
++#include &quot;Net/PackPacket.h&quot;
++using netcode::PackPacket;
+ 
+-
+ CBaseNetProtocol::CBaseNetProtocol()
+ {
+   // RegisterMessage() length parameter:
+@@ -106,7 +107,10 @@
+ 
+ void CBaseNetProtocol::SendPlayerName(uchar myPlayerNum, const std::string&amp; playerName)
+ {
+-	SendSTLData&lt;uchar, std::string&gt;(NETMSG_PLAYERNAME, myPlayerNum, playerName);
++	unsigned size = 3 + playerName.size() +1;
++	PackPacket* packet = new PackPacket(size);
++	*packet &lt;&lt; static_cast&lt;uchar&gt;(NETMSG_PLAYERNAME) &lt;&lt; static_cast&lt;uchar&gt;(size) &lt;&lt; myPlayerNum &lt;&lt; playerName;
++	SendData(packet);
+ }
+ 
+ //  NETMSG_RANDSEED         = 8,  // uint randSeed;
+@@ -137,14 +141,20 @@
+ 
+ void CBaseNetProtocol::SendCommand(uchar myPlayerNum, int id, uchar options, const std::vector&lt;float&gt;&amp; params)
+ {
+-	SendSTLData&lt;uchar, int, uchar, std::vector&lt;float&gt; &gt;(NETMSG_COMMAND, myPlayerNum, id, options, params);
++	unsigned size = 9 + params.size()*sizeof(float);
++	PackPacket* packet = new PackPacket(size);
++	*packet &lt;&lt; static_cast&lt;uchar&gt;(NETMSG_COMMAND) &lt;&lt; static_cast&lt;unsigned short&gt;(size) &lt;&lt; myPlayerNum &lt;&lt; id &lt;&lt; options &lt;&lt; params;
++	SendData(packet);
+ }
+ 
+ //  NETMSG_SELECT           = 12, // uchar myPlayerNum; std::vector&lt;short&gt; selectedUnitIDs;
+ 
+ void CBaseNetProtocol::SendSelect(uchar myPlayerNum, const std::vector&lt;short&gt;&amp; selectedUnitIDs)
+ {
+-	SendSTLData&lt;uchar, std::vector&lt;short&gt; &gt;(NETMSG_SELECT, myPlayerNum, selectedUnitIDs);
++	unsigned size = 4 + selectedUnitIDs.size()*sizeof(short);
++	PackPacket* packet = new PackPacket(size);
++	*packet &lt;&lt; static_cast&lt;uchar&gt;(NETMSG_SELECT) &lt;&lt; static_cast&lt;unsigned short&gt;(size) &lt;&lt; myPlayerNum &lt;&lt; selectedUnitIDs;
++	SendData(packet);
+ }
+ 
+ //  NETMSG_PAUSE            = 13, // uchar playerNum, bPaused;
+@@ -158,8 +168,10 @@
+ 
+ void CBaseNetProtocol::SendAICommand(uchar myPlayerNum, short unitID, int id, uchar options, const std::vector&lt;float&gt;&amp; params)
+ {
+-	SendSTLData&lt;uchar, short, int, uchar, std::vector&lt;float&gt; &gt;(
+-			NETMSG_AICOMMAND, myPlayerNum, unitID, id, options, params);
++	unsigned size = 11 + params.size()*sizeof(float);
++	PackPacket* packet = new PackPacket(size);
++	*packet &lt;&lt; static_cast&lt;uchar&gt;(NETMSG_AICOMMAND) &lt;&lt; static_cast&lt;unsigned short&gt;(size) &lt;&lt; myPlayerNum &lt;&lt; unitID &lt;&lt; id &lt;&lt; options &lt;&lt; params;
++	SendData(packet);
+ }
+ 
+ //  NETMSG_AICOMMANDS       = 15, // uchar myPlayerNum;
+@@ -263,7 +275,10 @@
+ 
+ void CBaseNetProtocol::SendMapDrawPoint(uchar myPlayerNum, short x, short z, const std::string&amp; label)
+ {
+-	SendSTLData&lt;uchar, uchar, short, short, std::string&gt;(NETMSG_MAPDRAW, myPlayerNum, CInMapDraw::NET_POINT, x, z, label);
++	unsigned size = 8 + label.size()+1;
++	PackPacket* packet = new PackPacket(size);
++	*packet &lt;&lt; static_cast&lt;uchar&gt;(NETMSG_MAPDRAW) &lt;&lt; static_cast&lt;uchar&gt;(size) &lt;&lt; myPlayerNum &lt;&lt; static_cast&lt;uchar&gt;(CInMapDraw::NET_POINT) &lt;&lt; x &lt;&lt; z &lt;&lt; label;
++	SendData(packet);
+ }
+ 
+ //  NETMSG_SYNCREQUEST      = 32, // int frameNum;
+@@ -284,7 +299,10 @@
+ 
+ void CBaseNetProtocol::SendSystemMessage(uchar myPlayerNum, const std::string&amp; message)
+ {
+-	SendSTLData&lt;uchar, std::string&gt;(NETMSG_SYSTEMMSG, myPlayerNum, message);
++	unsigned size = 3 + message.size()+1;
++	PackPacket* packet = new PackPacket(size);
++	*packet &lt;&lt; static_cast&lt;uchar&gt;(NETMSG_SYSTEMMSG) &lt;&lt; static_cast&lt;uchar&gt;(size) &lt;&lt; myPlayerNum &lt;&lt; message;
++	SendData(packet);
+ }
+ 
+ //  NETMSG_STARTPOS         = 36, // uchar myPlayerNum, uchar myTeam, ready /*0: not ready, 1: ready, 2: don't update readiness*/; float x, y, z;
+
+Modified: trunk/rts/System/Net/Net.h
+===================================================================
+--- trunk/rts/System/Net/Net.h	2008-04-05 14:15:29 UTC (rev 5666)
++++ trunk/rts/System/Net/Net.h	2008-04-05 15:56:35 UTC (rev 5667)
+@@ -3,7 +3,6 @@
+ 
+ #include &lt;string&gt;
+ #include &lt;vector&gt;
+-#include &lt;boost/scoped_array.hpp&gt;
+ #include &lt;boost/shared_ptr.hpp&gt;
+ #include &lt;boost/scoped_ptr.hpp&gt;
+ 
+@@ -18,17 +17,6 @@
+ 
+ const unsigned NETWORK_BUFFER_SIZE = 40000;
+ 
+-// If we switch to a networking lib and start using a bitstream, we might
+-// as well remove this and use int as size type (because it'd be compressed anyway).
+-template&lt;typename T&gt; struct is_string    {
+-	typedef unsigned short size_type;
+-	enum { TrailingNull = 0 };
+-};
+-template&lt;&gt; struct is_string&lt;std::string&gt; {
+-	typedef unsigned char size_type;
+-	enum { TrailingNull = 1 };
+-};
+-
+ /**
+ @brief Interface for low level networking
+ Low level network connection (basically a fast TCP-like layer on top of UDP)
+@@ -299,86 +287,6 @@
+ 		*(G*)&amp;buf[1 + sizeof(A) + sizeof(B) + sizeof(C) + sizeof(D) + sizeof(E) + sizeof(F)] = g;
+ 		SendData(buf, size);
+ 	}
+-
+-	/** Send a net message without any fixed size parameter but with a variable sized
+-	STL container parameter (e.g. std::string or std::vector). */
+-	template&lt;typename T&gt;
+-	void SendSTLData(const unsigned char msg, const T&amp; s) {
+-		typedef typename T::value_type value_type;
+-		typedef typename is_string&lt;T&gt;::size_type size_type;
+-
+-		size_type size =  1 + sizeof(size_type) + (s.size() + is_string&lt;T&gt;::TrailingNull) * sizeof(value_type);
+-		AssembleBuffer buf( msg, size );
+-		buf.add_scalar(size).add_sequence(s );
+-
+-		SendData(buf.get(), size);
+-	}
+-
+-	/** Send a net message with one fixed size parameter and a variable sized
+-	STL container parameter (e.g. std::string or std::vector). */
+-	template&lt;typename A, typename T&gt;
+-	void SendSTLData(const unsigned char msg, const A a, const T&amp; s) {
+-		typedef typename T::value_type value_type;
+-		typedef typename is_string&lt;T&gt;::size_type size_type;
+-
+-		size_type size =  1 + sizeof(size_type) + sizeof(A) + (s.size() + is_string&lt;T&gt;::TrailingNull) * sizeof(value_type);
+-		AssembleBuffer buf( msg, size );
+-
+-		buf.add_scalar(size).add_scalar(a).add_sequence(s);
+-
+-		SendData(buf.get(), size);
+-	}
+-
+-	template&lt;typename A, typename B, typename T&gt;
+-	void SendSTLData(const unsigned char msg, const A a, const B b, const T&amp; s) {
+-		typedef typename T::value_type value_type;
+-		typedef typename is_string&lt;T&gt;::size_type size_type;
+-
+-		size_type size = 1 + sizeof(size_type) + sizeof(A) + sizeof(B) + (s.size() + is_string&lt;T&gt;::TrailingNull) * sizeof(value_type);
+-		AssembleBuffer buf( msg, size );
+-
+-		buf.add_scalar(size)
+-				.add_scalar(a)
+-				.add_scalar(b)
+-				.add_sequence(s);
+-
+-		SendData(buf.get(), size);
+-	}
+-
+-	template&lt;typename A, typename B, typename C, typename T&gt;
+-	void SendSTLData(const unsigned char msg, A a, B b, C c, const T&amp; s) {
+-		typedef typename T::value_type value_type;
+-		typedef typename is_string&lt;T&gt;::size_type size_type;
+-
+-		size_type size = 1 + sizeof(size_type) + sizeof(A) + sizeof(B) + sizeof(C) + (s.size() + is_string&lt;T&gt;::TrailingNull) * sizeof(value_type);
+-		AssembleBuffer buf( msg, size );
+-
+-		buf.add_scalar(size)
+-		.add_scalar(a)
+-		.add_scalar(b)
+-		.add_scalar(c)
+-		.add_sequence(s);
+-
+-		SendData(buf.get(), size);
+-	}
+-
+-	template&lt;typename A, typename B, typename C, typename D, typename T&gt;
+-	void SendSTLData(const unsigned char msg, A a, B b, C c, D d, const T&amp; s) {
+-		typedef typename T::value_type value_type;
+-		typedef typename is_string&lt;T&gt;::size_type size_type;
+-
+-		size_type size = 1 + sizeof(size_type) + sizeof(A) + sizeof(B) + sizeof(C) + sizeof(D) + (s.size() + is_string&lt;T&gt;::TrailingNull) * sizeof(value_type);
+-
+-		AssembleBuffer buf( msg, size );
+-		buf.add_scalar(size)
+-		.add_scalar(a)
+-		.add_scalar(b)
+-		.add_scalar(c)
+-		.add_scalar(d)
+-		.add_sequence(s);
+-
+-		SendData(buf.get(), size);
+-	}
+ 	
+ private:
+ 	typedef boost::shared_ptr&lt;CConnection&gt; connPtr;
+@@ -403,38 +311,6 @@
+ 	@brief All active connections
+ 	*/
+ 	connVec connections;
+-	
+-	struct AssembleBuffer
+-	{
+-		boost::scoped_array&lt;unsigned char&gt; message_buffer;
+-		size_t index;
+-		AssembleBuffer( const unsigned char msg, size_t buffer_size )
+-			: message_buffer( new unsigned char[buffer_size] ), index(1)
+-		{ message_buffer[0] = msg; }
+-
+-		template&lt;typename T&gt;
+-				AssembleBuffer&amp; add_scalar( T const&amp; obj)
+-		{
+-			* reinterpret_cast&lt;T*&gt;( message_buffer.get() + index) = obj;
+-			index += sizeof(T);
+-			return *this;
+-		}
+-
+-		template&lt;typename T&gt;
+-				AssembleBuffer&amp; add_sequence( T const&amp; obj)
+-		{
+-			typedef typename T::value_type value_type;
+-			value_type * pos = reinterpret_cast&lt;value_type*&gt;( message_buffer.get() + index);
+-			std::copy( obj.begin(), obj.end(), pos );
+-			index += sizeof(value_type)*obj.size() + is_string&lt;T&gt;::TrailingNull;
+-			if( is_string&lt;T&gt;::TrailingNull ) {
+-				pos += obj.size();
+-				*pos = typename T::value_type(0);
+-			}
+-			return *this;
+-		}
+-		unsigned char * get() const { return message_buffer.get(); };
+-	};
+ };
+ 
+ } // namespace netcode
+
+Modified: trunk/rts/System/Net/PackPacket.cpp
+===================================================================
+--- trunk/rts/System/Net/PackPacket.cpp	2008-04-05 14:15:29 UTC (rev 5666)
++++ trunk/rts/System/Net/PackPacket.cpp	2008-04-05 15:56:35 UTC (rev 5667)
+@@ -9,8 +9,10 @@
+ 
+ PackPacket&amp; PackPacket::operator&lt;&lt;(const std::string&amp; text)
+ {
++	unsigned size = text.size()+1;
++	assert(size + pos &lt;= length);
+ 	strcpy((char*)(data+pos), text.c_str());
+-	pos += text.size()+1;
++	pos += size;
+ 	return *this;
+ }
+ 
+
+Modified: trunk/rts/System/Net/PackPacket.h
+===================================================================
+--- trunk/rts/System/Net/PackPacket.h	2008-04-05 14:15:29 UTC (rev 5666)
++++ trunk/rts/System/Net/PackPacket.h	2008-04-05 15:56:35 UTC (rev 5667)
+@@ -2,6 +2,8 @@
+ #define PACK_PACKET_H
+ 
+ #include &lt;string&gt;
++#include &lt;vector&gt;
++#include &lt;assert.h&gt;
+ 
+ #include &quot;RawPacket.h&quot;
+ 
+@@ -15,11 +17,21 @@
+ 	
+ 	template &lt;typename T&gt;
+ 	PackPacket&amp; operator&lt;&lt;(const T&amp; t) {
++		unsigned size = sizeof(T);
++		assert(size + pos &lt;= length);
+ 		*(T*)(data+pos) = t;
+-		pos += sizeof(T);
++		pos += size;
+ 		return *this;
+ 	};
+ 	PackPacket&amp; operator&lt;&lt;(const std::string&amp; text);
++	template &lt;typename element&gt;
++	PackPacket&amp; operator&lt;&lt;(const std::vector&lt;element&gt;&amp; vec) {
++		unsigned size = vec.size()* sizeof(element);
++		assert(size + pos &lt;= length);
++		memcpy((data+pos), (void*)(&amp;vec[0]), size);
++		pos += size;
++		return *this;
++	};
+ 	
+ private:
+ 	unsigned pos;
+
+Modified: trunk/tools/DedicatedServer/CMakeLists.txt
+===================================================================
+--- trunk/tools/DedicatedServer/CMakeLists.txt	2008-04-05 14:15:29 UTC (rev 5666)
++++ trunk/tools/DedicatedServer/CMakeLists.txt	2008-04-05 15:56:35 UTC (rev 5667)
+@@ -18,7 +18,7 @@
+ 	INCLUDE_DIRECTORIES(${BOOST_INCLUDE_DIR})
+ ENDIF (MINGW)
+ 
+-SET(CMAKE_CXX_FLAGS_DEBUG &quot;-g -O1 -Wall -DDEBUG -D_DEBUG&quot;)
++SET(CMAKE_CXX_FLAGS_DEBUG &quot;-ggdb3 -Wall -DDEBUG -D_DEBUG&quot;)
+ SET(CMAKE_CXX_FLAGS_RELEASE &quot;-O2 -march=i686 -msse -DNDEBUG&quot;)
+ 
+ ADD_DEFINITIONS( -D_SZ_ONE_DIRECTORY -DNO_AVI -DDEDICATED -DSYNCCHECK )
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000447.html">[Taspring-linux-commit] r5666 - in trunk/rts: Game Sim/Weapons
+</A></li>
+	<LI>Next message: <A HREF="000449.html">[Taspring-linux-commit] r5668 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#448">[ date ]</a>
+              <a href="thread.html#448">[ thread ]</a>
+              <a href="subject.html#448">[ subject ]</a>
+              <a href="author.html#448">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

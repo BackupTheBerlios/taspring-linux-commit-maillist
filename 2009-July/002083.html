@@ -1,0 +1,189 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7313 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7313%20-%20Lobby/TASClient&In-Reply-To=%3C20090731023113.4E9F7D9DAA%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002082.html">
+   <LINK REL="Next"  HREF="002084.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7313 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7313%20-%20Lobby/TASClient&In-Reply-To=%3C20090731023113.4E9F7D9DAA%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7313 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Jul 31 04:31:13 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002082.html">[Taspring-linux-commit] r7312 - in Lobby/TASClient: . Python/engine
+</A></li>
+        <LI>Next message: <A HREF="002084.html">[Taspring-linux-commit] r7314 - in Lobby/TASClient: .	Python/scripts Python/scripts/subf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2083">[ date ]</a>
+              <a href="thread.html#2083">[ thread ]</a>
+              <a href="subject.html#2083">[ subject ]</a>
+              <a href="author.html#2083">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2009-07-31 04:31:12 +0200 (Fri, 31 Jul 2009)
+New Revision: 7313
+
+Modified:
+   Lobby/TASClient/LobbyScriptUnit.pas
+   Lobby/TASClient/SpringDownloaderFormUnit.pas
+Log:
+
+
+Modified: Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- Lobby/TASClient/LobbyScriptUnit.pas	2009-07-30 20:38:15 UTC (rev 7312)
++++ Lobby/TASClient/LobbyScriptUnit.pas	2009-07-31 02:31:12 UTC (rev 7313)
+@@ -161,6 +161,7 @@
+       pyCurrentBattle: PPyObject;
+       pyServers: PPyObject;
+       CS: TCriticalSection;
++      tstate: PPyThreadState;
+ 
+     protected
+       function GetPyBattle(Battle: TBattle): PPyObject;
+@@ -448,23 +449,6 @@
+ begin
+   with GetPythonEngine do
+   begin
+-    for i:=0 to pyGroupList.Count-1 do
+-      Py_XDECREF(pyGroupList[i]);
+-
+-    for i:=0 to pyBattleList.Count-1 do
+-      Py_XDECREF(pyBattleList[i]);
+-
+-    for i:=0 to pyUserList.Count-1 do
+-      for j:=1 to userRefCountList.Items[i] do
+-        Py_XDECREF(pyUserList[i]);
+-
+-
+-    pyUserList.Clear;
+-    pyBattleList.Clear;
+-    pyGroupList.Clear;
+-    userRefCountList.Clear;
+-
+-
+     // make the python user list
+     for i:=0 to AllClients.Count-1 do
+     begin
+@@ -873,9 +857,21 @@
+ procedure TCallback.LockCallback;
+ begin
+   CS.Enter;
++  GetPythonEngine.PyEval_ReleaseThread(MainThreadState);
++  with GetPythonEngine do
++  begin
++    tstate := PyThreadState_New(MainInterpreterState);
++    PyEval_AcquireThread(tstate);
++  end;
+ end;
+ procedure TCallback.UnlockCallback;
+ begin
++  with GetPythonEngine do
++  begin
++    PyEval_ReleaseThread(tstate);
++    PyThreadState_Delete(tstate);
++  end;
++  GetPythonEngine.PyEval_AcquireThread(MainThreadState);
+   CS.Leave;
+ end;
+ 
+@@ -895,7 +891,27 @@
+ end;
+ 
+ procedure TCallback.ClearRefs;
++var
++  i,j: integer;
+ begin
++  Exit;
++  with GetPythonEngine do
++  begin
++    for i:=0 to pyGroupList.Count-1 do
++      Py_XDECREF(pyGroupList[i]);
++
++    for i:=0 to pyBattleList.Count-1 do
++      Py_XDECREF(pyBattleList[i]);
++
++    for i:=0 to pyUserList.Count-1 do
++      for j:=1 to userRefCountList.Items[i] do
++        Py_XDECREF(pyUserList[i]);
++
++    pyUserList.Clear;
++    pyBattleList.Clear;
++    pyGroupList.Clear;
++    userRefCountList.Clear;
++  end;
+   SafeDecRef(pyGroups);
+   SafeDecRef(pyBattles);
+   SafeDecRef(pyUsers);
+@@ -1101,7 +1117,10 @@
+       with TMapItem(MapListForm.Maps[i]) do
+       begin
+         pyMap := PyDict_New();
++        if Pos('oasis',LowerCase(TMapItem(MapListForm.Maps[i]).MapName)) &gt; 0 then
++          TMapItem(MapListForm.Maps[i]).MapName := TMapItem(MapListForm.Maps[i]).MapName;
+ 
++
+         PyDict_SetItemStringDecRef( pyMap, 'Hash', MapHash );
+         PyDict_SetItemStringDecRef( pyMap, 'MyGrade', MyGrade );
+         PyDict_SetItemStringDecRef( pyMap, 'GlobalGrade', GlobalGrade );
+
+Modified: Lobby/TASClient/SpringDownloaderFormUnit.pas
+===================================================================
+--- Lobby/TASClient/SpringDownloaderFormUnit.pas	2009-07-30 20:38:15 UTC (rev 7312)
++++ Lobby/TASClient/SpringDownloaderFormUnit.pas	2009-07-31 02:31:12 UTC (rev 7313)
+@@ -159,9 +159,11 @@
+   Application.CreateForm(TSpringDownloaderForm, Result);
+   Result.StartDownload('MAP',mapHash,mapName);
+   cancel := false;
+-  AcquireMainThread;
+-  try if not Preferences.ScriptsDisabled then cancel := handlers.onDownloadMapStart(LobbyScriptUnit.GetStringFromComponent(Result),mapHash,mapName); except end;
+-  ReleaseMainThread;
++  if AcquireMainThread then
++  begin
++    try if not Preferences.ScriptsDisabled then cancel := handlers.onDownloadMapStart(LobbyScriptUnit.GetStringFromComponent(Result),mapHash,mapName); except end;
++    ReleaseMainThread;
++  end;
+   if cancel then
+     Result.CancelButtonClick(nil)
+   else
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002082.html">[Taspring-linux-commit] r7312 - in Lobby/TASClient: . Python/engine
+</A></li>
+	<LI>Next message: <A HREF="002084.html">[Taspring-linux-commit] r7314 - in Lobby/TASClient: .	Python/scripts Python/scripts/subf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2083">[ date ]</a>
+              <a href="thread.html#2083">[ thread ]</a>
+              <a href="subject.html#2083">[ subject ]</a>
+              <a href="author.html#2083">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

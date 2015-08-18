@@ -1,0 +1,343 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6724 - in trunk/rts/Sim: MoveTypes Units	Units/CommandAI
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6724%20-%20in%20trunk/rts/Sim%3A%20MoveTypes%20Units%0A%09Units/CommandAI&In-Reply-To=%3C20081014155156.B31E64730%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001492.html">
+   <LINK REL="Next"  HREF="001494.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6724 - in trunk/rts/Sim: MoveTypes Units	Units/CommandAI</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6724%20-%20in%20trunk/rts/Sim%3A%20MoveTypes%20Units%0A%09Units/CommandAI&In-Reply-To=%3C20081014155156.B31E64730%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6724 - in trunk/rts/Sim: MoveTypes Units	Units/CommandAI">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Oct 14 17:51:56 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001492.html">[Taspring-linux-commit] r6723 - trunk/rts/System/Net
+</A></li>
+        <LI>Next message: <A HREF="001494.html">[Taspring-linux-commit] r6725 - in branches/caiinterface:	AI/Interfaces/C AI/Skirmish/AAI AI/Skirmish/KAIK	Documentation game/AI/AAI game/AI/AAI/cfg/mod rts/ExternalAI	rts/Sim/MoveTypes rts/Sim/Units rts/Sim/Units/CommandAI	rts/System/Net
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1493">[ date ]</a>
+              <a href="thread.html#1493">[ thread ]</a>
+              <a href="subject.html#1493">[ subject ]</a>
+              <a href="author.html#1493">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-10-14 17:51:55 +0200 (Tue, 14 Oct 2008)
+New Revision: 6724
+
+Modified:
+   trunk/rts/Sim/MoveTypes/AirMoveType.cpp
+   trunk/rts/Sim/Units/CommandAI/MobileCAI.cpp
+   trunk/rts/Sim/Units/Unit.cpp
+Log:
+fix the behavior of (AirMoveType) aircraft so they fly back to
+positions near occupied landing pads when out of fuel (this was
+being blocked by attack orders)
+
+
+Modified: trunk/rts/Sim/MoveTypes/AirMoveType.cpp
+===================================================================
+--- trunk/rts/Sim/MoveTypes/AirMoveType.cpp	2008-10-14 15:10:38 UTC (rev 6723)
++++ trunk/rts/Sim/MoveTypes/AirMoveType.cpp	2008-10-14 15:51:55 UTC (rev 6724)
+@@ -219,7 +219,7 @@
+ 			owner-&gt;pos = pos;
+ 
+ 			owner-&gt;AddBuildPower(unit-&gt;unitDef-&gt;buildSpeed / 30, unit);
+-			owner-&gt;currentFuel = std::min (owner-&gt;unitDef-&gt;maxFuel, owner-&gt;currentFuel + (owner-&gt;unitDef-&gt;maxFuel / (GAME_SPEED * owner-&gt;unitDef-&gt;refuelTime)));
++			owner-&gt;currentFuel = std::min(owner-&gt;unitDef-&gt;maxFuel, owner-&gt;currentFuel + (owner-&gt;unitDef-&gt;maxFuel / (GAME_SPEED * owner-&gt;unitDef-&gt;refuelTime)));
+ 
+ 			if (owner-&gt;health &gt;= owner-&gt;maxHealth - 1 &amp;&amp; owner-&gt;currentFuel &gt;= owner-&gt;unitDef-&gt;maxFuel) {
+ 				// repaired and filled up, leave the pad
+@@ -234,7 +234,7 @@
+ 
+ 
+ 	switch (aircraftState) {
+-		case AIRCRAFT_FLYING:
++		case AIRCRAFT_FLYING: {
+ 	#ifdef DEBUG_AIRCRAFT
+ 			if (selectedUnits.selectedUnits.find(this) != selectedUnits.selectedUnits.end()) {
+ 				logOutput.Print(&quot;Flying %i %i %.1f %i&quot;, moveState, fireState, inefficientAttackTime, (int) isFighter);
+@@ -243,7 +243,13 @@
+ 
+ 			owner-&gt;restTime = 0;
+ 
+-			if (!reservedPad &amp;&amp; (owner-&gt;userTarget || owner-&gt;userAttackGround)) {
++			// somewhat hackish, but planes that have attack orders
++			// while no pad is available would otherwise continue
++			// attacking even if out of fuel
++			bool continueAttack =
++				(!reservedPad &amp;&amp; ((owner-&gt;currentFuel &gt; 0.0f) || owner-&gt;unitDef-&gt;maxFuel &lt;= 0.0f));
++
++			if (continueAttack &amp;&amp; ((owner-&gt;userTarget &amp;&amp; !owner-&gt;userTarget-&gt;isDead) || owner-&gt;userAttackGround)) {
+ 				inefficientAttackTime = std::min(inefficientAttackTime, float(gs-&gt;frameNum) - owner-&gt;lastFireWeapon);
+ 
+ 				if (owner-&gt;userTarget) {
+@@ -265,7 +271,7 @@
+ 				inefficientAttackTime = 0;
+ 				UpdateFlying(wantedHeight, 1);
+ 			}
+-			break;
++		} break;
+ 		case AIRCRAFT_LANDED:
+ 			inefficientAttackTime = 0;
+ 			UpdateLanded();
+@@ -615,44 +621,18 @@
+ 	}
+ #endif
+ 
+-	if(groundTarget)
++	if (groundTarget)
+ 		engine = 1;
+ 	else
+ 		engine = std::min(1.f, (float)(goalLength / owner-&gt;maxRange + 1 - goalDir.dot(frontdir) * 0.7f));
+ 
+ 	UpdateAirPhysics(rudder, aileron, elevator, engine, owner-&gt;frontdir);
+-/*
+-	std::vector&lt;CWeapon*&gt;::iterator wi;
+-	for(wi=owner-&gt;weapons.begin();wi!=owner-&gt;weapons.end();++wi){
+-		(*wi)-&gt;targetPos=goalPos;
+-		if(owner-&gt;userTarget){
+-			(*wi)-&gt;AttackUnit(owner-&gt;userTarget,true);
+-		}
+-	}*/
+-/*	DrawLine dl;
+-	dl.color=UpVector;
+-	dl.pos1=pos;
+-	dl.pos2=goalPos;
+-	lines.push_back(dl);
+-	dl.color=float3(1,0,0);
+-	dl.pos1=pos;
+-	dl.pos2=pos+frontdir*maxRange;
+-	lines.push_back(dl);/**/
+ }
+ 
+ 
+ 
+ void CAirMoveType::UpdateAttack(void)
+ {
+-	/*
+-	std::vector&lt;CWeapon*&gt;::iterator wi;
+-	for (wi = owner-&gt;weapons.begin(); wi != owner-&gt;weapons.end(); ++wi) {
+-		(*wi)-&gt;targetPos = goalPos;
+-		if (owner-&gt;userTarget) {
+-			(*wi)-&gt;AttackUnit(owner-&gt;userTarget, true);
+-		}
+-	}
+-	*/
+ 	UpdateFlying(wantedHeight, 1);
+ }
+ 
+@@ -660,16 +640,16 @@
+ 
+ void CAirMoveType::UpdateFlying(float wantedHeight, float engine)
+ {
+-	float3 &amp;pos = owner-&gt;pos;
+-	SyncedFloat3 &amp;rightdir = owner-&gt;rightdir;
+-	SyncedFloat3 &amp;frontdir = owner-&gt;frontdir;
+-	SyncedFloat3 &amp;updir = owner-&gt;updir;
+-	float3 &amp;speed = owner-&gt;speed;
++	float3&amp; pos = owner-&gt;pos;
++	SyncedFloat3&amp; rightdir = owner-&gt;rightdir;
++	SyncedFloat3&amp; frontdir = owner-&gt;frontdir;
++	SyncedFloat3&amp; updir = owner-&gt;updir;
++	float3&amp; speed = owner-&gt;speed;
+ 
+ 	float speedf = speed.Length();
+ 	float goalLength = (goalPos - pos).Length2D() + 0.01f;
+ 	float3 goalDir = (goalPos - pos) / goalLength;
+-	float3 adjustedGoalDir = float3(goalPos.x,0,goalPos.z) - float3(pos.x,0,pos.z);
++	float3 adjustedGoalDir = float3(goalPos.x, 0, goalPos.z) - float3(pos.x, 0, pos.z);
+ 	goalDir.Normalize();
+ 	adjustedGoalDir.Normalize();
+ 
+@@ -686,8 +666,8 @@
+ 	float3 otherDir;
+ 	if (lastColWarning) {
+ 		float3 otherDif = lastColWarning-&gt;pos - pos;
+-		float otherLength = otherDif.Length();
+-		otherDir = otherDif / (otherLength + 0.01f);
++		float otherLength = otherDif.Length() + 0.01f;
++		otherDir = otherDif / (otherLength);
+ 		otherThreat = std::max(1200.0f, goalLength) / otherLength * 0.036f;
+ 	}
+ 
+@@ -886,18 +866,24 @@
+ 	// update our speed
+ 	float3 dif = reservedLandingPos - pos;
+ 	float dist = dif.Length();
+-	dif /= dist;
+ 
++	if (dist &gt; 0.0f) {
++		dif /= dist;
++	}
++
+ 	float wsf = std::min(owner-&gt;maxSpeed, dist / speedf * 1.8f * maxAcc);
+ 	float3 wantedSpeed = dif * wsf;
+ 
+ 	float3 delta = wantedSpeed - speed;
+ 	float dl = delta.Length();
+ 
+-	if (dl &lt; maxAcc * 3)
++	if (dl &lt; maxAcc * 3) {
+ 		speed = wantedSpeed;
+-	else
+-		speed += delta / dl * maxAcc * 3;
++	} else {
++		if (dl &gt; 0.0f) {
++			speed += delta / dl * maxAcc * 3;
++		}
++	}
+ 
+ 	pos += speed;
+ 
+
+Modified: trunk/rts/Sim/Units/CommandAI/MobileCAI.cpp
+===================================================================
+--- trunk/rts/Sim/Units/CommandAI/MobileCAI.cpp	2008-10-14 15:10:38 UTC (rev 6723)
++++ trunk/rts/Sim/Units/CommandAI/MobileCAI.cpp	2008-10-14 15:51:55 UTC (rev 6724)
+@@ -275,22 +275,26 @@
+ 		if (owner-&gt;currentFuel &lt;= 0) {
+ 			// we're out of fuel
+ 			StopMove();
++
+ 			owner-&gt;userAttackGround = false;
+ 			owner-&gt;userTarget = 0;
+ 			inCommand = false;
+ 
+-			CAirBaseHandler::LandingPad* lp = airBaseHandler-&gt;FindAirBase(
+-				owner, owner-&gt;unitDef-&gt;minAirBasePower);
++			CAirBaseHandler::LandingPad* lp =
++				airBaseHandler-&gt;FindAirBase(owner, owner-&gt;unitDef-&gt;minAirBasePower);
+ 
+ 			if (lp) {
+ 				// found a pad
+ 				owner-&gt;moveType-&gt;ReservePad(lp);
+ 			} else {
+-				float3 landingPos = airBaseHandler-&gt;FindClosestAirBasePos(
+-					owner, owner-&gt;unitDef-&gt;minAirBasePower);
++				// no pads available, search for a landing
++				// spot near any that are currently occupied
++				float3 landingPos =
++					airBaseHandler-&gt;FindClosestAirBasePos(owner, owner-&gt;unitDef-&gt;minAirBasePower);
+ 
+-				if (landingPos != ZeroVector &amp;&amp; owner-&gt;pos.distance2D(landingPos) &gt; 800) {
+-					// didn't find a pad, but we have an in-range ('&gt;' ?) landing pos
++				if (landingPos != ZeroVector) {
++					// NOTE: owner-&gt;userAttackGround is wrongly reset to
++					// true in CUnit::AttackGround() via ExecuteAttack()
+ 					SetGoal(landingPos, owner-&gt;pos);
+ 				} else {
+ 					owner-&gt;moveType-&gt;StopMoving();
+
+Modified: trunk/rts/Sim/Units/Unit.cpp
+===================================================================
+--- trunk/rts/Sim/Units/Unit.cpp	2008-10-14 15:10:38 UTC (rev 6723)
++++ trunk/rts/Sim/Units/Unit.cpp	2008-10-14 15:51:55 UTC (rev 6724)
+@@ -244,10 +244,6 @@
+ 	// clean up if we are still under movectrl here
+ 	DisableScriptMoveType();
+ 
+-	// not all unit deletions run through KillUnit(),
+-	// but we always want to call this for ourselves
+-	UnBlock();
+-
+ 	if (delayedWreckLevel &gt;= 0) {
+ 		// note: could also do this in Update() or even in CUnitKilledCB()
+ 		// where we wouldn't need deathSpeed, but not in KillUnit() since
+@@ -287,6 +283,10 @@
+ 	delete prevMoveType;    prevMoveType    = NULL;
+ 	delete collisionVolume; collisionVolume = NULL;
+ 
++	// not all unit deletions run through KillUnit(),
++	// but we always want to call this for ourselves
++	UnBlock();
++
+ 	if (group) {
+ 		group-&gt;RemoveUnit(this);
+ 	}
+@@ -1445,12 +1445,13 @@
+ 	userAttackGround = false;
+ 	commandShotCount = 0;
+ 	SetUserTarget(unit);
++
+ 	std::vector&lt;CWeapon*&gt;::iterator wi;
+-	for(wi = weapons.begin(); wi != weapons.end(); ++wi){
++	for (wi = weapons.begin(); wi != weapons.end(); ++wi) {
+ 		(*wi)-&gt;haveUserTarget = false;
+ 		(*wi)-&gt;targetType = Target_None;
+-		if(dgun || !unitDef-&gt;canDGun || !(*wi)-&gt;weaponDef-&gt;manualfire)
+-			if((*wi)-&gt;AttackUnit(unit, true))
++		if (dgun || !unitDef-&gt;canDGun || !(*wi)-&gt;weaponDef-&gt;manualfire)
++			if ((*wi)-&gt;AttackUnit(unit, true))
+ 				r = true;
+ 	}
+ 	return r;
+@@ -1459,18 +1460,19 @@
+ 
+ bool CUnit::AttackGround(const float3 &amp;pos, bool dgun)
+ {
+-	bool r=false;
+-	haveDGunRequest=dgun;
++	bool r = false;
++	haveDGunRequest = dgun;
+ 	SetUserTarget(0);
+-	userAttackPos=pos;
+-	userAttackGround=true;
+-	commandShotCount=0;
++	userAttackPos = pos;
++	userAttackGround = true;
++	commandShotCount = 0;
++
+ 	std::vector&lt;CWeapon*&gt;::iterator wi;
+-	for(wi=weapons.begin();wi!=weapons.end();++wi){
+-		(*wi)-&gt;haveUserTarget=false;
+-		if(dgun || !unitDef-&gt;canDGun || !(*wi)-&gt;weaponDef-&gt;manualfire)
+-			if((*wi)-&gt;AttackGround(pos,true))
+-				r=true;
++	for (wi = weapons.begin(); wi != weapons.end(); ++wi) {
++		(*wi)-&gt;haveUserTarget = false;
++		if (dgun || !unitDef-&gt;canDGun || !(*wi)-&gt;weaponDef-&gt;manualfire)
++			if ((*wi)-&gt;AttackGround(pos, true))
++				r = true;
+ 	}
+ 	return r;
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001492.html">[Taspring-linux-commit] r6723 - trunk/rts/System/Net
+</A></li>
+	<LI>Next message: <A HREF="001494.html">[Taspring-linux-commit] r6725 - in branches/caiinterface:	AI/Interfaces/C AI/Skirmish/AAI AI/Skirmish/KAIK	Documentation game/AI/AAI game/AI/AAI/cfg/mod rts/ExternalAI	rts/Sim/MoveTypes rts/Sim/Units rts/Sim/Units/CommandAI	rts/System/Net
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1493">[ date ]</a>
+              <a href="thread.html#1493">[ thread ]</a>
+              <a href="subject.html#1493">[ subject ]</a>
+              <a href="author.html#1493">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

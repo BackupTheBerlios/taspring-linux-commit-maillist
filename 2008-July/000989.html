@@ -1,0 +1,552 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6209 - trunk/Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6209%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080721162300.E456D48A3%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000988.html">
+   <LINK REL="Next"  HREF="000990.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6209 - trunk/Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6209%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080721162300.E456D48A3%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6209 - trunk/Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon Jul 21 18:23:00 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000988.html">[Taspring-linux-commit] r6208 - in branches/caiinterface: AI/Global	AI/Global/NullAI AI/Global/NullAI/Event AI/Global/RAI-0.553	AI/Global/RAI-0.553/Event rts/ExternalAI rts/Sim/Misc	rts/Sim/Units/CommandAI rts/System
+</A></li>
+        <LI>Next message: <A HREF="000990.html">[Taspring-linux-commit] r6210 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#989">[ date ]</a>
+              <a href="thread.html#989">[ thread ]</a>
+              <a href="subject.html#989">[ subject ]</a>
+              <a href="author.html#989">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2008-07-21 18:22:59 +0200 (Mon, 21 Jul 2008)
+New Revision: 6209
+
+Modified:
+   trunk/Lobby/TASClient/BattleFormUnit.dfm
+   trunk/Lobby/TASClient/BattleFormUnit.pas
+   trunk/Lobby/TASClient/LobbyScriptUnit.pas
+   trunk/Lobby/TASClient/MainUnit.dfm
+   trunk/Lobby/TASClient/MainUnit.pas
+   trunk/Lobby/TASClient/Misc.pas
+   trunk/Lobby/TASClient/TASClient.dof
+   trunk/Lobby/TASClient/TASClient.res
+Log:
+* GetTextBoxList function added to the script api
+* The callback should be more thread safe now
+* the /stick function is now complete
+
+Modified: trunk/Lobby/TASClient/BattleFormUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/BattleFormUnit.dfm	2008-07-21 08:59:37 UTC (rev 6208)
++++ trunk/Lobby/TASClient/BattleFormUnit.dfm	2008-07-21 16:22:59 UTC (rev 6209)
+@@ -1,6 +1,6 @@
+ object BattleForm: TBattleForm
+-  Left = 356
+-  Top = 52
++  Left = 905
++  Top = 63
+   Width = 787
+   Height = 586
+   Caption = 'Battle window'
+@@ -4042,7 +4042,7 @@
+             Underline = True
+           end&gt;
+         HideSelection = False
+-        LangOptions = [loAutoFont]
++        LangOptions = []
+         Language = 1036
+         ReadOnly = True
+         ScrollBars = ssVertical
+
+Modified: trunk/Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/BattleFormUnit.pas	2008-07-21 08:59:37 UTC (rev 6208)
++++ trunk/Lobby/TASClient/BattleFormUnit.pas	2008-07-21 16:22:59 UTC (rev 6209)
+@@ -6260,7 +6260,7 @@
+ var
+   i: Integer;
+ begin
+-  if not (BattleState.Status = Hosting) then Exit; // this should not happen though
++  if not (BattleState.Status = Hosting) then Exit;
+ 
+   if not AllowBattleDetailsUpdate then Exit;
+ 
+@@ -6354,6 +6354,7 @@
+       TLuaOption(ModOptionsList[i]).SetValue(Ini.ReadString('ModOptions', TLuaOption(ModOptionsList[i]).Key, TLuaOption(ModOptionsList[i]).DefaultValue));
+   end;
+   Ini.Free;
++  SendLuaOptionsDetailsToServer;
+ end;
+ 
+ procedure TBattleForm.SaveMapOptionsAsDefault;
+@@ -6389,6 +6390,7 @@
+       TLuaOption(MapOptionsList[i]).SetValue(Ini.ReadString('MapOptions', TLuaOption(MapOptionsList[i]).Key, TLuaOption(MapOptionsList[i]).DefaultValue));
+   end;
+   Ini.Free;
++  SendLuaOptionsDetailsToServer;
+ end;
+ 
+ procedure TBattleForm.btSetAsDefaultMDOClick(Sender: TObject);
+
+Modified: trunk/Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/LobbyScriptUnit.pas	2008-07-21 08:59:37 UTC (rev 6208)
++++ trunk/Lobby/TASClient/LobbyScriptUnit.pas	2008-07-21 16:22:59 UTC (rev 6209)
+@@ -5,12 +5,13 @@
+   Windows, Messages, SysUtils, Variants, Graphics,
+   Misc,ExtCtrls, WrapDelphi, WrapDelphiClasses,PythonEngine,
+   PythonGUIInputOutput, Forms, StrUtils,Classes, JclDebug,
+-  WSocket,MainUnit, class_TIntegerList, RichEdit2, ExRichEdit;
++  WSocket,MainUnit, class_TIntegerList, RichEdit2, ExRichEdit,
++  SyncObjs;
+ 
+ type
+   {$METHODINFO ON}
+ 
+-  TCallback = class
++  TCallback = class(TPersistent)
+     private
+       userRefCountList: TIntegerList;
+       pyUserList: TList;
+@@ -27,7 +28,7 @@
+       pyCurrentBattle: PPyObject;
+       textBoxStringList: TStringList;
+       textBoxList: TList;
+-      callbackLocked: Boolean;
++      CS: TCriticalSection;
+ 
+     protected
+       function GetPyBattle(Battle: TBattle): PPyObject;
+@@ -58,8 +59,7 @@
+       procedure SendProtocol(data: WideString);
+       procedure HandleProtocol(data: WideString);
+       //procedure NewThread(functionName: String;tuple: Variant);
+-      function GetUsers: PPyObject; cdecl;
+-      function DoGetUsers : PPyObject;
++      function GetUsers: Variant;
+       function GetMyUser: Variant;
+       function GetBattles: Variant;
+       function GetReplays: Variant;
+@@ -74,7 +74,7 @@
+       function StartBattle: Boolean;
+       function SetMyReadyStatus(b: Boolean): Boolean;
+       procedure SetMyBattleStatus(spec: boolean);
+-      function GetCurrentBattle: PPyObject;
++      function GetCurrentBattle: Variant;
+       function AddToTextBox(textBox : string; msg : string; color : integer): boolean;
+       function GetColors: Variant;
+ 
+@@ -85,7 +85,7 @@
+ 
+   {$METHODINFO OFF}
+ 
+-  TPyCallback = class(TPyObject)
++  TPyCallback = class(TPyDelphiPersistent)
+     // Constructors &amp; Destructors
+     constructor Create( APythonType : TPythonType ); override;
+     constructor CreateWith( PythonType : TPythonType; args : PPyObject ); override;
+@@ -93,9 +93,6 @@
+     function  Repr : PPyObject; override;
+ 
+     class function  DelphiObjectClass : TClass; override;
+-    class procedure RegisterMethods( PythonType : TPythonType ); override;
+-
+-    function Test: PPyObject; cdecl;
+   end;
+ 
+   TScriptThread = class(TPythonThread)
+@@ -140,6 +137,7 @@
+   userRefCountList := TIntegerList.Create;
+   textBoxStringList := TStringList.Create;
+   textBoxList := TList.Create;
++  CS := TCriticalSection.Create;
+ 
+   with GetPythonEngine do
+   begin
+@@ -399,7 +397,7 @@
+   Result := GetPythonEngine.PyObjectAsVariant(GetPyUser(Status.Me));
+ end;
+ 
+-function TCallback.GetUsers: PPyObject;
++function TCallback.GetUsers: Variant;
+ var
+   i: integer;
+ begin
+@@ -414,17 +412,12 @@
+     for i:=0 to AllClients.Count-1 do
+       PyDict_SetItemString(pyUsers,PChar(TClient(AllClients[i]).Name),PPyObject(pyUserList[i]));
+ 
+-    Result := pyUsers;
++    Result := PyObjectAsVariant(pyUsers);
+   end;
+   UnlockCallback;
+ end;
+ 
+-function TCallback.DoGetUsers : PPyObject;
+-begin
+-  Result := GetUsers;
+-end;
+-
+-function TCallback.GetCurrentBattle: PPyObject;
++function TCallback.GetCurrentBattle: Variant;
+ var
+   i: integer;
+   pyO: PPyObject;
+@@ -432,7 +425,7 @@
+   LockCallback;
+   with GetPythonEngine do
+   begin
+-    Result := Py_None;
++    Result := PyObjectAsVariant(Py_None);
+     if BattleState.Status = None then
+     begin
+       UnlockCallback;
+@@ -458,7 +451,7 @@
+     PyDict_SetItemString(pyCurrentBattle,'DisabledUnits',pyO);
+     Py_XDECREF(pyO);
+ 
+-    Result := pyCurrentBattle;
++    Result := PyObjectAsVariant(pyCurrentBattle);
+   end;
+   UnlockCallback;
+ end;
+@@ -626,6 +619,7 @@
+   i: integer;
+   pyO: PPyObject;
+ begin
++  LockCallback;
+   if ReplaysForm.LoadingPanel.Visible then Exit;
+ 
+   with GetPythonEngine do
+@@ -642,12 +636,14 @@
+ 
+     Result := PyObjectAsVariant(pyReplays);
+   end;
++  UnlockCallback;
+ end;
+ 
+ function TCallback.GetBattles: Variant;
+ var
+   i: integer;
+ begin
++  LockCallback;
+   with GetPythonEngine do
+   begin
+     ClearRefs;
+@@ -660,18 +656,16 @@
+ 
+     Result := PyObjectAsVariant(pyBattles);
+   end;
++  UnlockCallback;
+ end;
+ 
+ procedure TCallback.LockCallback;
+ begin
+-  //if GetCurrentThreadId = MainThreadID then Exit;
+-  while callbackLocked do;
+-  callbackLocked := True;
++  CS.Acquire;
+ end;
+ procedure TCallback.UnlockCallback;
+ begin
+-  //if GetCurrentThreadId = MainThreadID then Exit;
+-  callbackLocked := False;
++  CS.Release;
+ end;
+ 
+ procedure TCallback.ClearRefs;
+@@ -693,6 +687,7 @@
+ var
+   i: integer;
+ begin
++  LockCallback;
+   with GetPythonEngine do
+   begin
+     ClearRefs;
+@@ -705,6 +700,7 @@
+ 
+     Result := PyObjectAsVariant(pyGroups);
+   end;
++  UnlockCallback;
+ end;
+ 
+ function TCallback.GetColors: Variant;
+@@ -719,6 +715,7 @@
+   pyPositions: PPyObject;
+   i,j: integer;
+ begin
++  LockCallback;
+   with GetPythonEngine do
+   begin
+     ClearRefs;
+@@ -763,6 +760,7 @@
+ 
+     Result := PyObjectAsVariant(pyMaps);
+   end;
++  UnlockCallback;
+ end;
+ 
+ function TCallback.GetMods: Variant;
+@@ -770,6 +768,7 @@
+   pyMod: PPyObject;
+   i: integer;
+ begin
++  LockCallback;
+   with GetPythonEngine do
+   begin
+     ClearRefs;
+@@ -786,6 +785,7 @@
+ 
+     Result := PyObjectAsVariant(pyMods);
+   end;
++  UnlockCallback;
+ end;
+ 
+ function TCallback.JoinBattle(battleId: integer; Password: String) : Boolean;
+@@ -908,9 +908,7 @@
+ begin
+   if BattleState.Status &lt;&gt; None then
+   begin
+-    ReleaseMainThread;
+-    BattleForm.DisconnectButtonClick;
+-    AcquireMainThread;
++    PostMessage(MainForm.Handle,WM_SCRIPT,1,0);
+   end;
+ end;
+ function TCallback.StartBattle: Boolean;
+@@ -953,6 +951,7 @@
+ 
+ function TCallback.GetTextBoxList: Variant;
+ begin
++  LockCallback;
+   with GetPythonEngine do
+   begin
+     ClearRefs;
+@@ -963,6 +962,7 @@
+ 
+     Result := PyObjectAsVariant(pyTextBoxes)
+   end;
++  UnlockCallback;
+ end;
+ 
+ function TCallback.AddToTextBox(textBox : string; msg : string; color : integer): boolean;
+@@ -982,7 +982,7 @@
+     MsgColor.Add(color);
+     MsgList.EndUpdate;
+ 
+-    PostMessage(MainForm.Handle,WM_SCRIPTMSG,0,0);
++    PostMessage(MainForm.Handle,WM_SCRIPT,0,0);
+   end;
+ end;
+ 
+@@ -1019,11 +1019,6 @@
+     Result := VariantAsPyObject('Lobby script API');
+ end;
+ 
+-function TPyCallback.Test: PPyObject;
+-begin
+-  Result := GetPythonEngine.VariantAsPyObject('OMG WORKS');
+-end;
+-
+ constructor TScriptThread.Create(fName: string; tup: Variant);
+ begin
+   tuple := TStringList.Create;
+
+Modified: trunk/Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.dfm	2008-07-21 08:59:37 UTC (rev 6208)
++++ trunk/Lobby/TASClient/MainUnit.dfm	2008-07-21 16:22:59 UTC (rev 6209)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 631
+-  Top = 286
++  Left = 348
++  Top = 85
+   Width = 808
+   Height = 549
+   Caption = '.'
+
+Modified: trunk/Lobby/TASClient/MainUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.pas	2008-07-21 08:59:37 UTC (rev 6208)
++++ trunk/Lobby/TASClient/MainUnit.pas	2008-07-21 16:22:59 UTC (rev 6209)
+@@ -564,7 +564,7 @@
+   WM_LOAD_NEXT_MINIMAP = WM_USER + 11; // used with loding missing minimaps from MapListForm (this message is sent to InitWaitForm)
+   WM_AFTERCREATE = WM_USER + 12; // we send this signal once we've finished creating all forms. We will do some post-initialization here
+   WM_REFRESHOUTPUT = WM_USER + 13; // used to refresh script debug output
+-  WM_SCRIPTMSG = WM_USER + 14; // used to add a msg from a script to a textbox (tab RichEdit or battleform)
++  WM_SCRIPT = WM_USER + 14; // used to add a msg from a script to a textbox (tab RichEdit or battleform)
+ 
+   QUEUE_LENGTH = 4096;
+ 
+@@ -1290,7 +1290,7 @@
+     procedure OnConnectMessage(var Msg: TMessage); message WM_CONNECT;
+     procedure OnForceReconnectMessage(var Msg: TMessage); message WM_FORCERECONNECT;
+     procedure OnConnectToNextHostMessage(var Msg: TMessage); message WM_CONNECT_TO_NEXT_HOST;
+-    procedure OnScriptMsgMessage(var Msg: TMessage); message WM_SCRIPTMSG;
++    procedure OnScriptMessage(var Msg: TMessage); message WM_SCRIPT;
+     procedure WMAfterCreate(var AMsg: TMessage); message WM_AFTERCREATE; // we will do some post-initialization here
+ 
+     function LoadImagesDynamically: Boolean;
+@@ -3774,6 +3774,7 @@
+   tmpre.WantTabs := False;
+   tmpre.HideSelection := False;
+   tmpre.IncludeOLE := False;
++  tmpre.LangOptions := [];
+   tmpre.PopupMenu := RichEditPopupMenu;
+   tmpre.OnMouseDown := RichEditMouseDown;
+   tmpre.AutoURLDetect := adDefault;
+@@ -6955,9 +6956,16 @@
+   end;
+ end;
+ 
+-procedure TMainForm.OnScriptMsgMessage(var Msg: TMessage);
++procedure TMainForm.OnScriptMessage(var Msg: TMessage);
+ begin
+-  LobbyScriptUnit.PostMsgs;
++  case Msg.WParam of
++    0: // AddToTextBox
++      LobbyScriptUnit.PostMsgs;
++    1: // LeaveBattle
++    begin
++      BattleForm.DisconnectButtonClick;
++    end;
++  end;
+ end;
+ 
+ procedure TMainForm.TryToSendDataDirectly(s: string); // deprecated - use TryToSendCommand method instead!
+@@ -9954,6 +9962,8 @@
+     RichEditSelectedClient := SelectedBattle.Clients[0];
+     ClientPopupMenuInitPopup(nil,nil);
+     mnuBattleHost.Caption := RichEditSelectedClient.Name;
++    mnuBattleDlMap.Enabled := Utility.MapList.IndexOf(SelectedBattle.Map) = -1;
++    mnuBattleDlMod.Enabled := Utility.ModList.IndexOf(SelectedBattle.ModName) = -1;
+   end;
+   mnuBattleHost.Visible := VDTBattles.FocusedNode &lt;&gt; nil;
+   mnuBattleAddToFilters.Visible := VDTBattles.FocusedNode &lt;&gt; nil;
+@@ -9966,9 +9976,6 @@
+   else
+     mnuQuickJoinPanel.Caption := 'Show Quick join panel';
+ 
+-  mnuBattleDlMap.Enabled := Utility.MapList.IndexOf(SelectedBattle.Map) = -1;
+-  mnuBattleDlMod.Enabled := Utility.ModList.IndexOf(SelectedBattle.ModName) = -1;
+-
+   VDTBattles.Repaint;
+ end;
+ 
+@@ -10451,12 +10458,12 @@
+   SysModule.path := NewPythonList;
+   SysModule.path.append('.\'+SCRIPTS_FOLDER);
+ 
++  with PyEngine do
++  begin
++    try
++      handlers := Import('handlers');
+ 
+-  try
+-    handlers := Import('handlers');
+ 
+-    with PyEngine do
+-    begin
+       LobbyScriptUnit.MainInterpreterState := PyThreadState_Get.interp;
+       LobbyScriptUnit.MainThreadState := PyThreadState_Get;
+       LobbyScriptUnit.ScriptHostingRunning := False;
+@@ -10470,11 +10477,9 @@
+       handlers._load;
+ 
+       PyEval_ReleaseThread(LobbyScriptUnit.MainThreadState);
++    except
+     end;
+-  except
+   end;
+-
+-
+ end;
+ 
+ procedure TMainForm.PyInOutSendData(Sender: TObject;
+
+Modified: trunk/Lobby/TASClient/Misc.pas
+===================================================================
+--- trunk/Lobby/TASClient/Misc.pas	2008-07-21 08:59:37 UTC (rev 6208)
++++ trunk/Lobby/TASClient/Misc.pas	2008-07-21 16:22:59 UTC (rev 6209)
+@@ -438,7 +438,10 @@
+     if not Scroll or (p.Y &lt; Max(0,pMax.Y-20)) then
+       SendMessage(RichEdit.Handle, WM_USER + 222 {EM_SETSCROLLPOS}, 0, LPARAM(@p))
+     else
++    begin
+       RichEdit.ScrollToBottom;
++      RichEdit.ScrollPageDown;
++    end;
+ 
+   except
+   end;
+
+Modified: trunk/Lobby/TASClient/TASClient.dof
+===================================================================
+--- trunk/Lobby/TASClient/TASClient.dof	2008-07-21 08:59:37 UTC (rev 6208)
++++ trunk/Lobby/TASClient/TASClient.dof	2008-07-21 16:22:59 UTC (rev 6209)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=3
+ Release=0
+-Build=367
++Build=369
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TA Spring lobby client
+-FileVersion=0.3.0.367
++FileVersion=0.3.0.369
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: trunk/Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000988.html">[Taspring-linux-commit] r6208 - in branches/caiinterface: AI/Global	AI/Global/NullAI AI/Global/NullAI/Event AI/Global/RAI-0.553	AI/Global/RAI-0.553/Event rts/ExternalAI rts/Sim/Misc	rts/Sim/Units/CommandAI rts/System
+</A></li>
+	<LI>Next message: <A HREF="000990.html">[Taspring-linux-commit] r6210 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#989">[ date ]</a>
+              <a href="thread.html#989">[ thread ]</a>
+              <a href="subject.html#989">[ subject ]</a>
+              <a href="author.html#989">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

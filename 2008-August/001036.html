@@ -1,0 +1,240 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6258 - trunk/Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6258%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080815124722.D9E0B497F%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001027.html">
+   <LINK REL="Next"  HREF="001030.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6258 - trunk/Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6258%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080815124722.D9E0B497F%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6258 - trunk/Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Aug 15 14:47:22 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001027.html">[Taspring-linux-commit] r6257 - in branches/0.77-branch/rts: Game	Game/StartScripts Sim/Misc Sim/MoveTypes/MoveMath
+</A></li>
+        <LI>Next message: <A HREF="001030.html">[Taspring-linux-commit] r6259 - trunk/rts/Rendering/GL
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1036">[ date ]</a>
+              <a href="thread.html#1036">[ thread ]</a>
+              <a href="subject.html#1036">[ subject ]</a>
+              <a href="author.html#1036">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2008-08-15 14:47:21 +0200 (Fri, 15 Aug 2008)
+New Revision: 6258
+
+Modified:
+   trunk/Lobby/TASClient/Misc.pas
+   trunk/Lobby/TASClient/SpringDownloaderFormUnit.pas
+   trunk/Lobby/TASClient/TASClient.dof
+   trunk/Lobby/TASClient/TASClient.res
+   trunk/Lobby/TASClient/Utility.pas
+Log:
+* delete the ExitRequest key before launching springdownloader
+
+Modified: trunk/Lobby/TASClient/Misc.pas
+===================================================================
+--- trunk/Lobby/TASClient/Misc.pas	2008-08-14 16:39:25 UTC (rev 6257)
++++ trunk/Lobby/TASClient/Misc.pas	2008-08-15 12:47:21 UTC (rev 6258)
+@@ -130,7 +130,7 @@
+ function VariantToString(AVar: OleVariant): string;
+ function GetLongPathNameA(lpFileName:LPCTSTR;lpBuffer:LPTSTR;nBufferLength:DWORD): integer;stdcall; external 'Kernel32.dll';
+ function  GetLongPathName(FileName: string): string;
+-Function DelTree(DirName : string): Boolean;
++Function DelTree(DirName : string): LongInt;
+ Function CopyTree(DirFrom : string; DirTo : string): LongInt;
+ Function MoveTree(DirFrom : string; DirTo : string): LongInt;
+ Function BitmapFlip(Const Vertical : Boolean;Const Horizontal : Boolean;var BitmapIn : TBitmap;out BitmapOut : TBitmap): Boolean;
+@@ -1963,26 +1963,35 @@
+     else showmessage('IncorrectPath');
+ end;
+ 
+-Function DelTree(DirName : string): Boolean;
++Function DelTree(DirName : string): LongInt;
+ var
+-  SHFileOpStruct : TSHFileOpStruct;
++  SearchRec :TSearchRec;
+ begin
+-  if RightStr(DirName,1) = '\' then
+-    DirName := LeftStr(DirName,Length(DirName)-1);
+-  try
+-   Fillchar(SHFileOpStruct,Sizeof(SHFileOpStruct),0) ;
+-   with SHFileOpStruct do begin
+-    Wnd := 0;
+-    pFrom := PChar(DirName);
+-    wFunc := FO_DELETE;
+-    //fFlags := FOF_ALLOWUNDO;  // add to the recycle bin instead of deleting
+-    fFlags := FOF_NOCONFIRMATION;
+-    fFlags := fFlags or FOF_SILENT;
+-   end;
+-    Result := (SHFileOperation(SHFileOpStruct) = 0) ;
+-   except
+-    Result := False;
+-  end;
++    if RightStr(DirName,1) = '\' then
++      DirName := LeftStr(DirName,Length(DirName)-1);
++
++    Result := FindFirst(DirName+'\*.*', faAnyFile , SearchRec);
++    while Result = 0 do
++    begin
++      if not(SearchRec.name[1]='.') then
++      begin
++       if (SearchRec.attr and faDirectory) &lt;&gt; 0 then
++        begin
++            DelTree(DirName +'\' + SearchRec.name);
++        end
++        else
++        begin
++          try
++            DeleteFile(DirName+'\'+SearchRec.name);
++          except
++          end;
++        end;
++      end; //if . ..
++      Result := FindNext(SearchRec);
++    end;
++    FindClose(SearchRec);
++
++    try RmDir(DirName); except end;
+ end;
+ 
+ Function CopyTree(DirFrom : string; DirTo : string): LongInt;
+@@ -2016,6 +2025,7 @@
+       end; //if . ..
+       Result := FindNext(SearchRec);
+     end;
++    FindClose(SearchRec);
+ end;
+ 
+ Function MoveTree(DirFrom : string; DirTo : string): LongInt;
+@@ -2049,6 +2059,7 @@
+       end; //if . ..
+       Result := FindNext(SearchRec);
+     end;
++    FindClose(SearchRec);
+ end;
+ 
+ Function BitmapFlip(Const Vertical : Boolean;Const Horizontal : Boolean;var BitmapIn : TBitmap;out BitmapOut : TBitmap): Boolean;
+
+Modified: trunk/Lobby/TASClient/SpringDownloaderFormUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/SpringDownloaderFormUnit.pas	2008-08-14 16:39:25 UTC (rev 6257)
++++ trunk/Lobby/TASClient/SpringDownloaderFormUnit.pas	2008-08-15 12:47:21 UTC (rev 6258)
+@@ -56,7 +56,7 @@
+ 
+ implementation
+ 
+-uses BattleFormUnit,PreferencesFormUnit, MainUnit, StrUtils, Misc;
++uses BattleFormUnit,PreferencesFormUnit, MainUnit, StrUtils, Misc, ComObj;
+ 
+ {$R *.dfm}
+ 
+@@ -230,7 +230,13 @@
+ end;
+ 
+ procedure StartSpringDownloader;
++var
++  path : string;
+ begin
++  path := StringReplace(ExtractFilePath(Application.ExeName),'\','/',[rfReplaceAll]);
++  path := LeftStr(path,Length(path)-1);
++  try DeleteRegKey('Software\SpringDownloader\'+path+'\request\ExitRequest',HKCU); except end;
++
+   FillChar(SpringDownloaderProcess.proc_info, sizeof(TProcessInformation), 0);
+   FillChar(SpringDownloaderProcess.startinfo, sizeof(TStartupInfo), 0);
+   SpringDownloaderProcess.startinfo.cb := sizeof(TStartupInfo);
+
+Modified: trunk/Lobby/TASClient/TASClient.dof
+===================================================================
+--- trunk/Lobby/TASClient/TASClient.dof	2008-08-14 16:39:25 UTC (rev 6257)
++++ trunk/Lobby/TASClient/TASClient.dof	2008-08-15 12:47:21 UTC (rev 6258)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=3
+ Release=0
+-Build=400
++Build=402
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TA Spring lobby client
+-FileVersion=0.3.0.400
++FileVersion=0.3.0.402
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: trunk/Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+Modified: trunk/Lobby/TASClient/Utility.pas
+===================================================================
+--- trunk/Lobby/TASClient/Utility.pas	2008-08-14 16:39:25 UTC (rev 6257)
++++ trunk/Lobby/TASClient/Utility.pas	2008-08-15 12:47:21 UTC (rev 6258)
+@@ -488,6 +488,9 @@
+   res := FindFilesVFS(res, PChar(s), 255);
+   if res &lt;&gt; 0 then
+   begin
++    if RightStr(LowerCase(Trim(s)),4) = '.pcx' then
++      res := FindFilesVFS(res, PChar(s), 255);
++
+     res := OpenFileVFS(PChar(s));
+     size := FileSizeVFS(res);
+     SetLength(picture, size);
+@@ -516,9 +519,10 @@
+ 
+       tmp.Width := imgWidth;
+       tmp.Height := imgHeight;
++
+       tmp.PixelFormat := pf24bit;
+ 
+-      ilCopyPixels(0,0,0,imgWidth,imgHeight,1,IL_BGR,IL_UNSIGNED_BYTE,tmp.ScanLine[imgHeight-1]);
++      ilCopyPixels(0,0,0,imgWidth,imgHeight,1,IL_BGR,IL_BYTE,tmp.ScanLine[imgHeight-1]);
+ 
+       BitmapFlip(True,True,tmp,Result);
+     end;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001027.html">[Taspring-linux-commit] r6257 - in branches/0.77-branch/rts: Game	Game/StartScripts Sim/Misc Sim/MoveTypes/MoveMath
+</A></li>
+	<LI>Next message: <A HREF="001030.html">[Taspring-linux-commit] r6259 - trunk/rts/Rendering/GL
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1036">[ date ]</a>
+              <a href="thread.html#1036">[ thread ]</a>
+              <a href="subject.html#1036">[ subject ]</a>
+              <a href="author.html#1036">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

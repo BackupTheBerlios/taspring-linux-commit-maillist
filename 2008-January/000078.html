@@ -1,0 +1,176 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5270 - in trunk/rts: Game System/Net
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5270%20-%20in%20trunk/rts%3A%20Game%20System/Net&In-Reply-To=%3CE1JB7YI-0005cP-Hv%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000077.html">
+   <LINK REL="Next"  HREF="000079.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5270 - in trunk/rts: Game System/Net</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5270%20-%20in%20trunk/rts%3A%20Game%20System/Net&In-Reply-To=%3CE1JB7YI-0005cP-Hv%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5270 - in trunk/rts: Game System/Net">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Jan  5 12:50:58 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000077.html">[Taspring-linux-commit] r5269 - in	trunk/Lobby/TASServer/WebInterface: . inc
+</A></li>
+        <LI>Next message: <A HREF="000079.html">[Taspring-linux-commit] r5271 - trunk/Lobby/TASServer/WebInterface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#78">[ date ]</a>
+              <a href="thread.html#78">[ thread ]</a>
+              <a href="subject.html#78">[ subject ]</a>
+              <a href="author.html#78">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-01-05 12:50:57 +0100 (Sat, 05 Jan 2008)
+New Revision: 5270
+
+Modified:
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/System/Net/UDPConnection.cpp
+   trunk/rts/System/Net/UDPListener.cpp
+Log:
+* also check the nak header from incoming UDPConnections
+* fix a SEGFAULT when packets where nak'ed which had never been sent
+
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-01-04 22:48:29 UTC (rev 5269)
++++ trunk/rts/Game/GameServer.cpp	2008-01-05 11:50:57 UTC (rev 5270)
+@@ -689,11 +689,6 @@
+ 	CRC entropy;
+ 	entropy.UpdateData((const unsigned char*)&amp;lastTick, sizeof(lastTick));
+ 
+-	// Probably not that random since it's always the stuff that was on the
+-	// stack previously.  Also it's VERY frustrating with e.g. valgrind...
+-	//unsigned char buffer[128];	// uninitialised bytes (should be very random)
+-	//entropy.UpdateData(buffer, 128);
+-
+ 	// Third dword is CRC of gameSetupText (if there is a gameSetup)
+ 	// or pseudo random bytes (if there is no gameSetup)
+ 	if (gameSetup != NULL) {
+@@ -702,8 +697,6 @@
+ 		gameID.intArray[2] = crc.GetCRC();
+ 	}
+ 
+-	// Fourth dword is CRC of the network buffer, which should be pretty random.
+-	// (depends on start positions, chat messages, user input, etc.)
+ 	gameID.intArray[3] = entropy.GetCRC();
+ 
+ 	serverNet-&gt;SendGameID(gameID.charArray);
+@@ -883,7 +876,7 @@
+ 
+ 	serverNet-&gt;SendSetPlayerNum((unsigned char)hisNewNumber, (unsigned char)hisNewNumber);
+ 
+-	// send game data for demo recording
++	// send game data (in case he didn't know or for checksumming)
+ 	serverNet-&gt;SendScript(scriptName);
+ 	serverNet-&gt;SendMapName(mapChecksum, mapName);
+ 	serverNet-&gt;SendModName(modChecksum, modName);
+@@ -901,7 +894,7 @@
+ 	}
+ 
+ 	players[hisNewNumber].reset(new GameParticipant(grantRights)); // give him rights to change speed, kick players etc
+-	SendSystemMsg(&quot;Client connected on slot %i&quot;, hisNewNumber);
++	SendSystemMsg(&quot;Client connected on slot %i (wanted number was %i)&quot;, hisNewNumber, wantedNumber);
+ 	serverNet-&gt;FlushNet();
+ }
+ 
+
+Modified: trunk/rts/System/Net/UDPConnection.cpp
+===================================================================
+--- trunk/rts/System/Net/UDPConnection.cpp	2008-01-04 22:48:29 UTC (rev 5269)
++++ trunk/rts/System/Net/UDPConnection.cpp	2008-01-05 11:50:57 UTC (rev 5270)
+@@ -137,19 +137,25 @@
+ 	if (nak &gt; 0)	// we have lost $nak packets
+ 	{
+ 		int nak_abs = nak + firstUnacked - 1;
+-		if (nak_abs!=lastNak || lastNakTime &lt; lastReceiveTime-100)
++		if (nak_abs &gt;= currentNum)
+ 		{
++			// we got a nak for packets which never got sent
++			//TODO give error message
++		}
++		else if (nak_abs != lastNak || lastNakTime &lt; lastReceiveTime-100)
++		{
+ 			// resend all packets from firstUnacked till nak_abs
+ 			lastNak=nak_abs;
+ 			lastNakTime=lastReceiveTime;
+-			for(int b=firstUnacked;b&lt;=nak_abs;++b){
++			for (int b = firstUnacked; b &lt;= nak_abs; ++b)
++			{
+ 				SendRawPacket(unackedPackets[b-firstUnacked].data,unackedPackets[b-firstUnacked].length,b);
+ 				++resentPackets;
+ 			}
+ 		}
+ 	}
+ 
+-	if(lastInOrder&gt;=packetNum || waitingPackets.find(packetNum)!=waitingPackets.end())
++	if (lastInOrder &gt;= packetNum || waitingPackets.find(packetNum) != waitingPackets.end())
+ 	{
+ 		++droppedPackets;
+ 		delete packet;
+@@ -335,7 +341,7 @@
+ 
+ void UDPConnection::AckPackets(const int nextAck)
+ {
+-	while(nextAck&gt;=firstUnacked &amp;&amp; !unackedPackets.empty()){
++	while (nextAck &gt;= firstUnacked &amp;&amp; !unackedPackets.empty()){
+ 		unackedPackets.pop_front();
+ 		firstUnacked++;
+ 	}
+
+Modified: trunk/rts/System/Net/UDPListener.cpp
+===================================================================
+--- trunk/rts/System/Net/UDPListener.cpp	2008-01-04 22:48:29 UTC (rev 5269)
++++ trunk/rts/System/Net/UDPListener.cpp	2008-01-05 11:50:57 UTC (rev 5270)
+@@ -56,7 +56,8 @@
+ 		
+ 		const int packetNumber = *(int*)(data-&gt;data);
+ 		const int lastInOrder = *(int*)(data-&gt;data+4);
+-		if (acceptNewConnections &amp;&amp; packetNumber == 0 &amp;&amp; lastInOrder == -1)
++		const unsigned char nak = data-&gt;data[8];
++		if (acceptNewConnections &amp;&amp; packetNumber == 0 &amp;&amp; lastInOrder == -1 &amp;&amp; nak == 0)
+ 		{
+ 			// new client wants to connect
+ 			boost::shared_ptr&lt;UDPConnection&gt; incoming(new UDPConnection(mySocket, fromAddr));
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000077.html">[Taspring-linux-commit] r5269 - in	trunk/Lobby/TASServer/WebInterface: . inc
+</A></li>
+	<LI>Next message: <A HREF="000079.html">[Taspring-linux-commit] r5271 - trunk/Lobby/TASServer/WebInterface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#78">[ date ]</a>
+              <a href="thread.html#78">[ thread ]</a>
+              <a href="subject.html#78">[ subject ]</a>
+              <a href="author.html#78">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

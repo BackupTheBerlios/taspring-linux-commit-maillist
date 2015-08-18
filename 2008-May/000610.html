@@ -1,0 +1,649 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5830 - in trunk/rts: Game	Game/StartScripts Map System/Script
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5830%20-%20in%20trunk/rts%3A%20Game%0A%09Game/StartScripts%20Map%20System/Script&In-Reply-To=%3C20080503141148.A7AE746BE%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000609.html">
+   <LINK REL="Next"  HREF="000611.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5830 - in trunk/rts: Game	Game/StartScripts Map System/Script</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5830%20-%20in%20trunk/rts%3A%20Game%0A%09Game/StartScripts%20Map%20System/Script&In-Reply-To=%3C20080503141148.A7AE746BE%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5830 - in trunk/rts: Game	Game/StartScripts Map System/Script">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat May  3 16:11:48 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000609.html">[Taspring-linux-commit] r5829 - in trunk/rts/Game: . UI
+</A></li>
+        <LI>Next message: <A HREF="000611.html">[Taspring-linux-commit] r5831 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#610">[ date ]</a>
+              <a href="thread.html#610">[ thread ]</a>
+              <a href="subject.html#610">[ subject ]</a>
+              <a href="author.html#610">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-05-03 16:11:47 +0200 (Sat, 03 May 2008)
+New Revision: 5830
+
+Modified:
+   trunk/rts/Game/GameData.cpp
+   trunk/rts/Game/GameData.h
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/PreGame.cpp
+   trunk/rts/Game/PreGame.h
+   trunk/rts/Game/StartScripts/ScriptHandler.cpp
+   trunk/rts/Game/StartScripts/ScriptHandler.h
+   trunk/rts/Map/MapInfo.cpp
+   trunk/rts/Map/MapInfo.h
+   trunk/rts/System/Script/LuaBinder.cpp
+   trunk/rts/System/Script/LuaBinder.h
+Log:
+* fix desynced demos when using synced random numbers before the game starts
+* a map can has its own startscript swich overwrites user selection
+* startscripts can be in any archive loaded during pregame (in map, mod or one of its dependencies)
+
+Modified: trunk/rts/Game/GameData.cpp
+===================================================================
+--- trunk/rts/Game/GameData.cpp	2008-05-03 13:22:43 UTC (rev 5829)
++++ trunk/rts/Game/GameData.cpp	2008-05-03 14:11:47 UTC (rev 5830)
+@@ -27,11 +27,12 @@
+ 	packet &gt;&gt; mapChecksum;
+ 	packet &gt;&gt; mod;
+ 	packet &gt;&gt; modChecksum;
++	packet &gt;&gt; randomSeed;
+ }
+ 
+ const netcode::RawPacket* GameData::Pack() const
+ {
+-	unsigned short size = 3 + 2*sizeof(unsigned) + map.size() + mod.size() + script.size() + 3;
++	unsigned short size = 3 + 2*sizeof(unsigned) + map.size() + mod.size() + script.size() + 4 + 3;
+ 	PackPacket* buffer = new PackPacket(size);
+ 	*buffer &lt;&lt; (unsigned char)NETMSG_GAMEDATA;
+ 	*buffer &lt;&lt; size;
+@@ -40,6 +41,7 @@
+ 	*buffer &lt;&lt; mapChecksum;
+ 	*buffer &lt;&lt; mod;
+ 	*buffer &lt;&lt; modChecksum;
++	*buffer &lt;&lt; randomSeed;
+ 	return buffer;
+ }
+ 
+@@ -59,3 +61,8 @@
+ 	mod = newMod;
+ 	modChecksum = checksum;
+ }
++
++void GameData::SetRandomSeed(const unsigned seed)
++{
++	randomSeed = seed;
++}
+
+Modified: trunk/rts/Game/GameData.h
+===================================================================
+--- trunk/rts/Game/GameData.h	2008-05-03 13:22:43 UTC (rev 5829)
++++ trunk/rts/Game/GameData.h	2008-05-03 14:11:47 UTC (rev 5830)
+@@ -18,12 +18,14 @@
+ 	void SetScript(const std::string&amp; newScript);
+ 	void SetMap(const std::string&amp; newMap, const unsigned checksum);
+ 	void SetMod(const std::string&amp; newMod, const unsigned checksum);
++	void SetRandomSeed(const unsigned seed);
+ 	
+ 	const std::string&amp; GetScript() const {return script;};
+ 	const std::string&amp; GetMap() const {return map;};
+ 	unsigned GetMapChecksum() const {return mapChecksum;};
+ 	const std::string&amp; GetMod() const {return mod;};
+ 	unsigned GetModChecksum() const {return modChecksum;};
++	unsigned GetRandomSeed() const {return randomSeed;};
+ 
+ private:
+ 	std::string script;
+@@ -31,6 +33,7 @@
+ 	unsigned mapChecksum;
+ 	std::string mod;
+ 	unsigned modChecksum;
++	unsigned randomSeed;
+ };
+ 
+ #endif
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-05-03 13:22:43 UTC (rev 5829)
++++ trunk/rts/Game/GameServer.cpp	2008-05-03 14:11:47 UTC (rev 5830)
+@@ -1319,8 +1319,6 @@
+ 	hisNewNumber = serverNet-&gt;AcceptIncomingConnection(hisNewNumber);
+ 
+ 	serverNet-&gt;SendSetPlayerNum((unsigned char)hisNewNumber, (unsigned char)hisNewNumber);
+-	static const int pregameRandomSeed = rng();
+-	serverNet-&gt;SendRandSeed(pregameRandomSeed, static_cast&lt;int&gt;(hisNewNumber));
+ 	serverNet-&gt;SendData(gameData-&gt;Pack(), hisNewNumber);
+ 
+ 	for (int a = 0; a &lt; MAX_PLAYERS; ++a) {
+
+Modified: trunk/rts/Game/PreGame.cpp
+===================================================================
+--- trunk/rts/Game/PreGame.cpp	2008-05-03 13:22:43 UTC (rev 5829)
++++ trunk/rts/Game/PreGame.cpp	2008-05-03 14:11:47 UTC (rev 5830)
+@@ -31,9 +31,9 @@
+ #include &quot;StartScripts/ScriptHandler.h&quot;
+ #include &quot;UI/InfoConsole.h&quot;
+ #include &quot;UI/MouseHandler.h&quot;
++#include &quot;TdfParser.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
+-
+ // msvc behaves really strange
+ #if _MSC_VER
+ namespace std {
+@@ -42,6 +42,8 @@
+ }
+ #endif
+ 
++const int springDefaultPort = 8452;
++
+ CPreGame* pregame=0;
+ 
+ extern Uint8 *keys;
+@@ -49,6 +51,8 @@
+ std::string stupidGlobalMapname;
+ 
+ CglList* CPreGame::showList = 0;
++std::string CPreGame::userScript;
++std::string CPreGame::userMap;
+ 
+ CPreGame::CPreGame(bool server, const string&amp; demo, const std::string&amp; save)
+ : server(server),
+@@ -56,8 +60,7 @@
+   hasDemo(!demo.empty()),
+   hasSave(!save.empty()),
+   savefile(NULL),
+-  gameData(0),
+-  serverStartupData(0)
++  gameData(0)
+ {
+ 	demoFile = gameSetup? gameSetup-&gt;demoName : demo;
+ 
+@@ -80,27 +83,16 @@
+ 
+ 	if(server){
+ 		net-&gt;InitLocalClient(gameSetup ? gameSetup-&gt;myPlayerNum : 0);
+-		serverStartupData = new GameData();
+ 		if(gameSetup){
+-			CScriptHandler::SelectScript(gameSetup-&gt;scriptName);
+-			SelectScript(gameSetup-&gt;scriptName);
+-			if (!gameSetup-&gt;saveName.empty()) {
+-				savefile = new CLoadSaveHandler();
+-				savefile-&gt;LoadGameStartInfo(savefile-&gt;FindSaveFile(gameSetup-&gt;saveName.c_str()));
+-			}
+-			SelectMap(gameSetup-&gt;mapName);
+-			SelectMod(gameSetup-&gt;baseMod);
++			StartServer(gameSetup-&gt;mapName, gameSetup-&gt;baseMod, gameSetup-&gt;scriptName);
+ 			state = WAIT_CONNECTING;
+ 		} else if (hasSave) {
+ 			savefile = new CLoadSaveHandler();
+ 			savefile-&gt;LoadGameStartInfo(savefile-&gt;FindSaveFile(save.c_str()));
+-			CScriptHandler::SelectScript(&quot;Commanders&quot;);
+-			SelectScript(&quot;Commanders&quot;);
+-			SelectMap(gameSetup-&gt;mapName);
+-			SelectMod(gameSetup-&gt;baseMod);
++			StartServer(gameSetup-&gt;mapName, gameSetup-&gt;baseMod, gameSetup-&gt;scriptName);
+ 			state = WAIT_CONNECTING;
+ 		} else {
+-			ShowScriptList();
++			ShowMapList();
+ 			state = WAIT_ON_USERINPUT;
+ 		}
+ 	} else {
+@@ -298,7 +290,7 @@
+ 				break;
+ 
+ 			configHandler.SetString(&quot;address&quot;,userInput);
+-			net-&gt;InitClient(userInput.c_str(),8452,0, 0);
++			net-&gt;InitClient(userInput.c_str(),springDefaultPort,0, 0);
+ 			state = WAIT_CONNECTING;
+ 			// fall trough
+ 		}
+@@ -308,16 +300,6 @@
+ 		}
+ 
+ 		case WAIT_CONNECTING:
+-			if ((server || hasDemo) &amp;&amp; !gameServer) {
+-				good_fpu_control_registers(&quot;before CGameServer creation&quot;);
+-				int myPort = gameSetup? gameSetup-&gt;hostport : 8452;
+-				gameServer = new CGameServer(myPort, serverStartupData, gameSetup, demoFile);
+-				if (gameSetup &amp;&amp; gameSetup-&gt;autohostport &gt; 0)
+-					gameServer-&gt;AddAutohostInterface(gameSetup-&gt;autohostport);
+-				gameServer-&gt;AddLocalClient();
+-				good_fpu_control_registers(&quot;after CGameServer creation&quot;);
+-			}
+-
+ 			if (net-&gt;Connected())
+ 				state = WAIT_ON_GAMEDATA; // fall through
+ 			else
+@@ -365,6 +347,83 @@
+ 	return true;
+ }
+ 
++void CPreGame::StartServer(std::string map, std::string mod, std::string script)
++{
++	assert(!gameServer);
++	GameData* startupData = new GameData();
++	startupData-&gt;SetRandomSeed(static_cast&lt;unsigned&gt;(gu-&gt;usRandInt()));
++	bool mapHasStartscript = false;
++	if (!map.empty())
++	{
++		// would be better to use MapInfo here, but this doesn't work
++		LoadMap(map); // map into VFS
++		std::string mapDefFile;
++		const std::string extension = map.substr(map.length()-3);
++		if (extension == &quot;smf&quot;)
++			mapDefFile = std::string(&quot;maps/&quot;)+map.substr(0,map.find_last_of('.'))+&quot;.smd&quot;;
++		else if(extension == &quot;sm3&quot;)
++			mapDefFile = string(&quot;maps/&quot;)+map;
++		else
++			throw std::runtime_error(&quot;CPreGame::StartServer(): Unknown extension: &quot; + extension);
++
++		TdfParser mapDefParser(mapDefFile);
++		std::string mapWantedScript, scriptFile;
++		mapDefParser.GetDef(mapWantedScript, &quot;&quot;, &quot;MAP\\Script&quot;);
++		mapDefParser.GetDef(scriptFile, &quot;&quot;, &quot;MAP\\Scriptfile&quot;);
++		if (!scriptFile.empty())
++			CScriptHandler::Instance().LoadScriptFile(scriptFile);
++		if (!mapWantedScript.empty())
++		{
++			script = mapWantedScript;
++			mapHasStartscript = true;
++		}
++	}
++	startupData-&gt;SetScript(script);
++	// here we now the name of the script to use
++
++	try // to load the script 
++	{
++		CScriptHandler::SelectScript(script);
++		std::string scriptWantedMod;
++		scriptWantedMod = CScriptHandler::Instance().chosenScript-&gt;GetModName();
++		if (!scriptWantedMod.empty())
++			mod = scriptWantedMod;
++
++		LoadMod(mod);
++	}
++	catch (const std::runtime_error&amp; err) // script not found, so it may be in the modarchive?
++	{
++		LoadMod(mod); // new map into VFS
++		CScriptHandler::SelectScript(script);
++	}
++	// make sure s is a modname (because the same mod can be in different archives on different computers)
++	mod = archiveScanner-&gt;ModArchiveToModName(mod);
++	std::string modArchive = archiveScanner-&gt;ModNameToModArchive(mod);
++	startupData-&gt;SetMod(mod, archiveScanner-&gt;GetModChecksum(modArchive));
++	
++	if (!mapHasStartscript)
++	{
++		std::string mapFromScript = CScriptHandler::Instance().chosenScript-&gt;GetMapName();
++		if (!mapFromScript.empty() &amp;&amp; map != mapFromScript)
++		{
++			//TODO unload old map
++			LoadMap(mapFromScript, true);
++		}
++	}
++	startupData-&gt;SetMap(map, archiveScanner-&gt;GetMapChecksum(map));
++
++	if (gameSetup)
++		gameSetup-&gt;LoadStartPositions(); // only host needs to do this, because client will recieve startpos msg from server
++	
++	good_fpu_control_registers(&quot;before CGameServer creation&quot;);
++	int myPort = gameSetup? gameSetup-&gt;hostport : springDefaultPort;
++	gameServer = new CGameServer(myPort, startupData, gameSetup, demoFile);
++	if (gameSetup &amp;&amp; gameSetup-&gt;autohostport &gt; 0)
++		gameServer-&gt;AddAutohostInterface(gameSetup-&gt;autohostport);
++	gameServer-&gt;AddLocalClient();
++	good_fpu_control_registers(&quot;after CGameServer creation&quot;);
++}
++
+ void CPreGame::UpdateClientNet()
+ {
+ 	if (!net-&gt;IsActiveConnection())
+@@ -502,7 +561,11 @@
+ 	while ( (buf = scanner.GetData(static_cast&lt;float&gt;(INT_MAX))) ) {
+ 		if (buf-&gt;data[0] == NETMSG_GAMEDATA)
+ 		{
+-			serverStartupData = new GameData(*buf);
++			GameData *data = new GameData(*buf);
++			good_fpu_control_registers(&quot;before CGameServer creation&quot;);
++			gameServer = new CGameServer(springDefaultPort, data, gameSetup, demoName);
++			gameServer-&gt;AddLocalClient();
++			good_fpu_control_registers(&quot;after CGameServer creation&quot;);
+ 			delete buf;
+ 			break;
+ 		}
+@@ -514,13 +577,6 @@
+ 	}
+ }
+ 
+-/** Create a CglList for selecting the script. */
+-void CPreGame::ShowScriptList()
+-{
+-	CglList* list = CScriptHandler::Instance().GenList(SelectScript);
+-	showList = list;
+-}
+-
+ /** Create a CglList for selecting the map. */
+ void CPreGame::ShowMapList()
+ {
+@@ -548,6 +604,13 @@
+ 	showList = list;
+ }
+ 
++/** Create a CglList for selecting the script. */
++void CPreGame::ShowScriptList()
++{
++	CglList* list = CScriptHandler::Instance().GenList(SelectScript);
++	showList = list;
++}
++
+ /** Create a CglList for selecting the mod. */
+ void CPreGame::ShowModList()
+ {
+@@ -571,38 +634,23 @@
+ 	showList = list;
+ }
+ 
+-void CPreGame::SelectScript(std::string s)
++void CPreGame::SelectMap(std::string s)
+ {
++	if (s == &quot;Random map&quot;) {
++		s = pregame-&gt;showList-&gt;items[1 + gu-&gt;usRandInt() % (showList-&gt;items.size() - 1)];
++	}
+ 	delete showList;
+ 	showList = 0;
+-	assert(pregame-&gt;serverStartupData);
+-	pregame-&gt;serverStartupData-&gt;SetScript(s);
+-	
+-	// if the script specify a map, use this and don't ask the user
+-	std::string map = CScriptHandler::Instance().chosenScript-&gt;GetMapName();
+-	if (map == &quot;&quot;)
+-		pregame-&gt;ShowMapList();
+-	else
+-		SelectMap(map);
++	userMap = s;
++	pregame-&gt;ShowScriptList();
+ }
+ 
+-void CPreGame::SelectMap(std::string s)
++void CPreGame::SelectScript(std::string s)
+ {
+-	if (s == &quot;Random map&quot;) {
+-		s = pregame-&gt;showList-&gt;items[1 + gu-&gt;usRandInt() % (showList-&gt;items.size() - 1)];
+-	}
+ 	delete showList;
+ 	showList = 0;
+-	LoadMap(s);
+-	if (gameSetup)
+-		gameSetup-&gt;LoadStartPositions(); // only host needs to do this, because client will recieve startpos msg from server
+-	pregame-&gt;serverStartupData-&gt;SetMap(s, archiveScanner-&gt;GetMapChecksum(s));
+-	
+-	std::string mod = CScriptHandler::Instance().chosenScript-&gt;GetModName();
+-	if (mod == &quot;&quot;)
+-		pregame-&gt;ShowModList();
+-	else
+-		SelectMod(mod);
++	userScript = s;
++	pregame-&gt;ShowModList();
+ }
+ 
+ void CPreGame::SelectMod(std::string s)
+@@ -613,19 +661,15 @@
+ 	}
+ 	delete showList;
+ 	showList = 0;
+-	LoadMod(s);
+-	// make sure s is a modname (because the same mod can be in different archives on different computers)
+-	s = archiveScanner-&gt;ModArchiveToModName(s);
+-	std::string modArchive = archiveScanner-&gt;ModNameToModArchive(s);
+-	pregame-&gt;serverStartupData-&gt;SetMod(s, archiveScanner-&gt;GetModChecksum(modArchive));
+-	pregame-&gt;state = WAIT_CONNECTING; // last thing to set, so start server now
++	pregame-&gt;StartServer(userMap, s, userScript);
++	pregame-&gt;state = WAIT_CONNECTING;
+ }
+ 
+-void CPreGame::LoadMap(const std::string&amp; mapName)
++void CPreGame::LoadMap(const std::string&amp; mapName, const bool forceReload)
+ {
+ 	static bool alreadyLoaded = false;
+ 	
+-	if (!alreadyLoaded)
++	if (!alreadyLoaded || forceReload)
+ 	{
+ 		CFileHandler* f = SAFE_NEW CFileHandler(&quot;maps/&quot; + mapName);
+ 		if (!f-&gt;FileExists()) {
+@@ -668,9 +712,8 @@
+ void CPreGame::GameDataRecieved(RawPacket* packet)
+ {
+ 	gameData = new GameData(*packet);
+-	logOutput &lt;&lt; &quot;Using script &quot; &lt;&lt; gameData-&gt;GetScript() &lt;&lt; &quot;\n&quot;;
+-	CScriptHandler::SelectScript(gameData-&gt;GetScript());
+ 	
++	gs-&gt;SetRandSeed(gameData-&gt;GetRandomSeed());
+ 	logOutput &lt;&lt; &quot;Using map &quot; &lt;&lt; gameData-&gt;GetMap() &lt;&lt; &quot;\n&quot;;
+ 	stupidGlobalMapname = gameData-&gt;GetMap();
+ 	
+@@ -678,6 +721,9 @@
+ 		net-&gt;GetDemoRecorder()-&gt;SetName(gameData-&gt;GetMap());
+ 	LoadMap(gameData-&gt;GetMap());
+ 	archiveScanner-&gt;CheckMap(gameData-&gt;GetMap(), gameData-&gt;GetMapChecksum());
++
++	logOutput &lt;&lt; &quot;Using script &quot; &lt;&lt; gameData-&gt;GetScript() &lt;&lt; &quot;\n&quot;;
++	CScriptHandler::SelectScript(gameData-&gt;GetScript());
+ 	
+ 	logOutput &lt;&lt; &quot;Using mod &quot; &lt;&lt; gameData-&gt;GetMod() &lt;&lt; &quot;\n&quot;;
+ 	LoadMod(gameData-&gt;GetMod());
+
+Modified: trunk/rts/Game/PreGame.h
+===================================================================
+--- trunk/rts/Game/PreGame.h	2008-05-03 13:22:43 UTC (rev 5829)
++++ trunk/rts/Game/PreGame.h	2008-05-03 14:11:47 UTC (rev 5830)
+@@ -13,6 +13,21 @@
+ 	class RawPacket;
+ }
+ 
++/**
++ * @brief This controlls the game start
++ * 
++ * Before a game starts, this class does everything that needs to be done before.
++ * It basically goes like this:
++ * For servers:
++ * 1. Find out which map, script and mod to use
++ * 2. Start the server with this settings
++ * 3. continue with &quot;For clients&quot;
++ * 
++ * ForClients:
++ * 1. Connect to the server
++ * 2. Recieve GameData from server
++ * 3. Start the CGame with the information provided by server
++ * */
+ class CPreGame : public CGameController
+ {
+ public:
+@@ -24,6 +39,8 @@
+ 	bool Update();
+ 
+ private:
++	void StartServer(std::string map, std::string mod, std::string script);
++	
+ 	/// reads out map, mod and script from demos (with or without a gameSetupScript)
+ 	void ReadDataFromDemo(const std::string&amp; demoName);
+ 
+@@ -32,8 +49,8 @@
+ 
+ 	CInfoConsole* infoConsole;
+ 
++	void ShowMapList();
+ 	void ShowScriptList();
+-	void ShowMapList();
+ 	void ShowModList();
+ 	static CglList* showList;
+ 	
+@@ -41,9 +58,9 @@
+ 	static void SelectScript(std::string s);
+ 	static void SelectMap(std::string s);
+ 	static void SelectMod(std::string s);
+-	
++	static std::string userScript, userMap;
+ 	/// Load map and dependend archives into archive scanner
+-	static void LoadMap(const std::string&amp; mapName);
++	static void LoadMap(const std::string&amp; mapName, const bool forceReload = false);
+ 	
+ 	/// Map all required archives depending on selected mod(s)
+ 	static void LoadMod(const std::string&amp; modName);
+@@ -69,9 +86,7 @@
+ 	We won't start until we recieved this
+ 	*/
+ 	const GameData* gameData;
+-	
+-	/// all the GameData (script, map, mod and checksums) needed to start the server
+-	GameData* serverStartupData;
++
+ 	std::string modArchive;
+ 	std::string demoFile;
+ 	CLoadSaveHandler *savefile;
+
+Modified: trunk/rts/Game/StartScripts/ScriptHandler.cpp
+===================================================================
+--- trunk/rts/Game/StartScripts/ScriptHandler.cpp	2008-05-03 13:22:43 UTC (rev 5829)
++++ trunk/rts/Game/StartScripts/ScriptHandler.cpp	2008-05-03 14:11:47 UTC (rev 5830)
+@@ -105,6 +105,21 @@
+ 	scripts[name] = s;
+ }
+ 
++void CScriptHandler::LoadScriptFile(const std::string&amp; file)
++{
++	char buffer[16000];
++	const int returned = hpiHandler-&gt;LoadFile(std::string(&quot;startscripts/&quot;+file), buffer);
++	if (returned &gt; 0)
++	{
++		CLuaBinder* lua = SAFE_NEW CLuaBinder();
++		if (!lua-&gt;LoadScript(file, buffer, returned))
++			handleerror(NULL, lua-&gt;lastError.c_str(), &quot;Lua&quot;, MBF_OK|MBF_EXCL);
++		lua_binders.push_back(lua);
++	}
++	else
++		throw std::runtime_error(&quot;scriptfile not found: &quot; + file);
++}
++
+ /** Called by the CglList generated by CScriptHandler::GenList on selection of a script. */
+ void CScriptHandler::SelectScript(std::string s)
+ {
+
+Modified: trunk/rts/Game/StartScripts/ScriptHandler.h
+===================================================================
+--- trunk/rts/Game/StartScripts/ScriptHandler.h	2008-05-03 13:22:43 UTC (rev 5829)
++++ trunk/rts/Game/StartScripts/ScriptHandler.h	2008-05-03 14:11:47 UTC (rev 5830)
+@@ -21,6 +21,7 @@
+ 	CglList* GenList(ListSelectCallback callb);
+ 
+ 	void AddScript(std::string name,CScript* s);
++	void LoadScriptFile(const std::string&amp; file);
+ 
+ 	static CScriptHandler&amp; Instance();
+ 
+
+Modified: trunk/rts/Map/MapInfo.cpp
+===================================================================
+--- trunk/rts/Map/MapInfo.cpp	2008-05-03 13:22:43 UTC (rev 5829)
++++ trunk/rts/Map/MapInfo.cpp	2008-05-03 14:11:47 UTC (rev 5830)
+@@ -66,6 +66,7 @@
+ void CMapInfo::ReadGlobal()
+ {
+ 	map.humanName = mapDefParser-&gt;SGetValueDef(map.name, &quot;MAP\\Description&quot;);
++	map.wantedScript = mapDefParser-&gt;SGetValueDef(map.wantedScript, &quot;MAP\\Description&quot;);
+ 
+ 	mapDefParser-&gt;GetTDef(map.hardness, 100.0f, &quot;MAP\\MapHardness&quot;);
+ 	map.notDeformable = mapDefParser-&gt;SGetValueDef(&quot;0&quot;, &quot;MAP\\NotDeformable&quot;) != &quot;0&quot;;
+
+Modified: trunk/rts/Map/MapInfo.h
+===================================================================
+--- trunk/rts/Map/MapInfo.h	2008-05-03 13:22:43 UTC (rev 5829)
++++ trunk/rts/Map/MapInfo.h	2008-05-03 14:11:47 UTC (rev 5830)
+@@ -51,6 +51,7 @@
+ 	/** Global settings, ie. from &quot;MAP&quot; section. */
+ 	struct map_t {
+ 		std::string name;      ///&lt; The filename as passed to the constructor.
++		std::string wantedScript;
+ 		std::string humanName; ///&lt; &quot;MAP\\Description&quot;
+ 		float hardness;        ///&lt; &quot;MAP\\MapHardness&quot;
+ 		bool  notDeformable;
+
+Modified: trunk/rts/System/Script/LuaBinder.cpp
+===================================================================
+--- trunk/rts/System/Script/LuaBinder.cpp	2008-05-03 13:22:43 UTC (rev 5829)
++++ trunk/rts/System/Script/LuaBinder.cpp	2008-05-03 14:11:47 UTC (rev 5830)
+@@ -340,16 +340,6 @@
+ 	lastError = &quot;&quot;;
+ }
+ 
+-bool CLuaBinder::LoadScript(const string&amp; name)
+-{
+-	if (luaL_loadfile(luaState, name.c_str()) || lua_pcall(luaState, 0, 0, 0)) {
+-		lastError = lua_tostring(luaState, -1);
+-		return false;
+-	}
+-
+-	return true;
+-}
+-
+ bool CLuaBinder::LoadScript(const string&amp; name, char* buffer, int size)
+ {
+ 	if (luaL_loadbuffer(luaState, buffer, size, name.c_str()) || lua_pcall(luaState, 0, 0, 0)) {
+
+Modified: trunk/rts/System/Script/LuaBinder.h
+===================================================================
+--- trunk/rts/System/Script/LuaBinder.h	2008-05-03 13:22:43 UTC (rev 5829)
++++ trunk/rts/System/Script/LuaBinder.h	2008-05-03 14:11:47 UTC (rev 5830)
+@@ -12,7 +12,6 @@
+ public:
+ 	std::string lastError;
+ 	CLuaBinder(void);
+-	bool LoadScript(const std::string&amp; name);
+ 	bool LoadScript(const std::string&amp; name, char* buffer, int size);
+ 	~CLuaBinder(void);
+ };
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000609.html">[Taspring-linux-commit] r5829 - in trunk/rts/Game: . UI
+</A></li>
+	<LI>Next message: <A HREF="000611.html">[Taspring-linux-commit] r5831 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#610">[ date ]</a>
+              <a href="thread.html#610">[ thread ]</a>
+              <a href="subject.html#610">[ subject ]</a>
+              <a href="author.html#610">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

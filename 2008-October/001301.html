@@ -1,0 +1,227 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6531 - in	branches/springie/planetwars/Springie: . autohost utils
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6531%20-%20in%0A%09branches/springie/planetwars/Springie%3A%20.%20autohost%20utils&In-Reply-To=%3C20081004211355.9A22C4184%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001300.html">
+   <LINK REL="Next"  HREF="001302.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6531 - in	branches/springie/planetwars/Springie: . autohost utils</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6531%20-%20in%0A%09branches/springie/planetwars/Springie%3A%20.%20autohost%20utils&In-Reply-To=%3C20081004211355.9A22C4184%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6531 - in	branches/springie/planetwars/Springie: . autohost utils">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Oct  4 23:13:55 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001300.html">[Taspring-linux-commit] r6530 - in trunk/rts: System lib/streflop
+</A></li>
+        <LI>Next message: <A HREF="001302.html">[Taspring-linux-commit] r6532 - trunk/Documentation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1301">[ date ]</a>
+              <a href="thread.html#1301">[ thread ]</a>
+              <a href="subject.html#1301">[ subject ]</a>
+              <a href="author.html#1301">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Licho
+Date: 2008-10-04 23:13:54 +0200 (Sat, 04 Oct 2008)
+New Revision: 6531
+
+Modified:
+   branches/springie/planetwars/Springie/MainConfig.cs
+   branches/springie/planetwars/Springie/autohost/AutoHost.cs
+   branches/springie/planetwars/Springie/autohost/AutoHost_commands.cs
+   branches/springie/planetwars/Springie/autohost/Polls.cs
+   branches/springie/planetwars/Springie/utils/Stats.cs
+Log:
+planetwars interface upgrade (authentication of springie, list of players to notify if their planet is under attack)
+
+Modified: branches/springie/planetwars/Springie/MainConfig.cs
+===================================================================
+--- branches/springie/planetwars/Springie/MainConfig.cs	2008-10-04 21:02:56 UTC (rev 6530)
++++ branches/springie/planetwars/Springie/MainConfig.cs	2008-10-04 21:13:54 UTC (rev 6531)
+@@ -71,7 +71,16 @@
+   		set { planetWarsServer = value; }
+   	}
+ 
++		[Description(&quot;Login into PlanetWars system for this springie&quot;)]
++		[Category(&quot;PlanetWars&quot;)]
++		public string PlanetWarsServerLogin {get;set;}
+ 
++
++		[Description(&quot;Password into PlanetWars system for this springie&quot;)]
++		[Category(&quot;PlanetWars&quot;)]
++		public string PlanetWarsServerPassword { get; set; }
++
++
+   	[Description(&quot;If you run CA updater on the server Springie can autorehost for stable or latest version of it&quot;)]
+     [Category(&quot;Springie&quot;)]
+     public CaUpdateMode CaUpdating
+
+Modified: branches/springie/planetwars/Springie/autohost/AutoHost.cs
+===================================================================
+--- branches/springie/planetwars/Springie/autohost/AutoHost.cs	2008-10-04 21:02:56 UTC (rev 6530)
++++ branches/springie/planetwars/Springie/autohost/AutoHost.cs	2008-10-04 21:13:54 UTC (rev 6531)
+@@ -287,7 +287,7 @@
+ 								return;
+ 							}
+ 						}  else {
+-							var hisFaction = factions.IndexOf(factions.Find((f) =&gt; f.Name == info.FactionInterface.Name));
++							var hisFaction = factions.IndexOf(factions.Find((f) =&gt; f.Name == info.FactionName));
+ 							if (u.AllyNumber != hisFaction) {
+ 								tas.ForceAlly(u.name, hisFaction);
+ 								SayBattle(string.Format(&quot;{0} must play in team {1}&quot;, u.name, hisFaction+1), false);
+@@ -344,6 +344,9 @@
+ 					}
+ 
+ 					SayBattle(&quot;Planet changed succesfully!&quot;);
++
++					var notifyList = pw.GetPlayersToNotify(name);
++					notifyList.ForEach(userName =&gt; tas.Say(TasClient.SayPlace.User, userName,string.Format(&quot;Your planet {0} is under attack! Come defend it!&quot;,mapInfo.Name),false));
+ 				} catch(Exception ex) {
+ 					SayBattle(string.Format(&quot;Error setting planet starting boxes: {0}&quot;, ex.Message));
+ 				}
+
+Modified: branches/springie/planetwars/Springie/autohost/AutoHost_commands.cs
+===================================================================
+--- branches/springie/planetwars/Springie/autohost/AutoHost_commands.cs	2008-10-04 21:02:56 UTC (rev 6530)
++++ branches/springie/planetwars/Springie/autohost/AutoHost_commands.cs	2008-10-04 21:13:54 UTC (rev 6531)
+@@ -286,7 +286,7 @@
+ 				var info = pw.GetPlayerInfo(e.UserName);
+ 				var fact = pw.GetOffensiveFaction();
+ 				if (info != null &amp;&amp; info.IsLeader) {
+-					if (info.FactionInterface.Name == fact.Name) {
++					if (info.FactionName == fact.Name) {
+ 						SayBattle(string.Format(&quot;changing planet to {0} by {1}&quot;, vals[0], e.UserName));
+ 						var planet = pw.GetAttackOptions().Find((m) =&gt; m.Name == vals[0]);
+ 						tas.ChangeMap(spring.UnitSync.MapList[planet.MapName]);
+@@ -438,14 +438,19 @@
+ 						return false;
+ 					}
+ 
++					var factions = pw.GetFactions();
++
+ 					var actual = new List&lt;IPlayer&gt;();
+ 					foreach (UserBattleStatus user in tas.GetBattle().Users) {
+ 						if (!user.IsSpectator) {
+ 							var info = pw.GetPlayerInfo(user.name);
+ 							actual.Add(info);
+ 							string side = tas.GetBattle().Mod.Sides[user.Side];
+-							if (!string.Equals(side, info.FactionInterface.Side, StringComparison.InvariantCultureIgnoreCase)) {
+-								SayBattle(string.Format(&quot;{0} must switch to {1}&quot;, user.name, info.FactionInterface.Side), false);
++							string hisSide = factions.Find(f =&gt; f.Name == info.FactionName).SpringSide;
++							
++							if (!string.Equals(side, hisSide, StringComparison.InvariantCultureIgnoreCase))
++							{
++								SayBattle(string.Format(&quot;{0} must switch to {1}&quot;, user.name, hisSide), false);
+ 								ok = false;
+ 							}
+ 						}
+@@ -1338,17 +1343,15 @@
+   			Respond(e, &quot;This is not PlanetWars host&quot;);
+   			return;
+   		}
+-			if (words.Length != 2) {
+-				Respond(e, &quot;This command needs 2 parameters - side and password (you can PM it to me)&quot;);
++			if (words.Length &lt; 2 || words.Length &gt; 3) {
++				Respond(e, &quot;This command needs 2-3 parameters - side and password and optional planet name (you can PM it to me)&quot;);
+ 				return;
+ 			}
+ 
+ 			try {
+ 				var pw = Program.main.PlanetWars;
+-				var response = pw.Register(new AuthInfo() {Login = e.UserName, Password = words[1]}, words[0]);
+-				if (response != RegistrationOutcome.Success) {
+-					Respond(e, string.Format(&quot;Problem registering: {0}&quot;, response.ToString()));
+-				} else Respond(e, &quot;Registration succesfull&quot;);
++				var response = pw.Register(new AuthInfo() {Login = e.UserName, Password = words[1]}, words[0], words.Length &gt;2 ? words[2] : null);
++				Respond(e, string.Format(response));
+ 			} catch(Exception ex) {
+ 				Respond(e, string.Format(&quot;Error when registering: {0}&quot;, ex.Message));
+ 			}
+
+Modified: branches/springie/planetwars/Springie/autohost/Polls.cs
+===================================================================
+--- branches/springie/planetwars/Springie/autohost/Polls.cs	2008-10-04 21:02:56 UTC (rev 6530)
++++ branches/springie/planetwars/Springie/autohost/Polls.cs	2008-10-04 21:13:54 UTC (rev 6531)
+@@ -575,7 +575,7 @@
+ 			{
+ 				foreach (UserBattleStatus us in b.Users)
+ 				{
+-					if (us.name != tas.UserName &amp;&amp; !us.IsSpectator &amp;&amp; pw.GetPlayerInfo(us.name).FactionInterface.Name == faction)
++					if (us.name != tas.UserName &amp;&amp; !us.IsSpectator &amp;&amp; pw.GetPlayerInfo(us.name).FactionName == faction)
+ 					{
+ 						users.Add(us.name);
+ 						votes.Add(0);
+@@ -618,7 +618,7 @@
+ 			if (e.UserName != &quot;&quot;) { // this is needed due to &quot;timeout&quot; hackthing with vote
+ 				var info = pw.GetPlayerInfo(e.UserName);
+ 
+-				if (info == null || info.FactionInterface.Name != faction) {
++				if (info == null || info.FactionName != faction) {
+ 					AutoHost.Respond(tas, spring, e, string.Format(&quot;{0}, it's not your faction's turn&quot;, e.UserName));
+ 					return false;
+ 				}
+
+Modified: branches/springie/planetwars/Springie/utils/Stats.cs
+===================================================================
+--- branches/springie/planetwars/Springie/utils/Stats.cs	2008-10-04 21:02:56 UTC (rev 6530)
++++ branches/springie/planetwars/Springie/utils/Stats.cs	2008-10-04 21:13:54 UTC (rev 6531)
+@@ -7,6 +7,7 @@
+ using System.Threading;
+ using System.Windows.Forms;
+ using System.Xml.Serialization;
++using PlanetWarsShared;
+ using Springie.Client;
+ using Springie.SpringNamespace;
+ using PlanetWarsShared.Springie;
+@@ -118,8 +119,10 @@
+ 			if (Program.main.config.PlanetWarsEnabled) {
+ 				try {
+ 					var pw = Program.main.PlanetWars;
+-					pw.SendBattleResult(battle.Map.Name, players.Values);
+-					Program.main.AutoHost.SayBattle(&quot;Planet status updated!&quot;);
++					
++					var response = pw.SendBattleResult(new AuthInfo {Login = Program.main.config.PlanetWarsServerLogin, Password = Program.main.config.PlanetWarsServerPassword},  battle.Map.Name, players.Values);
++
++					Program.main.AutoHost.SayBattle(response);
+ 				} catch(Exception ex) {
+ 					Program.main.AutoHost.SayBattle(string.Format(&quot;Error sending planet battle result :(( {0}&quot;, ex.Message), true);
+ 				}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001300.html">[Taspring-linux-commit] r6530 - in trunk/rts: System lib/streflop
+</A></li>
+	<LI>Next message: <A HREF="001302.html">[Taspring-linux-commit] r6532 - trunk/Documentation
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1301">[ date ]</a>
+              <a href="thread.html#1301">[ thread ]</a>
+              <a href="subject.html#1301">[ subject ]</a>
+              <a href="author.html#1301">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

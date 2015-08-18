@@ -1,0 +1,162 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6818 - trunk/rts/Game
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6818%20-%20trunk/rts/Game&In-Reply-To=%3C20081018220143.517B6472A%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001586.html">
+   <LINK REL="Next"  HREF="001588.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6818 - trunk/rts/Game</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6818%20-%20trunk/rts/Game&In-Reply-To=%3C20081018220143.517B6472A%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6818 - trunk/rts/Game">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Oct 19 00:01:43 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001586.html">[Taspring-linux-commit] r6817 - trunk/rts/Game
+</A></li>
+        <LI>Next message: <A HREF="001588.html">[Taspring-linux-commit] r6819 - in trunk: Documentation	installer/builddata/maphelper/maphelper rts/Rendering
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1587">[ date ]</a>
+              <a href="thread.html#1587">[ thread ]</a>
+              <a href="subject.html#1587">[ subject ]</a>
+              <a href="author.html#1587">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: imbaczek
+Date: 2008-10-19 00:01:42 +0200 (Sun, 19 Oct 2008)
+New Revision: 6818
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/Team.cpp
+   trunk/rts/Game/Team.h
+Log:
+fix mantis #927: zero out variables in bulk before updating them
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-10-18 19:34:45 UTC (rev 6817)
++++ trunk/rts/Game/Game.cpp	2008-10-18 22:01:42 UTC (rev 6818)
+@@ -3075,7 +3075,7 @@
+ 		}
+ 		while(!gmlProcessor.PumpAux()) {
+ 			// could possibly make more calls to Draw here
+-			boost::thread::yield(); 
++			boost::thread::yield();
+ 		}
+ 	}
+ 	else
+@@ -3181,6 +3181,9 @@
+ 
+ 	if (!(gs-&gt;frameNum &amp; 31)) {
+ 		for (int a = 0; a &lt; gs-&gt;activeTeams; ++a) {
++			gs-&gt;Team(a)-&gt;ResetFrameVariables();
++		}
++		for (int a = 0; a &lt; gs-&gt;activeTeams; ++a) {
+ 			gs-&gt;Team(a)-&gt;SlowUpdate();
+ 		}
+ 	}
+
+Modified: trunk/rts/Game/Team.cpp
+===================================================================
+--- trunk/rts/Game/Team.cpp	2008-10-18 19:34:45 UTC (rev 6817)
++++ trunk/rts/Game/Team.cpp	2008-10-18 22:01:42 UTC (rev 6818)
+@@ -290,13 +290,10 @@
+ 	startPos = pos;
+ }
+ 
+-void CTeam::SlowUpdate()
++/** This has to be called for every team before SlowUpdates start,
++	otherwise values get overwritten. */
++void CTeam::ResetFrameVariables()
+ {
+-	currentStats.metalProduced  += metalIncome;
+-	currentStats.energyProduced += energyIncome;
+-	currentStats.metalUsed  += metalUpkeep + metalExpense;
+-	currentStats.energyUsed += energyUpkeep + energyExpense;
+-
+ 	prevMetalPull     = metalPull;
+ 	prevMetalIncome   = metalIncome;
+ 	prevMetalExpense  = metalExpense;
+@@ -319,7 +316,15 @@
+ 	energySent = 0;
+ 	metalReceived = 0;
+ 	energyReceived = 0;
++}
+ 
++void CTeam::SlowUpdate()
++{
++	currentStats.metalProduced  += metalIncome;
++	currentStats.energyProduced += energyIncome;
++	currentStats.metalUsed  += metalUpkeep + metalExpense;
++	currentStats.energyUsed += energyUpkeep + energyExpense;
++
+ 	float eShare = 0.0f, mShare = 0.0f;
+ 	for (int a = 0; a &lt; gs-&gt;activeTeams; ++a) {
+ 		if ((a != teamNum) &amp;&amp; (gs-&gt;AllyTeam(teamNum) == gs-&gt;AllyTeam(a))) {
+
+Modified: trunk/rts/Game/Team.h
+===================================================================
+--- trunk/rts/Game/Team.h	2008-10-18 19:34:45 UTC (rev 6817)
++++ trunk/rts/Game/Team.h	2008-10-18 22:01:42 UTC (rev 6818)
+@@ -18,6 +18,7 @@
+ 	CR_DECLARE_SUB(Statistics);
+ 	CTeam();
+ 	~CTeam();
++	void ResetFrameVariables();
+ 	void SlowUpdate();
+ 
+ 
+@@ -32,12 +33,12 @@
+ 	void SetBaseEnergyStorage(float storage) {energyStorage = storage;};
+ 
+ 	void GiveEverythingTo(const unsigned toTeam);
+-	
++
+ 	void Died();
+ 
+ 	void StartposMessage(const float3&amp; pos, const bool isReady);
+ 	void StartposMessage(const float3&amp; pos);
+-	
++
+ 	inline bool IsReadyToStart() const {return readyToStart;};
+ 	enum AddType{
+ 		AddBuilt,
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001586.html">[Taspring-linux-commit] r6817 - trunk/rts/Game
+</A></li>
+	<LI>Next message: <A HREF="001588.html">[Taspring-linux-commit] r6819 - in trunk: Documentation	installer/builddata/maphelper/maphelper rts/Rendering
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1587">[ date ]</a>
+              <a href="thread.html#1587">[ thread ]</a>
+              <a href="subject.html#1587">[ subject ]</a>
+              <a href="author.html#1587">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

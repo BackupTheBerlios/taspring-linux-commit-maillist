@@ -1,0 +1,1471 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6783 - in Lobby/springie/Springie: .	UnitSync autohost downloader spring utils
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6783%20-%20in%20Lobby/springie/Springie%3A%20.%0A%09UnitSync%20autohost%20downloader%20spring%20utils&In-Reply-To=%3C20081016184717.ED2824656%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001551.html">
+   <LINK REL="Next"  HREF="001553.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6783 - in Lobby/springie/Springie: .	UnitSync autohost downloader spring utils</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6783%20-%20in%20Lobby/springie/Springie%3A%20.%0A%09UnitSync%20autohost%20downloader%20spring%20utils&In-Reply-To=%3C20081016184717.ED2824656%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6783 - in Lobby/springie/Springie: .	UnitSync autohost downloader spring utils">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Oct 16 20:47:17 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001551.html">[Taspring-linux-commit] r6782 - trunk/rts/System
+</A></li>
+        <LI>Next message: <A HREF="001553.html">[Taspring-linux-commit] r6784 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1552">[ date ]</a>
+              <a href="thread.html#1552">[ thread ]</a>
+              <a href="subject.html#1552">[ subject ]</a>
+              <a href="author.html#1552">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Licho
+Date: 2008-10-16 20:47:16 +0200 (Thu, 16 Oct 2008)
+New Revision: 6783
+
+Added:
+   Lobby/springie/Springie/downloader/
+   Lobby/springie/Springie/downloader/ClientConnection.cs
+   Lobby/springie/Springie/downloader/DownloaderHandler.cs
+   Lobby/springie/Springie/downloader/HostList.cs
+   Lobby/springie/Springie/downloader/ServerConnection.cs
+   Lobby/springie/Springie/downloader/ShortTorrentInfo.cs
+Modified:
+   Lobby/springie/Springie/Main.cs
+   Lobby/springie/Springie/MainConfig.cs
+   Lobby/springie/Springie/Program.cs
+   Lobby/springie/Springie/Springie.csproj
+   Lobby/springie/Springie/UnitSync/ListOption.cs
+   Lobby/springie/Springie/UnitSync/ModInfo.cs
+   Lobby/springie/Springie/UnitSync/Option.cs
+   Lobby/springie/Springie/UnitSync/UnitInfo.cs
+   Lobby/springie/Springie/UnitSync/UnitSyncWrapper.cs
+   Lobby/springie/Springie/autohost/AutoHost.cs
+   Lobby/springie/Springie/autohost/AutoHostConfig.cs
+   Lobby/springie/Springie/autohost/AutoHost_commands.cs
+   Lobby/springie/Springie/spring/Spring.cs
+   Lobby/springie/Springie/spring/Talker.cs
+   Lobby/springie/Springie/utils/AutoUpdater.cs
+Log:
+-springie now connects to P2P system and downloads information about new mods and maps from there - allowing it to host any mod and map
+-in case of new mods, springie uses modoptions/unitinformation and sides from closest known version stored in modinfo.dat file
+-springie treats last part of the mod name as version if its numeric in format of number (can contain dot)
+-added ability to auto rehost to newest version of any mod you pick
+-fixed client quitting and chat relay (was relaying spectators/ally too) - needs latest dedicated
+
+Modified: Lobby/springie/Springie/Main.cs
+===================================================================
+--- Lobby/springie/Springie/Main.cs	2008-10-16 18:38:46 UTC (rev 6782)
++++ Lobby/springie/Springie/Main.cs	2008-10-16 18:47:16 UTC (rev 6783)
+@@ -130,7 +130,7 @@
+ 			spring.SpringExited += spring_SpringExited;
+ 			spring.SpringStarted += spring_SpringStarted;
+ 			spring.PlayerSaid += spring_PlayerSaid;
+-			autoHost = new AutoHost(tas, spring, null);
++  		autoHost = new AutoHost(tas, spring, null);
+ 			autoUpdater = new AutoUpdater(spring, tas);
+ 
+ 			if (config.StatsEnabledReal) stats = new Stats(tas, spring);
+
+Modified: Lobby/springie/Springie/MainConfig.cs
+===================================================================
+--- Lobby/springie/Springie/MainConfig.cs	2008-10-16 18:38:46 UTC (rev 6782)
++++ Lobby/springie/Springie/MainConfig.cs	2008-10-16 18:47:16 UTC (rev 6783)
+@@ -12,22 +12,10 @@
+ 		#region Constants
+ 
+ 		public const string SpringieVersion = &quot;Springie 1.20&quot;;
++		public const int TrackerCaPort = 8202;
+ 
+ 		#endregion
+ 
+-		private string executableName = &quot;spring-dedicated.exe&quot;;
+-
+-		#region CaUpdateMode enum
+-
+-		public enum CaUpdateMode
+-		{
+-			None,
+-			Stable,
+-			Latest
+-		} ;
+-
+-		#endregion
+-
+ 		#region ErrorHandlingModes enum
+ 
+ 		public enum ErrorHandlingModes
+@@ -45,9 +33,9 @@
+ 		private string accountPassword = &quot;pass&quot;;
+ 		private int attemptReconnectInterval = 60;
+ 		private bool attemptToRecconnect = true;
+-
+ 		private bool autoUpdate = true;
+ 		private ErrorHandlingModes errorHandlingMode = ErrorHandlingModes.Suppress;
++		private string executableName = &quot;spring-dedicated.exe&quot;;
+ 		private bool gargamelMode = true;
+ 		private ProcessPriorityClass hostingProcessPriority = ProcessPriorityClass.AboveNormal;
+ 		private string[] joinChannels = new[] {&quot;main&quot;};
+@@ -58,6 +46,7 @@
+ 		private int springCoreAffinity = 1;
+ 		private bool statsEnabledReal = true;
+ 		private string statsUrlAddressReal = &quot;<A HREF="http://springie.licho.eu/">http://springie.licho.eu/</A>&quot;;
++		private string[] trackerServers = new[] {&quot;tracker.caspring.org&quot;, &quot;backup-tracker.licho.eu&quot;};
+ 
+ 		#endregion
+ 
+@@ -107,9 +96,6 @@
+ 			set { autoUpdate = value; }
+ 		}
+ 
+-		[Description(&quot;If you run CA updater on the server Springie can autorehost for stable or latest version of it&quot;)]
+-		[Category(&quot;Springie&quot;)]
+-		public CaUpdateMode CaUpdating { get; set; }
+ 
+ 		[Category(&quot;Springie&quot;)]
+ 		[Description(&quot;Determines the way in which Springie handles unexpected errors. For general purpose use Suppress, for instant notification and stop on error use MessageBox mode and for debugging use Debug&quot;)]
+@@ -119,6 +105,14 @@
+ 			set { errorHandlingMode = value; }
+ 		}
+ 
++		[Category(&quot;Spring&quot;)]
++		[Description(&quot;Executable to run&quot;)]
++		public string ExecutableName
++		{
++			get { return executableName; }
++			set { executableName = value; }
++		}
++
+ 		[Description(&quot;Should this autohost work in gargamel mode (catch smurfs)&quot;)]
+ 		[Category(&quot;Server connection&quot;)]
+ 		public bool GargamelMode
+@@ -218,12 +212,12 @@
+ 			}
+ 		}
+ 
+-		[Category(&quot;Spring&quot;)]
+-		[Description(&quot;Executable to run&quot;)]
+-		public string ExecutableName
++		[Category(&quot;Downloader&quot;)]
++		[Description(&quot;Downloader trakcer server - used to get map and mod lists&quot;)]
++		public string[] TrackerServers
+ 		{
+-			get { return executableName; }
+-			set { executableName = value; }
++			get { return trackerServers; }
++			set { trackerServers = value; }
+ 		}
+ 
+ 		#endregion
+
+Modified: Lobby/springie/Springie/Program.cs
+===================================================================
+--- Lobby/springie/Springie/Program.cs	2008-10-16 18:38:46 UTC (rev 6782)
++++ Lobby/springie/Springie/Program.cs	2008-10-16 18:47:16 UTC (rev 6783)
+@@ -4,6 +4,7 @@
+ using System.Globalization;
+ using System.Threading;
+ using System.Windows.Forms;
++using Springie.SpringNamespace;
+ 
+ #endregion
+ 
+
+Modified: Lobby/springie/Springie/Springie.csproj
+===================================================================
+--- Lobby/springie/Springie/Springie.csproj	2008-10-16 18:38:46 UTC (rev 6782)
++++ Lobby/springie/Springie/Springie.csproj	2008-10-16 18:47:16 UTC (rev 6783)
+@@ -124,6 +124,11 @@
+     &lt;Compile Include=&quot;client\BattleRect.cs&quot; /&gt;
+     &lt;Compile Include=&quot;client\BotBattleStatus.cs&quot; /&gt;
+     &lt;Compile Include=&quot;client\UserBattleStatus.cs&quot; /&gt;
++    &lt;Compile Include=&quot;downloader\ClientConnection.cs&quot; /&gt;
++    &lt;Compile Include=&quot;downloader\HostList.cs&quot; /&gt;
++    &lt;Compile Include=&quot;downloader\ServerConnection.cs&quot; /&gt;
++    &lt;Compile Include=&quot;downloader\DownloaderHandler.cs&quot; /&gt;
++    &lt;Compile Include=&quot;downloader\ShortTorrentInfo.cs&quot; /&gt;
+     &lt;Compile Include=&quot;FormCurrentBattle.cs&quot;&gt;
+       &lt;SubType&gt;Form&lt;/SubType&gt;
+     &lt;/Compile&gt;
+
+Modified: Lobby/springie/Springie/UnitSync/ListOption.cs
+===================================================================
+--- Lobby/springie/Springie/UnitSync/ListOption.cs	2008-10-16 18:38:46 UTC (rev 6782)
++++ Lobby/springie/Springie/UnitSync/ListOption.cs	2008-10-16 18:47:16 UTC (rev 6783)
+@@ -3,7 +3,7 @@
+ namespace Springie.SpringNamespace
+ {
+ 	[Serializable]
+-	public struct ListOption
++	public struct ListOption:ICloneable
+ 	{
+ 		#region Properties
+ 
+@@ -12,5 +12,10 @@
+ 		public string Name;
+ 
+ 		#endregion
++
++		public object Clone()
++		{
++			return MemberwiseClone();
++		}
+ 	}
+ }
+\ No newline at end of file
+
+Modified: Lobby/springie/Springie/UnitSync/ModInfo.cs
+===================================================================
+--- Lobby/springie/Springie/UnitSync/ModInfo.cs	2008-10-16 18:38:46 UTC (rev 6782)
++++ Lobby/springie/Springie/UnitSync/ModInfo.cs	2008-10-16 18:47:16 UTC (rev 6783)
+@@ -2,6 +2,7 @@
+ 
+ using System;
+ using System.Collections.Generic;
++using System.Text.RegularExpressions;
+ 
+ #endregion
+ 
+@@ -11,22 +12,48 @@
+ 	/// Represents one mod. Detailed information are loaded on demand for given mod.
+ 	/// &lt;/summary&gt;
+ 	[Serializable]
+-	public class ModInfo
++	public class ModInfo : ICloneable
+ 	{
++		#region Fields
++
++		private string name;
++		private string shortBaseName;
++		private double version;
++
++		#endregion
++
+ 		#region Properties
+ 
+ 		public string ArchiveName { get; set; }
+ 
+ 		public int Checksum { get; set; }
+ 
+-		public string Name { get; private set; }
++		public string Name
++		{
++			get { return name; }
++			internal set
++			{
++				name = value;
++				ExtractNameAndVersion(name, out shortBaseName, out version);
++			}
++		}
+ 
+ 		public List&lt;Option&gt; Options = new List&lt;Option&gt;();
+ 
++		public string ShortBaseName
++		{
++			get { return shortBaseName; }
++		}
++
+ 		public string[] Sides { get; set; }
+ 
+ 		public UnitInfo[] Units { get; set; }
+ 
++		public double Version
++		{
++			get { return version; }
++		}
++
+ 		#endregion
+ 
+ 		#region Constructors
+@@ -40,10 +67,21 @@
+ 
+ 		#region Public methods
+ 
+-		public bool GetUnitInfo(string name, out UnitInfo res)
++		public static void ExtractNameAndVersion(string fullName, out string name, out double version)
+ 		{
++			version = 0;
++			name = fullName;
++			var m = Regex.Match(fullName, &quot;(.*[^0-9\\.]+)([0-9\\.]+)$&quot;);
++			if (m.Success) {
++				double.TryParse(m.Groups[2].Value, out version);
++				name = m.Groups[1].Value;
++			}
++		}
++
++		public bool GetUnitInfo(string modname, out UnitInfo res)
++		{
+ 			for (int i = 0; i &lt; Units.Length; ++i) {
+-				if (Units[i].Name == name) {
++				if (Units[i].Name == modname) {
+ 					res = Units[i];
+ 					return true;
+ 				}
+@@ -62,5 +100,17 @@
+ 		}
+ 
+ 		#endregion
++
++		#region ICloneable Members
++
++		public object Clone()
++		{
++			var mi = (ModInfo) MemberwiseClone();
++			mi.Options = new List&lt;Option&gt;(Options.Count);
++			foreach (var option in Options) mi.Options.Add((Option) option.Clone());
++			return mi;
++		}
++
++		#endregion
+ 	} ;
+ }
+\ No newline at end of file
+
+Modified: Lobby/springie/Springie/UnitSync/Option.cs
+===================================================================
+--- Lobby/springie/Springie/UnitSync/Option.cs	2008-10-16 18:38:46 UTC (rev 6782)
++++ Lobby/springie/Springie/UnitSync/Option.cs	2008-10-16 18:47:16 UTC (rev 6783)
+@@ -1,11 +1,21 @@
++#region using
++
+ using System;
+ using System.Collections.Generic;
+ 
++#endregion
++
+ namespace Springie.SpringNamespace
+ {
+ 	[Serializable]
+-	public class Option
++	public class Option : ICloneable
+ 	{
++		#region Constants
++
++		private const string Table = &quot;GAME/MODOPTIONS/&quot;;
++
++		#endregion
++
+ 		#region Type enum
+ 
+ 		public enum Type
+@@ -19,32 +29,21 @@
+ 
+ 		#endregion
+ 
+-		#region Fields
+-
+-		public float max = float.MinValue;
+-		public float min = float.MinValue;
+-		public float strMaxLen = 65535;
+-		private const string Table = &quot;GAME/MODOPTIONS/&quot;;
+-
+-		#endregion
+-
+ 		#region Properties
+ 
+ 		public string Default;
+ 		public string Description;
+ 		public string Key;
+ 		public List&lt;ListOption&gt; ListOptions = new List&lt;ListOption&gt;();
++		public float max = float.MinValue;
++		public float min = float.MinValue;
+ 
+ 		public string Name;
+ 		public Type OptionType;
++		public float strMaxLen = 65535;
+ 
+ 		#endregion
+ 
+-		#region Constructors
+-
+-
+-		#endregion
+-
+ 		#region Public methods
+ 
+ 		public bool GetPair(string Value, out string result)
+@@ -118,5 +117,17 @@
+ 		}
+ 
+ 		#endregion
++
++		#region ICloneable Members
++
++		public object Clone()
++		{
++			var opt = (Option) MemberwiseClone();
++			opt.ListOptions = new List&lt;ListOption&gt;(ListOptions.Count);
++			foreach (var option in ListOptions) opt.ListOptions.Add((ListOption) option.Clone());
++			return opt;
++		}
++
++		#endregion
+ 	}
+ }
+\ No newline at end of file
+
+Modified: Lobby/springie/Springie/UnitSync/UnitInfo.cs
+===================================================================
+--- Lobby/springie/Springie/UnitSync/UnitInfo.cs	2008-10-16 18:38:46 UTC (rev 6782)
++++ Lobby/springie/Springie/UnitSync/UnitInfo.cs	2008-10-16 18:47:16 UTC (rev 6783)
+@@ -6,7 +6,7 @@
+ {
+ 	[TypeConverter(typeof (UnitConverter))]
+ 	[Serializable]
+-	public struct UnitInfo
++	public struct UnitInfo:ICloneable
+ 	{
+ 		#region Properties
+ 
+@@ -45,5 +45,10 @@
+ 		}
+ 
+ 		#endregion
++
++		public object Clone()
++		{
++			return MemberwiseClone();
++		}
+ 	}
+ }
+\ No newline at end of file
+
+Modified: Lobby/springie/Springie/UnitSync/UnitSyncWrapper.cs
+===================================================================
+--- Lobby/springie/Springie/UnitSync/UnitSyncWrapper.cs	2008-10-16 18:38:46 UTC (rev 6782)
++++ Lobby/springie/Springie/UnitSync/UnitSyncWrapper.cs	2008-10-16 18:47:16 UTC (rev 6783)
+@@ -1,20 +1,23 @@
+ #region using
+ 
+-#region using
+-
+ using System;
+ using System.Collections.Generic;
+ using System.IO;
++using System.Runtime.Remoting.Contexts;
+ using System.Runtime.Serialization.Formatters.Binary;
++using Springie.Downloader;
+ 
+ #endregion
+ 
+ namespace Springie.SpringNamespace
+ {
+-	public class UnitSyncWrapper
++	[Synchronization]
++	public class UnitSyncWrapper : ContextBoundObject
+ 	{
+ 		#region Fields
+ 
++		private DownloaderHandler downloader;
++		private Dictionary&lt;string, ModInfo&gt; loadedModList = new Dictionary&lt;string, ModInfo&gt;();
+ 		private Dictionary&lt;string, MapInfo&gt; mapList = new Dictionary&lt;string, MapInfo&gt;();
+ 		private Dictionary&lt;string, ModInfo&gt; modList = new Dictionary&lt;string, ModInfo&gt;();
+ 
+@@ -34,6 +37,12 @@
+ 
+ 		#endregion
+ 
++		#region Events
++
++		public event EventHandler NotifyModsChanged;
++
++		#endregion
++
+ 		#region Constructors
+ 
+ 		public UnitSyncWrapper() : this(Directory.GetCurrentDirectory()) {}
+@@ -41,16 +50,24 @@
+ 		public UnitSyncWrapper(string path)
+ 		{
+ 			var bf = new BinaryFormatter();
++			downloader = new DownloaderHandler();
++			downloader.TorrentAdded += downloader_TorrentAdded;
++			downloader.TorrentRemoved += downloader_TorrentRemoved;
++			downloader.TorrentListDone += downloader_TorrentListDone;
++			downloader.Start();
++
++
+ 			try {
+ 				using (var fs = new FileStream(Path.Combine(path, &quot;mapinfo.dat&quot;), FileMode.Open)) mapList = (Dictionary&lt;string, MapInfo&gt;) bf.Deserialize(fs);
+ 			} catch (Exception ex) {
+ 				ErrorHandling.HandleException(ex, &quot;While loading mapinfo.dat&quot;);
+ 			}
+ 			try {
+-				using (var fs = new FileStream(Path.Combine(path, &quot;modinfo.dat&quot;), FileMode.Open)) modList = (Dictionary&lt;string, ModInfo&gt;) bf.Deserialize(fs);
++				using (var fs = new FileStream(Path.Combine(path, &quot;modinfo.dat&quot;), FileMode.Open)) loadedModList = (Dictionary&lt;string, ModInfo&gt;) bf.Deserialize(fs);
+ 			} catch (Exception ex) {
+ 				ErrorHandling.HandleException(ex, &quot;While loading modinfo.dat&quot;);
+ 			}
++			modList = new Dictionary&lt;string, ModInfo&gt;(loadedModList);
+ 		}
+ 
+ 		#endregion
+@@ -86,7 +103,103 @@
+ 		}
+ 
+ 		#endregion
++
++		#region Other methods
++
++		private void ProcessTorrentAdded(ShortTorrentInfo e)
++		{
++			if (e.Type == &quot;MOD&quot;) {
++				foreach (var mi in modList.Values) if (mi.Checksum == e.Hash) return;
++
++				double version;
++				string baseName;
++				ModInfo.ExtractNameAndVersion(e.Name, out baseName, out version);
++				ModInfo closestMi = null;
++				double difference = double.MaxValue;
++				foreach (var mi in loadedModList.Values) {
++					if (mi.ShortBaseName == baseName)
++					{
++						var nd = Math.Abs(mi.Version - version);
++						if (nd &lt; difference) {
++							difference = nd;
++							closestMi = mi;
++						}
++					}
++				}
++				
++				if (closestMi != null) {
++					var newMi = (ModInfo)closestMi.Clone();
++					newMi.Checksum = e.Hash;
++					newMi.Name = e.Name;
++					modList[newMi.Name] = newMi;
++					if (downloader.IsTorrentListDone &amp;&amp; NotifyModsChanged != null) NotifyModsChanged(this, EventArgs.Empty);
++				}
++
++			} else if (e.Type == &quot;MAP&quot;) {
++				foreach (var mi in mapList.Values) if (mi.Checksum == e.Hash) return;
++				mapList[e.Name] = new MapInfo(e.Name) {Checksum = e.Hash};
++			}
++		}
++
++		private void ProcessTorrentRemoved(ShortTorrentInfo e)
++		{
++			if (e.Type == &quot;MOD&quot;) {
++				bool found = false;
++				foreach (var mi in modList.Values) {
++					if (mi.Checksum == e.Hash) {
++						found = true;
++						break;
++					}
++				}
++				if (found) modList.Remove(e.Name);
++				if (downloader.IsTorrentListDone &amp;&amp; NotifyModsChanged != null) NotifyModsChanged(this, EventArgs.Empty);
++			} else if (e.Type == &quot;MAP&quot;) {
++				bool found = false;
++				foreach (var mi in mapList.Values) {
++					if (mi.Checksum == e.Hash) {
++						found = true;
++						break;
++					}
++				}
++				if (found) mapList.Remove(e.Name);
++			}
++		}
++
++		#endregion
++
++
++		public string GetNewestModVersion(string baseName)
++		{
++			double newest = double.MinValue;
++			string best = null;
++			foreach (ModInfo mi in modList.Values) {
++				if (mi.ShortBaseName == baseName) {
++					if (mi.Version &gt; newest) {
++						newest = mi.Version;
++						best = mi.Name;
++					}
++				}
++			}
++			return best;
++		}
++
++		#region Event Handlers
++
++		private void downloader_TorrentAdded(object sender, ShortTorrentInfo e)
++		{
++			ProcessTorrentAdded(e);
++		}
++
++		private void downloader_TorrentListDone(object sender, EventArgs e)
++		{
++			if (NotifyModsChanged != null) NotifyModsChanged(this, EventArgs.Empty);
++		}
++
++		private void downloader_TorrentRemoved(object sender, ShortTorrentInfo e)
++		{
++			ProcessTorrentRemoved(e);
++		}
++
++		#endregion
+ 	}
+-}
+-
+-#endregion
+\ No newline at end of file
++}
+\ No newline at end of file
+
+Modified: Lobby/springie/Springie/autohost/AutoHost.cs
+===================================================================
+--- Lobby/springie/Springie/autohost/AutoHost.cs	2008-10-16 18:38:46 UTC (rev 6782)
++++ Lobby/springie/Springie/autohost/AutoHost.cs	2008-10-16 18:47:16 UTC (rev 6783)
+@@ -36,6 +36,7 @@
+ 		private int autoLock;
+ 		private BanList banList;
+ 		private string bossName = &quot;&quot;;
++		private string delayedModChange;
+ 
+ 
+ 		private FileDownloader fileDownloader;
+@@ -106,6 +107,7 @@
+ 
+ 			spring.SpringExited += spring_SpringExited;
+ 			spring.GameOver += spring_GameOver;
++			spring.NotifyModsChanged += spring_NotifyModsChanged;
+ 
+ 			tas.BattleUserLeft += tas_BattleUserLeft;
+ 			tas.UserStatusChanged += tas_UserStatusChanged;
+@@ -119,8 +121,6 @@
+ 			fileDownloader = new FileDownloader(spring);
+ 			fileDownloader.DownloadCompleted += fileDownloader_DownloadCompleted;
+ 			//fileDownloader.DownloadProgressChanged += new EventHandler&lt;TasEventArgs&gt;(fileDownloader_DownloadProgressChanged);
+-
+-			tas.BattleFound += tas_BattleFound;
+ 		}
+ 
+ 		#endregion
+@@ -451,9 +451,7 @@
+ 		{
+ 			string mes;
+ 			if (e.Status == FileDownloader.Status.Failed) mes = e.DownloadItem.fileName + &quot; download failed: &quot; + e.Message;
+-			else {
+-				mes = e.DownloadItem.fileName + &quot; download finished!&quot;;
+-			}
++			else mes = e.DownloadItem.fileName + &quot; download finished!&quot;;
+ 			if (tas.IsConnected) SayBattle(mes);
+ 			if (e.DownloadItem.fileType == FileDownloader.FileType.Mod &amp;&amp; !spring.IsRunning) Start(e.DownloadItem.fileName, null);
+ 		}
+@@ -478,6 +476,19 @@
+ 			}
+ 		}
+ 
++		private void spring_NotifyModsChanged(object sender, EventArgs e)
++		{
++			if (!string.IsNullOrEmpty(config.AutoUpdateMod)) {
++				string latest = spring.UnitSyncWrapper.GetNewestModVersion(config.AutoUpdateMod);
++				if (!string.IsNullOrEmpty(latest) &amp;&amp; tas.GetBattle().Mod.Name != latest) {
++					if (!spring.IsRunning) {
++						SayBattle(&quot;Updating to latest mod version: &quot; + latest);
++						ComRehost(TasSayEventArgs.Default, new[] {latest});
++					} else delayedModChange = latest;
++				}
++			}
++		}
++
+ 		private void spring_SpringExited(object sender, EventArgs e)
+ 		{
+ 			tas.ChangeLock(false);
+@@ -487,11 +498,14 @@
+ 				tas.Say(TasClient.SayPlace.User, s, &quot;** Game just ended, join me! **&quot;, false);
+ 			}
+ 			toNotify.Clear();
++			if (!string.IsNullOrEmpty(delayedModChange)) {
++				string mod = delayedModChange;
++				delayedModChange = null;
++				SayBattle(&quot;Updating to latest mod version: &quot; + mod);
++				ComRehost(TasSayEventArgs.Default, new[] {mod});
++			}
+ 		}
+ 
+-		private void tas_BattleFound(object sender, TasEventArgs e)
+-		{
+-		}
+ 
+ 		private void tas_BattleLockChanged(object sender, TasEventArgs e)
+ 		{
+
+Modified: Lobby/springie/Springie/autohost/AutoHostConfig.cs
+===================================================================
+--- Lobby/springie/Springie/autohost/AutoHostConfig.cs	2008-10-16 18:38:46 UTC (rev 6782)
++++ Lobby/springie/Springie/autohost/AutoHostConfig.cs	2008-10-16 18:47:16 UTC (rev 6783)
+@@ -33,8 +33,8 @@
+ 		#region Properties
+ 
+ 		[Category(&quot;Mod and map&quot;)]
+-		[Description(&quot;Should springie redirect global game chat to lobby?&quot;)]
+-		public bool AutoDownloadNewMaps { get; set; }
++		[Description(&quot;Causes springie to auto rehost to newest version of this mod. Enter: Complete Annihilation STABLE&quot;)]
++		public string AutoUpdateMod { get; set; }
+ 
+ 		[Category(&quot;Basic options&quot;)]
+ 		[Description(&quot;Minimum number of players for autolocking&quot;)]
+
+Modified: Lobby/springie/Springie/autohost/AutoHost_commands.cs
+===================================================================
+--- Lobby/springie/Springie/autohost/AutoHost_commands.cs	2008-10-16 18:38:46 UTC (rev 6782)
++++ Lobby/springie/Springie/autohost/AutoHost_commands.cs	2008-10-16 18:47:16 UTC (rev 6783)
+@@ -998,11 +998,18 @@
+ 			tas.Say(TasClient.SayPlace.User, e.UserName, &quot;---&quot;, false);
+ 		}
+ 
++		private const int MaxMapListLength = 400;
++
+ 		private void ComListMaps(TasSayEventArgs e, string[] words)
+ 		{
+ 			string[] vals;
+ 			int[] indexes;
+-			if (FilterMaps(words, out vals, out indexes) &gt; 0) {
++			int count;
++			if ((count = FilterMaps(words, out vals, out indexes)) &gt; 0) {
++				if (count &gt; MaxMapListLength) {
++					Respond(e, string.Format(&quot;This has {0} results, please narrow down your search&quot;, count));
++					return;
++				}
+ 				tas.Say(TasClient.SayPlace.User, e.UserName, &quot;---&quot;, false);
+ 				for (int i = 0; i &lt; vals.Length; ++i) tas.Say(TasClient.SayPlace.User, e.UserName, indexes[i] + &quot;: &quot; + vals[i], false);
+ 				tas.Say(TasClient.SayPlace.User, e.UserName, &quot;---&quot;, false);
+@@ -1013,7 +1020,13 @@
+ 		{
+ 			string[] vals;
+ 			int[] indexes;
+-			if (FilterMods(words, out vals, out indexes) &gt; 0) {
++			int count;
++			if ((count = FilterMods(words, out vals, out indexes)) &gt; 0) {
++				if (count &gt; MaxMapListLength)
++				{
++					Respond(e, string.Format(&quot;This has {0} results, please narrow down your search&quot;, count));
++					return;
++				}
+ 				tas.Say(TasClient.SayPlace.User, e.UserName, &quot;---&quot;, false);
+ 				for (int i = 0; i &lt; vals.Length; ++i) tas.Say(TasClient.SayPlace.User, e.UserName, indexes[i] + &quot;: &quot; + vals[i], false);
+ 				tas.Say(TasClient.SayPlace.User, e.UserName, &quot;---&quot;, false);
+
+Added: Lobby/springie/Springie/downloader/ClientConnection.cs
+===================================================================
+--- Lobby/springie/Springie/downloader/ClientConnection.cs	                        (rev 0)
++++ Lobby/springie/Springie/downloader/ClientConnection.cs	2008-10-16 18:47:16 UTC (rev 6783)
+@@ -0,0 +1,52 @@
++using System.Text;
++
++namespace Springie.Downloader
++{
++  /// &lt;summary&gt;
++  /// Handles communiction with clients using client protocol
++  /// &lt;/summary&gt;
++  public class ClientConnection : ServerConnection
++  {
++    protected override byte[] PrepareCommand(string command, object[] pars)
++    {
++      string prepstring = command + &quot;|&quot;;
++      if (pars != null) {
++        for (int i = 0; i &lt; pars.Length; ++i) {
++          string s = pars[i] != null ? pars[i].ToString() : &quot;&quot;;
++          prepstring += MyEscape(s) + &quot;|&quot;; // if parameter starts with \t it's sentence seperator and we will ommit space
++        }
++      }
++      prepstring += '\n';
++      return Encoding.ASCII.GetBytes(prepstring);
++    }
++
++    protected override ServerConnectionEventArgs ParseCommand(string line)
++    {
++      var command = new ServerConnectionEventArgs();
++      command.ServerConnection = this;
++      if (line != null) {
++        var args = line.Split('|'); // split arguments
++        command.Command = args[0];
++        command.Result = ServerConnectionEventArgs.ResultTypes.Success;
++        command.Parameters = new string[args.Length - 1];
++        for (int j = 1; j &lt; args.Length; ++j) command.Parameters[j - 1] = MyUnescape(args[j]);
++      } else {
++        command.Result = ServerConnectionEventArgs.ResultTypes.NetworkError;
++        command.Parameters = new string[] {};
++        command.Command = &quot;&quot;;
++      }
++      return command;
++    }
++
++  	protected static string MyEscape(string input)
++		{
++			return input.Replace(&quot;|&quot;, &quot;&amp;divider&amp;&quot;);
++		}
++
++  	protected static string MyUnescape(string input)
++		{
++			return input.Replace(&quot;&amp;divider&amp;&quot;, &quot;|&quot;);
++		}
++
++  }
++}
+\ No newline at end of file
+
+Added: Lobby/springie/Springie/downloader/DownloaderHandler.cs
+===================================================================
+--- Lobby/springie/Springie/downloader/DownloaderHandler.cs	                        (rev 0)
++++ Lobby/springie/Springie/downloader/DownloaderHandler.cs	2008-10-16 18:47:16 UTC (rev 6783)
+@@ -0,0 +1,171 @@
++&#65279;#region using
++
++using System;
++using System.Collections.Generic;
++using System.Runtime.Remoting.Contexts;
++using System.Timers;
++
++#endregion
++
++namespace Springie.Downloader
++{
++	[Synchronization]
++	public class DownloaderHandler : ContextBoundObject, IDisposable
++	{
++		#region Fields
++
++		private bool Closing;
++		private ClientConnection con;
++		private DateTime lastConnectAttemt = DateTime.Now;
++		private DateTime lastPing = DateTime.Now;
++		private HostList serverList;
++		private Dictionary&lt;int, ShortTorrentInfo&gt; serverTorrentList = new Dictionary&lt;int, ShortTorrentInfo&gt;();
++		private readonly Timer timer = new Timer();
++
++		#endregion
++
++		#region Properties
++
++		public bool IsTorrentListDone { get; private set; }
++
++		#endregion
++
++		#region Events
++
++		public event EventHandler&lt;ShortTorrentInfo&gt; TorrentAdded;
++		public event EventHandler TorrentListDone;
++		public event EventHandler&lt;ShortTorrentInfo&gt; TorrentRemoved;
++
++		#endregion
++
++		#region Constructors
++
++		public DownloaderHandler()
++		{
++			timer.Elapsed += timer_Elapsed;
++			timer.Interval = 30000;
++			timer.AutoReset = false;
++			serverList = new HostList(Program.main.config.TrackerServers);
++		}
++
++		public void Start()
++		{
++			timer.Start();
++			ConnectToCaServer();
++		}
++
++		public void Dispose()
++		{
++			Closing = true;
++			con.CommandRecieved -= con_CommandRecieved;
++			timer.Stop();
++			con.Close();
++		}
++
++		#endregion
++
++		#region Other methods
++
++		private void ConnectToCaServer()
++		{
++			con = new ClientConnection();
++			con.ConnectionClosed += con_ConnectionClosed;
++			con.CommandRecieved += con_CommandRecieved;
++			con.Connected += con_Connected;
++			lastPing = DateTime.Now;
++			lastConnectAttemt = DateTime.Now;
++			con.Connect(serverList.CurrentHost, MainConfig.TrackerCaPort);
++		}
++
++		#endregion
++
++		#region Event Handlers
++
++		private void con_CommandRecieved(object sender, ServerConnectionEventArgs e)
++		{
++			ProcessCommandRecieved(e);
++		}
++
++		private void ProcessCommandRecieved(ServerConnectionEventArgs e)
++		{
++			try {
++				if (e.Result == ServerConnectionEventArgs.ResultTypes.Success) {
++					switch (e.Command) {
++						case &quot;T+&quot;:
++						{
++							int hash = int.Parse(e.Parameters[0]);
++							string type = e.Parameters[2];
++							string name = e.Parameters[1];
++							if (!serverTorrentList.ContainsKey(hash)) {
++								var ti = new ShortTorrentInfo(name, hash, type);
++								serverTorrentList.Add(hash, ti);
++								if (TorrentAdded != null) TorrentAdded(this, ti);
++							}
++						}
++							break;
++
++						case &quot;T-&quot;:
++						{
++							int hash = int.Parse(e.Parameters[0]);
++							ShortTorrentInfo ti;
++							if (serverTorrentList.TryGetValue(hash, out ti)) {
++								serverTorrentList.Remove(hash);
++								if (TorrentRemoved != null) TorrentRemoved(this, ti);
++							}
++						}
++							break;
++
++
++						case &quot;TLISTDONE&quot;:
++							IsTorrentListDone = true;
++							if (TorrentListDone != null) TorrentListDone(this, EventArgs.Empty);
++							break;
++
++						case &quot;PING&quot;:
++							lastPing = DateTime.Now;
++							con.SendCommand(&quot;PING&quot;);
++							break;
++					}
++				}
++			} catch (Exception ex) {
++				ErrorHandling.HandleException(ex, &quot;error recieving data from P2P server&quot;);
++			}
++		}
++
++		private void con_Connected(object sender, EventArgs e)
++		{
++			lastPing = DateTime.Now;
++		}
++
++
++		private void con_ConnectionClosed(object sender, EventArgs e)
++		{
++			con.ConnectionClosed -= con_ConnectionClosed;
++			Console.WriteLine(&quot;Connection to server closed&quot;);
++		}
++
++
++		private void timer_Elapsed(object sender, ElapsedEventArgs e)
++		{
++			if (Closing) return;
++			try {
++				timer.Stop();
++
++				if (con.IsConnected &amp;&amp; DateTime.Now.Subtract(lastPing).TotalSeconds &gt; 120) {
++					con.Close();
++					return;
++				}
++				if (!con.IsConnected &amp;&amp; !con.IsConnecting &amp;&amp; DateTime.Now.Subtract(lastConnectAttemt).TotalSeconds &gt; 30) {
++					serverList.GetNext();
++					ConnectToCaServer();
++				}
++			} catch (Exception ex) {
++				ErrorHandling.HandleException(ex, &quot;error in periodic p2p update&quot;);
++			} finally {
++				timer.Start();
++			}
++		}
++
++		#endregion
++	}
++}
+\ No newline at end of file
+
+Added: Lobby/springie/Springie/downloader/HostList.cs
+===================================================================
+--- Lobby/springie/Springie/downloader/HostList.cs	                        (rev 0)
++++ Lobby/springie/Springie/downloader/HostList.cs	2008-10-16 18:47:16 UTC (rev 6783)
+@@ -0,0 +1,35 @@
++&#65279;using System;
++using System.Collections.Generic;
++using System.Text;
++
++namespace Springie.Downloader
++{
++	public class HostList
++	{
++		private List&lt;string&gt; data;
++		private int position;
++
++		public HostList(IEnumerable&lt;string&gt; data)
++		{
++			this.data = new List&lt;string&gt;(data);
++		}
++
++		public string CurrentHost
++		{
++			get { return data[position]; }
++		}
++
++		public string CurrentUrl
++		{
++			get { return string.Format(&quot;<A HREF="http://{0">http://{0</A>}/&quot;, data[position]); }
++		}
++
++
++		public string GetNext()
++		{
++			position++;
++			if (position &gt;= data.Count) position = 0;
++			return data[position];
++		}
++	}
++}
+
+Added: Lobby/springie/Springie/downloader/ServerConnection.cs
+===================================================================
+--- Lobby/springie/Springie/downloader/ServerConnection.cs	                        (rev 0)
++++ Lobby/springie/Springie/downloader/ServerConnection.cs	2008-10-16 18:47:16 UTC (rev 6783)
+@@ -0,0 +1,248 @@
++using System;
++using System.Net.Sockets;
++using System.Text;
++
++namespace Springie.Downloader
++{
++  /// &lt;summary&gt;
++  /// Event arguments used in many ServerConnection events
++  /// &lt;/summary&gt;
++  public class ServerConnectionEventArgs : EventArgs
++  {
++    #region ResultTypes enum
++
++    public enum ResultTypes
++    {
++      Success,
++      NetworkError,
++      NotSet
++    } ;
++
++    #endregion
++
++    private string command = &quot;&quot;;
++    private ResultTypes result = ResultTypes.NotSet;
++    public ServerConnectionEventArgs() {}
++
++    public ServerConnectionEventArgs(ServerConnection serverConnection, string command, string[] parameters)
++    {
++      ServerConnection = serverConnection;
++      this.command = command;
++      Parameters = parameters;
++    }
++
++    public string Command
++    {
++      get { return command; }
++      set { command = value; }
++    }
++
++    public string[] Parameters { get; set; }
++
++    public ResultTypes Result
++    {
++      get { return result; }
++      set { result = value; }
++    }
++
++    public ServerConnection ServerConnection { get; set; }
++  }
++
++
++  /// &lt;summary&gt;
++  /// Handles communiction with server on low level
++  /// &lt;/summary&gt;
++  public abstract class ServerConnection : IDisposable
++  {
++    private readonly object myLock = new object();
++    private bool isConnected;
++    private bool isConnecting;
++    protected Byte[] readBuffer;
++    private int readPosition;
++    protected TcpClient tcp;
++
++    public bool IsConnecting
++    {
++      get { return isConnecting; }
++    }
++
++    public bool IsConnected
++    {
++      get { return isConnected; }
++    }
++
++    #region IDisposable Members
++
++    public void Dispose()
++    {
++      Close();
++    }
++
++    #endregion
++
++    public event EventHandler ConnectionClosed;
++    public event EventHandler Connected;
++    public event EventHandler&lt;ServerConnectionEventArgs&gt; CommandRecieved;
++
++    public void Connect(string host, int port)
++    {
++      readPosition = 0;
++      tcp = new TcpClient();
++      try {
++        isConnecting = true;
++        tcp.BeginConnect(host, port, ConnectCallback, this);
++      } catch {
++        Close();
++      }
++    }
++
++
++    protected abstract byte[] PrepareCommand(string command, object[] pars);
++
++
++    public void SendCommand(string command, params string[] parameters)
++    {
++      if (IsConnected) {
++        try {
++          var buffer = PrepareCommand(command, parameters);
++          tcp.GetStream().BeginWrite(buffer, 0, buffer.Length, CommandSentCallback, this);
++        } catch (Exception ex) {
++          ErrorHandling.HandleException(ex, &quot;Error sending command&quot;);
++          Close();
++          return;
++        }
++      }
++    }
++
++
++    private static void ConnectCallback(IAsyncResult res)
++    {
++      var con = res.AsyncState as ServerConnection;
++      try {
++        con.tcp.EndConnect(res);
++        con.readBuffer = new byte[con.tcp.ReceiveBufferSize];
++        con.readPosition = 0;
++        con.tcp.GetStream().BeginRead(con.readBuffer, 0, con.readBuffer.Length, DataRecieveCallback, con);
++        con.isConnected = true;
++        con.isConnecting = false;
++        try {
++          if (con.Connected != null) con.Connected(con, EventArgs.Empty);
++        } catch (Exception ex) {
++          ErrorHandling.HandleException(ex, &quot;Error in connect callback&quot;);
++        }
++      } catch {
++        con.Close();
++      }
++    }
++
++    private static void CommandSentCallback(IAsyncResult res)
++    {
++      var serv = res.AsyncState as ServerConnection;
++      try {
++        serv.tcp.GetStream().EndWrite(res);
++      } catch {
++        serv.Close();
++      }
++    }
++
++
++    protected abstract ServerConnectionEventArgs ParseCommand(string line);
++
++
++    private static void DataRecieveCallback(IAsyncResult res)
++    {
++      var server = (ServerConnection) res.AsyncState;
++      if (server.IsConnected) {
++        try {
++          int read = server.tcp.GetStream().EndRead(res); // actual data read - this blocks
++          server.readPosition += read;
++          if (read == 0) {
++            server.Close();
++            return;
++          }
++        } catch (Exception ex) {
++          ErrorHandling.HandleException(ex, &quot;Error while recieving data form server&quot;);
++          // there was error while reading - stream is broken
++          server.Close();
++          return;
++        }
++
++        // check data for new line - isolating commands from it
++        for (int i = server.readPosition - 1; i &gt;= 0; --i) {
++          if (server.readBuffer[i] == '\n') {
++            // new line found - convert to string and parse commands
++
++            String recData = Encoding.ASCII.GetString(server.readBuffer, 0, i + 1); // convert recieved bytes to string
++
++            // cycle through lines of data
++            foreach (var line in recData.Split(new[] {'\n'}, StringSplitOptions.RemoveEmptyEntries)) {
++              // for each line = command do
++
++              ServerConnectionEventArgs command;
++              try {
++                command = server.ParseCommand(line);
++                try {
++                  if (server.CommandRecieved != null) server.CommandRecieved(server, command);
++                } catch (Exception ex) {
++                  ErrorHandling.HandleException(ex, &quot;Error processing command&quot;);
++                  throw;
++                }
++              } catch (Exception ex) {
++                ErrorHandling.HandleException(ex, &quot;Error parsing command &quot; + line);
++              }
++            }
++
++            // copy remaining data (not ended by \n yet) to the beginning of buffer
++            for (int x = 0; x &lt; server.readPosition - i - 1; ++x) server.readBuffer[x] = server.readBuffer[x + i + 1];
++            server.readPosition = server.readPosition - i - 1;
++            break;
++          }
++        }
++
++        // prepare to read more data
++        int rembuf = server.readBuffer.Length - server.readPosition;
++        if (rembuf &lt;= 0) {
++          // read buffer too small, increase it
++          var n = new byte[server.readBuffer.Length*2];
++          server.readBuffer.CopyTo(n, 0);
++          server.readBuffer = n;
++          rembuf = server.readBuffer.Length - server.readPosition;
++        }
++
++        try {
++          server.tcp.GetStream().BeginRead(server.readBuffer, server.readPosition, rembuf, DataRecieveCallback, server);
++        } catch (Exception ex) {
++          // there was error while reading - stream is broken
++          ErrorHandling.HandleException(ex, &quot;Error recieving data&quot;);
++          server.Close();
++          return;
++        }
++      }
++    }
++
++
++    /// &lt;summary&gt;
++    /// Closes connection to remote server
++    /// &lt;/summary&gt;
++    public void Close()
++    {
++      lock (myLock) {
++        CommandRecieved = null;
++        Connected = null;
++        isConnected = false;
++        isConnecting = false;
++        try {
++          tcp.GetStream().Close();
++          tcp.Close();
++        } catch {}
++
++        try {
++          if (ConnectionClosed != null) ConnectionClosed(this, EventArgs.Empty);
++        } catch (Exception ex) {
++          ErrorHandling.HandleException(ex, &quot;Error procesing connection close&quot;);
++        }
++        ConnectionClosed = null;
++      }
++    }
++  }
++}
+\ No newline at end of file
+
+Added: Lobby/springie/Springie/downloader/ShortTorrentInfo.cs
+===================================================================
+--- Lobby/springie/Springie/downloader/ShortTorrentInfo.cs	                        (rev 0)
++++ Lobby/springie/Springie/downloader/ShortTorrentInfo.cs	2008-10-16 18:47:16 UTC (rev 6783)
+@@ -0,0 +1,26 @@
++using System;
++
++namespace Springie.Downloader
++{
++	public class ShortTorrentInfo:EventArgs
++	{
++		#region Properties
++
++		public int Hash;
++		public string Name;
++		public string Type;
++
++		#endregion
++
++		#region Constructors
++
++		public ShortTorrentInfo(string name, int hash, string type)
++		{
++			Name = name;
++			Hash = hash;
++			Type = type;
++		}
++
++		#endregion
++	}
++}
+\ No newline at end of file
+
+Modified: Lobby/springie/Springie/spring/Spring.cs
+===================================================================
+--- Lobby/springie/Springie/spring/Spring.cs	2008-10-16 18:38:46 UTC (rev 6782)
++++ Lobby/springie/Springie/spring/Spring.cs	2008-10-16 18:47:16 UTC (rev 6783)
+@@ -128,6 +128,7 @@
+ 		public event EventHandler&lt;SpringLogEventArgs&gt; PlayerSaid;
+ 		public event EventHandler SpringExited;
+ 		public event EventHandler SpringStarted;
++		public event EventHandler NotifyModsChanged;
+ 
+ 		#endregion
+ 
+@@ -142,8 +143,15 @@
+ 
+ 			// init unitsync and load basic info
+ 			unitSyncWrapper = new UnitSyncWrapper();
++			unitSyncWrapper.NotifyModsChanged += unitSyncWrapper_NotifyModsChanged;
+ 		}
+ 
++		void unitSyncWrapper_NotifyModsChanged(object sender, EventArgs e)
++		{
++			if (NotifyModsChanged != null) NotifyModsChanged(sender, e);
++		}
++
++
+ 		public void Dispose() {}
+ 
+ 		#endregion
+@@ -153,7 +161,7 @@
+ 		public void ExitGame()
+ 		{
+ 			if (IsRunning) {
+-				SayGame(&quot;/quit&quot;);
++				SayGame(&quot;/kill&quot;);
+ 			  process.WaitForExit(2000);
+ 				if (!IsRunning) return;
+ 				process.Kill();;
+@@ -235,7 +243,8 @@
+ 					break;
+ 
+ 				case Talker.SpringEventType.PLAYER_CHAT:
+-					if (PlayerSaid != null) PlayerSaid(this, new SpringLogEventArgs(e.PlayerName, e.Text));
++					// only public chat
++					if (PlayerSaid != null &amp;&amp; e.Param == 125) PlayerSaid(this, new SpringLogEventArgs(e.PlayerName, e.Text)); 
+ 					break;
+ 
+ 				case Talker.SpringEventType.PLAYER_DEFEATED:
+
+Modified: Lobby/springie/Springie/spring/Talker.cs
+===================================================================
+--- Lobby/springie/Springie/spring/Talker.cs	2008-10-16 18:38:46 UTC (rev 6782)
++++ Lobby/springie/Springie/spring/Talker.cs	2008-10-16 18:47:16 UTC (rev 6783)
+@@ -148,7 +148,8 @@
+ 
+ 						case SpringEventType.PLAYER_CHAT:
+ 							sea.PlayerNumber = data[1];
+-							sea.Text = Encoding.ASCII.GetString(data, 2, data.Length - 2);
++							sea.Param = data[2];
++							sea.Text = Encoding.ASCII.GetString(data, 3, data.Length - 3);
+ 							break;
+ 
+ 						case SpringEventType.PLAYER_DEFEATED:
+
+Modified: Lobby/springie/Springie/utils/AutoUpdater.cs
+===================================================================
+--- Lobby/springie/Springie/utils/AutoUpdater.cs	2008-10-16 18:38:46 UTC (rev 6782)
++++ Lobby/springie/Springie/utils/AutoUpdater.cs	2008-10-16 18:47:16 UTC (rev 6783)
+@@ -67,49 +67,13 @@
+ 
+ 		#region Other methods
+ 
+-		private static int ExtractVersionNumber(string modname)
+-		{
+-			int ver = 0;
+-			var m = Regex.Match(modname, &quot;\\-([0-9]+)&quot;);
+-			if (m.Success) int.TryParse(m.Groups[1].Value, out ver);
+-			return ver;
+-		}
+ 
+ 
+-		private void UpdateCa()
+-		{
+-			if (Program.main.config.CaUpdating == MainConfig.CaUpdateMode.None) return;
+-
+-			var b = tas.GetBattle();
+-			if (b != null) {
+-				string selMod = b.Mod.Name;
+-				int vers = int.MinValue;
+-				foreach (var s in spring.UnitSyncWrapper.ModList.Keys) {
+-					if (s.Contains(&quot;Complete Annihilation&quot;)) {
+-						if ((Program.main.config.CaUpdating == MainConfig.CaUpdateMode.Stable &amp;&amp; s.Contains(&quot;stable&quot;)) || Program.main.config.CaUpdating == MainConfig.CaUpdateMode.Latest) {
+-							int nv = ExtractVersionNumber(s);
+-							if (nv &gt; vers) {
+-								vers = nv;
+-								selMod = s;
+-							}
+-						}
+-					}
+-				}
+-
+-				if (b.Mod.Name != selMod) {
+-					tas.Say(TasClient.SayPlace.Battle, &quot;&quot;, &quot;Springie is now rehosting to new version of CA - &quot; + selMod, true);
+-					Program.main.AutoHost.ComRehost(TasSayEventArgs.Default, new[] {selMod});
+-				}
+-			}
+-		}
+-
+ 		private void updateSpringie()
+ 		{
+ 			if (enabled &amp;&amp; !spring.IsRunning) {
+ 				timer.Enabled = false;
+ 
+-				UpdateCa();
+-
+ 				using (var wc = new WebClient()) {
+ 					try {
+ 						string remoteVersion = wc.DownloadString(updateSite + &quot;version.txt&quot;).Trim();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001551.html">[Taspring-linux-commit] r6782 - trunk/rts/System
+</A></li>
+	<LI>Next message: <A HREF="001553.html">[Taspring-linux-commit] r6784 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1552">[ date ]</a>
+              <a href="thread.html#1552">[ thread ]</a>
+              <a href="subject.html#1552">[ subject ]</a>
+              <a href="author.html#1552">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,803 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5887 - in trunk/rts: Game Game/UI Lua Map	Map/SM3 Rendering Rendering/Env Rendering/UnitModels Sim/Projectiles
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5887%20-%20in%20trunk/rts%3A%20Game%20Game/UI%20Lua%20Map%0A%09Map/SM3%20Rendering%20Rendering/Env%20Rendering/UnitModels%20Sim/Projectiles&In-Reply-To=%3C20080513094559.7D87E47CE%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000666.html">
+   <LINK REL="Next"  HREF="000668.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5887 - in trunk/rts: Game Game/UI Lua Map	Map/SM3 Rendering Rendering/Env Rendering/UnitModels Sim/Projectiles</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5887%20-%20in%20trunk/rts%3A%20Game%20Game/UI%20Lua%20Map%0A%09Map/SM3%20Rendering%20Rendering/Env%20Rendering/UnitModels%20Sim/Projectiles&In-Reply-To=%3C20080513094559.7D87E47CE%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5887 - in trunk/rts: Game Game/UI Lua Map	Map/SM3 Rendering Rendering/Env Rendering/UnitModels Sim/Projectiles">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue May 13 11:45:59 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000666.html">[Taspring-linux-commit] r5886 -	trunk/installer/builddata/springcontent/LuaGadgets
+</A></li>
+        <LI>Next message: <A HREF="000668.html">[Taspring-linux-commit] r5888 - trunk/rts/Game/UI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#667">[ date ]</a>
+              <a href="thread.html#667">[ thread ]</a>
+              <a href="subject.html#667">[ subject ]</a>
+              <a href="author.html#667">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-05-13 11:45:56 +0200 (Tue, 13 May 2008)
+New Revision: 5887
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/UI/LuaUI.cpp
+   trunk/rts/Lua/LuaConstGame.cpp
+   trunk/rts/Lua/LuaOpenGL.cpp
+   trunk/rts/Map/MapInfo.cpp
+   trunk/rts/Map/MapInfo.h
+   trunk/rts/Map/SM3/Sm3GroundDrawer.cpp
+   trunk/rts/Rendering/Env/AdvSky.cpp
+   trunk/rts/Rendering/Env/AdvWater.cpp
+   trunk/rts/Rendering/Env/BasicSky.cpp
+   trunk/rts/Rendering/Env/BumpWater.cpp
+   trunk/rts/Rendering/Env/DynWater.cpp
+   trunk/rts/Rendering/Env/GrassDrawer.cpp
+   trunk/rts/Rendering/Env/SkyBox.cpp
+   trunk/rts/Rendering/FartextureHandler.cpp
+   trunk/rts/Rendering/UnitModels/UnitDrawer.cpp
+   trunk/rts/Sim/Projectiles/ProjectileHandler.cpp
+Log:
+* Removed stupid global variables:
+  - FogLand          (now: mapInfo-&gt;atmosphere.fogColor)
+  - FogBlack         (used only once -&gt; made it a local var)
+  - FogWhite         (unused -&gt; removed)
+  - LightDiffuseLand (now: mapInfo-&gt;light.unitSunColor)
+  - LightAmbientLand (now: mapInfo-&gt;light.unitAmbientColor)
+* Added small float4 class to make this possible, this is float3 + an extra data
+  member so it can be passed to OpenGL functions requiring an array of 4 floats.
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-05-13 00:53:30 UTC (rev 5886)
++++ trunk/rts/Game/Game.cpp	2008-05-13 09:45:56 UTC (rev 5887)
+@@ -150,11 +150,6 @@
+ #include &lt;boost/thread/thread.hpp&gt;
+ #include &lt;boost/bind.hpp&gt;
+ 
+-GLfloat LightDiffuseLand[] = { 0.8f, 0.8f, 0.8f, 1.0f };
+-GLfloat LightAmbientLand[] = { 0.2f, 0.2f, 0.2f, 1.0f };
+-GLfloat FogLand[] =          { 0.7f, 0.7f, 0.8f, 0.0f };
+-GLfloat FogWhite[] =         { 1.0f, 1.0f, 1.0f, 0.0f };
+-GLfloat FogBlack[] =         { 0.0f, 0.0f, 0.0f, 0.0f };
+ 
+ extern Uint8 *keys;
+ extern bool globalQuit;
+@@ -344,12 +339,6 @@
+ 	ENTER_SYNCED;
+ 	ground = SAFE_NEW CGround();
+ 	mapInfo = SAFE_NEW CMapInfo(mapname); // must go before readmap
+-
+-	// FIXME: remove these silly global variables ...
+-	FogLand[0] = mapInfo-&gt;atmosphere.fogColor.x;
+-	FogLand[1] = mapInfo-&gt;atmosphere.fogColor.y;
+-	FogLand[2] = mapInfo-&gt;atmosphere.fogColor.z;
+-
+ 	readmap = CReadMap::LoadMap (mapname);
+ 	groundBlockingObjectMap = SAFE_NEW CGroundBlockingObjectMap(gs-&gt;mapSquares);
+ 	wind.LoadWind();
+@@ -437,15 +426,11 @@
+ 
+ 	ENTER_MIXED;
+ 	if (true || !shadowHandler-&gt;drawShadows) { // FIXME ?
+-		for(int a = 0; a &lt; 3; ++a) {
+-			LightAmbientLand[a] = unitDrawer-&gt;unitAmbientColor[a];
+-			LightDiffuseLand[a] = unitDrawer-&gt;unitSunColor[a];
+-		}
+-		glLightfv(GL_LIGHT1, GL_AMBIENT, LightAmbientLand);		// Setup The Ambient Light
+-		glLightfv(GL_LIGHT1, GL_DIFFUSE, LightDiffuseLand);		// Setup The Diffuse Light
+-		glLightfv(GL_LIGHT1, GL_SPECULAR, LightAmbientLand);		// Setup The Diffuse Light
+-		glMaterialf(GL_FRONT_AND_BACK,GL_SHININESS,0);
+-		glLightModeli(GL_LIGHT_MODEL_TWO_SIDE,0);
++		glLightfv(GL_LIGHT1, GL_AMBIENT, mapInfo-&gt;light.unitAmbientColor);
++		glLightfv(GL_LIGHT1, GL_DIFFUSE, mapInfo-&gt;light.unitSunColor);
++		glLightfv(GL_LIGHT1, GL_SPECULAR, mapInfo-&gt;light.unitAmbientColor);
++		glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, 0);
++		glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, 0);
+ 	}
+ 
+ 	CPlayer* p = gs-&gt;players[gu-&gt;myPlayerNum];
+@@ -467,13 +452,13 @@
+ 	assert(script);
+ 	luaCallIns.GamePreload();
+ 
+-	glFogfv(GL_FOG_COLOR,FogLand);
++	glFogfv(GL_FOG_COLOR, mapInfo-&gt;atmosphere.fogColor);
+ 	glFogf(GL_FOG_START, 0.0f);
+ 	glFogf(GL_FOG_END, gu-&gt;viewRange * 0.98f);
+ 	glFogf(GL_FOG_DENSITY, 1.0f);
+ 	glFogi(GL_FOG_MODE,GL_LINEAR);
+ 	glEnable(GL_FOG);
+-	glClearColor(FogLand[0], FogLand[1], FogLand[2], 0.0f);
++	glClearColor(mapInfo-&gt;atmosphere.fogColor[0], mapInfo-&gt;atmosphere.fogColor[1], mapInfo-&gt;atmosphere.fogColor[2], 0.0f);
+ #ifdef TRACE_SYNC
+ 	tracefile.NewInterval();
+ 	tracefile.NewInterval();
+@@ -2586,7 +2571,7 @@
+ 	ph-&gt;UpdateTextures();
+ 	fartextureHandler-&gt;CreateFarTextures();
+ 
+-	glClearColor(FogLand[0], FogLand[1], FogLand[2], 0);
++	glClearColor(mapInfo-&gt;atmosphere.fogColor[0], mapInfo-&gt;atmosphere.fogColor[1], mapInfo-&gt;atmosphere.fogColor[2], 0);
+ 
+ 	sky-&gt;Update();
+ 
+
+Modified: trunk/rts/Game/UI/LuaUI.cpp
+===================================================================
+--- trunk/rts/Game/UI/LuaUI.cpp	2008-05-13 00:53:30 UTC (rev 5886)
++++ trunk/rts/Game/UI/LuaUI.cpp	2008-05-13 09:45:56 UTC (rev 5887)
+@@ -78,8 +78,6 @@
+ 
+ 
+ extern Uint8 *keys;
+-extern GLfloat LightDiffuseLand[];
+-extern GLfloat LightAmbientLand[];
+ 
+ 
+ CLuaUI* luaUI = NULL;
+
+Modified: trunk/rts/Lua/LuaConstGame.cpp
+===================================================================
+--- trunk/rts/Lua/LuaConstGame.cpp	2008-05-13 00:53:30 UTC (rev 5886)
++++ trunk/rts/Lua/LuaConstGame.cpp	2008-05-13 09:45:56 UTC (rev 5887)
+@@ -23,9 +23,6 @@
+ #include &quot;System/FileSystem/ArchiveScanner.h&quot;
+ 
+ 
+-extern GLfloat FogLand[];
+-
+-
+ /******************************************************************************/
+ /******************************************************************************/
+ 
+@@ -48,7 +45,6 @@
+ 	const bool diminishingMMs   = gameSetup ? gameSetup-&gt;diminishingMMs   : false;
+ 	const bool ghostedBuildings = gameSetup ? gameSetup-&gt;ghostedBuildings : false;
+ 	const int  startPosType     = gameSetup ? gameSetup-&gt;startPosType     : 0;
+-	const float3 fogColor(FogLand[0], FogLand[1], FogLand[2]);
+ 
+ 	LuaPushNamedString(L, &quot;version&quot;,       VERSION_STRING);
+ 
+@@ -89,7 +85,7 @@
+ 	LuaPushNamedColor(L,  &quot;waterSpecularColor&quot;,  mapInfo-&gt;water.specularColor);
+ 	LuaPushNamedNumber(L, &quot;waterSpecularFactor&quot;, mapInfo-&gt;water.specularFactor);
+ 	LuaPushNamedColor(L,  &quot;waterPlaneColor&quot;,   mapInfo-&gt;water.planeColor);
+-	LuaPushNamedColor(L,  &quot;fogColor&quot;,          fogColor);
++	LuaPushNamedColor(L,  &quot;fogColor&quot;,          mapInfo-&gt;atmosphere.fogColor);
+ 	LuaPushNamedColor(L,  &quot;groundAmbientColor&quot;,      mapInfo-&gt;light.groundAmbientColor);
+ 	LuaPushNamedColor(L,  &quot;groundSpecularColor&quot;,     mapInfo-&gt;light.groundSpecularColor);
+ 	LuaPushNamedColor(L,  &quot;groundSunColor&quot;,          mapInfo-&gt;light.groundSunColor);
+
+Modified: trunk/rts/Lua/LuaOpenGL.cpp
+===================================================================
+--- trunk/rts/Lua/LuaOpenGL.cpp	2008-05-13 00:53:30 UTC (rev 5886)
++++ trunk/rts/Lua/LuaOpenGL.cpp	2008-05-13 09:45:56 UTC (rev 5887)
+@@ -69,11 +69,6 @@
+ static const int MAX_TEXTURE_UNITS = 32;
+ 
+ 
+-// from Game.cpp
+-extern GLfloat LightDiffuseLand[];
+-extern GLfloat LightAmbientLand[];
+-
+-
+ /******************************************************************************/
+ /******************************************************************************/
+ 
+@@ -797,7 +792,7 @@
+ void LuaOpenGL::SetupWorldLighting()
+ {
+ 	glLightModeli(GL_LIGHT_MODEL_LOCAL_VIEWER, GL_TRUE);
+-	glLightfv(GL_LIGHT1, GL_POSITION, mapInfo-&gt;light.sunDir4);
++	glLightfv(GL_LIGHT1, GL_POSITION, mapInfo-&gt;light.sunDir);
+ 	glEnable(GL_LIGHT1);
+ }
+ 
+@@ -877,12 +872,12 @@
+ 	// sun light -- needs the camera transformation
+ 	glPushMatrix();
+ 	glLoadMatrixd(camera-&gt;GetModelview());
+-	glLightfv(GL_LIGHT1, GL_POSITION, mapInfo-&gt;light.sunDir4);
++	glLightfv(GL_LIGHT1, GL_POSITION, mapInfo-&gt;light.sunDir);
+ 
+ 	const float sunFactor = 1.0f;
+ 	const float sf = sunFactor;
+-	const float* la = LightAmbientLand;
+-	const float* ld = LightDiffuseLand;
++	const float* la = mapInfo-&gt;light.unitAmbientColor;
++	const float* ld = mapInfo-&gt;light.unitSunColor;
+ 
+ 	const float sunLightAmbt[4] = { la[0]*sf, la[1]*sf, la[2]*sf, la[3]*sf };
+ 	const float sunLightDiff[4] = { ld[0]*sf, ld[1]*sf, ld[2]*sf, ld[3]*sf };
+@@ -4808,17 +4803,17 @@
+ {
+ 	const int args = lua_gettop(L); // number of arguments
+ 	if (args == 0) {
+-		lua_pushnumber(L, mapInfo-&gt;light.sunDir4[0]);
+-		lua_pushnumber(L, mapInfo-&gt;light.sunDir4[1]);
+-		lua_pushnumber(L, mapInfo-&gt;light.sunDir4[2]);
++		lua_pushnumber(L, mapInfo-&gt;light.sunDir[0]);
++		lua_pushnumber(L, mapInfo-&gt;light.sunDir[1]);
++		lua_pushnumber(L, mapInfo-&gt;light.sunDir[2]);
+ 		return 3;
+ 	}
+ 
+ 	const string param = luaL_checkstring(L, 1);
+ 	if (param == &quot;pos&quot;) {
+-		lua_pushnumber(L, mapInfo-&gt;light.sunDir4[0]);
+-		lua_pushnumber(L, mapInfo-&gt;light.sunDir4[1]);
+-		lua_pushnumber(L, mapInfo-&gt;light.sunDir4[2]);
++		lua_pushnumber(L, mapInfo-&gt;light.sunDir[0]);
++		lua_pushnumber(L, mapInfo-&gt;light.sunDir[1]);
++		lua_pushnumber(L, mapInfo-&gt;light.sunDir[2]);
+ 		return 3;
+ 	}
+ 
+
+Modified: trunk/rts/Map/MapInfo.cpp
+===================================================================
+--- trunk/rts/Map/MapInfo.cpp	2008-05-13 00:53:30 UTC (rev 5886)
++++ trunk/rts/Map/MapInfo.cpp	2008-05-13 09:45:56 UTC (rev 5887)
+@@ -3,6 +3,23 @@
+ #include &quot;TdfParser.h&quot;
+ 
+ 
++float4::float4()
++{
++	float tmp[4];
++
++	// ensure alignment is correct to use it as array of floats
++	(void) tmp;
++	assert(&amp;y - &amp;x == &amp;tmp[1] - &amp;tmp[0]);
++	assert(&amp;z - &amp;x == &amp;tmp[2] - &amp;tmp[0]);
++	assert(&amp;w - &amp;x == &amp;tmp[3] - &amp;tmp[0]);
++
++	x = 0.0f;
++	y = 0.0f;
++	z = 0.0f;
++	w = 0.0f;
++}
++
++
+ // before delete, the const is const_cast'ed away.
+ // there are no (other) situations where mapInfo may be modified
+ const CMapInfo* mapInfo;
+@@ -109,18 +126,14 @@
+ 	// MAP\LIGHT
+ 	light.sunDir = mapDefParser-&gt;GetFloat3(float3(0.0f, 1.0f, 2.0f), &quot;MAP\\LIGHT\\SunDir&quot;);
+ 	light.sunDir.Normalize();
+-	light.sunDir4[0] = light.sunDir[0];
+-	light.sunDir4[1] = light.sunDir[1];
+-	light.sunDir4[2] = light.sunDir[2];
+-	light.sunDir4[3] = 0.0f;
+ 
+ 	light.groundAmbientColor = mapDefParser-&gt;GetFloat3(float3(0.5f, 0.5f, 0.5f), &quot;MAP\\LIGHT\\GroundAmbientColor&quot;);
+ 	light.groundSunColor = mapDefParser-&gt;GetFloat3(float3(0.5f, 0.5f, 0.5f), &quot;MAP\\LIGHT\\GroundSunColor&quot;);
+ 	light.groundSpecularColor = mapDefParser-&gt;GetFloat3(float3(0.1f, 0.1f, 0.1f), &quot;MAP\\LIGHT\\GroundSpecularColor&quot;);
+ 	mapDefParser-&gt;GetTDef(light.groundShadowDensity, 0.8f, &quot;MAP\\LIGHT\\GroundShadowDensity&quot;);
+ 
+-	light.unitAmbientColor = mapDefParser-&gt;GetFloat3(float3(0.4f, 0.4f, 0.4f), &quot;MAP\\LIGHT\\UnitAmbientColor&quot;);
+-	light.unitSunColor = mapDefParser-&gt;GetFloat3(float3(0.7f, 0.7f, 0.7f), &quot;MAP\\LIGHT\\UnitSunColor&quot;);
++	light.unitAmbientColor = float4(mapDefParser-&gt;GetFloat3(float3(0.4f, 0.4f, 0.4f), &quot;MAP\\LIGHT\\UnitAmbientColor&quot;), 1.0f);
++	light.unitSunColor = float4(mapDefParser-&gt;GetFloat3(float3(0.7f, 0.7f, 0.7f), &quot;MAP\\LIGHT\\UnitSunColor&quot;), 1.0f);
+ 	light.specularSunColor = mapDefParser-&gt;GetFloat3(light.unitSunColor, &quot;MAP\\LIGHT\\SpecularSunColor&quot;);
+ 	mapDefParser-&gt;GetTDef(light.unitShadowDensity, 0.8f, &quot;MAP\\LIGHT\\UnitShadowDensity&quot;);
+ }
+
+Modified: trunk/rts/Map/MapInfo.h
+===================================================================
+--- trunk/rts/Map/MapInfo.h	2008-05-13 00:53:30 UTC (rev 5886)
++++ trunk/rts/Map/MapInfo.h	2008-05-13 09:45:56 UTC (rev 5887)
+@@ -7,6 +7,21 @@
+ class TdfParser;
+ 
+ 
++/** Float3 with a fourth data member, which is basically unused but required
++    to be able to pass the float3 into e.g. OpenGL functions that expect
++    an array of 4 floats. */
++struct float4 : public float3
++{
++	float w;
++
++	float4();
++	float4(const float3&amp; f, float w = 0.0f) : float3(f), w(w) {}
++
++	/// Allows implicit conversion to const float* (for passing to gl functions)
++	operator const float* () const { return &x; }
++};
++
++
+ class CMapInfo
+ {
+ public:
+@@ -73,7 +88,7 @@
+ 	struct atmosphere_t {
+ 		float  cloudDensity;
+ 		float  fogStart;
+-		float3 fogColor;
++		float4 fogColor;
+ 		float3 skyColor;
+ 		float3 sunColor;
+ 		float3 cloudColor;
+@@ -84,14 +99,13 @@
+ 
+ 	/** settings read from &quot;MAP\LIGHT&quot; section */
+ 	struct light_t {
+-		float3 sunDir;     ///&lt; Holds vector for the direction of the sun
+-		float  sunDir4[4]; ///&lt; sunDir as 4 component vector
++		float4 sunDir;     ///&lt; Holds vector for the direction of the sun
+ 		float3 groundAmbientColor;
+ 		float3 groundSunColor;
+ 		float3 groundSpecularColor;
+ 		float  groundShadowDensity;
+-		float3 unitAmbientColor;
+-		float3 unitSunColor;
++		float4 unitAmbientColor;
++		float4 unitSunColor;
+ 		float3 specularSunColor;
+ 		float  unitShadowDensity;
+ 	} light;
+
+Modified: trunk/rts/Map/SM3/Sm3GroundDrawer.cpp
+===================================================================
+--- trunk/rts/Map/SM3/Sm3GroundDrawer.cpp	2008-05-13 00:53:30 UTC (rev 5886)
++++ trunk/rts/Map/SM3/Sm3GroundDrawer.cpp	2008-05-13 09:45:56 UTC (rev 5887)
+@@ -98,7 +98,7 @@
+ 
+ 	glColor4f(1.0f,1.0f,1.0f,1.0f);
+ 	glEnable(GL_LIGHTING);
+-	glLightfv(GL_LIGHT0, GL_POSITION,mapInfo-&gt;light.sunDir4);
++	glLightfv(GL_LIGHT0, GL_POSITION, mapInfo-&gt;light.sunDir);
+ 	float d[4]={0.0f,0.0f,0.0f,1.0f};
+ 	for (int a=0;a&lt;3;a++)
+ 		d[a]=mapInfo-&gt;light.groundSunColor[a];
+
+Modified: trunk/rts/Rendering/Env/AdvSky.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/AdvSky.cpp	2008-05-13 00:53:30 UTC (rev 5886)
++++ trunk/rts/Rendering/Env/AdvSky.cpp	2008-05-13 09:45:56 UTC (rev 5887)
+@@ -16,9 +16,6 @@
+ #include &quot;Matrix44f.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
+-extern GLfloat FogBlack[];
+-extern GLfloat FogLand[];
+-
+ #define Y_PART 10.0
+ #define X_PART 10.0
+ 
+@@ -191,7 +188,7 @@
+ 
+ 	if (gu-&gt;drawFog) {
+ 		glEnable(GL_FOG);
+-		glFogfv(GL_FOG_COLOR,FogLand);
++		glFogfv(GL_FOG_COLOR,mapInfo-&gt;atmosphere.fogColor);
+ 		glFogf(GL_FOG_START,gu-&gt;viewRange*fogStart);
+ 		glFogf(GL_FOG_END,gu-&gt;viewRange);
+ 		glFogf(GL_FOG_DENSITY,1.0f);
+
+Modified: trunk/rts/Rendering/Env/AdvWater.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/AdvWater.cpp	2008-05-13 00:53:30 UTC (rev 5886)
++++ trunk/rts/Rendering/Env/AdvWater.cpp	2008-05-13 09:45:56 UTC (rev 5887)
+@@ -23,8 +23,6 @@
+ // Construction/Destruction
+ //////////////////////////////////////////////////////////////////////
+ 
+-extern GLfloat FogLand[]; 
+-
+ CAdvWater::CAdvWater(bool loadShader)
+ {
+ 	glGenTextures(1, &amp;reflectTexture);
+@@ -358,7 +356,7 @@
+ 	glCopyTexSubImage2D(GL_TEXTURE_2D,0,0,0,0,0,512,512);
+ 
+ 	glViewport(gu-&gt;viewPosX,0,gu-&gt;viewSizeX,gu-&gt;viewSizeY);
+-	glClearColor(FogLand[0],FogLand[1],FogLand[2],1);
++	glClearColor(mapInfo-&gt;atmosphere.fogColor[0],mapInfo-&gt;atmosphere.fogColor[1],mapInfo-&gt;atmosphere.fogColor[2],1);
+ 
+ 	delete camera;
+ 	camera = realCam;
+
+Modified: trunk/rts/Rendering/Env/BasicSky.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/BasicSky.cpp	2008-05-13 00:53:30 UTC (rev 5886)
++++ trunk/rts/Rendering/Env/BasicSky.cpp	2008-05-13 09:45:56 UTC (rev 5887)
+@@ -24,8 +24,6 @@
+ #include &lt;assert.h&gt;
+ 
+ //////////////////////////////////////////////////////////////////////
+-extern GLfloat FogBlack[];
+-extern GLfloat FogLand[];
+ 
+ #define Y_PART 10.0
+ #define X_PART 10.0
+@@ -274,7 +272,7 @@
+ 	glDisable(GL_BLEND);
+ 	if (gu-&gt;drawFog) {
+ 		glEnable(GL_FOG);
+-		glFogfv(GL_FOG_COLOR,FogLand);
++		glFogfv(GL_FOG_COLOR,mapInfo-&gt;atmosphere.fogColor);
+ 		glFogi(GL_FOG_MODE,GL_LINEAR);
+ 		glFogf(GL_FOG_START,gu-&gt;viewRange*fogStart);
+ 		glFogf(GL_FOG_END,gu-&gt;viewRange);
+
+Modified: trunk/rts/Rendering/Env/BumpWater.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/BumpWater.cpp	2008-05-13 00:53:30 UTC (rev 5886)
++++ trunk/rts/Rendering/Env/BumpWater.cpp	2008-05-13 09:45:56 UTC (rev 5887)
+@@ -33,9 +33,6 @@
+ // Construction/Destruction
+ //////////////////////////////////////////////////////////////////////
+ 
+-extern GLfloat FogLand[];
+-
+-
+ static void PrintLog(GLuint obj)
+ {
+ 	int infologLength = 0;
+@@ -385,7 +382,7 @@
+ 	camera-&gt;Update(false);
+ 	glViewport(0,0,refrSizeX,refrSizeY);
+ 
+-	glClearColor(FogLand[0],FogLand[1],FogLand[2],1);
++	glClearColor(mapInfo-&gt;atmosphere.fogColor[0],mapInfo-&gt;atmosphere.fogColor[1],mapInfo-&gt;atmosphere.fogColor[2],1);
+ 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+ 
+ 	float3 oldsun=unitDrawer-&gt;unitSunColor;
+@@ -418,7 +415,7 @@
+ 	glDisable(target);
+ 
+ 	glViewport(gu-&gt;viewPosX,0,gu-&gt;viewSizeX,gu-&gt;viewSizeY);
+-	glClearColor(FogLand[0],FogLand[1],FogLand[2],1);
++	glClearColor(mapInfo-&gt;atmosphere.fogColor[0],mapInfo-&gt;atmosphere.fogColor[1],mapInfo-&gt;atmosphere.fogColor[2],1);
+ 
+ 	unitDrawer-&gt;unitSunColor=oldsun;
+ 	unitDrawer-&gt;unitAmbientColor=oldambient;
+@@ -465,7 +462,7 @@
+ 	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+ 
+ 	glViewport(gu-&gt;viewPosX,0,gu-&gt;viewSizeX,gu-&gt;viewSizeY);
+-	glClearColor(FogLand[0],FogLand[1],FogLand[2],1);
++	glClearColor(mapInfo-&gt;atmosphere.fogColor[0],mapInfo-&gt;atmosphere.fogColor[1],mapInfo-&gt;atmosphere.fogColor[2],1);
+ 
+ 	delete camera;
+ 	camera = realCam;
+
+Modified: trunk/rts/Rendering/Env/DynWater.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/DynWater.cpp	2008-05-13 00:53:30 UTC (rev 5886)
++++ trunk/rts/Rendering/Env/DynWater.cpp	2008-05-13 09:45:56 UTC (rev 5887)
+@@ -23,8 +23,6 @@
+ #include &quot;Sim/Units/Unit.h&quot;
+ #include &quot;Sim/Units/UnitDef.h&quot;
+ 
+-extern GLfloat FogLand[];
+-
+ #define W_SIZE 5
+ #define WF_SIZE 5120
+ #define WH_SIZE 2560
+@@ -464,7 +462,7 @@
+ 	glCopyTexSubImage2D(GL_TEXTURE_2D,0,0,0,0,0,512,512);
+ 
+ 	glViewport(gu-&gt;viewPosX,0,gu-&gt;viewSizeX,gu-&gt;viewSizeY);
+-	glClearColor(FogLand[0],FogLand[1],FogLand[2],1);
++	glClearColor(mapInfo-&gt;atmosphere.fogColor[0],mapInfo-&gt;atmosphere.fogColor[1],mapInfo-&gt;atmosphere.fogColor[2],1);
+ 
+ 	delete camera;
+ 	camera = realCam;
+@@ -482,7 +480,7 @@
+ 
+ 	glViewport(0,0,refractSize,refractSize);
+ 
+-	glClearColor(FogLand[0],FogLand[1],FogLand[2],1);
++	glClearColor(mapInfo-&gt;atmosphere.fogColor[0],mapInfo-&gt;atmosphere.fogColor[1],mapInfo-&gt;atmosphere.fogColor[2],1);
+ 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+ 
+ 	float3 oldsun=unitDrawer-&gt;unitSunColor;
+@@ -515,7 +513,7 @@
+ 	glCopyTexSubImage2D(GL_TEXTURE_2D,0,0,0,0,0,refractSize,refractSize);
+ 
+ 	glViewport(gu-&gt;viewPosX,0,gu-&gt;viewSizeX,gu-&gt;viewSizeY);
+-	glClearColor(FogLand[0],FogLand[1],FogLand[2],1);
++	glClearColor(mapInfo-&gt;atmosphere.fogColor[0],mapInfo-&gt;atmosphere.fogColor[1],mapInfo-&gt;atmosphere.fogColor[2],1);
+ 
+ 	unitDrawer-&gt;unitSunColor=oldsun;
+ 	unitDrawer-&gt;unitAmbientColor=oldambient;
+
+Modified: trunk/rts/Rendering/Env/GrassDrawer.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/GrassDrawer.cpp	2008-05-13 00:53:30 UTC (rev 5886)
++++ trunk/rts/Rendering/Env/GrassDrawer.cpp	2008-05-13 09:45:56 UTC (rev 5887)
+@@ -24,8 +24,6 @@
+ static const int grassSquareSize=4;		//mapsquares per grass square
+ static const int grassBlockSize=4;		//grass squares per grass block
+ 
+-extern GLfloat FogLand[]; 
+-
+ static float fRand(float size)
+ {
+ 	return float(rand())/RAND_MAX*size;
+@@ -395,7 +393,7 @@
+ 	glDisable(GL_BLEND);
+ 	glDisable(GL_ALPHA_TEST);
+ 	glEnable(GL_FOG);
+-	glFogfv(GL_FOG_COLOR,FogLand);
++	glFogfv(GL_FOG_COLOR,mapInfo-&gt;atmosphere.fogColor);
+ 
+ 	const int blockMapSize=grassSquareSize*grassBlockSize;
+ 
+
+Modified: trunk/rts/Rendering/Env/SkyBox.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/SkyBox.cpp	2008-05-13 00:53:30 UTC (rev 5886)
++++ trunk/rts/Rendering/Env/SkyBox.cpp	2008-05-13 09:45:56 UTC (rev 5887)
+@@ -10,9 +10,6 @@
+ #include &quot;Rendering/UnitModels/UnitDrawer.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
+-extern GLfloat FogBlack[]; 
+-extern GLfloat FogLand[]; 
+-
+ CSkyBox::CSkyBox(std::string texture)
+ {
+ 	CBitmap btex;
+@@ -84,7 +81,7 @@
+ 	glEnable(GL_DEPTH_TEST);
+ 	glDisable(GL_BLEND);
+ 	if (gu-&gt;drawFog) {
+-		glFogfv(GL_FOG_COLOR,FogLand);
++		glFogfv(GL_FOG_COLOR,mapInfo-&gt;atmosphere.fogColor);
+ 		glFogi(GL_FOG_MODE,GL_LINEAR);
+ 		glFogf(GL_FOG_START,gu-&gt;viewRange*fogStart);
+ 		glFogf(GL_FOG_END,gu-&gt;viewRange);
+
+Modified: trunk/rts/Rendering/FartextureHandler.cpp
+===================================================================
+--- trunk/rts/Rendering/FartextureHandler.cpp	2008-05-13 00:53:30 UTC (rev 5886)
++++ trunk/rts/Rendering/FartextureHandler.cpp	2008-05-13 09:45:56 UTC (rev 5887)
+@@ -8,11 +8,9 @@
+ #include &quot;Map/MapInfo.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
++
+ CFartextureHandler* fartextureHandler = NULL;
+ 
+-extern GLfloat LightDiffuseLand[];
+-extern GLfloat LightAmbientLand[];
+-extern GLfloat FogLand[];
+ 
+ CFartextureHandler::CFartextureHandler(void)
+ {
+@@ -26,6 +24,7 @@
+ 	farTexture=0;
+ }
+ 
++
+ CFartextureHandler::~CFartextureHandler(void)
+ {
+ 	delete[] farTextureMem;
+@@ -35,6 +34,7 @@
+ 	texturehandler=0;
+ }
+ 
++
+ /**
+  * @brief Add the model to the queue of units waiting for their fartexture.
+  * On the next CreateFarTextures() call the fartexture for this model will be
+@@ -45,6 +45,7 @@
+ 	pending.push_back(model);
+ }
+ 
++
+ /**
+  * @brief Process the queue of pending fartexture creation requests.
+  * This loops through the queue calling ReallyCreateFarTexture() on each entry,
+@@ -58,6 +59,7 @@
+ 	pending.clear();
+ }
+ 
++
+ /**
+  * @brief Really create the far texture for the given model.
+  */
+@@ -103,7 +105,7 @@
+ 	glMaterialfv(GL_FRONT_AND_BACK,GL_DIFFUSE,cols2);
+ 	glColor3f(1,1,1);
+ 	glRotatef(10,1,0,0);
+-	glLightfv(GL_LIGHT1, GL_POSITION,mapInfo-&gt;light.sunDir4);
++	glLightfv(GL_LIGHT1, GL_POSITION,mapInfo-&gt;light.sunDir);
+ 	glEnable(GL_LIGHT1);
+ 
+ 	int baseX=0;
+@@ -128,7 +130,7 @@
+ 			}
+ 		baseX+=16;
+ 		glRotatef(45,0,1,0);
+-		glLightfv(GL_LIGHT1, GL_POSITION,mapInfo-&gt;light.sunDir4);
++		glLightfv(GL_LIGHT1, GL_POSITION,mapInfo-&gt;light.sunDir);
+ 	}
+ 
+ 	glCullFace(GL_BACK);
+@@ -136,11 +138,11 @@
+ 	glDisable(GL_LIGHTING);
+ 	glDisable(GL_TEXTURE_2D);
+ 
+-	glClearColor(FogLand[0],FogLand[1],FogLand[2],0);
++	glClearColor(mapInfo-&gt;atmosphere.fogColor[0],mapInfo-&gt;atmosphere.fogColor[1],mapInfo-&gt;atmosphere.fogColor[2],0);
+ 	glViewport(gu-&gt;viewPosX,0,gu-&gt;viewSizeX,gu-&gt;viewSizeY);
+-	glLightfv(GL_LIGHT1, GL_AMBIENT, LightAmbientLand);		// Setup The Ambient Light
+-	glLightfv(GL_LIGHT1, GL_DIFFUSE, LightDiffuseLand);		// Setup The Diffuse Light
+-	glLightfv(GL_LIGHT1, GL_SPECULAR, LightAmbientLand);		// Setup The Diffuse Light
++	glLightfv(GL_LIGHT1, GL_AMBIENT, mapInfo-&gt;light.unitAmbientColor);
++	glLightfv(GL_LIGHT1, GL_DIFFUSE, mapInfo-&gt;light.unitSunColor);
++	glLightfv(GL_LIGHT1, GL_SPECULAR, mapInfo-&gt;light.unitAmbientColor);
+ 
+ 	if(farTexture==0){
+ 		glGenTextures(1, &amp;farTexture);
+@@ -157,5 +159,3 @@
+ 	usedFarTextures++;
+ 	POP_CODE_MODE;
+ }
+-
+-
+
+Modified: trunk/rts/Rendering/UnitModels/UnitDrawer.cpp
+===================================================================
+--- trunk/rts/Rendering/UnitModels/UnitDrawer.cpp	2008-05-13 00:53:30 UTC (rev 5886)
++++ trunk/rts/Rendering/UnitModels/UnitDrawer.cpp	2008-05-13 09:45:56 UTC (rev 5887)
+@@ -197,9 +197,6 @@
+ }
+ 
+ 
+-extern GLfloat FogLand[];
+-
+-
+ inline void CUnitDrawer::DrawUnitLOD(CUnit* unit)
+ {
+ 	if (unit-&gt;isCloaked) {
+@@ -274,7 +271,7 @@
+ 	drawCloakedS3O.clear();
+ 
+ 	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+-	glFogfv(GL_FOG_COLOR, FogLand);
++	glFogfv(GL_FOG_COLOR, mapInfo-&gt;atmosphere.fogColor);
+ 
+ 	vector&lt;CUnit*&gt; drawIcon;
+ 	vector&lt;CUnit*&gt; drawRadarIcon;
+@@ -409,7 +406,7 @@
+ 	camNorm.Normalize();
+ 	glColor3f(1, 1, 1);
+ 	glEnable(GL_FOG);
+-	glFogfv(GL_FOG_COLOR, FogLand);
++	glFogfv(GL_FOG_COLOR, mapInfo-&gt;atmosphere.fogColor);
+ 
+ 	for (vector&lt;CUnit*&gt;::iterator usi = drawFar.begin(); usi != drawFar.end(); usi++) {
+ 		DrawFar(*usi);
+@@ -968,8 +965,8 @@
+ 		glLoadIdentity();
+ 	} else {
+ 		glEnable(GL_LIGHTING);
+-		glLightfv(GL_LIGHT1, GL_POSITION, mapInfo-&gt;light.sunDir4);	// Position The Light
+-		glEnable(GL_LIGHT1);										// Enable Light One
++		glLightfv(GL_LIGHT1, GL_POSITION, mapInfo-&gt;light.sunDir);
++		glEnable(GL_LIGHT1);
+ 	//	glDisable(GL_CULL_FACE);
+ 	//	glCullFace(GL_BACK);
+ 		glEnable(GL_TEXTURE_2D);
+@@ -1167,8 +1164,8 @@
+ 		glLoadIdentity();
+ 	} else {
+ 		glEnable(GL_LIGHTING);
+-		glLightfv(GL_LIGHT1, GL_POSITION,mapInfo-&gt;light.sunDir4);	// Position The Light
+-		glEnable(GL_LIGHT1);								// Enable Light One
++		glLightfv(GL_LIGHT1, GL_POSITION, mapInfo-&gt;light.sunDir);
++		glEnable(GL_LIGHT1);
+ 
+ 		SetupBasicS3OTexture0();
+ 
+
+Modified: trunk/rts/Sim/Projectiles/ProjectileHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Projectiles/ProjectileHandler.cpp	2008-05-13 00:53:30 UTC (rev 5886)
++++ trunk/rts/Sim/Projectiles/ProjectileHandler.cpp	2008-05-13 09:45:56 UTC (rev 5887)
+@@ -37,8 +37,6 @@
+ 
+ CProjectileHandler* ph;
+ using namespace std;
+-extern GLfloat FogBlack[];
+-extern GLfloat FogLand[];
+ 
+ CR_BIND(CProjectileHandler,);
+ 
+@@ -538,7 +536,7 @@
+ 	glColor4f(1,1,1,0.2f);
+ 	glAlphaFunc(GL_GREATER,0.0f);
+ 	glEnable(GL_ALPHA_TEST);
+-//	glFogfv(GL_FOG_COLOR,FogLand);
++//	glFogfv(GL_FOG_COLOR,mapInfo-&gt;atmosphere.fogColor);
+ 	glDisable(GL_FOG);
+ 
+ 	currentParticles=0;
+@@ -555,7 +553,7 @@
+ 	currentParticles=(int)(ps.size()*0.8f+currentParticles*0.2f);
+ 	currentParticles+=(int)(0.2f*drawnPieces+0.3f*numFlyingPieces);
+ 	particleSaturation=(float)currentParticles/(float)maxParticles;
+-//	glFogfv(GL_FOG_COLOR,FogLand);
++//	glFogfv(GL_FOG_COLOR,mapInfo-&gt;atmosphere.fogColor);
+ }
+ 
+ void CProjectileHandler::DrawShadowPass(void)
+@@ -677,6 +675,8 @@
+ 
+ void CProjectileHandler::DrawGroundFlashes(void)
+ {
++	static GLfloat black[] = { 0.0f, 0.0f, 0.0f, 0.0f };
++
+ 	glEnable(GL_BLEND);
+ 	glBlendFunc(GL_SRC_ALPHA,GL_ONE);
+ 	glActiveTextureARB(GL_TEXTURE0_ARB);
+@@ -686,7 +686,7 @@
+ 	glDepthMask(0);
+ 	glPolygonOffset(-20,-1000);
+ 	glEnable(GL_POLYGON_OFFSET_FILL);
+-	glFogfv(GL_FOG_COLOR,FogBlack);
++	glFogfv(GL_FOG_COLOR, black);
+ 
+ 	CGroundFlash::va=GetVertexArray();
+ 	CGroundFlash::va-&gt;Initialize();
+@@ -699,7 +699,7 @@
+ 	}
+ 	CGroundFlash::va-&gt;DrawArrayTC(GL_QUADS);
+ 
+-	glFogfv(GL_FOG_COLOR,FogLand);
++	glFogfv(GL_FOG_COLOR,mapInfo-&gt;atmosphere.fogColor);
+ 	glDepthMask(1);
+ 	glDisable(GL_POLYGON_OFFSET_FILL);
+ 	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000666.html">[Taspring-linux-commit] r5886 -	trunk/installer/builddata/springcontent/LuaGadgets
+</A></li>
+	<LI>Next message: <A HREF="000668.html">[Taspring-linux-commit] r5888 - trunk/rts/Game/UI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#667">[ date ]</a>
+              <a href="thread.html#667">[ thread ]</a>
+              <a href="subject.html#667">[ subject ]</a>
+              <a href="author.html#667">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,284 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7314 - in Lobby/TASClient: .	Python/scripts Python/scripts/subf
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7314%20-%20in%20Lobby/TASClient%3A%20.%0A%09Python/scripts%20Python/scripts/subf&In-Reply-To=%3C20090731203947.23E00D9DA9%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002083.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7314 - in Lobby/TASClient: .	Python/scripts Python/scripts/subf</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7314%20-%20in%20Lobby/TASClient%3A%20.%0A%09Python/scripts%20Python/scripts/subf&In-Reply-To=%3C20090731203947.23E00D9DA9%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7314 - in Lobby/TASClient: .	Python/scripts Python/scripts/subf">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Jul 31 22:39:47 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002083.html">[Taspring-linux-commit] r7313 - Lobby/TASClient
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2084">[ date ]</a>
+              <a href="thread.html#2084">[ thread ]</a>
+              <a href="subject.html#2084">[ subject ]</a>
+              <a href="author.html#2084">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2009-07-31 22:39:46 +0200 (Fri, 31 Jul 2009)
+New Revision: 7314
+
+Added:
+   Lobby/TASClient/Python/scripts/subf/stabilityTestWithThreads.py
+Modified:
+   Lobby/TASClient/LobbyScriptUnit.pas
+   Lobby/TASClient/Python/scripts/mapdownload.py
+   Lobby/TASClient/SpringDownloaderFormUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* PYTHON : all crash fixed once and for good (or not) !
+* PYTHON : added a script to test stability : one timer getting replays battles and users every seconds and displaying the dict length in the mainform caption (display is done on incoming msg for synchronizatoin) and a /test command that getusers and getbattles 100times
+
+Modified: Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- Lobby/TASClient/LobbyScriptUnit.pas	2009-07-31 02:31:12 UTC (rev 7313)
++++ Lobby/TASClient/LobbyScriptUnit.pas	2009-07-31 20:39:46 UTC (rev 7314)
+@@ -857,21 +857,9 @@
+ procedure TCallback.LockCallback;
+ begin
+   CS.Enter;
+-  GetPythonEngine.PyEval_ReleaseThread(MainThreadState);
+-  with GetPythonEngine do
+-  begin
+-    tstate := PyThreadState_New(MainInterpreterState);
+-    PyEval_AcquireThread(tstate);
+-  end;
+ end;
+ procedure TCallback.UnlockCallback;
+ begin
+-  with GetPythonEngine do
+-  begin
+-    PyEval_ReleaseThread(tstate);
+-    PyThreadState_Delete(tstate);
+-  end;
+-  GetPythonEngine.PyEval_AcquireThread(MainThreadState);
+   CS.Leave;
+ end;
+ 
+@@ -894,7 +882,6 @@
+ var
+   i,j: integer;
+ begin
+-  Exit;
+   with GetPythonEngine do
+   begin
+     for i:=0 to pyGroupList.Count-1 do
+@@ -904,8 +891,9 @@
+       Py_XDECREF(pyBattleList[i]);
+ 
+     for i:=0 to pyUserList.Count-1 do
+-      for j:=1 to userRefCountList.Items[i] do
+-        Py_XDECREF(pyUserList[i]);
++      Py_XDECREF(pyUserList[i]);
++      //for j:=1 to userRefCountList.Items[i] do
++      //  Py_XDECREF(pyUserList[i]);
+ 
+     pyUserList.Clear;
+     pyBattleList.Clear;
+@@ -2393,9 +2381,10 @@
+   Result := False;
+   if Preferences.ScriptsDisabled or not ScriptsInitialized then Exit;
+   if GetCurrentThreadId &lt;&gt; MainThreadID then Exit;
+-  //if GetCurrentThreadId &lt;&gt; MainThreadID then
+-  while MainThreadFocused do
+-    Sleep(10);
++  Result := True;
++  if MainThreadFocused then Exit;
++  //while MainThreadFocused do
++  //  Sleep(10);
+   GetPythonEngine.PyEval_AcquireThread(MainThreadState);
+   MainThreadFocused := True;
+   Result := True;
+@@ -2428,9 +2417,9 @@
+ begin
+   if Preferences.ScriptsDisabled or not ScriptsInitialized then Exit;
+   if GetCurrentThreadId &lt;&gt; MainThreadID then Exit;
+-  //if GetCurrentThreadId &lt;&gt; MainThreadID then
+-  while not MainThreadFocused do
+-    Sleep(10);
++  if not MainThreadFocused then Exit;
++  //while not MainThreadFocused do
++  //  Sleep(10);
+   GetPythonEngine.PyEval_ReleaseThread(MainThreadState);
+   MainThreadFocused := False;
+ end;
+
+Modified: Lobby/TASClient/Python/scripts/mapdownload.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/mapdownload.py	2009-07-31 02:31:12 UTC (rev 7313)
++++ Lobby/TASClient/Python/scripts/mapdownload.py	2009-07-31 20:39:46 UTC (rev 7314)
+@@ -43,7 +43,6 @@
+ 	global dlFormName
+ 	currBattle = api.GetCurrentBattle()
+ 	if currBattle != None and currBattle['Battle']['Map'] == mapName:
+-		print acceptNextDownload
+ 		if acceptNextDownload:
+ 			changeComponentProp('BattleForm.MapDescLabel','Visible','False')		
+ 			
+
+Added: Lobby/TASClient/Python/scripts/subf/stabilityTestWithThreads.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/subf/stabilityTestWithThreads.py	                        (rev 0)
++++ Lobby/TASClient/Python/scripts/subf/stabilityTestWithThreads.py	2009-07-31 20:39:46 UTC (rev 7314)
+@@ -0,0 +1,51 @@
++import lobbyscript
++import thread
++
++api = lobbyscript.Callback()
++gui = lobbyscript.GUI()
++
++num = 0
++mutexTest = thread.allocate_lock()
++a = 0
++b = 0
++c = 0
++
++def changeComponentProp(comp,prop,value):
++	changeComponentPropFull(comp,'',prop,value)
++	
++def changeComponentPropFull(comp,path,prop,value):
++	p = gui.GetControlProperties(comp,path)
++	p[prop] = value
++	return gui.SetControlProperties(comp,path,p)
++
++def _init():
++	api.ShowDebugWindow()
++	
++def all_in(args):
++	global num
++	global mutexTest
++	global a,b,c
++	mutexTest.acquire()
++	changeComponentProp('MainForm.MainTitleBar','Caption',str(num)+' '+str(a)+' '+str(b)+' '+str(c))
++	mutexTest.release()
++
++def cmd_test():
++	for i in range(1,100):
++		print i
++		a = api.GetUsers()
++		b = api.GetBattles()
++	return True
++	
++def timer_1():
++	global num
++	global mutexTest
++	global a,b,c
++	mutexTest.acquire()
++	num += 1
++	#a = api.GetUsers()
++	bb = api.GetReplays()
++	if bb != None:
++		b = len(bb)
++	c = len(api.GetBattles())
++	a = len(api.GetUsers())
++	mutexTest.release()
+\ No newline at end of file
+
+Modified: Lobby/TASClient/SpringDownloaderFormUnit.pas
+===================================================================
+--- Lobby/TASClient/SpringDownloaderFormUnit.pas	2009-07-31 02:31:12 UTC (rev 7313)
++++ Lobby/TASClient/SpringDownloaderFormUnit.pas	2009-07-31 20:39:46 UTC (rev 7314)
+@@ -132,13 +132,15 @@
+     Exit;
+   Application.CreateForm(TSpringDownloaderForm, Result);
+   Result.StartDownload('MOD',modHash,modName,joinBattleWhenDownloadComplete);
+-  AcquireMainThread;
+-  try if not Preferences.ScriptsDisabled then cancel := handlers.onDownloadModStart(LobbyScriptUnit.GetStringFromComponent(Result),modHash,modName); except end;
+-  ReleaseMainThread;
+-  if cancel then
+-    Result.CancelButtonClick(nil)
+-  else
+-    Misc.ShowAndSetFocus(Result.CancelButton);
++  if AcquireMainThread then
++  begin
++    try if not Preferences.ScriptsDisabled then cancel := handlers.onDownloadModStart(LobbyScriptUnit.GetStringFromComponent(Result),modHash,modName); except end;
++    ReleaseMainThread;
++    if cancel then
++      Result.CancelButtonClick(nil)
++    else
++      Misc.ShowAndSetFocus(Result.CancelButton);
++  end;
+ end;
+ 
+ function DownloadMap(mapHash : integer; mapName: string; noBrowser : boolean = False):TSpringDownloaderForm;
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2009-07-31 02:31:12 UTC (rev 7313)
++++ Lobby/TASClient/TASClient.dof	2009-07-31 20:39:46 UTC (rev 7314)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=50
+ Release=0
+-Build=681
++Build=684
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.50.0.681
++FileVersion=0.50.0.684
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+@@ -134,8 +134,6 @@
+ ProductName=TASClient
+ ProductVersion=1.0.0.0
+ Comments=
+-[Excluded Packages]
+-c:\program files\borland\delphi7\Projects\Bpl\DPanel.bpl=(untitled)
+ [HistoryLists\hlUnitAliases]
+ Count=1
+ Item0=WinTypes=Windows;WinProcs=Windows;DbiTypes=BDE;DbiProcs=BDE;DbiErrs=BDE;
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002083.html">[Taspring-linux-commit] r7313 - Lobby/TASClient
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2084">[ date ]</a>
+              <a href="thread.html#2084">[ thread ]</a>
+              <a href="subject.html#2084">[ subject ]</a>
+              <a href="author.html#2084">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,188 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6337 - trunk/tools/ArchiveMoverLinux
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6337%20-%20trunk/tools/ArchiveMoverLinux&In-Reply-To=%3C20080829175106.75503498E%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001106.html">
+   <LINK REL="Next"  HREF="001108.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6337 - trunk/tools/ArchiveMoverLinux</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6337%20-%20trunk/tools/ArchiveMoverLinux&In-Reply-To=%3C20080829175106.75503498E%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6337 - trunk/tools/ArchiveMoverLinux">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Aug 29 19:51:06 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001106.html">[Taspring-linux-commit] r6336 - trunk/tools/ArchiveMoverLinux
+</A></li>
+        <LI>Next message: <A HREF="001108.html">[Taspring-linux-commit] r6338 - in trunk: .	installer/freedesktop/applications rts/Game	tools/DemoAnalyser tools/unitsync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1107">[ date ]</a>
+              <a href="thread.html#1107">[ thread ]</a>
+              <a href="subject.html#1107">[ subject ]</a>
+              <a href="author.html#1107">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: det
+Date: 2008-08-29 19:51:05 +0200 (Fri, 29 Aug 2008)
+New Revision: 6337
+
+Modified:
+   trunk/tools/ArchiveMoverLinux/mover.ml
+Log:
+ArchiveMoverLinux
+ * Improved Spring DataDir detection
+ * Improved Map detection
+
+
+
+Modified: trunk/tools/ArchiveMoverLinux/mover.ml
+===================================================================
+--- trunk/tools/ArchiveMoverLinux/mover.ml	2008-08-29 16:43:24 UTC (rev 6336)
++++ trunk/tools/ArchiveMoverLinux/mover.ml	2008-08-29 17:51:05 UTC (rev 6337)
+@@ -19,14 +19,27 @@
+     try
+       let in_zip = Zip.open_in path in
+       let entries = Zip.entries in_zip in
+-      let has_file filename =
+-        let lower = String.lowercase filename in
+-          List.exists (fun entry -&gt; entry.Zip.filename = lower) entries
++      let test_files func =
++        let test entry = func (String.lowercase entry.Zip.filename) in
++          List.exists test entries
+       in
++      let is_map path =
++        let dirname = Filename.dirname path in
++        let basename = Filename.basename path in
++          if dirname = &quot;maps&quot; then
++            if String.ends_with basename &quot;.smf&quot; then
++              true
++            else if String.ends_with basename &quot;.sm3&quot; then
++              true
++            else
++              false
++          else
++            false
++      in
+         Zip.close_in in_zip;
+-        if has_file &quot;maps/&quot; then Map
+-        else if has_file &quot;modinfo.tdf&quot; then Mod
+-        else if has_file &quot;modinfo.lua&quot; then Mod
++        if test_files is_map then Map
++        else if test_files (fun filename -&gt; filename = &quot;modinfo.tdf&quot;) then Mod
++        else if test_files (fun filename -&gt; filename = &quot;modinfo.lua&quot;) then Mod
+         else Unknown
+     with Zip.Error _ -&gt; Unknown
+ 
+@@ -60,11 +73,14 @@
+       close_out out_chan
+         
+   let move src dst =
+-    try
+-      Sys.rename src dst
+-    with Sys_error _ -&gt;
+-      copy src dst;
+-      Unix.unlink src
++    if src != dst then
++      try
++        Sys.rename src dst
++      with Sys_error _ -&gt;
++        copy src dst;
++        Sys.remove src
++    else
++      ()
+ end
+ 
+ 
+@@ -76,14 +92,9 @@
+       let message = Printf.sprintf &quot;%s was successfully installed&quot; dest in
+         FileSystem.move path dest;
+         GToolbox.message_box ~title:&quot;Success&quot; ~ok:&quot;Exit&quot; message
+-    with
+-        Unix.Unix_error (error, func, filename) -&gt;
+-          let error_string = Unix.error_message error in
+-          let message = Printf.sprintf &quot;Error performing %s on %s: %s&quot; func filename error_string in
+-            GToolbox.message_box ~title:&quot;Error&quot; ~ok:&quot;Exit&quot; message
+-      | Sys_error (error_string) -&gt;
+-          let message = Printf.sprintf &quot;Error: %s&quot; error_string in
+-            GToolbox.message_box ~title:&quot;Error&quot; ~ok:&quot;Exit&quot; message
++    with Sys_error (error_string) -&gt;
++      let message = Printf.sprintf &quot;Error: %s&quot; error_string in
++        GToolbox.message_box ~title:&quot;Error&quot; ~ok:&quot;Exit&quot; message
+               
+   let get_archive_dir combo_box =
+     let int = combo_box#active in
+@@ -148,13 +159,26 @@
+         option
+     with Sys_error _ -&gt; None
+ 
++  let detect_datadir home_dir =
++    try
++      let in_file = open_in &quot;/etc/spring/datadir&quot; in
++      let input = IO.input_channel in_file in
++      let format = IO.read_line input in
++      let (_, dir) = String.replace format &quot;$HOME&quot; home_dir in
++        close_in in_file;
++        Some dir
++    with Sys_error _ -&gt; None
++
+   let detect_spring_dir springdir_entry =
+     let dir = 
+       match detect_home_dir () with
+           Some home_dir -&gt;
+             (match detect_springrc home_dir with
+                 Some springdir -&gt; springdir
+-              | None -&gt; Filename.concat home_dir &quot;.spring&quot;)
++              | None -&gt;
++                  (match detect_datadir home_dir with
++                       Some springdir -&gt; springdir
++                     | None -&gt; Filename.concat home_dir &quot;.spring&quot;))
+         | None -&gt; &quot;&quot; in
+       springdir_entry#set_text dir
+         
+@@ -247,7 +271,7 @@
+ end
+ 
+ let usage () =
+-  ()
++  Printf.printf &quot;Usage: %s &lt;/path/to/archive.sdz&gt;\n&quot; Sys.argv.(0)
+ 
+ let main () =
+   if Array.length (Sys.argv) != 2 then
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001106.html">[Taspring-linux-commit] r6336 - trunk/tools/ArchiveMoverLinux
+</A></li>
+	<LI>Next message: <A HREF="001108.html">[Taspring-linux-commit] r6338 - in trunk: .	installer/freedesktop/applications rts/Game	tools/DemoAnalyser tools/unitsync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1107">[ date ]</a>
+              <a href="thread.html#1107">[ thread ]</a>
+              <a href="subject.html#1107">[ subject ]</a>
+              <a href="author.html#1107">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

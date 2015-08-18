@@ -1,0 +1,377 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7312 - in Lobby/TASClient: . Python/engine
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7312%20-%20in%20Lobby/TASClient%3A%20.%20Python/engine&In-Reply-To=%3C20090730203816.4073DD9DAA%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002081.html">
+   <LINK REL="Next"  HREF="002083.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7312 - in Lobby/TASClient: . Python/engine</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7312%20-%20in%20Lobby/TASClient%3A%20.%20Python/engine&In-Reply-To=%3C20090730203816.4073DD9DAA%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7312 - in Lobby/TASClient: . Python/engine">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Jul 30 22:38:16 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002081.html">[Taspring-linux-commit] r7311 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002083.html">[Taspring-linux-commit] r7313 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2082">[ date ]</a>
+              <a href="thread.html#2082">[ thread ]</a>
+              <a href="subject.html#2082">[ subject ]</a>
+              <a href="author.html#2082">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2009-07-30 22:38:15 +0200 (Thu, 30 Jul 2009)
+New Revision: 7312
+
+Modified:
+   Lobby/TASClient/LobbyScriptUnit.pas
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/Python/engine/handlers.py
+   Lobby/TASClient/PythonScriptDebugFormUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+   Lobby/TASClient/Utility.pas
+Log:
+* using &quot;game&quot; when &quot;shortname&quot; is not available in menu campaigns (fix the lua capaign file not found bug)
+* PYTHON : getreplays : old replay value removed, modoptions and mapoptions added
+* PYTHON : fixed every known crash/bug, it should be A LOT more stable now
+
+Modified: Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- Lobby/TASClient/LobbyScriptUnit.pas	2009-07-29 01:32:02 UTC (rev 7311)
++++ Lobby/TASClient/LobbyScriptUnit.pas	2009-07-30 20:38:15 UTC (rev 7312)
+@@ -169,7 +169,6 @@
+       function GetPyUser(user: TClient): PPyObject;
+       function GetPyGroup(group: TClientGroup): PPyObject;
+       procedure RefreshPythonLists;
+-      procedure ClearRefs;
+       procedure LockCallback;
+       procedure UnlockCallback;
+       procedure Print(data : string);
+@@ -177,6 +176,8 @@
+ 
+ 
+     public
++      procedure ClearRefs;
++      
+       // tasclient special functions
+       procedure ShowDebugWindow;
+       //procedure Print(data : string);
+@@ -262,7 +263,7 @@
+   procedure PyList_AppendDecRef(list: PPyObject; const item : Variant);
+   procedure PyDict_SetItemStringIncRef(dp: PPyObject; Key: PAnsiChar; o : PPyObject);
+   procedure PyDict_SetItemIncRef(dp: PPyObject; Key: PPyObject; o : PPyObject);
+-  procedure SafeDecRef(o : PPyObject);
++  procedure SafeDecRef(var o : PPyObject);
+   procedure PostMsgs;
+   procedure HostBattle;
+   procedure JoinBattle;
+@@ -291,6 +292,7 @@
+   PlayerIconTypeNames: TStringList;
+   PlayerIconTypeIcons: TList;
+   PlayerIconTypeIconsNames: TList;
++
+ implementation
+ 
+ uses PythonScriptDebugFormUnit, Utility, MapListFormUnit, HostBattleFormUnit,
+@@ -306,14 +308,22 @@
+ begin
+   with GetPythonEngine do
+   begin
+-    pyGroups := Py_None;
++    {pyGroups := Py_None;
+     pyBattles := Py_None;
+     pyUsers := Py_None;
+     pyMods := Py_None;
+     pyMaps := Py_None;
+     pyCurrentBattle := Py_None;
+     pyReplays := Py_None;
+-    pyServers := Py_None;
++    pyServers := Py_None;}
++    pyGroups := nil;
++    pyBattles := nil;
++    pyUsers := nil;
++    pyMods := nil;
++    pyMaps := nil;
++    pyCurrentBattle := nil;
++    pyReplays := nil;
++    pyServers := nil;
+ 
+     pyUserList := TList.Create;
+     pyBattleList := TList.Create;
+@@ -685,9 +695,12 @@
+ function TCallback.GetPyReplay(Replay: TReplay): PPyObject;
+ var
+   scriptPlayer: PPyObject;
++  luaoptions: PPyObject;
++  sl: TStrings;
+   i: integer;
+   pyO: PPyObject;
+ begin
++  Result := nil;
+   with GetPythonEngine do
+   begin
+     if not Replay.Script.isCorrupted then
+@@ -712,14 +725,14 @@
+         end;
+         PyDict_SetItemStringDecRef( Result, 'MapName', Script.ReadMapName );
+         PyDict_SetItemStringDecRef( Result, 'ModName', Script.ReadModName );
++        PyDict_SetItemStringDecRef( Result, 'StartPosType', Script.ReadStartPosType );
++        {PyDict_SetItemStringDecRef( Result, 'GameMode', Script.ReadGameMode );
+         PyDict_SetItemStringDecRef( Result, 'StartMetal', Script.ReadStartMetal );
+         PyDict_SetItemStringDecRef( Result, 'StartEnergy', Script.ReadStartEnergy );
+         PyDict_SetItemStringDecRef( Result, 'MaxUnits', Script.ReadMaxUnits );
+-        PyDict_SetItemStringDecRef( Result, 'StartPosType', Script.ReadStartPosType );
+-        PyDict_SetItemStringDecRef( Result, 'GameMode', Script.ReadGameMode );
+         PyDict_SetItemStringDecRef( Result, 'LimitDGun', Script.ReadLimitDGun );
+         PyDict_SetItemStringDecRef( Result, 'DiminishingMMs', Script.ReadDiminishingMMs );
+-        PyDict_SetItemStringDecRef( Result, 'GhostedBuildings', Script.ReadGhostedBuildings );
++        PyDict_SetItemStringDecRef( Result, 'GhostedBuildings', Script.ReadGhostedBuildings ); }
+ 
+         scriptPlayer := PyDict_New();
+         for i:=0 to PlayerList.Count-1 do
+@@ -730,6 +743,25 @@
+         end;
+         PyDict_SetItemString( Result, 'Users',  scriptPlayer);
+         Py_XDECREF(scriptPlayer);
++
++        luaoptions := PyDict_New();
++        sl := Replay.Script.GetSubKeys('GAME/MODOPTIONS');
++        for i:=0 to sl.Count-1 do
++        begin
++          PyDict_SetItemStringDecRef( luaoptions, PChar(sl[i]), Replay.Script.ReadKeyValue('GAME/MODOPTIONS/'+sl[i]) );
++        end;
++        PyDict_SetItemString( Result, 'ModOptions',  luaoptions);
++        Py_XDECREF(luaoptions);
++
++        luaoptions := PyDict_New();
++        sl := Replay.Script.GetSubKeys('GAME/MAPOPTIONS');
++        for i:=0 to sl.Count-1 do
++        begin
++          PyDict_SetItemStringDecRef( luaoptions, PChar(sl[i]), Replay.Script.ReadKeyValue('GAME/MAPOPTIONS/'+sl[i]) );
++        end;
++        PyDict_SetItemString( Result, 'MapOptions',  luaoptions);
++        Py_XDECREF(luaoptions);
++
+       end;
+     end;
+   end;
+@@ -803,9 +835,14 @@
+     begin
+       try
+         pyO := GetPyReplay(TReplay(ReplayList[i]));
+-        PyDict_SetItem(pyReplays,PyInt_FromLong(i),pyO);
+-        Py_XDECREF(pyO);
++        if pyO &lt;&gt; nil then
++        begin
++          PyDict_SetItem(pyReplays,PyInt_FromLong(i),pyO);
++          Py_XDECREF(pyO);
++        end;
+       except
++        MainForm.AddMainLog(TReplay(ReplayList[i]).FileName,Colors.Normal);
++        pyO := GetPyReplay(TReplay(ReplayList[i]));
+       end;
+     end;
+     Result := PyObjectAsVariant(pyReplays);
+@@ -2336,11 +2373,10 @@
+ begin
+   Result := False;
+   if Preferences.ScriptsDisabled or not ScriptsInitialized then Exit;
+-  //if GetCurrentThreadId &lt;&gt; MainThreadID then Exit;
++  if GetCurrentThreadId &lt;&gt; MainThreadID then Exit;
+   //if GetCurrentThreadId &lt;&gt; MainThreadID then
+-    while MainThreadFocused do
+-      Sleep(10);
+-  if MainThreadFocused then Exit;
++  while MainThreadFocused do
++    Sleep(10);
+   GetPythonEngine.PyEval_AcquireThread(MainThreadState);
+   MainThreadFocused := True;
+   Result := True;
+@@ -2368,13 +2404,14 @@
+ end;
+ 
+ procedure ReleaseMainThread;
++var
++  i: integer;
+ begin
+   if Preferences.ScriptsDisabled or not ScriptsInitialized then Exit;
+-  //if GetCurrentThreadId &lt;&gt; MainThreadID then Exit;
++  if GetCurrentThreadId &lt;&gt; MainThreadID then Exit;
+   //if GetCurrentThreadId &lt;&gt; MainThreadID then
+-    while not MainThreadFocused do
+-      Sleep(10);
+-  if not MainThreadFocused then Exit;
++  while not MainThreadFocused do
++    Sleep(10);
+   GetPythonEngine.PyEval_ReleaseThread(MainThreadState);
+   MainThreadFocused := False;
+ end;
+@@ -2436,9 +2473,16 @@
+   end;
+ end;
+ 
+-procedure SafeDecRef(o : PPyObject);
++procedure SafeDecRef(var o : PPyObject);
+ begin
+-  try if o &lt;&gt; GetPythonEngine.Py_None then GetPythonEngine.Py_XDECREF(o); except end;
++  //try
++    if (o &lt;&gt; nil) then
++    begin
++      GetPythonEngine.Py_XDECREF(o);
++      o := nil;
++    end;
++  //except
++  //end;
+ end;
+ 
+ function GetComponentFromString(component: string): TComponent;
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2009-07-29 01:32:02 UTC (rev 7311)
++++ Lobby/TASClient/MainUnit.dfm	2009-07-30 20:38:15 UTC (rev 7312)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 480
+-  Top = 204
++  Left = 365
++  Top = 191
+   Width = 800
+   Height = 546
+   Caption = '.'
+
+Modified: Lobby/TASClient/Python/engine/handlers.py
+===================================================================
+--- Lobby/TASClient/Python/engine/handlers.py	2009-07-29 01:32:02 UTC (rev 7311)
++++ Lobby/TASClient/Python/engine/handlers.py	2009-07-30 20:38:15 UTC (rev 7312)
+@@ -183,10 +183,10 @@
+ 	return _handle('out', data)
+ 
+ def _handle_callin(funcname, args=''):
+-	if not funcname: return
++	if not funcname: return False
+ 	for s in scripts:
+ 		script = scripts[s]
+-		
++
+ 		spaces = args.count(' ')
+ 
+ 		if funcname in dir(script):
+@@ -197,14 +197,14 @@
+ 				total_args = len(function_info[0])
+ 
+ 				if total_args == 0:
+-					args = function()
++					return function()
+ 				else:
+ 					if total_args &gt; spaces+1:
+ 						print 'Too many arguments in function %s of %s' % (funcname, s)
+ 						return False
+ 					else:
+ 						args = args.split(' ',total_args-1)
+-						args = function(*args)
++						return function(*args)
+ 					
+ 			else:
+ 				print ' %s has an attribute %s but it is not a function' % (s, funcname)
+
+Modified: Lobby/TASClient/PythonScriptDebugFormUnit.pas
+===================================================================
+--- Lobby/TASClient/PythonScriptDebugFormUnit.pas	2009-07-29 01:32:02 UTC (rev 7311)
++++ Lobby/TASClient/PythonScriptDebugFormUnit.pas	2009-07-30 20:38:15 UTC (rev 7312)
+@@ -74,7 +74,7 @@
+ begin
+   TranslateComponent(self);
+ 
+-  FileName := ExtractFilePath(Application.ExeName)+'TASClient_Scripts_Err.txt';
++  FileName := ExtractFilePath(Application.ExeName)+'TASClient_Scripts.log';
+   
+   printList := TStringList.Create;
+   try
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2009-07-29 01:32:02 UTC (rev 7311)
++++ Lobby/TASClient/TASClient.dof	2009-07-30 20:38:15 UTC (rev 7312)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=50
+ Release=0
+-Build=679
++Build=681
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.50.0.679
++FileVersion=0.50.0.681
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+Modified: Lobby/TASClient/Utility.pas
+===================================================================
+--- Lobby/TASClient/Utility.pas	2009-07-29 01:32:02 UTC (rev 7311)
++++ Lobby/TASClient/Utility.pas	2009-07-30 20:38:15 UTC (rev 7312)
+@@ -1006,7 +1006,11 @@
+     s := TTDFParser.Create(fileContent);
+     Result := s.ReadKeyValue('mod/shortname');
+     if Result = '' then
+-      raise Exception.Create('mod/shortname not found in the modinfo.tdf file : '+EOL+fileContent);
++    begin
++      Result := s.ReadKeyValue('mod/Game');
++      if Result = '' then
++        raise Exception.Create('mod/shortname not found in the modinfo.tdf file : '+EOL+fileContent);
++    end;
+     s.Destroy;
+   end
+   else
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002081.html">[Taspring-linux-commit] r7311 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002083.html">[Taspring-linux-commit] r7313 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2082">[ date ]</a>
+              <a href="thread.html#2082">[ thread ]</a>
+              <a href="subject.html#2082">[ subject ]</a>
+              <a href="author.html#2082">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

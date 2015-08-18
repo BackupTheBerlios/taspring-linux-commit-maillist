@@ -1,0 +1,202 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7395 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7395%20-%20Lobby/TASClient&In-Reply-To=%3C20100113180021.4B3A42D349%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002164.html">
+   <LINK REL="Next"  HREF="002166.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7395 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7395%20-%20Lobby/TASClient&In-Reply-To=%3C20100113180021.4B3A42D349%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7395 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Jan 13 19:00:21 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002164.html">[Taspring-linux-commit] r7394 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002166.html">[Taspring-linux-commit] r7396 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2165">[ date ]</a>
+              <a href="thread.html#2165">[ thread ]</a>
+              <a href="subject.html#2165">[ subject ]</a>
+              <a href="author.html#2165">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2010-01-13 19:00:20 +0100 (Wed, 13 Jan 2010)
+New Revision: 7395
+
+Modified:
+   Lobby/TASClient/BattleFormUnit.dfm
+   Lobby/TASClient/BattleFormUnit.pas
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MapListFormUnit.pas
+   Lobby/TASClient/Minimap3DPreviewUnit.dfm
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.dpr
+   Lobby/TASClient/TASClient.res
+Log:
+* fixed a memory leak introduced by 3d metal map
+* closing the 3d map preview free the whole form now (ie 50MB)
+
+Modified: Lobby/TASClient/BattleFormUnit.dfm
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.dfm	2010-01-12 18:12:59 UTC (rev 7394)
++++ Lobby/TASClient/BattleFormUnit.dfm	2010-01-13 18:00:20 UTC (rev 7395)
+@@ -1,6 +1,6 @@
+ object BattleForm: TBattleForm
+-  Left = 416
+-  Top = 111
++  Left = 583
++  Top = 250
+   Width = 920
+   Height = 612
+   Caption = 'Battle window'
+
+Modified: Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.pas	2010-01-12 18:12:59 UTC (rev 7394)
++++ Lobby/TASClient/BattleFormUnit.pas	2010-01-13 18:00:20 UTC (rev 7395)
+@@ -3207,6 +3207,8 @@
+ 
+   if Preferences.LoadMetalHeightMinimaps and not MainUnit.NO3D then
+   begin
++    Application.CreateForm(TMinimap3DPreview, Minimap3DPreview);
++    
+     Minimap3DPreview.Camera.Position.X := -50;
+     Minimap3DPreview.Camera.Position.Y := 50;
+     Minimap3DPreview.Camera.Position.Z := 100;
+@@ -3327,10 +3329,12 @@
+       Minimap3DPreview.Water.Visible := GetMapMinHeight(PChar(MapList[CurrentMapIndex])) &lt;= 0;
+ 
+       texture.Free;
++      textureMetal.Free;
+       heightMap.Free;
+ 
+       Minimap3DPreview.Caption := MinimapZoomedForm.Caption;
+       Minimap3DPreview.ShowModal;
++      Minimap3DPreview.Free;
+     //end;
+   end
+   else
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2010-01-12 18:12:59 UTC (rev 7394)
++++ Lobby/TASClient/MainUnit.dfm	2010-01-13 18:00:20 UTC (rev 7395)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 391
+-  Top = 400
++  Left = 764
++  Top = 469
+   Width = 850
+   Height = 539
+   Caption = '.'
+
+Modified: Lobby/TASClient/MapListFormUnit.pas
+===================================================================
+--- Lobby/TASClient/MapListFormUnit.pas	2010-01-12 18:12:59 UTC (rev 7394)
++++ Lobby/TASClient/MapListFormUnit.pas	2010-01-13 18:00:20 UTC (rev 7395)
+@@ -1038,6 +1038,8 @@
+   j:=0;
+   ScrollBox1.Visible := False;
+   for i := 0 to SortedMaps.Count - 1 do begin
++    if TMapItem(SortedMaps[i]).MainPanel = nil then Exit; // happens when the map details loading is enabled back
++
+     sl := TStringList.Create;
+ 
+     TMapItem(SortedMaps[i]).MainPanel.Visible := ((Utility.ModValidMaps = nil) or (Utility.ModValidMaps.Count = 0) or (Utility.ModValidMaps.IndexOf(TMapItem(SortedMaps[i]).MapName) &gt;= 0)) and
+
+Modified: Lobby/TASClient/Minimap3DPreviewUnit.dfm
+===================================================================
+--- Lobby/TASClient/Minimap3DPreviewUnit.dfm	2010-01-12 18:12:59 UTC (rev 7394)
++++ Lobby/TASClient/Minimap3DPreviewUnit.dfm	2010-01-13 18:00:20 UTC (rev 7395)
+@@ -1,6 +1,6 @@
+ object Minimap3DPreview: TMinimap3DPreview
+-  Left = 619
+-  Top = 234
++  Left = 880
++  Top = 266
+   Width = 596
+   Height = 528
+   Caption = 'Minimap3DPreview'
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2010-01-12 18:12:59 UTC (rev 7394)
++++ Lobby/TASClient/TASClient.dof	2010-01-13 18:00:20 UTC (rev 7395)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=57
+ Release=0
+-Build=754
++Build=756
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.57.0.754
++FileVersion=0.57.0.756
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.dpr
+===================================================================
+--- Lobby/TASClient/TASClient.dpr	2010-01-12 18:12:59 UTC (rev 7394)
++++ Lobby/TASClient/TASClient.dpr	2010-01-13 18:00:20 UTC (rev 7395)
+@@ -261,7 +261,7 @@
+   begin
+     if MainUnit.Debug.Enabled then
+       Misc.TryToAddLog(MainUnit.StartDebugLog,'Creating Minimap3DPreview ...');
+-    Application.CreateForm(TMinimap3DPreview, Minimap3DPreview);
++    //Application.CreateForm(TMinimap3DPreview, Minimap3DPreview);
+   end;
+   if MainUnit.Debug.Enabled then
+     Misc.TryToAddLog(MainUnit.StartDebugLog,'Creating MapSelectionForm ...');
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002164.html">[Taspring-linux-commit] r7394 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002166.html">[Taspring-linux-commit] r7396 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2165">[ date ]</a>
+              <a href="thread.html#2165">[ thread ]</a>
+              <a href="subject.html#2165">[ subject ]</a>
+              <a href="author.html#2165">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

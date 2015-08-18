@@ -1,0 +1,927 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6977 - in trunk/rts: Game	Rendering/UnitModels Sim/Misc Sim/Projectiles Sim/Units
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-November/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6977%20-%20in%20trunk/rts%3A%20Game%0A%09Rendering/UnitModels%20Sim/Misc%20Sim/Projectiles%20Sim/Units&In-Reply-To=%3C20081104163102.78F404753%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001745.html">
+   <LINK REL="Next"  HREF="001747.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6977 - in trunk/rts: Game	Rendering/UnitModels Sim/Misc Sim/Projectiles Sim/Units</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6977%20-%20in%20trunk/rts%3A%20Game%0A%09Rendering/UnitModels%20Sim/Misc%20Sim/Projectiles%20Sim/Units&In-Reply-To=%3C20081104163102.78F404753%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6977 - in trunk/rts: Game	Rendering/UnitModels Sim/Misc Sim/Projectiles Sim/Units">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Nov  4 17:31:02 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001745.html">[Taspring-linux-commit] r6976 - in branches/caiinterface: . AI	AI/Bindings AI/Bindings/LegacyCpp AI/Bindings/LegacyCpp/Event	AI/Skirmish/KAIK AI/Skirmish/NullLegacyCppAI AI/Skirmish/RAI	rts/ExternalAI/Interface rts/build/scons
+</A></li>
+        <LI>Next message: <A HREF="001747.html">[Taspring-linux-commit] r6978 - in branches/caiinterface:	AI/Interfaces/Java AI/Skirmish/RAI rts/ExternalAI	rts/ExternalAI/Interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1746">[ date ]</a>
+              <a href="thread.html#1746">[ thread ]</a>
+              <a href="subject.html#1746">[ subject ]</a>
+              <a href="author.html#1746">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-11-04 17:31:01 +0100 (Tue, 04 Nov 2008)
+New Revision: 6977
+
+Added:
+   trunk/rts/Sim/Misc/CollisionVolume.cpp
+Modified:
+   trunk/rts/Game/GameHelper.cpp
+   trunk/rts/Rendering/UnitModels/UnitDrawer.cpp
+   trunk/rts/Sim/Misc/CollisionHandler.cpp
+   trunk/rts/Sim/Misc/CollisionHandler.h
+   trunk/rts/Sim/Misc/CollisionVolume.h
+   trunk/rts/Sim/Misc/GroundBlockingObjectMap.cpp
+   trunk/rts/Sim/Projectiles/ProjectileHandler.cpp
+   trunk/rts/Sim/Units/UnitLoader.cpp
+Log:
+* Added new collision volume types: sphere, footprint.
+  - sphere can not be selected in unitdef but replaces the 'spherical' boolean
+    (ie. an ellipsoid with all axes equal length is automatically converted to a sphere)
+  - footprint is intersection of sphere and vertical 'footprint prism' of unit/feature.
+    (For this volume, the scale/offset only applies to the sphere,
+    the footprint can obviously not be scaled or translated.)
+
+* Units/features with no collision volume defined get 'footprint' type by default now,
+  this restores the (more realistic) 0.76b1 behaviour as default.
+
+* Refactored CollisionVolume a bit, biggest changes were adding CollisionVolume.cpp and
+  removing implementation from the header file, and making CollisionVolume members
+  private, except for CCollisionHandler.
+
+
+
+Modified: trunk/rts/Game/GameHelper.cpp
+===================================================================
+--- trunk/rts/Game/GameHelper.cpp	2008-11-04 10:46:28 UTC (rev 6976)
++++ trunk/rts/Game/GameHelper.cpp	2008-11-04 16:31:01 UTC (rev 6977)
+@@ -84,9 +84,9 @@
+ 	// position of its collision volume and &quot;unit radius&quot; by
+ 	// the volume's minimally-bounding sphere
+ 	//
+-	float3 dif = (unit-&gt;midPos + unit-&gt;collisionVolume-&gt;axisOffsets) - expPos;
++	float3 dif = (unit-&gt;midPos + unit-&gt;collisionVolume-&gt;GetOffsets()) - expPos;
+ 	float expDist = dif.Length();
+-	const float volRad = unit-&gt;collisionVolume-&gt;volumeBoundingRadius;
++	const float volRad = unit-&gt;collisionVolume-&gt;GetBoundingRadius();
+ 
+ 	expDist = std::max(expDist, volRad + 0.1f);
+ 
+@@ -140,7 +140,7 @@
+ 	CollisionVolume* cv = feature-&gt;collisionVolume;
+ 
+ 	if (cv) {
+-		float3 dif = (feature-&gt;midPos + cv-&gt;axisOffsets) - expPos;
++		float3 dif = (feature-&gt;midPos + cv-&gt;GetOffsets()) - expPos;
+ 		float expDist = std::max(dif.Length(), 0.1f);
+ 		float expMod = (expRad - expDist) / expRad;
+ 
+@@ -149,7 +149,7 @@
+ 		// be damaged otherwise, even by BB shells)
+ 		// NOTE: this will also be only approximate
+ 		// for non-spherical volumes
+-		if ((expRad &gt; 8.0f) &amp;&amp; (expDist &lt; (cv-&gt;volumeBoundingRadius * 1.1f)) &amp;&amp; (expMod &lt; 0.1f)) {
++		if ((expRad &gt; 8.0f) &amp;&amp; (expDist &lt; (cv-&gt;GetBoundingRadius() * 1.1f)) &amp;&amp; (expMod &lt; 0.1f)) {
+ 			expMod = 0.1f;
+ 		}
+ 		if (expMod &gt; 0.0f) {
+@@ -353,7 +353,7 @@
+ 				(unit-&gt;losStatus[gu-&gt;myAllyTeam] &amp; (LOS_INLOS | LOS_CONTRADAR)) ||
+ 				(useRadar &amp;&amp; radarhandler-&gt;InRadar(unit, gu-&gt;myAllyTeam))) {
+ 
+-				CollisionVolume* cv = 0x0;
++				const CollisionVolume* cv = NULL;
+ 
+ 				if (unit-&gt;isIcon) {
+ 					// for iconified units, just pretend the collision
+@@ -406,10 +406,10 @@
+ 			if (u == exclude)
+ 				continue;
+ 
+-			CollisionVolume* cv = u-&gt;collisionVolume;
++			const CollisionVolume* cv = u-&gt;collisionVolume;
+ 
+ 			if (gs-&gt;Ally(u-&gt;allyteam, allyteam) || (u-&gt;losStatus[allyteam] &amp; LOS_INLOS)) {
+-				float3 dif = (u-&gt;midPos + cv-&gt;axisOffsets) - start;
++				float3 dif = (u-&gt;midPos + cv-&gt;GetOffsets()) - start;
+ 				float closeLength = dif.dot(dir);
+ 
+ 				if (closeLength &lt; 0)
+@@ -419,13 +419,13 @@
+ 
+ 				float3 closeVect = dif - dir * closeLength;
+ 
+-				if (closeVect.SqLength() &lt; cv-&gt;volumeBoundingRadiusSq) {
++				if (closeVect.SqLength() &lt; cv-&gt;GetBoundingRadiusSq()) {
+ 					length = closeLength;
+ 					hit = u;
+ 				}
+ 			} else if (useRadar &amp;&amp; radarhandler-&gt;InRadar(u, allyteam)) {
+ 				float3 dif =
+-					(u-&gt;midPos + cv-&gt;axisOffsets) +
++					(u-&gt;midPos + cv-&gt;GetOffsets()) +
+ 					u-&gt;posErrorVector * radarhandler-&gt;radarErrorSize[allyteam] -
+ 					start;
+ 				float closeLength = dif.dot(dir);
+@@ -437,7 +437,7 @@
+ 
+ 				float3 closeVect = dif - dir * closeLength;
+ 
+-				if (closeVect.SqLength() &lt; cv-&gt;volumeBoundingRadiusSq) {
++				if (closeVect.SqLength() &lt; cv-&gt;GetBoundingRadiusSq()) {
+ 					length = closeLength;
+ 					hit = u;
+ 				}
+@@ -825,7 +825,7 @@
+ 			}
+ 
+ 			CollisionVolume* cv = f-&gt;collisionVolume;
+-			const float3&amp; midPosOffset = cv? cv-&gt;axisOffsets: ZeroVector;
++			const float3&amp; midPosOffset = cv? cv-&gt;GetOffsets(): ZeroVector;
+ 			const float3 dif = (f-&gt;midPos + midPosOffset) - start;
+ 			float closeLength = dif.dot(dir);
+ 
+@@ -976,7 +976,7 @@
+ bool CGameHelper::TestConeHelper(const float3&amp; from, const float3&amp; weaponDir, float length, float spread, const CUnit* u)
+ {
+ 	// account for any offset, since we want to know if our shots might hit
+-	float3 unitDir = (u-&gt;midPos + u-&gt;collisionVolume-&gt;axisOffsets) - from;
++	float3 unitDir = (u-&gt;midPos + u-&gt;collisionVolume-&gt;GetOffsets()) - from;
+ 	// weaponDir defines the center of the cone
+ 	float closeLength = unitDir.dot(weaponDir);
+ 
+@@ -989,7 +989,7 @@
+ 	// NOTE: same caveat wrt. use of volumeBoundingRadius
+ 	// as for ::Explosion(), this will result in somewhat
+ 	// over-conservative tests for non-spherical volumes
+-	float r = u-&gt;collisionVolume-&gt;volumeBoundingRadius + spread * closeLength + 1;
++	float r = u-&gt;collisionVolume-&gt;GetBoundingRadius() + spread * closeLength + 1;
+ 
+ 	return (closeVect.SqLength() &lt; r * r);
+ }
+@@ -1049,8 +1049,8 @@
+     @return true if the unit u is in the firing trajectory, false otherwise */
+ bool CGameHelper::TestTrajectoryConeHelper(const float3&amp; from, const float3&amp; flatdir, float length, float linear, float quadratic, float spread, float baseSize, const CUnit* u)
+ {
+-	CollisionVolume* cv = u-&gt;collisionVolume;
+-	float3 dif = (u-&gt;midPos + cv-&gt;axisOffsets) - from;
++	const CollisionVolume* cv = u-&gt;collisionVolume;
++	float3 dif = (u-&gt;midPos + cv-&gt;GetOffsets()) - from;
+ 	float3 flatdif(dif.x, 0, dif.z);
+ 	float closeFlatLength = flatdif.dot(flatdir);
+ 
+@@ -1065,7 +1065,7 @@
+ 
+ 		// NOTE: overly conservative for non-spherical volumes
+ 		float3 closeVect = dif - flatdir * closeFlatLength;
+-		float r = cv-&gt;volumeBoundingRadius + spread * closeFlatLength + baseSize;
++		float r = cv-&gt;GetBoundingRadius() + spread * closeFlatLength + baseSize;
+ 		if (closeVect.SqLength() &lt; r * r) {
+ 			return true;
+ 		}
+@@ -1076,12 +1076,12 @@
+ 		dir.y = linear + quadratic * closeFlatLength;
+ 		dir.Normalize();
+ 
+-		dif = (u-&gt;midPos + cv-&gt;axisOffsets) - newfrom;
++		dif = (u-&gt;midPos + cv-&gt;GetOffsets()) - newfrom;
+ 		float closeLength = dif.dot(dir);
+ 
+ 		// NOTE: overly conservative for non-spherical volumes
+ 		float3 closeVect = dif - dir * closeLength;
+-		float r = cv-&gt;volumeBoundingRadius + spread * closeFlatLength + baseSize;
++		float r = cv-&gt;GetBoundingRadius() + spread * closeFlatLength + baseSize;
+ 		if (closeVect.SqLength() &lt; r * r) {
+ 			return true;
+ 		}
+
+Modified: trunk/rts/Rendering/UnitModels/UnitDrawer.cpp
+===================================================================
+--- trunk/rts/Rendering/UnitModels/UnitDrawer.cpp	2008-11-04 10:46:28 UTC (rev 6976)
++++ trunk/rts/Rendering/UnitModels/UnitDrawer.cpp	2008-11-04 16:31:01 UTC (rev 6977)
+@@ -800,7 +800,7 @@
+ 	const float3 vpn = vp - dy;
+ 	const float3 vnp = vn + dy;
+ 	const float3 vpp = vp + dy;
+-	
++
+ 	// Draw the icon.
+ 	iconData-&gt;Draw(vnn, vpn, vnp, vpp);
+ }
+@@ -958,7 +958,7 @@
+ 			} else {
+ 				model = decoyDef-&gt;LoadModel(unitTeam);
+ 				is_s3o = (model-&gt;rootobjects3o != NULL);
+-			}				
++			}
+ 
+ 			if (is_s3o) {
+ 				SetBasicS3OTeamColour(unitTeam);
+@@ -1812,6 +1812,10 @@
+ 		CollisionVolume* vol = unit-&gt;collisionVolume;
+ 
+ 		switch (vol-&gt;GetVolumeType()) {
++			case COLVOL_TYPE_FOOTPRINT:
++				// fall through, this is too hard to render correctly so just render sphere :)
++			case COLVOL_TYPE_SPHERE:
++				// fall through, sphere is special case of ellipsoid
+ 			case COLVOL_TYPE_ELLIPSOID: {
+ 				// scaled sphere: radius, slices, stacks
+ 				glTranslatef(vol-&gt;GetOffset(0), vol-&gt;GetOffset(1), vol-&gt;GetOffset(2));
+
+Modified: trunk/rts/Sim/Misc/CollisionHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Misc/CollisionHandler.cpp	2008-11-04 10:46:28 UTC (rev 6976)
++++ trunk/rts/Sim/Misc/CollisionHandler.cpp	2008-11-04 16:31:01 UTC (rev 6977)
+@@ -7,29 +7,16 @@
+ 
+ #include &quot;Sim/Units/Unit.h&quot;
+ #include &quot;Sim/Features/Feature.h&quot;
++#include &quot;GroundBlockingObjectMap.h&quot;
+ 
++#include &quot;Game/GlobalSynced.h&quot;
++
+ #include &quot;CollisionHandler.h&quot;
+ #include &quot;CollisionVolume.h&quot;
+ 
+ #define ZVEC ZeroVector
+ 
+ CR_BIND(CCollisionHandler, );
+-CR_BIND(CollisionVolume, );
+-	CR_REG_METADATA(CollisionVolume, (
+-		CR_MEMBER(axisScales),
+-		CR_MEMBER(axisHScales),
+-		CR_MEMBER(axisHScalesSq),
+-		CR_MEMBER(axisHIScales),
+-		CR_MEMBER(axisOffsets),
+-		CR_MEMBER(volumeBoundingRadius),
+-		CR_MEMBER(volumeBoundingRadiusSq),
+-		CR_MEMBER(volumeType),
+-		CR_MEMBER(testType),
+-		CR_MEMBER(primaryAxis),
+-		CR_MEMBER(secondaryAxes),
+-		CR_MEMBER(spherical),
+-		CR_MEMBER(disabled)
+-	));
+ 
+ unsigned int CCollisionHandler::numCollisionTests = 0;
+ unsigned int CCollisionHandler::numIntersectionTests = 0;
+@@ -77,10 +64,16 @@
+ 
+ 	if (((u-&gt;midPos + v-&gt;axisOffsets) - p).SqLength() &gt; v-&gt;volumeBoundingRadiusSq) {
+ 		return false;
+-	} else {
+-		if (v-&gt;spherical) {
++	}
++
++	switch (u-&gt;collisionVolume-&gt;volumeType) {
++		case COLVOL_TYPE_SPHERE: {
+ 			return true;
+-		} else {
++		}
++		case COLVOL_TYPE_FOOTPRINT: {
++			return CCollisionHandler::CollisionFootprint(u, p);
++		}
++		default: {
+ 			// NOTE: we have to translate by relMidPos to get to midPos
+ 			// (which is where the collision volume gets drawn) because
+ 			// GetTransformMatrix() only uses pos
+@@ -93,16 +86,23 @@
+ 	}
+ }
+ 
++
+ bool CCollisionHandler::Collision(const CFeature* f, const float3&amp; p)
+ {
+ 	const CollisionVolume* v = f-&gt;collisionVolume;
+ 
+ 	if (((f-&gt;midPos + v-&gt;axisOffsets) - p).SqLength() &gt; v-&gt;volumeBoundingRadiusSq) {
+ 		return false;
+-	} else {
+-		if (v-&gt;spherical) {
++	}
++
++	switch (f-&gt;collisionVolume-&gt;volumeType) {
++		case COLVOL_TYPE_SPHERE: {
+ 			return true;
+-		} else {
++		}
++		case COLVOL_TYPE_FOOTPRINT: {
++			return CCollisionHandler::CollisionFootprint(f, p);
++		}
++		default: {
+ 			// NOTE: CFeature does not have a relMidPos member so
+ 			// calculate and apply the translation from pos (used
+ 			// by transMatrix) to midPos manually
+@@ -117,7 +117,24 @@
+ }
+ 
+ 
++bool CCollisionHandler::CollisionFootprint(const CSolidObject* o, const float3&amp; p)
++{
++	if (o-&gt;isMarkedOnBlockingMap &amp;&amp; o-&gt;physicalState != CSolidObject::Flying) {
++		const float invSquareSize = 1.0f / SQUARE_SIZE;
++		const int square = int(p.x * invSquareSize) + int(p.z * invSquareSize) * gs-&gt;mapx;
+ 
++		if (square &gt;= 0 &amp;&amp; square &lt; gs-&gt;mapSquares) {
++			const BlockingMapCell&amp; cell = groundBlockingObjectMap-&gt;GetCell(square);
++			return cell.find(o-&gt;GetBlockingMapID()) != cell.end();
++		}
++	}
++	// If the object isn't marked on blocking map, or it is flying,
++	// effecively only the sphere check (in Collision(CUnit*) or
++	// Collision(CFeature*)) is performed.
++	return true;
++}
++
++
+ // test if point &lt;p&gt; (in world-coors) lies inside the
+ // volume whose transformation matrix is given by &lt;m&gt;
+ bool CCollisionHandler::Collision(const CollisionVolume* v, const CMatrix44f&amp; m, const float3&amp; p)
+@@ -131,15 +148,17 @@
+ 	bool hit = false;
+ 
+ 	switch (v-&gt;volumeType) {
++		case COLVOL_TYPE_SPHERE: {
++			// normally, this code is never executed, because the higher level
++			// Collision(CFeature*) and Collision(CUnit*) already optimize
++			// for volumeType == COLVOL_TYPE_SPHERE.
++			hit = (pi.dot(pi) &lt;= v-&gt;axisHScalesSq.x);
++		} break;
+ 		case COLVOL_TYPE_ELLIPSOID: {
+-			if (v-&gt;spherical) {
+-				hit = (pi.dot(pi) &lt;= v-&gt;axisHScalesSq.x);
+-			} else {
+-				const float f1 = (pi.x * pi.x) / v-&gt;axisHScalesSq.x;
+-				const float f2 = (pi.y * pi.y) / v-&gt;axisHScalesSq.y;
+-				const float f3 = (pi.z * pi.z) / v-&gt;axisHScalesSq.z;
+-				hit = ((f1 + f2 + f3) &lt;= 1.0f);
+-			}
++			const float f1 = (pi.x * pi.x) / v-&gt;axisHScalesSq.x;
++			const float f2 = (pi.y * pi.y) / v-&gt;axisHScalesSq.y;
++			const float f3 = (pi.z * pi.z) / v-&gt;axisHScalesSq.z;
++			hit = ((f1 + f2 + f3) &lt;= 1.0f);
+ 		} break;
+ 		case COLVOL_TYPE_CYLINDER: {
+ 			switch (v-&gt;primaryAxis) {
+@@ -254,6 +273,11 @@
+ 	if (rmaxz &lt; vminz || rminz &gt; vmaxz) { return false; }
+ 
+ 	switch (v-&gt;volumeType) {
++		case COLVOL_TYPE_FOOTPRINT:
++			// fall through, intersection with footprint collision volume
++			// is not supported yet, so only test against sphere/ellipsoid
++		case COLVOL_TYPE_SPHERE:
++			// fall through, sphere is special case of ellipsoid
+ 		case COLVOL_TYPE_ELLIPSOID: {
+ 			intersect = CCollisionHandler::IntersectEllipsoid(v, pi0, pi1, q);
+ 		} break;
+
+Modified: trunk/rts/Sim/Misc/CollisionHandler.h
+===================================================================
+--- trunk/rts/Sim/Misc/CollisionHandler.h	2008-11-04 10:46:28 UTC (rev 6976)
++++ trunk/rts/Sim/Misc/CollisionHandler.h	2008-11-04 16:31:01 UTC (rev 6977)
+@@ -39,10 +39,11 @@
+ 		static bool Collision(const CUnit*, const float3&amp;);
+ 		static bool Collision(const CFeature*, const float3&amp;);
+ 		static bool Collision(const CollisionVolume*, const CMatrix44f&amp;, const float3&amp;);
++		static bool CollisionFootprint(const CSolidObject*, const float3&amp;);
+ 
+ 	public:
+-		static bool Intersect(const CUnit*, const float3&amp; p1, const float3&amp; p2, CollisionQuery* q);
+-		static bool Intersect(const CFeature*, const float3&amp; p1, const float3&amp; p2, CollisionQuery* q);
++		static bool Intersect(const CUnit*, const float3&amp; p0, const float3&amp; p1, CollisionQuery* q);
++		static bool Intersect(const CFeature*, const float3&amp; p0, const float3&amp; p1, CollisionQuery* q);
+ 	private:
+ 		static bool Intersect(const CollisionVolume*, const CMatrix44f&amp;, const float3&amp;, const float3&amp;, CollisionQuery* q);
+ 
+
+Added: trunk/rts/Sim/Misc/CollisionVolume.cpp
+===================================================================
+--- trunk/rts/Sim/Misc/CollisionVolume.cpp	                        (rev 0)
++++ trunk/rts/Sim/Misc/CollisionVolume.cpp	2008-11-04 16:31:01 UTC (rev 6977)
+@@ -0,0 +1,187 @@
++#include &quot;StdAfx.h&quot;
++#include &quot;CollisionVolume.h&quot;
++#include &quot;LogOutput.h&quot;
++#include &quot;mmgr.h&quot;
++
++
++static CLogSubsystem LOG_COLVOL(&quot;CollisionVolume&quot;);
++
++
++CR_BIND(CollisionVolume, );
++	CR_REG_METADATA(CollisionVolume, (
++		CR_MEMBER(axisScales),
++		CR_MEMBER(axisHScales),
++		CR_MEMBER(axisHScalesSq),
++		CR_MEMBER(axisHIScales),
++		CR_MEMBER(axisOffsets),
++		CR_MEMBER(volumeBoundingRadius),
++		CR_MEMBER(volumeBoundingRadiusSq),
++		CR_MEMBER(volumeType),
++		CR_MEMBER(testType),
++		CR_MEMBER(primaryAxis),
++		CR_MEMBER(secondaryAxes),
++		CR_MEMBER(disabled)
++	));
++
++
++CollisionVolume::CollisionVolume(const CollisionVolume* src)
++{
++	//logOutput.Print(LOG_COLVOL, &quot;CollisionVolume::CollisionVolume(src = 0x%p)&quot;, src);
++
++	axisScales             = src? src-&gt;axisScales:             float3(2.0f, 2.0f, 2.0f);
++	axisHScales            = src? src-&gt;axisHScales:            float3(1.0f, 1.0f, 1.0f);
++	axisHScalesSq          = src? src-&gt;axisHScalesSq:          float3(1.0f, 1.0f, 1.0f);
++	axisHIScales           = src? src-&gt;axisHIScales:           float3(1.0f, 1.0f, 1.0f);
++	axisOffsets            = src? src-&gt;axisOffsets:            ZeroVector;
++	volumeBoundingRadius   = src? src-&gt;volumeBoundingRadius:   1.0f;
++	volumeBoundingRadiusSq = src? src-&gt;volumeBoundingRadiusSq: 1.0f;
++	volumeType             = src? src-&gt;volumeType:             COLVOL_TYPE_ELLIPSOID;
++	testType               = src? src-&gt;testType:               COLVOL_TEST_DISC;
++	primaryAxis            = src? src-&gt;primaryAxis:            COLVOL_AXIS_Z;
++	secondaryAxes[0]       = src? src-&gt;secondaryAxes[0]:       COLVOL_AXIS_X;
++	secondaryAxes[1]       = src? src-&gt;secondaryAxes[1]:       COLVOL_AXIS_Y;
++	disabled               = src? src-&gt;disabled:               false;
++}
++
++
++CollisionVolume::CollisionVolume(const std::string&amp; typeStr, const float3&amp; scales, const float3&amp; offsets, int testType)
++{
++	primaryAxis = COLVOL_AXIS_Z;
++
++	if (typeStr.size() &gt; 0) {
++		std::string typeStrLC(StringToLower(typeStr));
++
++		if (typeStrLC.find(&quot;ell&quot;) != std::string::npos) {
++			logOutput.Print(LOG_COLVOL, &quot;New ellipsoid&quot;);
++			volumeType = COLVOL_TYPE_ELLIPSOID;
++		}
++
++		if (typeStrLC.find(&quot;cyl&quot;) != std::string::npos) {
++			logOutput.Print(LOG_COLVOL, &quot;New cylinder&quot;);
++			volumeType = COLVOL_TYPE_CYLINDER;
++
++			if (typeStrLC.size() == 4) {
++				if (typeStrLC[3] == 'x') { primaryAxis = COLVOL_AXIS_X; }
++				if (typeStrLC[3] == 'y') { primaryAxis = COLVOL_AXIS_Y; }
++				if (typeStrLC[3] == 'z') { primaryAxis = COLVOL_AXIS_Z; }
++			}
++		}
++
++		if (typeStrLC.find(&quot;box&quot;) != std::string::npos) {
++			logOutput.Print(LOG_COLVOL, &quot;New box&quot;);
++			volumeType = COLVOL_TYPE_BOX;
++		}
++
++		if (typeStrLC.find(&quot;footprint&quot;) != std::string::npos) {
++			logOutput.Print(LOG_COLVOL, &quot;New footprint&quot;);
++			volumeType = COLVOL_TYPE_FOOTPRINT;
++		}
++
++	} else {
++		logOutput.Print(LOG_COLVOL, &quot;New footprint (default)&quot;);
++		volumeType = COLVOL_TYPE_FOOTPRINT;
++	}
++
++	Init(scales, offsets, volumeType, testType, primaryAxis);
++}
++
++
++void CollisionVolume::SetDefaultScale(const float s)
++{
++	//logOutput.Print(LOG_COLVOL, &quot;SetDefaultScale(s = %g)&quot;, s);
++
++	// called iif unit or feature defines no custom volume,
++	// &lt;s&gt; is the object's default RADIUS (not its diameter)
++	// so we need to double it to get the full-length scales
++	const float3 scales(s * 2.0f, s * 2.0f, s * 2.0f);
++
++	Init(scales, ZeroVector, volumeType, testType, primaryAxis);
++}
++
++
++void CollisionVolume::Init(const float3&amp; scales, const float3&amp; offsets, int vType, int tType, int pAxis)
++{
++	//logOutput.Print(LOG_COLVOL, &quot;Init(scales={%g,%g,%g}, offsets={%g,%g,%g}, vType=%d, tType=%d, pAxis=%d)&quot;,
++	//                scales.x, scales.y, scales.z, offsets.x, offsets.y, offsets.z, vType, tType, pAxis);
++
++	disabled = (tType &lt; 0);
++
++	// assign these here, since we can be
++	// called from outside the constructor
++	primaryAxis = std::max(pAxis, 0) % COLVOL_NUM_AXES;
++	volumeType = std::max(vType, 0) % COLVOL_NUM_TYPES;
++	testType = std::max(tType, 0) % COLVOL_NUM_TESTS;
++
++	axisScales.x = (scales.x &lt; 1.0f)? 1.0f: scales.x;
++	axisScales.y = (scales.y &lt; 1.0f)? 1.0f: scales.y;
++	axisScales.z = (scales.z &lt; 1.0f)? 1.0f: scales.z;
++
++	axisHScales.x = axisScales.x * 0.5f;  axisHScalesSq.x = axisHScales.x * axisHScales.x;
++	axisHScales.y = axisScales.y * 0.5f;  axisHScalesSq.y = axisHScales.y * axisHScales.y;
++	axisHScales.z = axisScales.z * 0.5f;  axisHScalesSq.z = axisHScales.z * axisHScales.z;
++
++	axisHIScales.x = 1.0f / axisHScales.x;  axisOffsets.x = offsets.x;
++	axisHIScales.y = 1.0f / axisHScales.y;  axisOffsets.y = offsets.y;
++	axisHIScales.z = 1.0f / axisHScales.z;  axisOffsets.z = offsets.z;
++
++	// if all axes (or half-axes) are equal in scale, volume is a sphere
++	const bool spherical =
++		((volumeType == COLVOL_TYPE_ELLIPSOID) &amp;&amp;
++		(streflop::fabsf(axisHScales.x - axisHScales.y) &lt; EPS) &amp;&amp;
++		(streflop::fabsf(axisHScales.y - axisHScales.z) &lt; EPS));
++
++	if (spherical) {
++		logOutput.Print(LOG_COLVOL, &quot;Auto converting spherical ellipsoid to sphere&quot;);
++		volumeType = COLVOL_TYPE_SPHERE;
++	}
++
++	// secondaryAxes[0] = (primaryAxis + 1) % 3;
++	// secondaryAxes[1] = (primaryAxis + 2) % 3;
++
++	switch (primaryAxis) {
++		case COLVOL_AXIS_X: {
++			secondaryAxes[0] = COLVOL_AXIS_Y;
++			secondaryAxes[1] = COLVOL_AXIS_Z;
++		} break;
++		case COLVOL_AXIS_Y: {
++			secondaryAxes[0] = COLVOL_AXIS_X;
++			secondaryAxes[1] = COLVOL_AXIS_Z;
++		} break;
++		case COLVOL_AXIS_Z: {
++			secondaryAxes[0] = COLVOL_AXIS_X;
++			secondaryAxes[1] = COLVOL_AXIS_Y;
++		} break;
++	}
++
++	// set the radius of the minimum bounding sphere
++	// that encompasses this custom collision volume
++	// (for early-out testing)
++	switch (volumeType) {
++		case COLVOL_TYPE_BOX: {
++			// would be an over-estimation for cylinders
++			volumeBoundingRadiusSq = axisHScalesSq.x + axisHScalesSq.y + axisHScalesSq.z;
++			volumeBoundingRadius = streflop::sqrt(volumeBoundingRadiusSq);
++		} break;
++		case COLVOL_TYPE_CYLINDER: {
++			const float prhs = axisHScales[primaryAxis     ];   // primary axis half-scale
++			const float sahs = axisHScales[secondaryAxes[0]];   // 1st secondary axis half-scale
++			const float sbhs = axisHScales[secondaryAxes[1]];   // 2nd secondary axis half-scale
++			const float mshs = std::max(sahs, sbhs);            // max. secondary axis half-scale
++
++			volumeBoundingRadiusSq = prhs * prhs + mshs * mshs;
++			volumeBoundingRadius = streflop::sqrtf(volumeBoundingRadiusSq);
++		} break;
++		case COLVOL_TYPE_ELLIPSOID: {
++			volumeBoundingRadius = std::max(axisHScales.x, std::max(axisHScales.y, axisHScales.z));
++			volumeBoundingRadiusSq = volumeBoundingRadius * volumeBoundingRadius;
++		} break;
++		case COLVOL_TYPE_FOOTPRINT:
++			// fall through, this is intersection of footprint-prism
++			// and sphere, so it has same bounding radius as sphere.
++		case COLVOL_TYPE_SPHERE: {
++			// max{x, y, z} would suffice here too (see ellipsoid)
++			volumeBoundingRadius = axisHScales.x;
++			volumeBoundingRadiusSq = volumeBoundingRadius * volumeBoundingRadius;
++		} break;
++	}
++}
+
+Modified: trunk/rts/Sim/Misc/CollisionVolume.h
+===================================================================
+--- trunk/rts/Sim/Misc/CollisionVolume.h	2008-11-04 10:46:28 UTC (rev 6976)
++++ trunk/rts/Sim/Misc/CollisionVolume.h	2008-11-04 16:31:01 UTC (rev 6977)
+@@ -1,154 +1,47 @@
+ #ifndef COLLISION_VOLUME_H
+ #define COLLISION_VOLUME_H
+ 
++#include &quot;float3.h&quot;
+ #include &quot;creg/creg.h&quot;
+ #include &quot;Util.h&quot;
+ 
+ const float EPS = 0.0000000001f;
+ 
+-enum COLVOL_TYPES {COLVOL_TYPE_ELLIPSOID, COLVOL_TYPE_CYLINDER, COLVOL_TYPE_BOX};
+-enum COLVOL_AXES {COLVOL_AXIS_X, COLVOL_AXIS_Y, COLVOL_AXIS_Z};
+-enum COLVOL_TESTS {COLVOL_TEST_DISC, COLVOL_TEST_CONT};
++enum COLVOL_TYPES {
++	COLVOL_TYPE_DISABLED = -1,
++	COLVOL_TYPE_ELLIPSOID = 0,
++	COLVOL_TYPE_CYLINDER,
++	COLVOL_TYPE_BOX,
++	COLVOL_TYPE_SPHERE,
++	COLVOL_TYPE_FOOTPRINT, // intersection of sphere and footprint-prism
++	COLVOL_NUM_TYPES       // number of non-disabled collision volume types
++};
+ 
+-struct CollisionVolume {
++enum COLVOL_AXES {
++	COLVOL_AXIS_X,
++	COLVOL_AXIS_Y,
++	COLVOL_AXIS_Z,
++	COLVOL_NUM_AXES     // number of collision volume axes
++};
++enum COLVOL_TESTS {
++	COLVOL_TEST_DISC,
++	COLVOL_TEST_CONT,
++	COLVOL_NUM_TESTS    // number of tests
++};
++
++struct CollisionVolume
++{
+ 	CR_DECLARE_STRUCT(CollisionVolume);
+ 
+-	CollisionVolume(const CollisionVolume* src = 0x0) {
+-		axisScales             = src? src-&gt;axisScales:             float3(2.0f, 2.0f, 2.0f);
+-		axisHScales            = src? src-&gt;axisHScales:            float3(1.0f, 1.0f, 1.0f);
+-		axisHScalesSq          = src? src-&gt;axisHScalesSq:          float3(1.0f, 1.0f, 1.0f);
+-		axisHIScales           = src? src-&gt;axisHIScales:           float3(1.0f, 1.0f, 1.0f);
+-		axisOffsets            = src? src-&gt;axisOffsets:            ZeroVector;
+-		volumeBoundingRadius   = src? src-&gt;volumeBoundingRadius:   1.0f;
+-		volumeBoundingRadiusSq = src? src-&gt;volumeBoundingRadiusSq: 1.0f;
+-		volumeType             = src? src-&gt;volumeType:             COLVOL_TYPE_ELLIPSOID;
+-		testType               = src? src-&gt;testType:               COLVOL_TEST_DISC;
+-		primaryAxis            = src? src-&gt;primaryAxis:            COLVOL_AXIS_Z;
+-		secondaryAxes[0]       = src? src-&gt;secondaryAxes[0]:       COLVOL_AXIS_X;
+-		secondaryAxes[1]       = src? src-&gt;secondaryAxes[1]:       COLVOL_AXIS_Y;
+-		spherical              = src? src-&gt;spherical:              true;
+-		disabled               = src? src-&gt;disabled:               false;
+-	}
++	CollisionVolume(const CollisionVolume* src = NULL);
++	CollisionVolume(const std::string&amp; typeStr, const float3&amp; scales, const float3&amp; offsets, int testType);
+ 
+-	CollisionVolume(const std::string&amp; typeStr, const float3&amp; scales, const float3&amp; offsets, int testType) {
+-		if (typeStr.size() &gt; 0) {
+-			std::string typeStrLC(StringToLower(typeStr));
++	void SetDefaultScale(const float s);
++	void Init(const float3&amp; scales, const float3&amp; offsets, int vType, int tType, int pAxis);
+ 
+-			if (typeStrLC.find(&quot;ell&quot;) != std::string::npos) {
+-				volumeType = COLVOL_TYPE_ELLIPSOID;
+-			}
+-
+-			if (typeStrLC.find(&quot;cyl&quot;) != std::string::npos) {
+-				volumeType = COLVOL_TYPE_CYLINDER;
+-
+-				if (typeStrLC.size() == 4) {
+-					if (typeStrLC[3] == 'x') { primaryAxis = COLVOL_AXIS_X; }
+-					if (typeStrLC[3] == 'y') { primaryAxis = COLVOL_AXIS_Y; }
+-					if (typeStrLC[3] == 'z') { primaryAxis = COLVOL_AXIS_Z; }
+-				}
+-			}
+-
+-			if (typeStrLC.find(&quot;box&quot;) != std::string::npos) {
+-				volumeType = COLVOL_TYPE_BOX;
+-			}
+-		} else {
+-			volumeType = COLVOL_TYPE_ELLIPSOID;
+-			primaryAxis = COLVOL_AXIS_Z;
+-		}
+-
+-		Init(scales, offsets, volumeType, testType, primaryAxis);
+-	}
+-
+-
+-	void SetDefaultScale(const float s) {
+-		// called iif unit or feature defines no custom volume,
+-		// &lt;s&gt; is the object's default RADIUS (not its diameter)
+-		// so we need to double it to get the full-length scales
+-		const float3 scales(s * 2.0f, s * 2.0f, s * 2.0f);
+-
+-		Init(scales, ZeroVector, volumeType, testType, primaryAxis);
+-	}
+-
+-
+-	void Init(const float3&amp; scales, const float3&amp; offsets, int vType, int tType, int pAxis) {
+-		disabled = (tType &lt; 0);
+-		tType = std::max(tType, 0);
+-
+-		// assign these here, since we can be
+-		// called from outside the constructor
+-		primaryAxis = pAxis % 3;
+-		volumeType = vType % 3;
+-		testType = tType % 2;
+-
+-		axisScales.x = (scales.x &lt; 1.0f)? 1.0f: scales.x;
+-		axisScales.y = (scales.y &lt; 1.0f)? 1.0f: scales.y;
+-		axisScales.z = (scales.z &lt; 1.0f)? 1.0f: scales.z;
+-
+-		axisHScales.x = axisScales.x * 0.5f;  axisHScalesSq.x = axisHScales.x * axisHScales.x;
+-		axisHScales.y = axisScales.y * 0.5f;  axisHScalesSq.y = axisHScales.y * axisHScales.y;
+-		axisHScales.z = axisScales.z * 0.5f;  axisHScalesSq.z = axisHScales.z * axisHScales.z;
+-
+-		axisHIScales.x = 1.0f / axisHScales.x;  axisOffsets.x = offsets.x;
+-		axisHIScales.y = 1.0f / axisHScales.y;  axisOffsets.y = offsets.y;
+-		axisHIScales.z = 1.0f / axisHScales.z;  axisOffsets.z = offsets.z;
+-
+-		// if all axes (or half-axes) are equal in scale, volume is a sphere
+-		spherical =
+-			((volumeType == COLVOL_TYPE_ELLIPSOID) &amp;&amp;
+-			(streflop::fabsf(axisHScales.x - axisHScales.y) &lt; EPS) &amp;&amp;
+-			(streflop::fabsf(axisHScales.y - axisHScales.z) &lt; EPS));
+-
+-		// secondaryAxes[0] = (primaryAxis + 1) % 3;
+-		// secondaryAxes[1] = (primaryAxis + 2) % 3;
+-
+-		switch (primaryAxis) {
+-			case COLVOL_AXIS_X: {
+-				secondaryAxes[0] = COLVOL_AXIS_Y;
+-				secondaryAxes[1] = COLVOL_AXIS_Z;
+-			} break;
+-			case COLVOL_AXIS_Y: {
+-				secondaryAxes[0] = COLVOL_AXIS_X;
+-				secondaryAxes[1] = COLVOL_AXIS_Z;
+-			} break;
+-			case COLVOL_AXIS_Z: {
+-				secondaryAxes[0] = COLVOL_AXIS_X;
+-				secondaryAxes[1] = COLVOL_AXIS_Y;
+-			} break;
+-		}
+-
+-		// set the radius of the minimum bounding sphere
+-		// that encompasses this custom collision volume
+-		// (for early-out testing)
+-		switch (volumeType) {
+-			case COLVOL_TYPE_BOX: {
+-				// would be an over-estimation for cylinders
+-				volumeBoundingRadiusSq = axisHScalesSq.x + axisHScalesSq.y + axisHScalesSq.z;
+-				volumeBoundingRadius = streflop::sqrt(volumeBoundingRadiusSq);
+-			} break;
+-			case COLVOL_TYPE_CYLINDER: {
+-				const float prhs = axisHScales[primaryAxis     ];   // primary axis half-scale
+-				const float sahs = axisHScales[secondaryAxes[0]];   // 1st secondary axis half-scale
+-				const float sbhs = axisHScales[secondaryAxes[1]];   // 2nd secondary axis half-scale
+-				const float mshs = std::max(sahs, sbhs);            // max. secondary axis half-scale
+-
+-				volumeBoundingRadiusSq = prhs * prhs + mshs * mshs;
+-				volumeBoundingRadius = streflop::sqrtf(volumeBoundingRadiusSq);
+-			} break;
+-			case COLVOL_TYPE_ELLIPSOID: {
+-				if (spherical) {
+-					// max{x, y, z} would suffice here too
+-					volumeBoundingRadius = axisHScales.x;
+-				} else {
+-					volumeBoundingRadius = std::max(axisHScales.x, std::max(axisHScales.y, axisHScales.z));
+-				}
+-
+-				volumeBoundingRadiusSq = volumeBoundingRadius * volumeBoundingRadius;
+-			} break;
+-		}
+-	}
+-
+ 	int GetVolumeType() const { return volumeType; }
+ 	int GetTestType() const { return testType; }
++	void SetTestType(int type) { testType = type; }
+ 	int GetPrimaryAxis() const { return primaryAxis; }
+ 	float GetBoundingRadius() const { return volumeBoundingRadius; }
+ 	float GetBoundingRadiusSq() const { return volumeBoundingRadiusSq; }
+@@ -156,9 +49,11 @@
+ 	float GetHScale(int axis) const { return axisHScales[axis]; }
+ 	float GetHScaleSq(int axis) const { return axisHScalesSq[axis]; }
+ 	float GetOffset(int axis) const { return axisOffsets[axis]; }
+-	bool IsSphere() const { return spherical; }
++	const float3&amp; GetOffsets() const { return axisOffsets; }
++	bool IsSphere() const { return volumeType == COLVOL_TYPE_SPHERE; }
++	bool UseFootprint() const { return volumeType == COLVOL_TYPE_FOOTPRINT; }
+ 
+-
++private:
+ 	float3 axisScales;					// full-length axis scales
+ 	float3 axisHScales;					// half-length axis scales
+ 	float3 axisHScalesSq;				// half-length axis scales (squared)
+@@ -171,8 +66,9 @@
+ 	int testType;
+ 	int primaryAxis;
+ 	int secondaryAxes[2];
+-	bool spherical;
+ 	bool disabled;
++
++	friend class CCollisionHandler;     // TODO: refactor
+ };
+ 
+ #endif
+
+Modified: trunk/rts/Sim/Misc/GroundBlockingObjectMap.cpp
+===================================================================
+--- trunk/rts/Sim/Misc/GroundBlockingObjectMap.cpp	2008-11-04 10:46:28 UTC (rev 6976)
++++ trunk/rts/Sim/Misc/GroundBlockingObjectMap.cpp	2008-11-04 16:31:01 UTC (rev 6977)
+@@ -154,7 +154,7 @@
+   */
+ CSolidObject* CGroundBlockingObjectMap::GroundBlockedUnsafe(int mapSquare, bool topMost) {
+ 	if (groundBlockingMap[mapSquare].empty()) {
+-		return 0x0;
++		return NULL;
+ 	}
+ 
+ 	const BlockingMapCell&amp; cell = groundBlockingMap[mapSquare];
+@@ -174,7 +174,7 @@
+ 
+ CSolidObject* CGroundBlockingObjectMap::GroundBlocked(int mapSquare, bool topMost) {
+ 	if (mapSquare &lt; 0 || mapSquare &gt;= gs-&gt;mapSquares) {
+-		return 0x0;
++		return NULL;
+ 	}
+ 
+ 	return GroundBlockedUnsafe(mapSquare);
+
+Modified: trunk/rts/Sim/Projectiles/ProjectileHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Projectiles/ProjectileHandler.cpp	2008-11-04 10:46:28 UTC (rev 6976)
++++ trunk/rts/Sim/Projectiles/ProjectileHandler.cpp	2008-11-04 16:31:01 UTC (rev 6977)
+@@ -102,7 +102,7 @@
+ 	}
+ 
+ 	// add all texture from sections within projectiletextures section
+-	vector&lt;string&gt; seclist; 
++	vector&lt;string&gt; seclist;
+ 	ptTable.GetKeys(seclist);
+ 	for (int i = 0; i &lt; seclist.size(); i++) {
+ 		const LuaTable ptSubTable = ptTable.SubTable(seclist[i]);
+@@ -194,7 +194,7 @@
+ 	if (mapResParser.IsValid()) {
+ 		const LuaTable mapRoot = mapResParser.GetRoot();
+ 		const LuaTable mapTable = mapRoot.SubTable(&quot;projectileTextures&quot;);
+-		//add all textures in projectiletextures section 
++		//add all textures in projectiletextures section
+ 		map&lt;string, string&gt; mptex;
+ 		mapTable.GetMap(mptex);
+ 		map&lt;string, string&gt;::iterator pi;
+@@ -772,7 +772,7 @@
+ 				const bool friendlyShot = (p-&gt;owner &amp;&amp; (unit-&gt;allyteam == p-&gt;owner-&gt;allyteam));
+ 				const bool raytraced =
+ 					(unit-&gt;collisionVolume &amp;&amp;
+-					unit-&gt;collisionVolume-&gt;testType == COLVOL_TEST_CONT);
++					unit-&gt;collisionVolume-&gt;GetTestType() == COLVOL_TEST_CONT);
+ 
+ 				// if this unit fired this projectile or (this unit is in the
+ 				// same allyteam as the unit that shot this projectile and we
+@@ -815,7 +815,7 @@
+ 					CFeature* feature = *fi;
+ 					const bool raytraced =
+ 						(feature-&gt;collisionVolume &amp;&amp;
+-						feature-&gt;collisionVolume-&gt;testType == COLVOL_TEST_CONT);
++						feature-&gt;collisionVolume-&gt;GetTestType() == COLVOL_TEST_CONT);
+ 
+ 					// geothermals do not have a collision volume, skip them
+ 					if (!feature-&gt;blocking || feature-&gt;def-&gt;geoThermal || !feature-&gt;collisionVolume) {
+
+Modified: trunk/rts/Sim/Units/UnitLoader.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitLoader.cpp	2008-11-04 10:46:28 UTC (rev 6976)
++++ trunk/rts/Sim/Units/UnitLoader.cpp	2008-11-04 16:31:01 UTC (rev 6977)
+@@ -324,10 +324,10 @@
+ 		const float scaleFactor = (ud-&gt;canfly)? 0.5f: 1.0f;
+ 		unit-&gt;collisionVolume-&gt;SetDefaultScale(unit-&gt;model-&gt;radius * scaleFactor);
+ 
+-		if (unit-&gt;collisionVolume-&gt;volumeBoundingRadius &lt;= 30.0f) {
++		if (unit-&gt;collisionVolume-&gt;GetBoundingRadius() &lt;= 30.0f) {
+ 			// the interval-based method fails too easily for units
+ 			// with small default volumes, force use of raytracing
+-			unit-&gt;collisionVolume-&gt;testType = COLVOL_TEST_CONT;
++			unit-&gt;collisionVolume-&gt;SetTestType(COLVOL_TEST_CONT);
+ 		}
+ 	}
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001745.html">[Taspring-linux-commit] r6976 - in branches/caiinterface: . AI	AI/Bindings AI/Bindings/LegacyCpp AI/Bindings/LegacyCpp/Event	AI/Skirmish/KAIK AI/Skirmish/NullLegacyCppAI AI/Skirmish/RAI	rts/ExternalAI/Interface rts/build/scons
+</A></li>
+	<LI>Next message: <A HREF="001747.html">[Taspring-linux-commit] r6978 - in branches/caiinterface:	AI/Interfaces/Java AI/Skirmish/RAI rts/ExternalAI	rts/ExternalAI/Interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1746">[ date ]</a>
+              <a href="thread.html#1746">[ thread ]</a>
+              <a href="subject.html#1746">[ subject ]</a>
+              <a href="author.html#1746">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

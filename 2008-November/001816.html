@@ -1,0 +1,862 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7047 - in trunk: rts/System/FileSystem	tools/unitsync
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-November/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7047%20-%20in%20trunk%3A%20rts/System/FileSystem%0A%09tools/unitsync&In-Reply-To=%3C20081114202500.C86174763%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001815.html">
+   <LINK REL="Next"  HREF="001817.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7047 - in trunk: rts/System/FileSystem	tools/unitsync</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7047%20-%20in%20trunk%3A%20rts/System/FileSystem%0A%09tools/unitsync&In-Reply-To=%3C20081114202500.C86174763%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r7047 - in trunk: rts/System/FileSystem	tools/unitsync">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Nov 14 21:25:00 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001815.html">[Taspring-linux-commit] r7046 - in trunk: installer	tools/DedicatedServer
+</A></li>
+        <LI>Next message: <A HREF="001817.html">[Taspring-linux-commit] r7048 - trunk/rts/System/FileSystem
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1816">[ date ]</a>
+              <a href="thread.html#1816">[ thread ]</a>
+              <a href="subject.html#1816">[ subject ]</a>
+              <a href="author.html#1816">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-11-14 21:25:00 +0100 (Fri, 14 Nov 2008)
+New Revision: 7047
+
+Removed:
+   trunk/rts/System/FileSystem/UnixFileSystemHandler.cpp
+   trunk/rts/System/FileSystem/UnixFileSystemHandler.h
+Modified:
+   trunk/rts/System/FileSystem/FileSystem.cpp
+   trunk/rts/System/FileSystem/FileSystem.h
+   trunk/tools/unitsync/unitsync.cpp
+Log:
+* fix unitsync not to crash with new configHandler (the old one was better)
+* merged UnixFileSystemHandler into FileSystemHandler
+
+
+Modified: trunk/rts/System/FileSystem/FileSystem.cpp
+===================================================================
+--- trunk/rts/System/FileSystem/FileSystem.cpp	2008-11-14 19:36:30 UTC (rev 7046)
++++ trunk/rts/System/FileSystem/FileSystem.cpp	2008-11-14 20:25:00 UTC (rev 7047)
+@@ -10,18 +10,27 @@
+  */
+ 
+ #include &quot;StdAfx.h&quot;
++#include &quot;FileSystem.h&quot;
++
+ #include &lt;assert.h&gt;
+ #include &lt;limits.h&gt;
+ #include &lt;boost/regex.hpp&gt;
+ #include &lt;fstream&gt;
+ #include &lt;sys/stat.h&gt;
+ #include &lt;sys/types.h&gt;
+-#include &quot;FileSystem.h&quot;
++#ifndef _WIN32
++	#include &lt;dirent.h&gt;
++	#include &lt;sstream&gt;
++	#include &lt;unistd.h&gt;
++#else
++	#include &lt;windows.h&gt; 
++	#include &lt;io.h&gt;
++	#include &lt;direct.h&gt;
++#endif
+ 
+-#include &quot;UnixFileSystemHandler.h&quot;
+-
+ #include &quot;FileSystem/ArchiveScanner.h&quot;
+ #include &quot;FileSystem/VFSHandler.h&quot;
++#include &quot;Platform/ConfigHandler.h&quot;
+ #include &quot;LogOutput.h&quot;
+ #include &quot;Util.h&quot;
+ #include &quot;mmgr.h&quot;
+@@ -56,10 +65,10 @@
+ void FileSystemHandler::Initialize(bool verbose)
+ {
+ 	if (!instance) {
+-		// FIXME this leaks memory
+-		instance = new UnixFileSystemHandler(verbose);
++		instance = new FileSystemHandler();
+ 		try {
+-			instance-&gt;Initialize();
++			instance-&gt;locater.LocateDataDirs();
++			instance-&gt;InitVFS();
+ 		}
+ 		catch (...) {
+ 			SafeDelete(instance);
+@@ -77,9 +86,15 @@
+ {
+ 	SafeDelete(archiveScanner);
+ 	SafeDelete(vfsHandler);
++	configHandler.Deallocate();
+ }
+ 
+-FileSystemHandler::FileSystemHandler(int native_path_sep): native_path_separator(native_path_sep)
++FileSystemHandler::FileSystemHandler() :
++#ifndef _WIN32
++	native_path_separator('/')
++#else
++	native_path_separator('\\')
++#endif
+ {
+ 	// NOTE TO SELF: NEVER EVAR DO THIS AGAIN THIS WAY
+ 
+@@ -90,11 +105,265 @@
+ 	//  but global variable instance would still point to it....)
+ 
+ //	// need to set this here already or we get stuck in an infinite loop
+-//	// because WinFileSystemHandler/UnixFileSystemHandler ctor initializes the
++//	// because WinFileSystemHandler/FileSystemHandler ctor initializes the
+ //	// ArchiveScanner (which uses FileSystemHandler::GetInstance again...).
+ //	instance = this;
+ }
+ 
++/**
++ * @brief returns the highest priority writable directory, aka the writedir
++ */
++std::string FileSystemHandler::GetWriteDir() const
++{
++	const DataDir* writedir = locater.GetWriteDir();
++	assert(writedir &amp;&amp; writedir-&gt;writable); // duh
++	return writedir-&gt;path;
++}
++
++/**
++ * @brief find files
++ * @param dir path in which to start looking (tried relative to each data directory)
++ * @param pattern pattern to search for
++ * @param recurse whether or not to recursively search
++ * @param include_dirs whether or not to include directory names in the result
++ * @return vector of std::strings containing absolute paths to the files
++ *
++ * Will search for a file given a particular pattern.
++ * Starts from dirpath, descending down if recurse is true.
++ */
++std::vector&lt;std::string&gt; FileSystemHandler::FindFiles(const std::string&amp; dir, const std::string&amp; pattern, int flags) const
++{
++	std::vector&lt;std::string&gt; matches;
++
++	// if it's an absolute path, don't look for it in the data directories
++	if ((dir[0] == '/') || ((dir.length() &gt; 1) &amp;&amp; (dir[1] == ':'))) {
++		FindFilesSingleDir(matches, dir, pattern, flags);
++		return matches;
++	}
++
++	const std::vector&lt;DataDir&gt;&amp; datadirs = locater.GetDataDirs();
++	for (std::vector&lt;DataDir&gt;::const_reverse_iterator d = datadirs.rbegin(); d != datadirs.rend(); ++d) {
++		FindFilesSingleDir(matches, d-&gt;path + dir, pattern, flags);
++	}
++	return matches;
++}
++
++
++std::string FileSystemHandler::LocateFile(const std::string&amp; file) const
++{
++	// if it's an absolute path, don't look for it in the data directories
++#ifdef WIN32
++	if ((file.length() &gt; 1) &amp;&amp; (file[1] == ':')) {
++		return file;
++	}
++
++	const std::vector&lt;DataDir&gt;&amp; datadirs = locater.GetDataDirs();
++	for (std::vector&lt;DataDir&gt;::const_iterator d = datadirs.begin(); d != datadirs.end(); ++d) {
++		std::string fn(d-&gt;path + file);
++		if (_access(fn.c_str(), 4) == 0) {
++			return fn;
++		}
++	}
++	return file;
++#else
++	if (file[0] == '/') {
++		return file;
++	}
++
++	const std::vector&lt;DataDir&gt;&amp; datadirs = locater.GetDataDirs();
++	for (std::vector&lt;DataDir&gt;::const_iterator d = datadirs.begin(); d != datadirs.end(); ++d) {
++		std::string fn(d-&gt;path + file);
++		if (access(fn.c_str(), R_OK | F_OK) == 0) {
++			return fn;
++		}
++	}
++	return file;
++#endif
++}
++
++
++std::vector&lt;std::string&gt; FileSystemHandler::GetDataDirectories() const
++{
++	std::vector&lt;std::string&gt; f;
++
++	const std::vector&lt;DataDir&gt;&amp; datadirs = locater.GetDataDirs();
++	for (std::vector&lt;DataDir&gt;::const_iterator d = datadirs.begin(); d != datadirs.end(); ++d) {
++		f.push_back(d-&gt;path);
++	}
++	return f;
++}
++
++
++/**
++ * @brief creates a rwxr-xr-x dir in the writedir
++ *
++ * Returns true if the postcondition of this function is that dir exists in
++ * the write directory.
++ *
++ * Note that this function does not check access to the dir, ie. if you've
++ * created it manually with 0000 permissions then this function may return
++ * true, subsequent operation on files inside the directory may still fail.
++ *
++ * As a rule of thumb, set identical permissions on identical items in the
++ * data directory, ie. all subdirectories the same perms, all files the same
++ * perms.
++ */
++bool FileSystemHandler::mkdir(const std::string&amp; dir) const
++{
++#ifdef _WIN32
++	struct _stat info;
++
++	// First check if directory exists. We'll return success if it does.
++	if (_stat(dir.c_str(), &amp;info) == 0 &amp;&amp; (info.st_mode&amp;_S_IFDIR))
++		return true;
++#else
++	struct stat info;
++
++	// First check if directory exists. We'll return success if it does.
++	if (stat(dir.c_str(), &amp;info) == 0 &amp;&amp; S_ISDIR(info.st_mode))
++		return true;
++#endif
++	// If it doesn't exist we try to mkdir it and return success if that succeeds.
++#ifndef _WIN32
++	if (::mkdir(dir.c_str(), S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) == 0)
++#else
++		if (::_mkdir(dir.c_str()) == 0)
++#endif
++			return true;
++
++	// Otherwise we return false.
++	return false;
++}
++
++
++static void FindFiles(std::vector&lt;std::string&gt;&amp; matches, const std::string&amp; dir, const boost::regex &amp;regexpattern, int flags)
++{
++#ifdef _WIN32
++	WIN32_FIND_DATA wfd;
++	HANDLE hFind = FindFirstFile((dir+&quot;\\*&quot;).c_str(), &amp;wfd);
++
++	if (hFind != INVALID_HANDLE_VALUE) {
++		do {
++			if(strcmp(wfd.cFileName,&quot;.&quot;) &amp;&amp; strcmp(wfd.cFileName ,&quot;..&quot;)) {
++				if(!(wfd.dwFileAttributes&amp;FILE_ATTRIBUTE_DIRECTORY)) {
++					if ((flags &amp; FileSystem::ONLY_DIRS) == 0) {
++						if (boost::regex_match(wfd.cFileName, regexpattern)) {
++							matches.push_back(dir + wfd.cFileName);
++						}
++					}
++				}
++				else {
++					if (flags &amp; FileSystem::INCLUDE_DIRS) {
++						if (boost::regex_match(wfd.cFileName, regexpattern)) {
++							matches.push_back(dir + wfd.cFileName + &quot;\\&quot;);
++						}
++					}
++					if (flags &amp; FileSystem::RECURSE) {
++						FindFiles(matches, dir + wfd.cFileName + &quot;\\&quot;, regexpattern, flags);
++					}
++				}
++			}
++		} while (FindNextFile(hFind, &amp;wfd));
++		FindClose(hFind);
++	}
++#else
++	DIR* dp;
++	struct dirent* ep;
++
++	if (!(dp = opendir(dir.c_str())))
++		return;
++
++	while ((ep = readdir(dp))) {
++		// exclude hidden files
++		if (ep-&gt;d_name[0] != '.') {
++			// is it a file? (we just treat sockets / pipes / fifos / character&amp;block devices as files...)
++			// (need to stat because d_type is DT_UNKNOWN on linux :-/)
++			struct stat info;
++			if (stat((dir + ep-&gt;d_name).c_str(), &amp;info) == 0) {
++				if (!S_ISDIR(info.st_mode)) {
++					if ((flags &amp; FileSystem::ONLY_DIRS) == 0) {
++						if (boost::regex_match(ep-&gt;d_name, regexpattern)) {
++							matches.push_back(dir + ep-&gt;d_name);
++						}
++					}
++				}
++				else {
++					// or a directory?
++					if (flags &amp; FileSystem::INCLUDE_DIRS) {
++						if (boost::regex_match(ep-&gt;d_name, regexpattern)) {
++							matches.push_back(dir + ep-&gt;d_name + &quot;/&quot;);
++						}
++					}
++					if (flags &amp; FileSystem::RECURSE) {
++						FindFiles(matches, dir + ep-&gt;d_name + &quot;/&quot;, regexpattern, flags);
++					}
++				}
++			}
++		}
++	}
++	closedir(dp);
++#endif
++}
++
++
++/**
++ * @brief internal find-files-in-a-single-datadir-function
++ * @param dir path in which to start looking
++ * @param pattern pattern to search for
++ * @param recurse whether or not to recursively search
++ * @param include_dirs whether or not to include directory names in the result
++ * @return vector of std::strings
++ *
++ * Will search for a file given a particular pattern.
++ * Starts from dirpath, descending down if recurse is true.
++ */
++void FileSystemHandler::FindFilesSingleDir(std::vector&lt;std::string&gt;&amp; matches, const std::string&amp; dir, const std::string &amp;pattern, int flags) const
++{
++	assert(!dir.empty() &amp;&amp; dir[dir.length() - 1] == native_path_separator);
++
++	boost::regex regexpattern(filesystem.glob_to_regex(pattern));
++
++	::FindFiles(matches, dir, regexpattern, flags);
++}
++
++/**
++ * @brief Creates the archive scanner and vfs handler
++ *
++ * For the archiveScanner, it keeps cache data (&quot;archivecache.txt&quot;) in the
++ * writedir. Cache data in other directories is ignored.
++ * It scans maps, base and mods subdirectories of all readable datadirs
++ * for archives. Archives in higher priority datadirs override archives
++ * in lower priority datadirs.
++ *
++ * Note that the archive namespace is global, ie. each archive basename may
++ * only occur once in all data directories. If a name is found more then once,
++ * then higher priority datadirs override lower priority datadirs and per
++ * datadir the 'mods' subdir overrides 'base' which overrides 'maps'.
++ */
++void FileSystemHandler::InitVFS() const
++{
++	const DataDir* writedir = locater.GetWriteDir();
++	const std::vector&lt;DataDir&gt;&amp; datadirs = locater.GetDataDirs();
++
++	archiveScanner = new CArchiveScanner();
++
++	archiveScanner-&gt;ReadCacheData(writedir-&gt;path + archiveScanner-&gt;GetFilename());
++
++	std::vector&lt;std::string&gt; scanDirs;
++	for (std::vector&lt;DataDir&gt;::const_reverse_iterator d = datadirs.rbegin(); d != datadirs.rend(); ++d) {
++		scanDirs.push_back(d-&gt;path + &quot;maps&quot;);
++		scanDirs.push_back(d-&gt;path + &quot;base&quot;);
++		scanDirs.push_back(d-&gt;path + &quot;mods&quot;);
++	}
++	archiveScanner-&gt;ScanDirs(scanDirs, true);
++
++	archiveScanner-&gt;WriteCacheData(writedir-&gt;path + archiveScanner-&gt;GetFilename());
++
++	vfsHandler = new CVFSHandler();
++}
++
++
++
+ ////////////////////////////////////////
+ ////////// FileSystem
+ 
+
+Modified: trunk/rts/System/FileSystem/FileSystem.h
+===================================================================
+--- trunk/rts/System/FileSystem/FileSystem.h	2008-11-14 19:36:30 UTC (rev 7046)
++++ trunk/rts/System/FileSystem/FileSystem.h	2008-11-14 20:25:00 UTC (rev 7047)
+@@ -13,6 +13,8 @@
+ #include &lt;vector&gt;
+ #include &lt;string&gt;
+ 
++#include &quot;DataDirLocater.h&quot;
++
+ // winapi redifines this which breaks things
+ #if defined(CreateDirectory)
+ # undef CreateDirectory
+@@ -23,32 +25,35 @@
+  */
+ class FileSystemHandler
+ {
+-	public:
++public:
+ 
+-		static FileSystemHandler&amp; GetInstance();
+-		static void Initialize(bool verbose);
+-		static void Cleanup();
++	static FileSystemHandler&amp; GetInstance();
++	static void Initialize(bool verbose);
++	static void Cleanup();
+ 
+-		virtual ~FileSystemHandler();
+-		FileSystemHandler(int native_path_sep = '/');
+-		virtual void Initialize() = 0;
++	~FileSystemHandler();
++	FileSystemHandler();
++	void Initialize();
+ 
+-		// almost direct wrappers to system calls
+-		virtual bool mkdir(const std::string&amp; dir) const = 0;
++	// almost direct wrappers to system calls
++	bool mkdir(const std::string&amp; dir) const;
+ 
+-		// custom functions
+-		virtual std::vector&lt;std::string&gt; FindFiles(const std::string&amp; dir, const std::string&amp; pattern, int flags) const = 0;
+-		virtual std::string LocateFile(const std::string&amp; file) const = 0;
+-		virtual std::string GetWriteDir() const = 0;
+-		virtual std::vector&lt;std::string&gt; GetDataDirectories() const = 0;
++	// custom functions
++	std::vector&lt;std::string&gt; FindFiles(const std::string&amp; dir, const std::string&amp; pattern, int flags) const;
++	std::string LocateFile(const std::string&amp; file) const;
++	std::string GetWriteDir() const;
++	std::vector&lt;std::string&gt; GetDataDirectories() const;
+ 
+-		int GetNativePathSeparator() const { return native_path_separator; }
++	int GetNativePathSeparator() const { return native_path_separator; }
+ 
+-	protected:
++protected:
++	void InitVFS() const;
++	void FindFilesSingleDir(std::vector&lt;std::string&gt;&amp; matches, const std::string&amp; dir, const std::string &amp;pattern, int flags) const;
+ 
+-		static FileSystemHandler* instance;
++	DataDirLocater locater;
++	static FileSystemHandler* instance;
+ 
+-		const int native_path_separator;
++	const int native_path_separator;
+ };
+ 
+ /**
+
+Deleted: trunk/rts/System/FileSystem/UnixFileSystemHandler.cpp
+===================================================================
+--- trunk/rts/System/FileSystem/UnixFileSystemHandler.cpp	2008-11-14 19:36:30 UTC (rev 7046)
++++ trunk/rts/System/FileSystem/UnixFileSystemHandler.cpp	2008-11-14 20:25:00 UTC (rev 7047)
+@@ -1,312 +0,0 @@
+-/**
+- * @file UnixFileSystemHandler.cpp
+- * @brief Abstracts locating of content on different platforms
+- * @author Tobi Vollebregt
+- *
+- * Linux and Windows implementation, supporting multiple data directories / search paths.
+- *
+- * Copyright (C) 2006-2008 Tobi Vollebregt.
+- * Licensed under the terms of the GNU GPL, v2 or later
+- */
+-
+-#include &quot;UnixFileSystemHandler.h&quot;
+-#include &lt;limits.h&gt;
+-#include &lt;boost/regex.hpp&gt;
+-#include &lt;sys/stat.h&gt;
+-#include &lt;sys/types.h&gt;
+-#ifndef _WIN32
+-#include &lt;dirent.h&gt;
+-#include &lt;sstream&gt;
+-#include &lt;unistd.h&gt;
+-#else
+-#include &lt;windows.h&gt;
+-#include &lt;io.h&gt;
+-#include &lt;direct.h&gt;
+-#endif
+-#include &quot;ArchiveScanner.h&quot;
+-#include &quot;VFSHandler.h&quot;
+-#include &quot;LogOutput.h&quot;
+-#include &quot;Platform/ConfigHandler.h&quot;
+-#include &quot;mmgr.h&quot;
+-
+-/**
+- * @brief Creates the archive scanner and vfs handler
+- *
+- * For the archiveScanner, it keeps cache data (&quot;archivecache.txt&quot;) in the
+- * writedir. Cache data in other directories is ignored.
+- * It scans maps, base and mods subdirectories of all readable datadirs
+- * for archives. Archives in higher priority datadirs override archives
+- * in lower priority datadirs.
+- *
+- * Note that the archive namespace is global, ie. each archive basename may
+- * only occur once in all data directories. If a name is found more then once,
+- * then higher priority datadirs override lower priority datadirs and per
+- * datadir the 'mods' subdir overrides 'base' which overrides 'maps'.
+- */
+-void UnixFileSystemHandler::InitVFS() const
+-{
+-	const DataDir* writedir = locater.GetWriteDir();
+-	const std::vector&lt;DataDir&gt;&amp; datadirs = locater.GetDataDirs();
+-
+-	archiveScanner = new CArchiveScanner();
+-
+-	archiveScanner-&gt;ReadCacheData(writedir-&gt;path + archiveScanner-&gt;GetFilename());
+-
+-	std::vector&lt;std::string&gt; scanDirs;
+-	for (std::vector&lt;DataDir&gt;::const_reverse_iterator d = datadirs.rbegin(); d != datadirs.rend(); ++d) {
+-		scanDirs.push_back(d-&gt;path + &quot;maps&quot;);
+-		scanDirs.push_back(d-&gt;path + &quot;base&quot;);
+-		scanDirs.push_back(d-&gt;path + &quot;mods&quot;);
+-	}
+-	archiveScanner-&gt;ScanDirs(scanDirs, true);
+-
+-	archiveScanner-&gt;WriteCacheData(writedir-&gt;path + archiveScanner-&gt;GetFilename());
+-
+-	vfsHandler = new CVFSHandler();
+-}
+-
+-
+-/**
+- * @brief Creates the archive scanner and vfs handler
+- *
+- * Locates data directories and initializes the VFS.
+- */
+-UnixFileSystemHandler::UnixFileSystemHandler(bool verbose) :
+-#ifndef _WIN32
+-		FileSystemHandler('/')
+-#else
+-		FileSystemHandler('\\')
+-#endif
+-{
+-}
+-
+-
+-void UnixFileSystemHandler::Initialize()
+-{
+-	locater.LocateDataDirs();
+-	InitVFS();
+-}
+-
+-
+-UnixFileSystemHandler::~UnixFileSystemHandler()
+-{
+-	configHandler.Deallocate();
+-}
+-
+-
+-/**
+- * @brief returns the highest priority writable directory, aka the writedir
+- */
+-std::string UnixFileSystemHandler::GetWriteDir() const
+-{
+-	const DataDir* writedir = locater.GetWriteDir();
+-	assert(writedir &amp;&amp; writedir-&gt;writable); // duh
+-	return writedir-&gt;path;
+-}
+-
+-
+-/**
+- * @brief find files
+- * @param dir path in which to start looking (tried relative to each data directory)
+- * @param pattern pattern to search for
+- * @param recurse whether or not to recursively search
+- * @param include_dirs whether or not to include directory names in the result
+- * @return vector of std::strings containing absolute paths to the files
+- *
+- * Will search for a file given a particular pattern.
+- * Starts from dirpath, descending down if recurse is true.
+- */
+-std::vector&lt;std::string&gt; UnixFileSystemHandler::FindFiles(const std::string&amp; dir, const std::string&amp; pattern, int flags) const
+-{
+-	std::vector&lt;std::string&gt; matches;
+-
+-	// if it's an absolute path, don't look for it in the data directories
+-	if ((dir[0] == '/') || ((dir.length() &gt; 1) &amp;&amp; (dir[1] == ':'))) {
+-		FindFilesSingleDir(matches, dir, pattern, flags);
+-		return matches;
+-	}
+-
+-	const std::vector&lt;DataDir&gt;&amp; datadirs = locater.GetDataDirs();
+-	for (std::vector&lt;DataDir&gt;::const_reverse_iterator d = datadirs.rbegin(); d != datadirs.rend(); ++d) {
+-		FindFilesSingleDir(matches, d-&gt;path + dir, pattern, flags);
+-	}
+-	return matches;
+-}
+-
+-
+-std::string UnixFileSystemHandler::LocateFile(const std::string&amp; file) const
+-{
+-	// if it's an absolute path, don't look for it in the data directories
+-#ifdef WIN32
+-	if ((file.length() &gt; 1) &amp;&amp; (file[1] == ':')) {
+-		return file;
+-	}
+-
+-	const std::vector&lt;DataDir&gt;&amp; datadirs = locater.GetDataDirs();
+-	for (std::vector&lt;DataDir&gt;::const_iterator d = datadirs.begin(); d != datadirs.end(); ++d) {
+-		std::string fn(d-&gt;path + file);
+-		if (_access(fn.c_str(), 4) == 0) {
+-			return fn;
+-		}
+-	}
+-	return file;
+-#else
+-	if (file[0] == '/') {
+-		return file;
+-	}
+-
+-	const std::vector&lt;DataDir&gt;&amp; datadirs = locater.GetDataDirs();
+-	for (std::vector&lt;DataDir&gt;::const_iterator d = datadirs.begin(); d != datadirs.end(); ++d) {
+-		std::string fn(d-&gt;path + file);
+-		if (access(fn.c_str(), R_OK | F_OK) == 0) {
+-			return fn;
+-		}
+-	}
+-	return file;
+-#endif
+-}
+-
+-
+-std::vector&lt;std::string&gt; UnixFileSystemHandler::GetDataDirectories() const
+-{
+-	std::vector&lt;std::string&gt; f;
+-
+-	const std::vector&lt;DataDir&gt;&amp; datadirs = locater.GetDataDirs();
+-	for (std::vector&lt;DataDir&gt;::const_iterator d = datadirs.begin(); d != datadirs.end(); ++d) {
+-		f.push_back(d-&gt;path);
+-	}
+-	return f;
+-}
+-
+-
+-/**
+- * @brief creates a rwxr-xr-x dir in the writedir
+- *
+- * Returns true if the postcondition of this function is that dir exists in
+- * the write directory.
+- *
+- * Note that this function does not check access to the dir, ie. if you've
+- * created it manually with 0000 permissions then this function may return
+- * true, subsequent operation on files inside the directory may still fail.
+- *
+- * As a rule of thumb, set identical permissions on identical items in the
+- * data directory, ie. all subdirectories the same perms, all files the same
+- * perms.
+- */
+-bool UnixFileSystemHandler::mkdir(const std::string&amp; dir) const
+-{
+-#ifdef _WIN32
+-	struct _stat info;
+-
+-	// First check if directory exists. We'll return success if it does.
+-	if (_stat(dir.c_str(), &amp;info) == 0 &amp;&amp; (info.st_mode&amp;_S_IFDIR))
+-		return true;
+-#else
+-	struct stat info;
+-
+-	// First check if directory exists. We'll return success if it does.
+-	if (stat(dir.c_str(), &amp;info) == 0 &amp;&amp; S_ISDIR(info.st_mode))
+-		return true;
+-#endif
+-	// If it doesn't exist we try to mkdir it and return success if that succeeds.
+-#ifndef _WIN32
+-	if (::mkdir(dir.c_str(), S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH) == 0)
+-#else
+-	if (::_mkdir(dir.c_str()) == 0)
+-#endif
+-		return true;
+-
+-	// Otherwise we return false.
+-	return false;
+-}
+-
+-
+-static void FindFiles(std::vector&lt;std::string&gt;&amp; matches, const std::string&amp; dir, const boost::regex &amp;regexpattern, int flags)
+-{
+-#ifdef _WIN32
+-	WIN32_FIND_DATA wfd;
+-  HANDLE hFind = FindFirstFile((dir+&quot;\\*&quot;).c_str(), &amp;wfd);
+-
+-	if (hFind != INVALID_HANDLE_VALUE) {
+-		do {
+-			if(strcmp(wfd.cFileName,&quot;.&quot;) &amp;&amp; strcmp(wfd.cFileName ,&quot;..&quot;)) {
+-				if(!(wfd.dwFileAttributes&amp;FILE_ATTRIBUTE_DIRECTORY)) {
+-					if ((flags &amp; FileSystem::ONLY_DIRS) == 0) {
+-						if (boost::regex_match(wfd.cFileName, regexpattern)) {
+-							matches.push_back(dir + wfd.cFileName);
+-						}
+-					}
+-				}
+-				else {
+-					if (flags &amp; FileSystem::INCLUDE_DIRS) {
+-						if (boost::regex_match(wfd.cFileName, regexpattern)) {
+-							matches.push_back(dir + wfd.cFileName + &quot;\\&quot;);
+-						}
+-					}
+-					if (flags &amp; FileSystem::RECURSE) {
+-						FindFiles(matches, dir + wfd.cFileName + &quot;\\&quot;, regexpattern, flags);
+-					}
+-				}
+-			}
+-		} while (FindNextFile(hFind, &amp;wfd));
+-		FindClose(hFind);
+-	}
+-#else
+-	DIR* dp;
+-	struct dirent* ep;
+-
+-	if (!(dp = opendir(dir.c_str())))
+-		return;
+-
+-	while ((ep = readdir(dp))) {
+-		// exclude hidden files
+-		if (ep-&gt;d_name[0] != '.') {
+-			// is it a file? (we just treat sockets / pipes / fifos / character&amp;block devices as files...)
+-			// (need to stat because d_type is DT_UNKNOWN on linux :-/)
+-			struct stat info;
+-			if (stat((dir + ep-&gt;d_name).c_str(), &amp;info) == 0) {
+-				if (!S_ISDIR(info.st_mode)) {
+-					if ((flags &amp; FileSystem::ONLY_DIRS) == 0) {
+-						if (boost::regex_match(ep-&gt;d_name, regexpattern)) {
+-							matches.push_back(dir + ep-&gt;d_name);
+-						}
+-					}
+-				}
+-				else {
+-					// or a directory?
+-					if (flags &amp; FileSystem::INCLUDE_DIRS) {
+-						if (boost::regex_match(ep-&gt;d_name, regexpattern)) {
+-							matches.push_back(dir + ep-&gt;d_name + &quot;/&quot;);
+-						}
+-					}
+-					if (flags &amp; FileSystem::RECURSE) {
+-						FindFiles(matches, dir + ep-&gt;d_name + &quot;/&quot;, regexpattern, flags);
+-					}
+-				}
+-			}
+-		}
+-	}
+-	closedir(dp);
+-#endif
+-}
+-
+-
+-/**
+- * @brief internal find-files-in-a-single-datadir-function
+- * @param dir path in which to start looking
+- * @param pattern pattern to search for
+- * @param recurse whether or not to recursively search
+- * @param include_dirs whether or not to include directory names in the result
+- * @return vector of std::strings
+- *
+- * Will search for a file given a particular pattern.
+- * Starts from dirpath, descending down if recurse is true.
+- */
+-void UnixFileSystemHandler::FindFilesSingleDir(std::vector&lt;std::string&gt;&amp; matches, const std::string&amp; dir, const std::string &amp;pattern, int flags) const
+-{
+-	assert(!dir.empty() &amp;&amp; dir[dir.length() - 1] == native_path_separator);
+-
+-	boost::regex regexpattern(filesystem.glob_to_regex(pattern));
+-
+-	::FindFiles(matches, dir, regexpattern, flags);
+-}
+
+Deleted: trunk/rts/System/FileSystem/UnixFileSystemHandler.h
+===================================================================
+--- trunk/rts/System/FileSystem/UnixFileSystemHandler.h	2008-11-14 19:36:30 UTC (rev 7046)
++++ trunk/rts/System/FileSystem/UnixFileSystemHandler.h	2008-11-14 20:25:00 UTC (rev 7047)
+@@ -1,46 +0,0 @@
+-/**
+- * @file UnixFileSystemHandler.h
+- * @brief Abstracts locating of content on different platforms
+- * @author Tobi Vollebregt
+- *
+- * Unix implementation
+- *
+- * Copyright (C) 2006.  Licensed under the terms of the
+- * GNU GPL, v2 or later
+- */
+-
+-#ifndef UNIXFILESYSTEMHANDLER_H
+-#define UNIXFILESYSTEMHANDLER_H
+-
+-#include &lt;string&gt;
+-#include &lt;vector&gt;
+-#include &quot;DataDirLocater.h&quot;
+-#include &quot;FileSystem.h&quot;
+-
+-/**
+- * @brief Unix file system / data directory handler
+- */
+-class UnixFileSystemHandler : public FileSystemHandler
+-{
+-	public:
+-
+-		virtual ~UnixFileSystemHandler();
+-		UnixFileSystemHandler(bool verbose);
+-		virtual void Initialize();
+-
+-		virtual bool mkdir(const std::string&amp; dir) const;
+-
+-		virtual std::string GetWriteDir() const;
+-		virtual std::vector&lt;std::string&gt; FindFiles(const std::string&amp; dir, const std::string&amp; pattern, int flags) const;
+-		virtual std::string LocateFile(const std::string&amp; file) const;
+-		virtual std::vector&lt;std::string&gt; GetDataDirectories() const;
+-
+-	protected:
+-
+-		void InitVFS() const;
+-		void FindFilesSingleDir(std::vector&lt;std::string&gt;&amp; matches, const std::string&amp; dir, const std::string &amp;pattern, int flags) const;
+-
+-		DataDirLocater locater;
+-};
+-
+-#endif // !UNIXFILESYSTEMHANDLER_H
+
+Modified: trunk/tools/unitsync/unitsync.cpp
+===================================================================
+--- trunk/tools/unitsync/unitsync.cpp	2008-11-14 19:36:30 UTC (rev 7046)
++++ trunk/tools/unitsync/unitsync.cpp	2008-11-14 20:25:00 UTC (rev 7047)
+@@ -287,6 +287,7 @@
+ 	try {
+ 		_UnInit();
+ 
++		ConfigHandler::Instantiate(&quot;&quot;);
+ 		FileSystemHandler::Initialize(false);
+ 
+ 		std::vector&lt;string&gt; filesToCheck;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001815.html">[Taspring-linux-commit] r7046 - in trunk: installer	tools/DedicatedServer
+</A></li>
+	<LI>Next message: <A HREF="001817.html">[Taspring-linux-commit] r7048 - trunk/rts/System/FileSystem
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1816">[ date ]</a>
+              <a href="thread.html#1816">[ thread ]</a>
+              <a href="subject.html#1816">[ subject ]</a>
+              <a href="author.html#1816">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,142 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5638 - in trunk/rts: Lua Sim/MoveTypes	Sim/Units
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5638%20-%20in%20trunk/rts%3A%20Lua%20Sim/MoveTypes%0A%09Sim/Units&In-Reply-To=%3C20080401082502.0809846AE%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000418.html">
+   <LINK REL="Next"  HREF="000420.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5638 - in trunk/rts: Lua Sim/MoveTypes	Sim/Units</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5638%20-%20in%20trunk/rts%3A%20Lua%20Sim/MoveTypes%0A%09Sim/Units&In-Reply-To=%3C20080401082502.0809846AE%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5638 - in trunk/rts: Lua Sim/MoveTypes	Sim/Units">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Apr  1 10:25:01 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000418.html">[Taspring-linux-commit] r5637 - trunk/rts/Sim/MoveTypes
+</A></li>
+        <LI>Next message: <A HREF="000420.html">[Taspring-linux-commit] r5639 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#419">[ date ]</a>
+              <a href="thread.html#419">[ thread ]</a>
+              <a href="subject.html#419">[ subject ]</a>
+              <a href="author.html#419">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-04-01 10:25:01 +0200 (Tue, 01 Apr 2008)
+New Revision: 5638
+
+Modified:
+   trunk/rts/Lua/LuaOpenGL.cpp
+   trunk/rts/Sim/MoveTypes/AirMoveType.cpp
+   trunk/rts/Sim/Units/UnitDefHandler.cpp
+Log:
+* Don't crash at startup if glBlendEquation is NULL.
+* Don't read &quot;drag&quot; from unit TDF, it is being overwritten anyway
+  for anything having maxAcc != 0 and maxSpeed != 0, and aircraft
+  with maxAcc == 0 or maxSpeed == 0 don't need drag, I suppose.
+* Fix division by zero detection in CAirMoveType::SetMaxSpeed.
+
+
+Modified: trunk/rts/Lua/LuaOpenGL.cpp
+===================================================================
+--- trunk/rts/Lua/LuaOpenGL.cpp	2008-04-01 07:58:14 UTC (rev 5637)
++++ trunk/rts/Lua/LuaOpenGL.cpp	2008-04-01 08:25:01 UTC (rev 5638)
+@@ -348,7 +348,9 @@
+ 	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+ 
+ 	glEnable(GL_BLEND);
+-	glBlendEquation(GL_FUNC_ADD);
++	if (glBlendEquation != NULL) {
++		glBlendEquation(GL_FUNC_ADD);
++	}
+ 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+ 
+ 	glDisable(GL_ALPHA_TEST);
+
+Modified: trunk/rts/Sim/MoveTypes/AirMoveType.cpp
+===================================================================
+--- trunk/rts/Sim/MoveTypes/AirMoveType.cpp	2008-04-01 07:58:14 UTC (rev 5637)
++++ trunk/rts/Sim/MoveTypes/AirMoveType.cpp	2008-04-01 08:25:01 UTC (rev 5638)
+@@ -1134,6 +1134,9 @@
+ 			float3 ortoDif = dif - forwardDif;
+ 			//note that the radiuses is multiplied by two since we rely on
+ 			//the aircrafts having to small radiuses (see unitloader)
++			
++			// FIXME: with the new collision volumes, is this still true?
++
+ 			float minOrtoDif = ((*ui)-&gt;radius + owner-&gt;radius) * 2 + frontLength * 0.1f + 10;
+ 			if (ortoDif.SqLength() &lt; minOrtoDif * minOrtoDif) {
+ 				dist = frontLength;
+@@ -1176,7 +1179,7 @@
+ void CAirMoveType::SetMaxSpeed(float speed)
+ {
+ 	maxSpeed = speed;
+-	if (owner-&gt;unitDef-&gt;maxAcc != 0 &amp;&amp; owner-&gt;maxSpeed != 0) {
++	if (maxAcc != 0 &amp;&amp; maxSpeed != 0) {
+ 		//meant to set the drag such that the maxspeed becomes what it should be
+ 		float drag = 1.0f / (maxSpeed / GAME_SPEED * 1.1f / maxAcc) - wingAngle * wingAngle * wingDrag;
+ 		invDrag = 1 - drag;
+
+Modified: trunk/rts/Sim/Units/UnitDefHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-04-01 07:58:14 UTC (rev 5637)
++++ trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-04-01 08:25:01 UTC (rev 5638)
+@@ -451,7 +451,6 @@
+ 
+ 	ud.wingDrag     = udTable.GetFloat(&quot;wingDrag&quot;,     0.07f);  // drag caused by wings
+ 	ud.wingAngle    = udTable.GetFloat(&quot;wingAngle&quot;,    0.08f);  // angle between front and the wing plane
+-	ud.drag         = udTable.GetFloat(&quot;drag&quot;,         0.005f); // how fast the aircraft loses speed (see also below)
+ 	ud.frontToSpeed = udTable.GetFloat(&quot;frontToSpeed&quot;, 0.1f);   // fudge factor for lining up speed and front of plane
+ 	ud.speedToFront = udTable.GetFloat(&quot;speedToFront&quot;, 0.07f);  // fudge factor for lining up speed and front of plane
+ 	ud.myGravity    = udTable.GetFloat(&quot;myGravity&quot;,    0.4f);   // planes are slower than real airplanes so lower gravity to compensate
+@@ -638,6 +637,11 @@
+ 		//meant to set the drag such that the maxspeed becomes what it should be
+ 		ud.drag = 1.0f / (ud.speed/GAME_SPEED * 1.1f / ud.maxAcc)
+ 		          - (ud.wingAngle * ud.wingAngle * ud.wingDrag);
++	} else {
++		//shouldn't be needed since drag is only used in CAirMoveType anyway,
++		//and aircraft without acceleration or speed aren't common :)
++		//initializing it anyway just for safety
++		ud.drag = 0.005f;
+ 	}
+ 
+ 	std::string objectname = udTable.GetString(&quot;objectName&quot;, &quot;&quot;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000418.html">[Taspring-linux-commit] r5637 - trunk/rts/Sim/MoveTypes
+</A></li>
+	<LI>Next message: <A HREF="000420.html">[Taspring-linux-commit] r5639 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#419">[ date ]</a>
+              <a href="thread.html#419">[ thread ]</a>
+              <a href="subject.html#419">[ subject ]</a>
+              <a href="author.html#419">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,153 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6730 - in trunk/rts/Sim/Units: . UnitTypes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6730%20-%20in%20trunk/rts/Sim/Units%3A%20.%20UnitTypes&In-Reply-To=%3C20081014182520.E83ED4730%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001498.html">
+   <LINK REL="Next"  HREF="001500.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6730 - in trunk/rts/Sim/Units: . UnitTypes</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6730%20-%20in%20trunk/rts/Sim/Units%3A%20.%20UnitTypes&In-Reply-To=%3C20081014182520.E83ED4730%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6730 - in trunk/rts/Sim/Units: . UnitTypes">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Oct 14 20:25:20 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001498.html">[Taspring-linux-commit] r6729 - in trunk/rts: Game Lua Sim/Units
+</A></li>
+        <LI>Next message: <A HREF="001500.html">[Taspring-linux-commit] r6731 - trunk/rts/Sim/Units
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1499">[ date ]</a>
+              <a href="thread.html#1499">[ thread ]</a>
+              <a href="subject.html#1499">[ subject ]</a>
+              <a href="author.html#1499">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-10-14 20:25:20 +0200 (Tue, 14 Oct 2008)
+New Revision: 6730
+
+Modified:
+   trunk/rts/Sim/Units/UnitHandler.cpp
+   trunk/rts/Sim/Units/UnitLoader.cpp
+   trunk/rts/Sim/Units/UnitTypes/Builder.cpp
+Log:
+* apply patch by Evil4Zerggin to make buildings that can live on both land and water obey &lt;maxSlope&gt; when on land
+
+Modified: trunk/rts/Sim/Units/UnitHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitHandler.cpp	2008-10-14 17:58:24 UTC (rev 6729)
++++ trunk/rts/Sim/Units/UnitHandler.cpp	2008-10-14 18:25:20 UTC (rev 6730)
+@@ -432,7 +432,11 @@
+ 		}
+ 	}
+ 
+-	if (!unitdef-&gt;floater) {
++	const float groundheight = ground-&gt;GetHeight2(pos.x, pos.z);
++
++	if (!unitdef-&gt;floater || groundheight &gt; 0.0f) {
++		// if we are capable of floating, only test local
++		// height difference if terrain is above sea-level
+ 		const float* heightmap = readmap-&gt;GetHeightmap();
+ 		int x = (int) (pos.x / SQUARE_SIZE);
+ 		int z = (int) (pos.z / SQUARE_SIZE);
+@@ -444,8 +448,6 @@
+ 		if (pos.y &lt; orgh - hdif &amp;&amp; pos.y &lt; h - hdif) { return 0; }
+ 	}
+ 
+-	const float groundheight = ground-&gt;GetHeight2(pos.x, pos.z);
+-
+ 	if (!unitdef-&gt;floater &amp;&amp; groundheight &lt; -unitdef-&gt;maxWaterDepth) {
+ 		// ground is deeper than our maxWaterDepth, cannot build here
+ 		return 0;
+
+Modified: trunk/rts/Sim/Units/UnitLoader.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitLoader.cpp	2008-10-14 17:58:24 UTC (rev 6729)
++++ trunk/rts/Sim/Units/UnitLoader.cpp	2008-10-14 18:25:20 UTC (rev 6730)
+@@ -507,8 +507,14 @@
+ void CUnitLoader::FlattenGround(const CUnit* unit)
+ {
+ 	const UnitDef* unitDef = unit-&gt;unitDef;
+-	if (!mapDamage-&gt;disabled &amp;&amp; unitDef-&gt;levelGround &amp;&amp; !unitDef-&gt;floater &amp;&amp;
+-	    !(unitDef-&gt;canmove &amp;&amp; (unitDef-&gt;speed &gt; 0.0f))) {
++	const float groundheight = ground-&gt;GetHeight2(unit-&gt;pos.x, unit-&gt;pos.z);
++
++	if (!mapDamage-&gt;disabled &amp;&amp; unitDef-&gt;levelGround &amp;&amp;
++		!(unitDef-&gt;floater &amp;&amp; groundheight &lt;= 0) &amp;&amp;
++		!(unitDef-&gt;canmove &amp;&amp; (unitDef-&gt;speed &gt; 0.0f))) {
++		// if we are float-capable, only flatten
++		// if the terrain here is above sea level
++
+ 		BuildInfo bi(unitDef, unit-&gt;pos, unit-&gt;buildFacing);
+ 		bi.pos = helper-&gt;Pos2BuildPos(bi);
+ 		const float hss = 0.5f * SQUARE_SIZE;
+
+Modified: trunk/rts/Sim/Units/UnitTypes/Builder.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitTypes/Builder.cpp	2008-10-14 17:58:24 UTC (rev 6729)
++++ trunk/rts/Sim/Units/UnitTypes/Builder.cpp	2008-10-14 18:25:20 UTC (rev 6730)
+@@ -560,9 +560,13 @@
+ 	CUnit* b = unitLoader.LoadUnit(nextBuildType, nextBuildPos, team,
+ 	                               true, buildInfo.buildFacing, this);
+ 
+-	if (mapDamage-&gt;disabled || !unitDef-&gt;levelGround || unitDef-&gt;floater ||
++	// floating structures don't terraform the seabed
++	const float groundheight = ground-&gt;GetHeight2(b-&gt;pos.x, b-&gt;pos.z);
++	const bool onWater = (unitDef-&gt;floater &amp;&amp; groundheight &lt;= 0.0f);
++
++	if (mapDamage-&gt;disabled || !unitDef-&gt;levelGround || onWater ||
+ 	    (unitDef-&gt;canmove &amp;&amp; (unitDef-&gt;speed &gt; 0.0f))) {
+-		// skip the terraforming job.
++		// skip the terraforming job
+ 		b-&gt;terraformLeft = 0;
+ 		b-&gt;groundLevelled=true;
+ 	}
+@@ -600,8 +604,8 @@
+ 		 * Duplicated from CMoveType::SlowUpdate(), which
+ 		 * is why we use the regular code for floating things.
+ 		 */
+-		curBuild-&gt;pos.y=ground-&gt;GetHeight2(curBuild-&gt;pos.x,curBuild-&gt;pos.z);
+-		curBuild-&gt;midPos.y=curBuild-&gt;pos.y+curBuild-&gt;relMidPos.y;
++		curBuild-&gt;pos.y = groundheight;
++		curBuild-&gt;midPos.y = groundheight + curBuild-&gt;relMidPos.y;
+ 	}
+ 	else {
+ 		float d=nextBuildPos.y-curBuild-&gt;pos.y;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001498.html">[Taspring-linux-commit] r6729 - in trunk/rts: Game Lua Sim/Units
+</A></li>
+	<LI>Next message: <A HREF="001500.html">[Taspring-linux-commit] r6731 - trunk/rts/Sim/Units
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1499">[ date ]</a>
+              <a href="thread.html#1499">[ thread ]</a>
+              <a href="subject.html#1499">[ subject ]</a>
+              <a href="author.html#1499">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

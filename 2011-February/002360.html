@@ -1,0 +1,239 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7590 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7590%20-%20Lobby/TASClient&In-Reply-To=%3C20110224210953.263522019B%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002359.html">
+   <LINK REL="Next"  HREF="002361.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7590 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7590%20-%20Lobby/TASClient&In-Reply-To=%3C20110224210953.263522019B%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7590 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Feb 24 22:09:53 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002359.html">[Taspring-linux-commit] r7589 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002361.html">[Taspring-linux-commit] r7591 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2360">[ date ]</a>
+              <a href="thread.html#2360">[ thread ]</a>
+              <a href="subject.html#2360">[ subject ]</a>
+              <a href="author.html#2360">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2011-02-24 22:09:52 +0100 (Thu, 24 Feb 2011)
+New Revision: 7590
+
+Modified:
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/SpringDownloaderFormUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* /rapidlist &lt;regexpr&gt; command added
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2011-02-20 15:44:44 UTC (rev 7589)
++++ Lobby/TASClient/MainUnit.pas	2011-02-24 21:09:52 UTC (rev 7590)
+@@ -59,7 +59,7 @@
+       'UPDATEBOT',
+       'RING'
+     );
+-  CommandList : array[0..44] of string =
++  CommandList : array[0..45] of string =
+    (
+       'CONNECT',
+       'QUIT',
+@@ -105,7 +105,8 @@
+       'GETDOWNLOADLINKS',
+       'DOWNLOADMAP',
+       'DOWNLOADMOD',
+-      'DOWNLOADRAPID'
++      'DOWNLOADRAPID',
++      'RAPIDLIST'
+    ) ;
+   CountryNames: array[0..240] of string = (
+   'Unknown country xx',
+@@ -5235,6 +5236,10 @@
+       end;
+       SpringDownloaderFormUnit.DownloadRapid(MakeSentenceWS(sl,1));
+     end
++    else if sl[0] = 'RAPIDLIST' then
++    begin
++      TRapidDownloadThread.Create(false,nil,MakeSentenceWS(sl,1),'',True);
++    end
+     else if (sl[0] = 'ISSPADSAUTOHOST') and CameFromBattleScreen and (BattleState.Status = Joined) then
+     begin
+       tmpBool := BattleForm.ChatRichEdit.atBottom;
+
+Modified: Lobby/TASClient/SpringDownloaderFormUnit.pas
+===================================================================
+--- Lobby/TASClient/SpringDownloaderFormUnit.pas	2011-02-20 15:44:44 UTC (rev 7589)
++++ Lobby/TASClient/SpringDownloaderFormUnit.pas	2011-02-24 21:09:52 UTC (rev 7590)
+@@ -104,6 +104,7 @@
+     FhttpPost: THttpCli;
+     FAbord: Boolean;
+     FDep: string;
++    FListFilesOnly: Boolean;
+ 
+     procedure RaiseException;
+     procedure DownloadStart;
+@@ -113,9 +114,9 @@
+     procedure DownloadDocData(Sender: TObject; Buffer: Pointer; Len: Integer);
+ 
+   procedure ExceptionRaised(msg: string);
+-    procedure RapidDownload(modName: string; rapidName: string = '');
++    procedure RapidDownload(modName: string; rapidName: string = ''; listFilesOnly: boolean = False);
+   public
+-    constructor Create(Suspended : Boolean; dlerForm: TSpringDownloaderForm; modName: string; rapidName: string = '');
++    constructor Create(Suspended : Boolean; dlerForm: TSpringDownloaderForm; modName: string; rapidName: string = ''; listFilesOnly: boolean = False);
+     procedure Abort;
+   end;
+ 
+@@ -788,7 +789,7 @@
+ 
+ procedure TRapidDownloadThread.Execute;
+ begin
+-  RapidDownload(FModName,FRapidName);
++  RapidDownload(FModName,FRapidName,FListFilesOnly);
+ end;
+ 
+ procedure TRapidDownloadThread.DownloadStart;
+@@ -815,7 +816,7 @@
+   end;
+ end;
+ 
+-procedure TRapidDownloadThread.RapidDownload(modName: string; rapidName: string);
++procedure TRapidDownloadThread.RapidDownload(modName: string; rapidName: string; listFilesOnly: boolean);
+ var
+   decompressedStream: TMemoryStream;
+   tagListStr: string;
+@@ -866,6 +867,14 @@
+     FreeAndNil(rcvdStream);
+     FhttpGet.RcvdStream := nil;
+ 
++    if listFilesOnly then
++    begin
++      MainForm.AddMainLog('',Colors.Info);
++      MainForm.AddMainLog('----------------------------------------',Colors.Info);
++      MainForm.AddMainLog('Rapid list'+IfThen(modName &lt;&gt; '',' (Filter='+modName+')',''),Colors.Info);
++      MainForm.AddMainLog('----------------------------------------',Colors.Info);
++    end;
++
+     tagValues := TStringList.Create;
+     cp := @tagListStr[1];
+     while true do
+@@ -885,14 +894,27 @@
+       end;
+       tagValues.Add(tagValue);
+ 
+-      if (tagValues.Count = 4) and (((tagValues[3] = modName) and (rapidName = '')) or (rapidName = tagValues[0])) then
++      if listFilesOnly then
++        if (tagValues.Count = 4) and ((modName = '') or (RegExpr.ExecRegExpr(LowerCase(modName),LowerCase(tagValues[0]+' '+tagValues[2]+' ' + tagValues[3])))) then
++        begin
++          MainForm.AddMainLog(tagValues[3]+' ['+tagValues[0]+']'+IfThen(tagValues[2] &lt;&gt; '',' (Dependency: '+tagValues[2]+')','')+ ' - ' + tagValues[1] ,Colors.Info);
++        end
++      else if (tagValues.Count = 4) and (((tagValues[3] = modName) and (rapidName = '')) or (rapidName = tagValues[0])) then
+         break;
+ 
++
+       if cp^ = #0 then
+         break;
+       Inc(cp);
+     end;
+ 
++    if listFilesOnly then
++    begin
++      FreeAndNil(FhttpGet);
++      FreeAndNil(tagValues);
++      Exit;
++    end;
++
+     SetLength(fileMd5Str,32);
+ 
+     unknownModName := False;
+@@ -1071,7 +1093,7 @@
+   end;
+ end;
+ 
+-constructor TRapidDownloadThread.Create(Suspended : Boolean; dlerForm: TSpringDownloaderForm; modName: string; rapidName: string);
++constructor TRapidDownloadThread.Create(Suspended : Boolean; dlerForm: TSpringDownloaderForm; modName: string; rapidName: string; listFilesOnly: boolean);
+ begin
+    FreeOnTerminate := True;
+    inherited Create(Suspended);
+@@ -1081,6 +1103,7 @@
+    FRapidName := rapidName;
+    FDlerForm := dlerForm;
+    FAbord := False;
++   FListFilesOnly := listFilesOnly;
+ end;
+ 
+ procedure TRapidDownloadThread.Abort;
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2011-02-20 15:44:44 UTC (rev 7589)
++++ Lobby/TASClient/TASClient.dof	2011-02-24 21:09:52 UTC (rev 7590)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=87
+ Release=0
+-Build=1251
++Build=1253
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.87.0.1251
++FileVersion=0.87.0.1253
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002359.html">[Taspring-linux-commit] r7589 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002361.html">[Taspring-linux-commit] r7591 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2360">[ date ]</a>
+              <a href="thread.html#2360">[ thread ]</a>
+              <a href="subject.html#2360">[ subject ]</a>
+              <a href="author.html#2360">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

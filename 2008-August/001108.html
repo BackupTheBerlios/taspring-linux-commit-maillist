@@ -1,0 +1,219 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6338 - in trunk: .	installer/freedesktop/applications rts/Game	tools/DemoAnalyser tools/unitsync
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6338%20-%20in%20trunk%3A%20.%0A%09installer/freedesktop/applications%20rts/Game%0A%09tools/DemoAnalyser%20tools/unitsync&In-Reply-To=%3C20080830112007.9F5F449B0%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001107.html">
+   <LINK REL="Next"  HREF="001109.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6338 - in trunk: .	installer/freedesktop/applications rts/Game	tools/DemoAnalyser tools/unitsync</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6338%20-%20in%20trunk%3A%20.%0A%09installer/freedesktop/applications%20rts/Game%0A%09tools/DemoAnalyser%20tools/unitsync&In-Reply-To=%3C20080830112007.9F5F449B0%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6338 - in trunk: .	installer/freedesktop/applications rts/Game	tools/DemoAnalyser tools/unitsync">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Aug 30 13:20:07 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001107.html">[Taspring-linux-commit] r6337 - trunk/tools/ArchiveMoverLinux
+</A></li>
+        <LI>Next message: <A HREF="001109.html">[Taspring-linux-commit] r6339 - site/branches
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1108">[ date ]</a>
+              <a href="thread.html#1108">[ thread ]</a>
+              <a href="subject.html#1108">[ subject ]</a>
+              <a href="author.html#1108">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-08-30 13:20:06 +0200 (Sat, 30 Aug 2008)
+New Revision: 6338
+
+Modified:
+   trunk/CMakeLists.txt
+   trunk/installer/freedesktop/applications/spring.desktop
+   trunk/rts/Game/GameServer.cpp
+   trunk/tools/DemoAnalyser/CMakeLists.txt
+   trunk/tools/unitsync/CMakeLists.txt
+Log:
+* fix dedicated server not detecting game end correctly
+* don't install freedesktop-files when cross-compiling
+* add optional java bindings to unitsync (when java is found, they are built in, otherwise they aren't built)
+
+
+Modified: trunk/CMakeLists.txt
+===================================================================
+--- trunk/CMakeLists.txt	2008-08-29 17:51:05 UTC (rev 6337)
++++ trunk/CMakeLists.txt	2008-08-30 11:20:06 UTC (rev 6338)
+@@ -70,9 +70,9 @@
+ install (DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/game/ DESTINATION ${DATADIR} PATTERN &quot;.svn&quot; EXCLUDE)
+ 
+ ### Install freedesktop-files, mime-types etc.
+-if (UNIX)
++if (UNIX AND NOT MINGW)
+ 	install (FILES installer/freedesktop/applications/spring.desktop DESTINATION ${APPLICATIONS_DIR})
+ 	install (FILES installer/freedesktop/mime/spring.xml DESTINATION ${MIME_DIR}/packages)
+ 	install (FILES installer/freedesktop/pixmaps/spring.png installer/freedesktop/pixmaps/application-x-spring-demo.png DESTINATION ${PIXMAPS_DIR})
+-endif (UNIX)
++endif (UNIX AND NOT MINGW)
+ 
+
+Modified: trunk/installer/freedesktop/applications/spring.desktop
+===================================================================
+--- trunk/installer/freedesktop/applications/spring.desktop	2008-08-29 17:51:05 UTC (rev 6337)
++++ trunk/installer/freedesktop/applications/spring.desktop	2008-08-30 11:20:06 UTC (rev 6338)
+@@ -1,6 +1,6 @@
+ [Desktop Entry]
+ Name=Spring
+-MimeType=application/x-spring-demo;application/x-spring-data-zip;application/x-spring-data-7zip
++MimeType=application/x-spring-demo
+ Comment=An open source RTS with similar gameplay to TA
+ Comment[de]=Open-Source Multiplayerstrategie
+ TryExec=spring
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-08-29 17:51:05 UTC (rev 6337)
++++ trunk/rts/Game/GameServer.cpp	2008-08-30 11:20:06 UTC (rev 6338)
+@@ -796,7 +796,11 @@
+ 					}
+ 					case TEAMMSG_TEAM_DIED: { // don't send to clients, they don't need it
+ 						unsigned char team = inbuf[3];
++#ifndef DEDICATED
+ 						if (teams[team] &amp;&amp; players[player]-&gt;isLocal) // currently only host is allowed
++#else
++						if (teams[team])
++#endif
+ 						{
+ 							teams[fromTeam].reset();
+ 							for (int i = 0; i &lt; MAX_PLAYERS; ++i)
+@@ -1196,11 +1200,11 @@
+ 		return;
+ 	}
+ 
+-	unsigned numActiveTeams[MAX_TEAMS]; // active teams per ally team
+-	memset(numActiveTeams, 0, sizeof(numActiveTeams));
+ 	unsigned numActiveAllyTeams = 0;
+ 
+ #ifndef DEDICATED
++	unsigned numActiveTeams[MAX_TEAMS]; // active teams per ally team
++	memset(numActiveTeams, 0, sizeof(numActiveTeams));
+ 	for (unsigned a = 0; (int)a &lt; gs-&gt;activeTeams; ++a)
+ 	{
+ 		bool hasPlayer = false;
+@@ -1220,16 +1224,19 @@
+ 		if (numActiveTeams[a] != 0)
+ 			++numActiveAllyTeams;
+ #else
+-	int lastAllyTeam = -1;
++	int firstAllyTeam = -1;
+ 	for (unsigned i = 0; i &lt; MAX_PLAYERS; ++i)
+ 	{
+-		if (players[i])
++		if (players[i] &amp;&amp; !players[i]-&gt;spectator)
+ 		{
+-			if (lastAllyTeam &lt; 0)
+-				lastAllyTeam = i;
+-			else if (lastAllyTeam != teams[players[i]-&gt;team]-&gt;allyTeam)
++			if (firstAllyTeam &lt; 0)
+ 			{
++				firstAllyTeam = teams[players[i]-&gt;team]-&gt;allyTeam;
+ 				numActiveAllyTeams = 1;
++			}
++			else if (firstAllyTeam != teams[players[i]-&gt;team]-&gt;allyTeam)
++			{
++				numActiveAllyTeams = 2;
+ 				break;
+ 			}
+ 		}
+
+Modified: trunk/tools/DemoAnalyser/CMakeLists.txt
+===================================================================
+--- trunk/tools/DemoAnalyser/CMakeLists.txt	2008-08-29 17:51:05 UTC (rev 6337)
++++ trunk/tools/DemoAnalyser/CMakeLists.txt	2008-08-30 11:20:06 UTC (rev 6338)
+@@ -4,9 +4,9 @@
+ INCLUDE_DIRECTORIES(../../rts/ ../../rts/Game ../../rts/lib/7zip ../../rts/lib/lua/include ../../rts/System)
+ 
+ IF (UNIX)
+-	SET(platformfiles ../../rts/System/Platform/Linux/UnixFileSystemHandler ../../rts/System/Platform/Linux/DotfileHandler ../../rts/System/Platform/Linux/DataDirLocater)
++	SET(platformfiles ${CMAKE_SOURCE_DIR}/rts/System/Platform/Linux/UnixFileSystemHandler ${CMAKE_SOURCE_DIR}/rts/System/Platform/Linux/DotfileHandler ${CMAKE_SOURCE_DIR}/rts/System/Platform/Linux/DataDirLocater)
+ ELSE (UNIX)
+-	SET(platformfiles ../../rts/System/Platform/Windows/WinFileSystemHandler ../../rts/System/Platform/Windows/RegHandler)
++	SET(platformfiles ${CMAKE_SOURCE_DIR}/rts/System/Platform/Win/WinFileSystemHandler ${CMAKE_SOURCE_DIR}/rts/System/Platform/Win/DataDirLocater ${CMAKE_SOURCE_DIR}/rts/System/Platform/Win/RegHandler)
+ ENDIF (UNIX)
+ 
+ AUX_SOURCE_DIRECTORY(../../rts/System/FileSystem/ fsfiles)
+
+Modified: trunk/tools/unitsync/CMakeLists.txt
+===================================================================
+--- trunk/tools/unitsync/CMakeLists.txt	2008-08-29 17:51:05 UTC (rev 6337)
++++ trunk/tools/unitsync/CMakeLists.txt	2008-08-30 11:20:06 UTC (rev 6338)
+@@ -1,5 +1,7 @@
+ IF (MINGW)
+ 	set (unitsync_libs glew32 opengl32 glu32 devil ilu)
++	set (PYTHONLIBS_FOUND TRUE) # Python libs are part of the mingwlibs package
++	set (JNI_FOUND TRUE)
+ ELSE (MINGW)
+ 	FIND_PACKAGE(SDL REQUIRED)
+ 	INCLUDE_DIRECTORIES(${SDL_INCLUDE_DIR})
+@@ -16,6 +18,14 @@
+ 		message (&quot;No python libraries found, python bindings disabled&quot;)
+ 	endif (PYTHONLIBS_FOUND)
+ 	
++	FIND_PACKAGE(JNI)
++	if (JAVA_INCLUDE_PATH)
++		include_directories(${JAVA_INCLUDE_PATH} ${JNI_INCLUDE_DIRS})
++		set (JAVA_FOUND TRUE)
++	else (JAVA_INCLUDE_PATH)
++		message (&quot;No Java includes found, java bindings disabled&quot;)
++	endif (JAVA_INCLUDE_PATH)
++	
+ 	set (unitsync_libs ${GLEW_LIBRARIES} IL openal GL GLU)
+ ENDIF (MINGW)
+ 
+@@ -54,7 +64,9 @@
+ if (PYTHONLIBS_FOUND)
+ 	list(APPEND unitsync_files pybind)
+ endif (PYTHONLIBS_FOUND)
+-
++if (JAVA_FOUND)
++	list(APPEND unitsync_files javabind)
++endif (JAVA_FOUND)
+ ADD_LIBRARY(unitsync SHARED ${platformfiles} ${unitsync_files} ${fsfiles} unitsync LuaParserAPI Syncer SyncServer stdafx)
+ TARGET_LINK_LIBRARIES(unitsync ${unitsync_libs} hpiutil2 7zip minizip lua boost_regex-mt ILU SDL)
+ if (PYTHONLIBS_FOUND)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001107.html">[Taspring-linux-commit] r6337 - trunk/tools/ArchiveMoverLinux
+</A></li>
+	<LI>Next message: <A HREF="001109.html">[Taspring-linux-commit] r6339 - site/branches
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1108">[ date ]</a>
+              <a href="thread.html#1108">[ thread ]</a>
+              <a href="subject.html#1108">[ subject ]</a>
+              <a href="author.html#1108">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,152 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5681 - trunk/rts/Sim/Units/CommandAI
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5681%20-%20trunk/rts/Sim/Units/CommandAI&In-Reply-To=%3C20080408142234.204614682%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000461.html">
+   <LINK REL="Next"  HREF="000463.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5681 - trunk/rts/Sim/Units/CommandAI</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5681%20-%20trunk/rts/Sim/Units/CommandAI&In-Reply-To=%3C20080408142234.204614682%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5681 - trunk/rts/Sim/Units/CommandAI">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Apr  8 16:22:33 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000461.html">[Taspring-linux-commit] r5680 - trunk/AI/Global/KAIK-0.13
+</A></li>
+        <LI>Next message: <A HREF="000463.html">[Taspring-linux-commit] r5682 - trunk/rts/build/vstudio8
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#462">[ date ]</a>
+              <a href="thread.html#462">[ thread ]</a>
+              <a href="subject.html#462">[ subject ]</a>
+              <a href="author.html#462">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-04-08 16:22:33 +0200 (Tue, 08 Apr 2008)
+New Revision: 5681
+
+Modified:
+   trunk/rts/Sim/Units/CommandAI/CommandAI.h
+   trunk/rts/Sim/Units/CommandAI/TransportCAI.cpp
+   trunk/rts/Sim/Units/CommandAI/TransportCAI.h
+Log:
+* Applied (slightly modified) patch by Flaamwing, solving mantis #853
+  (&quot;Give a transport an unload order on the edge of the map with .76b1 and spring crashes&quot;)
+
+Modified: trunk/rts/Sim/Units/CommandAI/CommandAI.h
+===================================================================
+--- trunk/rts/Sim/Units/CommandAI/CommandAI.h	2008-04-08 12:39:28 UTC (rev 5680)
++++ trunk/rts/Sim/Units/CommandAI/CommandAI.h	2008-04-08 14:22:33 UTC (rev 5681)
+@@ -82,7 +82,7 @@
+ protected:
+ 	bool isTrackable(const CUnit* unit) const;
+ 	bool isAttackCapable() const;
+-	bool AllowedCommand(const Command &amp;c);
++	virtual bool AllowedCommand(const Command &amp;c);
+ 	bool SkipParalyzeTarget(const CUnit* target);
+ 	void GiveAllowedCommand(const Command&amp; c);
+ 	void GiveWaitCommand(const Command&amp; c);
+
+Modified: trunk/rts/Sim/Units/CommandAI/TransportCAI.cpp
+===================================================================
+--- trunk/rts/Sim/Units/CommandAI/TransportCAI.cpp	2008-04-08 12:39:28 UTC (rev 5680)
++++ trunk/rts/Sim/Units/CommandAI/TransportCAI.cpp	2008-04-08 14:22:33 UTC (rev 5681)
+@@ -295,6 +295,18 @@
+ bool CTransportCAI::FindEmptySpot(float3 center, float radius, float emptyRadius, float3&amp; found, CUnit* unitToUnload)
+ {
+ 	if (dynamic_cast&lt;CTAAirMoveType*&gt;(owner-&gt;moveType)) {
++		// If the command radius is less than the diameter of the unit we wish to drop
++		if(radius &lt; emptyRadius*2) {
++			// Boundary checking.  If we are too close to the edge of the map, we will get stuck
++			// in an infinite loop due to not finding any random positions that match a valid location.
++			if	(	(center.x+radius &lt; emptyRadius)
++				||	(center.z+radius &lt; emptyRadius)
++				||	(center.x-radius &gt;= gs-&gt;mapx * SQUARE_SIZE - emptyRadius)
++				||	(center.z-radius &gt;= gs-&gt;mapy * SQUARE_SIZE - emptyRadius)
++				)
++				return false;
++		}
++
+ 		// handle air transports differently
+ 		for (int a = 0; a &lt; 100; ++a) {
+ 			float3 delta(1, 0, 1);
+@@ -968,3 +980,27 @@
+ 		&amp;&amp; unit-&gt;pos.distance2D(
+ 		float3(cmd.params[0], cmd.params[1], cmd.params[2])) &gt; cmd.params[3]*2);
+ }
++
++bool CTransportCAI::AllowedCommand(const Command&amp; c)
++{
++	if(!CMobileCAI::AllowedCommand(c))
++		return false;
++
++	switch (c.id) {
++		case CMD_UNLOAD_UNIT:
++		case CMD_UNLOAD_UNITS: {
++			CTransportUnit* transport = (CTransportUnit*) owner;
++			if (transport-&gt;transported.empty()) return false;
++			CUnit* u = transport-&gt;transported.front().unit;
++			float3 pos(c.params[0],c.params[1],c.params[2]);
++			float radius = c.params[3];
++			float spread = u-&gt;radius * transport-&gt;unitDef-&gt;unloadSpread;
++			float3 found;
++			bool canUnload = FindEmptySpot(pos, max(16.0f, radius), spread, found, u);
++			if(!canUnload) return false;
++			break;
++		}
++	}
++
++	return true;
++}
+
+Modified: trunk/rts/Sim/Units/CommandAI/TransportCAI.h
+===================================================================
+--- trunk/rts/Sim/Units/CommandAI/TransportCAI.h	2008-04-08 12:39:28 UTC (rev 5680)
++++ trunk/rts/Sim/Units/CommandAI/TransportCAI.h	2008-04-08 14:22:33 UTC (rev 5681)
+@@ -53,6 +53,7 @@
+ 	void UnloadLandFlood(Command&amp; c); //land and dispatch units all at once
+ 	void UnloadCrashFlood(Command&amp; c); //slam into landscape abruptly and dispatch units all at once (incomplete)
+ 	
++	virtual bool AllowedCommand(const Command&amp; c);
+ 	bool SpotIsClear(float3 pos, CUnit* u);
+ 	std::list&lt;float3&gt; dropSpots;		
+ 	bool isFirstIteration;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000461.html">[Taspring-linux-commit] r5680 - trunk/AI/Global/KAIK-0.13
+</A></li>
+	<LI>Next message: <A HREF="000463.html">[Taspring-linux-commit] r5682 - trunk/rts/build/vstudio8
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#462">[ date ]</a>
+              <a href="thread.html#462">[ thread ]</a>
+              <a href="subject.html#462">[ subject ]</a>
+              <a href="author.html#462">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

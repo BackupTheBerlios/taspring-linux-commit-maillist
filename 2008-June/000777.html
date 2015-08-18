@@ -1,0 +1,172 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5997 - in trunk/rts: Lua Rendering
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-June/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5997%20-%20in%20trunk/rts%3A%20Lua%20Rendering&In-Reply-To=%3C20080608132624.1963347CD%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000776.html">
+   <LINK REL="Next"  HREF="000778.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5997 - in trunk/rts: Lua Rendering</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5997%20-%20in%20trunk/rts%3A%20Lua%20Rendering&In-Reply-To=%3C20080608132624.1963347CD%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5997 - in trunk/rts: Lua Rendering">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Jun  8 15:26:23 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000776.html">[Taspring-linux-commit] r5996 - trunk/rts/Sim/Units/CommandAI
+</A></li>
+        <LI>Next message: <A HREF="000778.html">[Taspring-linux-commit] r5998 - trunk/installer/builddata/maphelper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#777">[ date ]</a>
+              <a href="thread.html#777">[ thread ]</a>
+              <a href="subject.html#777">[ subject ]</a>
+              <a href="author.html#777">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-06-08 15:26:22 +0200 (Sun, 08 Jun 2008)
+New Revision: 5997
+
+Modified:
+   trunk/rts/Lua/LuaOpenGL.cpp
+   trunk/rts/Rendering/glFont.cpp
+   trunk/rts/Rendering/glFont.h
+Log:
+* fix outlined fonts in lua-tooltip
+
+
+Modified: trunk/rts/Lua/LuaOpenGL.cpp
+===================================================================
+--- trunk/rts/Lua/LuaOpenGL.cpp	2008-06-08 07:58:32 UTC (rev 5996)
++++ trunk/rts/Lua/LuaOpenGL.cpp	2008-06-08 13:26:22 UTC (rev 5997)
+@@ -1190,17 +1190,15 @@
+ 		const float noshow[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+ 
+ 		if (lightOut) {
+-			font-&gt;Outline(true, noshow, lightOutline);
++			font-&gt;OutlineS(true, lightOutline);
+ 		} else {
+-			font-&gt;Outline(true, noshow, darkOutline);
++			font-&gt;OutlineS(true, darkOutline);
+ 		}
+-		font-&gt;glPrintAt(xj, y, fontScale, text.c_str());
+ 	}
+ 
+ 	if (colorCodes) {
+ 		font-&gt;glPrintColorAt(xj, y, fontScale, text.c_str());
+ 	} else {
+-		//glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+ 		font-&gt;glPrintAt(xj, y, fontScale, text.c_str());
+ 	}
+ 
+
+Modified: trunk/rts/Rendering/glFont.cpp
+===================================================================
+--- trunk/rts/Rendering/glFont.cpp	2008-06-08 07:58:32 UTC (rev 5996)
++++ trunk/rts/Rendering/glFont.cpp	2008-06-08 13:26:22 UTC (rev 5997)
+@@ -325,6 +325,14 @@
+ 	}
+ }
+ 
++void CglFont::OutlineS(bool enable, const float *outlineColor)
++{
++	this-&gt;outline = enable;
++	if (enable) {;
++		this-&gt;outlineColor = outlineColor ? outlineColor : ChooseOutlineColor(color);
++	}
++}
++
+ float CglFont::RenderString(float x, float y, float s, const unsigned char *text) const
+ {
+ //	glPushAttrib(GL_LIST_BIT | GL_CURRENT_BIT  | GL_ENABLE_BIT | GL_TRANSFORM_BIT);	
+@@ -548,19 +556,33 @@
+ 
+ void CglFont::glPrintColorAt(GLfloat x, GLfloat y, float s, const char *str)
+ {
+-	glColor3f(1, 1, 1);
++	//TODO both glColor and float* color is set, make RenderString respect the float *color
++	const float *oldcolor = color;
++	float newcolor[4] = {1.0, 1.0, 1.0, 1.0};
++	color = const_cast&lt;const float*&gt;(newcolor);
++	glColor4fv(color);
+ 	size_t lf;
+ 	string temp=str;
+ 	while((lf=temp.find(&quot;\xff&quot;))!=string::npos) {
+-		x = RenderString(x, y, s, (const unsigned char*)temp.substr(0, lf).c_str());
++		if (outline)
++		{
++			x = RenderStringOutlined(x, y, s, (const unsigned char*)temp.substr(0, lf).c_str());
++			outline = true; //HACK RenderStringOutlined resets outline
++		}
++		else
++			x = RenderString(x, y, s, (const unsigned char*)temp.substr(0, lf).c_str());
+ 		temp=temp.substr(lf, string::npos);
+-		float r=((unsigned char)temp[1])/255.0f;
+-		float g=((unsigned char)temp[2])/255.0f;
+-		float b=((unsigned char)temp[3])/255.0f;
+-		glColor3f(r, g, b);
++		newcolor[0] = ((unsigned char)temp[1])/255.0f;
++		newcolor[1] = ((unsigned char)temp[2])/255.0f;
++		newcolor[2] = ((unsigned char)temp[3])/255.0f;
++		glColor4fv(color);
+ 		temp=temp.substr(4, string::npos);
+ 	}
+-	RenderString(x, y, s, (const unsigned char*)temp.c_str());
++	if (outline)
++		RenderStringOutlined(x, y, s, (const unsigned char*)temp.c_str());
++	else
++		RenderString(x, y, s, (const unsigned char*)temp.c_str());
++	color = oldcolor;
+ }
+ 
+ void CglFont::glFormatAt(GLfloat x, GLfloat y, float s, const char *fmt, ...)
+
+Modified: trunk/rts/Rendering/glFont.h
+===================================================================
+--- trunk/rts/Rendering/glFont.h	2008-06-08 07:58:32 UTC (rev 5996)
++++ trunk/rts/Rendering/glFont.h	2008-06-08 13:26:22 UTC (rev 5997)
+@@ -27,6 +27,7 @@
+ 	void glPrintRight (float x,float y, float s, const char *fmt,...);
+ 	void glPrintCentered (float x,float y, float s, const char *fmt,...);
+ 	void Outline(bool enable, const float *color, const float *outlineColor = 0);		/// Enable outlining for the next drawing operation.
++	void OutlineS(bool enable, const float *outlineColor = 0);		/// Enable outlining for the next drawing operation.
+ 
+ 	// The &quot;outlined&quot; functions are for convenience; their functionality may be obtained by calling Outline() before rendering text.
+ 	void glPrintOutlinedAt(float x, float y, float scale, const char* text, const float* normalColor);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000776.html">[Taspring-linux-commit] r5996 - trunk/rts/Sim/Units/CommandAI
+</A></li>
+	<LI>Next message: <A HREF="000778.html">[Taspring-linux-commit] r5998 - trunk/installer/builddata/maphelper
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#777">[ date ]</a>
+              <a href="thread.html#777">[ thread ]</a>
+              <a href="subject.html#777">[ subject ]</a>
+              <a href="author.html#777">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

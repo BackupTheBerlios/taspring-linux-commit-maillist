@@ -1,0 +1,479 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7160 - in trunk/rts: Game Game/UI	Sim/Projectiles Sim/Projectiles/WeaponProjectiles Sim/Units	Sim/Units/COB Sim/Weapons
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7160%20-%20in%20trunk/rts%3A%20Game%20Game/UI%0A%09Sim/Projectiles%20Sim/Projectiles/WeaponProjectiles%20Sim/Units%0A%09Sim/Units/COB%20Sim/Weapons&In-Reply-To=%3C20081210000624.5E19E47A0%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001928.html">
+   <LINK REL="Next"  HREF="001930.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7160 - in trunk/rts: Game Game/UI	Sim/Projectiles Sim/Projectiles/WeaponProjectiles Sim/Units	Sim/Units/COB Sim/Weapons</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7160%20-%20in%20trunk/rts%3A%20Game%20Game/UI%0A%09Sim/Projectiles%20Sim/Projectiles/WeaponProjectiles%20Sim/Units%0A%09Sim/Units/COB%20Sim/Weapons&In-Reply-To=%3C20081210000624.5E19E47A0%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r7160 - in trunk/rts: Game Game/UI	Sim/Projectiles Sim/Projectiles/WeaponProjectiles Sim/Units	Sim/Units/COB Sim/Weapons">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Dec 10 01:06:24 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001928.html">[Taspring-linux-commit] r7159 -	branches/caiinterface/installer/sections
+</A></li>
+        <LI>Next message: <A HREF="001930.html">[Taspring-linux-commit] r7161 - branches/caiinterface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1929">[ date ]</a>
+              <a href="thread.html#1929">[ thread ]</a>
+              <a href="subject.html#1929">[ subject ]</a>
+              <a href="author.html#1929">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: jk
+Date: 2008-12-10 01:06:23 +0100 (Wed, 10 Dec 2008)
+New Revision: 7160
+
+Modified:
+   trunk/rts/Game/GameHelper.cpp
+   trunk/rts/Game/GameHelper.h
+   trunk/rts/Game/UI/GuiHandler.cpp
+   trunk/rts/Game/UI/HwMouseCursor.cpp
+   trunk/rts/Sim/Projectiles/PieceProjectile.cpp
+   trunk/rts/Sim/Projectiles/WeaponProjectiles/WeaponProjectile.cpp
+   trunk/rts/Sim/Units/COB/CobInstance.cpp
+   trunk/rts/Sim/Units/Unit.cpp
+   trunk/rts/Sim/Units/Unit.h
+   trunk/rts/Sim/Units/UnitHandler.cpp
+   trunk/rts/Sim/Weapons/BeamLaser.cpp
+   trunk/rts/Sim/Weapons/LightningCannon.cpp
+Log:
+refactored impactOnly into GameHelper::Explosion()
+
+Modified: trunk/rts/Game/GameHelper.cpp
+===================================================================
+--- trunk/rts/Game/GameHelper.cpp	2008-12-09 23:45:35 UTC (rev 7159)
++++ trunk/rts/Game/GameHelper.cpp	2008-12-10 00:06:23 UTC (rev 7160)
+@@ -165,7 +165,7 @@
+ void CGameHelper::Explosion(float3 expPos, const DamageArray&amp; damages,
+                             float expRad, float edgeEffectiveness,
+                             float expSpeed, CUnit* owner,
+-                            bool damageGround, float gfxMod, bool ignoreOwner,
++                            bool damageGround, float gfxMod, bool ignoreOwner, bool impactOnly,
+                             CExplosionGenerator* explosionGraphics, CUnit* hit,
+                             const float3&amp; impactDir, int weaponId)
+ {
+@@ -189,50 +189,55 @@
+ 	float h2 = ground-&gt;GetHeight2(expPos.x, expPos.z);
+ 	expPos.y = std::max(expPos.y, h2);
+ 	expRad = std::max(expRad, 1.0f);
+-	float height = std::max(expPos.y - h2, 0.0f);
+ 
++	if (impactOnly) {
++		if (hit)
++			DoExplosionDamage(hit, expPos, expRad, expSpeed, ignoreOwner, owner, edgeEffectiveness, damages, weaponId);
++	} else {
++		float height = std::max(expPos.y - h2, 0.0f);
+ 
+-	// damage all units within the explosion radius
+-	vector&lt;CUnit*&gt; units = qf-&gt;GetUnitsExact(expPos, expRad);
+-	vector&lt;CUnit*&gt;::iterator ui;
+-	bool hitUnitDamaged = false;
++		// damage all units within the explosion radius
++		vector&lt;CUnit*&gt; units = qf-&gt;GetUnitsExact(expPos, expRad);
++		vector&lt;CUnit*&gt;::iterator ui;
++		bool hitUnitDamaged = false;
+ 
+-	for (ui = units.begin(); ui != units.end(); ++ui) {
+-		CUnit* unit = *ui;
++		for (ui = units.begin(); ui != units.end(); ++ui) {
++			CUnit* unit = *ui;
+ 
+-		if (unit == hit) {
+-			hitUnitDamaged = true;
++			if (unit == hit) {
++				hitUnitDamaged = true;
++			}
++	
++			DoExplosionDamage(unit, expPos, expRad, expSpeed, ignoreOwner, owner, edgeEffectiveness, damages, weaponId);
+ 		}
+ 
+-		DoExplosionDamage(unit, expPos, expRad, expSpeed, ignoreOwner, owner, edgeEffectiveness, damages, weaponId);
+-	}
++		// HACK: for a unit with an offset coldet volume, the explosion
++		// (from an impacting projectile) position might not correspond
++		// to its quadfield position so we need to damage it separately
++		if (hit &amp;&amp; !hitUnitDamaged) {
++			DoExplosionDamage(hit, expPos, expRad, expSpeed, ignoreOwner, owner, edgeEffectiveness, damages, weaponId);
++		}
+ 
+-	// HACK: for a unit with an offset coldet volume, the explosion
+-	// (from an impacting projectile) position might not correspond
+-	// to its quadfield position so we need to damage it separately
+-	if (hit &amp;&amp; !hitUnitDamaged) {
+-		DoExplosionDamage(hit, expPos, expRad, expSpeed, ignoreOwner, owner, edgeEffectiveness, damages, weaponId);
+-	}
+ 
++		// damage all features within the explosion radius
++		vector&lt;CFeature*&gt; features = qf-&gt;GetFeaturesExact(expPos, expRad);
++		vector&lt;CFeature*&gt;::iterator fi;
+ 
+-	// damage all features within the explosion radius
+-	vector&lt;CFeature*&gt; features = qf-&gt;GetFeaturesExact(expPos, expRad);
+-	vector&lt;CFeature*&gt;::iterator fi;
++		for (fi = features.begin(); fi != features.end(); ++fi) {
++			CFeature* feature = *fi;
+ 
+-	for (fi = features.begin(); fi != features.end(); ++fi) {
+-		CFeature* feature = *fi;
++			DoExplosionDamage(feature, expPos, expRad, owner, damages);
++		}
+ 
+-		DoExplosionDamage(feature, expPos, expRad, owner, damages);
+-	}
+-
+-	// deform the map
+-	if (damageGround &amp;&amp; !mapDamage-&gt;disabled &amp;&amp;
+-	    (expRad &gt; height) &amp;&amp; (damages.craterMult &gt; 0.0f)) {
+-		float damage = damages[0] * (1.0f - (height / expRad));
+-		if (damage &gt; (expRad * 10.0f)) {
+-			damage = expRad * 10.0f; // limit the depth somewhat
++		// deform the map
++		if (damageGround &amp;&amp; !mapDamage-&gt;disabled &amp;&amp;
++		    (expRad &gt; height) &amp;&amp; (damages.craterMult &gt; 0.0f)) {
++			float damage = damages[0] * (1.0f - (height / expRad));
++			if (damage &gt; (expRad * 10.0f)) {
++				damage = expRad * 10.0f; // limit the depth somewhat
++			}
++			mapDamage-&gt;Explosion(expPos, (damage + damages.craterBoost) * damages.craterMult, expRad - height);
+ 		}
+-		mapDamage-&gt;Explosion(expPos, (damage + damages.craterBoost) * damages.craterMult, expRad - height);
+ 	}
+ 
+ 	// use CStdExplosionGenerator by default
+@@ -336,7 +341,6 @@
+ 	CollisionQuery cq;
+ 
+ 	GML_RECMUTEX_LOCK(quad); // GuiTraceRay
+-
+ 	vector&lt;int&gt; quads = qf-&gt;GetQuadsOnRay(start, dir, length);
+ 	vector&lt;int&gt;::iterator qi;
+ 
+
+Modified: trunk/rts/Game/GameHelper.h
+===================================================================
+--- trunk/rts/Game/GameHelper.h	2008-12-09 23:45:35 UTC (rev 7159)
++++ trunk/rts/Game/GameHelper.h	2008-12-10 00:06:23 UTC (rev 7160)
+@@ -45,7 +45,7 @@
+ 
+ 	void DoExplosionDamage(CUnit*, const float3&amp;, float, float, bool, CUnit*, float, const DamageArray&amp;, int);
+ 	void DoExplosionDamage(CFeature*, const float3&amp;, float, CUnit*, const DamageArray&amp;);
+-	void Explosion(float3 pos, const DamageArray&amp; damages,float radius, float edgeEffectiveness, float explosionSpeed, CUnit* owner,bool damageGround,float gfxMod,bool ignoreOwner, CExplosionGenerator *explosionGraphics,CUnit *hit, const float3 &amp;impactDir, int weaponId);
++	void Explosion(float3 pos, const DamageArray&amp; damages,float radius, float edgeEffectiveness, float explosionSpeed, CUnit* owner,bool damageGround,float gfxMod,bool ignoreOwner,bool impactOnly, CExplosionGenerator *explosionGraphics,CUnit *hit, const float3 &amp;impactDir, int weaponId);
+ 
+ 	float TraceRayTeam(const float3&amp; start,const float3&amp; dir,float length, CUnit*&amp; hit,bool useRadar,CUnit* exclude,int allyteam);
+ 	void BuggerOff(float3 pos, float radius,CUnit* exclude=0);
+
+Modified: trunk/rts/Game/UI/GuiHandler.cpp
+===================================================================
+--- trunk/rts/Game/UI/GuiHandler.cpp	2008-12-09 23:45:35 UTC (rev 7159)
++++ trunk/rts/Game/UI/GuiHandler.cpp	2008-12-10 00:06:23 UTC (rev 7160)
+@@ -37,7 +37,6 @@
+ #include &quot;Rendering/GL/myGL.h&quot;
+ #include &quot;Rendering/Textures/Bitmap.h&quot;
+ #include &quot;Rendering/Textures/NamedTextures.h&quot;
+-#include &quot;Rendering/Textures/TextureHandler.h&quot;
+ #include &quot;Rendering/UnitModels/3DOParser.h&quot;
+ #include &quot;Rendering/UnitModels/UnitDrawer.h&quot;
+ #include &quot;Sim/Features/Feature.h&quot;
+
+Modified: trunk/rts/Game/UI/HwMouseCursor.cpp
+===================================================================
+--- trunk/rts/Game/UI/HwMouseCursor.cpp	2008-12-09 23:45:35 UTC (rev 7159)
++++ trunk/rts/Game/UI/HwMouseCursor.cpp	2008-12-10 00:06:23 UTC (rev 7160)
+@@ -217,7 +217,7 @@
+ 	dst += 4;
+ 
+ 	////////////////////////////////////////////////////////////////////////////////////////////////
+-	// the following code writes a full working .cur file in the memory (in a .ani container)
++	// the following code writes a fully working .cur file in the memory (in a .ani container)
+ 
+ 	//file header
+ 	WORD* header = (WORD*)&amp;dst[0]; int i=0;
+
+Modified: trunk/rts/Sim/Projectiles/PieceProjectile.cpp
+===================================================================
+--- trunk/rts/Sim/Projectiles/PieceProjectile.cpp	2008-12-09 23:45:35 UTC (rev 7159)
++++ trunk/rts/Sim/Projectiles/PieceProjectile.cpp	2008-12-10 00:06:23 UTC (rev 7160)
+@@ -188,7 +188,7 @@
+ 		pos += norm * 0.1f;
+ 	} else {
+ 		if (flags &amp; PP_Explode) {
+-			helper-&gt;Explosion(pos, DamageArray() * 50, 5, 0, 10, owner, false, 1.0f, false, 0, 0, ZeroVector, -1);
++			helper-&gt;Explosion(pos, DamageArray() * 50, 5, 0, 10, owner, false, 1.0f, false, false, 0, 0, ZeroVector, -1);
+ 		}
+ 		if (flags &amp; PP_Smoke) {
+ 			if (flags &amp; PP_NoCEGTrail) {
+@@ -212,7 +212,7 @@
+ 	if (unit == owner)
+ 		return;
+ 	if (flags &amp; PP_Explode) {
+-		helper-&gt;Explosion(pos, DamageArray() * 50, 5, 0, 10, owner, false, 1.0f, false, 0, unit, ZeroVector, -1);
++		helper-&gt;Explosion(pos, DamageArray() * 50, 5, 0, 10, owner, false, 1.0f, false, false, 0, unit, ZeroVector, -1);
+ 	}
+ 	if (flags &amp; PP_Smoke) {
+ 		if (flags &amp; PP_NoCEGTrail) {
+
+Modified: trunk/rts/Sim/Projectiles/WeaponProjectiles/WeaponProjectile.cpp
+===================================================================
+--- trunk/rts/Sim/Projectiles/WeaponProjectiles/WeaponProjectile.cpp	2008-12-09 23:45:35 UTC (rev 7159)
++++ trunk/rts/Sim/Projectiles/WeaponProjectiles/WeaponProjectile.cpp	2008-12-10 00:06:23 UTC (rev 7160)
+@@ -130,22 +130,13 @@
+ 					weaponDef-&gt;dynDamageExp, weaponDef-&gt;dynDamageMin,
+ 					weaponDef-&gt;dynDamageInverted);
+ 
+-		if (weaponDef-&gt;impactOnly) {
+-			if (weaponDef-&gt;explosionGenerator) {
+-				weaponDef-&gt;explosionGenerator-&gt;Explosion(pos,((weaponDef-&gt;dynDamageExp&gt;0)
+-						? dynDamages : weaponDef-&gt;damages)[0],weaponDef-&gt;areaOfEffect,owner,0,NULL,impactDir);
+-			}
+-		} else {
+-			helper-&gt;Explosion(pos,
+-				(weaponDef-&gt;dynDamageExp &gt; 0)?
+-					dynDamages:
+-					weaponDef-&gt;damages,
+-				weaponDef-&gt;areaOfEffect, weaponDef-&gt;edgeEffectiveness,
+-				weaponDef-&gt;explosionSpeed, owner, true,
+-				weaponDef-&gt;noExplode ? 0.3f : 1,
+-				weaponDef-&gt;noExplode || weaponDef-&gt;noSelfDamage,
+-				weaponDef-&gt;explosionGenerator, 0, impactDir, weaponDef-&gt;id);
+-		}
++		helper-&gt;Explosion(pos,
++			(weaponDef-&gt;dynDamageExp &gt; 0) ? dynDamages : weaponDef-&gt;damages,
++			weaponDef-&gt;areaOfEffect, weaponDef-&gt;edgeEffectiveness,
++			weaponDef-&gt;explosionSpeed, owner, true,
++			weaponDef-&gt;noExplode ? 0.3f : 1,
++			weaponDef-&gt;noExplode || weaponDef-&gt;noSelfDamage, weaponDef-&gt;impactOnly,
++			weaponDef-&gt;explosionGenerator, 0, impactDir, weaponDef-&gt;id);
+ 	}
+ 
+ 	if (weaponDef-&gt;soundhit.getID(0) &gt; 0) {
+@@ -193,23 +184,13 @@
+ 			damages = weaponDef-&gt;damages;
+ 		}
+ 
+-		if (weaponDef-&gt;impactOnly) {
+-			unit-&gt;DoDamage(
+-				damages, owner,
+-				impactDir * (damages[0] + weaponDef-&gt;damages.impulseBoost)
+-				* weaponDef-&gt;damages.impulseFactor, weaponDef-&gt;id);
+-			if (weaponDef-&gt;explosionGenerator) {
+-				weaponDef-&gt;explosionGenerator-&gt;Explosion(pos,damages[0],weaponDef-&gt;areaOfEffect,owner,0,unit,impactDir);
+-			}
+-		}
+-		else {
+-		    helper-&gt;Explosion(pos, damages,
+-				weaponDef-&gt;areaOfEffect, weaponDef-&gt;edgeEffectiveness,
+-				weaponDef-&gt;explosionSpeed, owner, true,
+-				weaponDef-&gt;noExplode ? 0.3f : 1,
+-				weaponDef-&gt;noExplode || weaponDef-&gt;noSelfDamage, weaponDef-&gt;explosionGenerator, unit,
+-				impactDir, weaponDef-&gt;id);
+-		}
++		helper-&gt;Explosion(pos, damages,
++			weaponDef-&gt;areaOfEffect, weaponDef-&gt;edgeEffectiveness,
++			weaponDef-&gt;explosionSpeed, owner, true,
++			weaponDef-&gt;noExplode ? 0.3f : 1,
++			weaponDef-&gt;noExplode, weaponDef-&gt;impactOnly,
++			weaponDef-&gt;explosionGenerator, unit,
++			impactDir, weaponDef-&gt;id);
+ 	}
+ 
+ 	if (weaponDef-&gt;soundhit.getID(0) &gt; 0) {
+@@ -353,5 +334,6 @@
+ 				modelDispList= model-&gt;rootobjects3o-&gt;displist;*/
+ 		}
+ 	}
++
+ //	collisionFlags = weaponDef-&gt;collisionFlags;
+ }
+
+Modified: trunk/rts/Sim/Units/COB/CobInstance.cpp
+===================================================================
+--- trunk/rts/Sim/Units/COB/CobInstance.cpp	2008-12-09 23:45:35 UTC (rev 7159)
++++ trunk/rts/Sim/Units/COB/CobInstance.cpp	2008-12-10 00:06:23 UTC (rev 7160)
+@@ -734,7 +734,7 @@
+ 
+ 				helper-&gt;Explosion(
+ 					pos, weaponDef-&gt;damages, weaponDef-&gt;areaOfEffect, weaponDef-&gt;edgeEffectiveness,
+-					weaponDef-&gt;explosionSpeed, unit, true, 1.0f, weaponDef-&gt;noSelfDamage, weaponDef-&gt;explosionGenerator,
++					weaponDef-&gt;explosionSpeed, unit, true, 1.0f, weaponDef-&gt;noSelfDamage, weaponDef-&gt;impactOnly, weaponDef-&gt;explosionGenerator,
+ 					NULL, float3(0, 0, 0), weaponDef-&gt;id
+ 				);
+ 			}
+
+Modified: trunk/rts/Sim/Units/Unit.cpp
+===================================================================
+--- trunk/rts/Sim/Units/Unit.cpp	2008-12-09 23:45:35 UTC (rev 7159)
++++ trunk/rts/Sim/Units/Unit.cpp	2008-12-10 00:06:23 UTC (rev 7160)
+@@ -1173,15 +1173,13 @@
+ 			return CMatrix44f(interPos, -rightdir, updir, frontdir);
+ 		}
+ 	}
+-	else {
+-		// making local copies of vectors
+-		float3 frontDir = GetVectorFromHeading(heading);
+-		float3 upDir    = ground-&gt;GetSmoothNormal(pos.x, pos.z);
+-		float3 rightDir = frontDir.cross(upDir);
+-		rightDir.Normalize();
+-		frontDir = upDir.cross(rightDir);
+-		return CMatrix44f(interPos, -rightDir, upDir, frontDir);
+-	}
++	// making local copies of vectors
++	float3 frontDir = GetVectorFromHeading(heading);
++	float3 upDir    = ground-&gt;GetSmoothNormal(pos.x, pos.z);
++	float3 rightDir = frontDir.cross(upDir);
++	rightDir.Normalize();
++	frontDir = upDir.cross(rightDir);
++	return CMatrix44f(interPos, -rightDir, upDir, frontDir);
+ }
+ 
+ 
+@@ -1402,6 +1400,7 @@
+ 		CCommandQueue&amp; buildCommands = facAI-&gt;commandQue;
+ 		CCommandQueue::iterator it;
+ 		std::vector&lt;Command&gt; clearCommands;
++		clearCommands.reserve(buildCommands.size());
+ 		for (it = buildCommands.begin(); it != buildCommands.end(); ++it) {
+ 			c.id = it-&gt;id;
+ 			clearCommands.push_back(c);
+@@ -1914,7 +1913,7 @@
+ 				helper-&gt;Explosion(
+ 					midPos, wd-&gt;damages, wd-&gt;areaOfEffect, wd-&gt;edgeEffectiveness,
+ 					wd-&gt;explosionSpeed, this, true, wd-&gt;damages[0] &gt; 500 ? 1 : 2,
+-					false, wd-&gt;explosionGenerator, 0, ZeroVector, wd-&gt;id
++					false, false, wd-&gt;explosionGenerator, 0, ZeroVector, wd-&gt;id
+ 				);
+ 
+ 				// play explosion sound
+@@ -1922,7 +1921,7 @@
+ 					// HACK: loading code doesn't set sane defaults for explosion sounds, so we do it here
+ 					// NOTE: actually no longer true, loading code always ensures that sound volume != -1
+ 					float volume = wd-&gt;soundhit.getVolume(0);
+-					sound-&gt;PlaySample(wd-&gt;soundhit.getID(0), pos, (volume == -1) ? 5.0f : volume);
++					sound-&gt;PlaySample(wd-&gt;soundhit.getID(0), pos, (volume == -1) ? 1.0f : volume);
+ 				}
+ 			}
+ 		}
+@@ -2070,7 +2069,7 @@
+ }
+ 
+ 
+-void CUnit::PushWind(float x, float z, float strength)
++void CUnit::UpdateWind(float x, float z, float strength)
+ {
+ 	if (strength &gt; unitDef-&gt;windGenerator) {
+ 		cob-&gt;Call(COBFN_SetSpeed, (int)(unitDef-&gt;windGenerator*3000.0f));
+@@ -2250,7 +2249,7 @@
+ 		if (wind.GetCurrentStrength() &gt; unitDef-&gt;windGenerator) {
+ 			cob-&gt;Call(COBFN_SetSpeed, (int)(unitDef-&gt;windGenerator * 3000.0f));
+ 		} else {
+-			cob-&gt;Call(COBFN_SetSpeed, (int)(wind.GetCurrentStrength()       * 3000.0f));
++			cob-&gt;Call(COBFN_SetSpeed, (int)(wind.GetCurrentStrength() * 3000.0f));
+ 		}
+ 		cob-&gt;Call(COBFN_SetDirection, (int)GetHeadingFromVector(-wind.GetCurrentDirection().x, -wind.GetCurrentDirection().z));
+ 	}
+
+Modified: trunk/rts/Sim/Units/Unit.h
+===================================================================
+--- trunk/rts/Sim/Units/Unit.h	2008-12-09 23:45:35 UTC (rev 7159)
++++ trunk/rts/Sim/Units/Unit.h	2008-12-10 00:06:23 UTC (rev 7160)
+@@ -122,7 +122,7 @@
+ 	void AddMetal(float metal, bool handicap = true);
+ 	bool UseEnergy(float energy);
+ 	void AddEnergy(float energy, bool handicap = true);
+-	void PushWind(float x, float z, float strength);		//push the new wind to the script
++	void UpdateWind(float x, float z, float strength);		//push the new wind to the script
+ 	void SetMetalStorage(float newStorage);
+ 	void SetEnergyStorage(float newStorage);
+ 
+
+Modified: trunk/rts/Sim/Units/UnitHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitHandler.cpp	2008-12-09 23:45:35 UTC (rev 7159)
++++ trunk/rts/Sim/Units/UnitHandler.cpp	2008-12-10 00:06:23 UTC (rev 7160)
+@@ -138,7 +138,7 @@
+ 	limitDgun(false),
+ 	morphUnitToFeature(true)
+ {
+-	//unitModelLoader=SAFE_NEW CUnit3DLoader;
++	freeIDs.reserve(MAX_UNITS-1);
+ 	for (int a = 1; a &lt; MAX_UNITS; a++) {
+ 		freeIDs.push_back(a);
+ 		units[a] = NULL;
+@@ -616,7 +616,7 @@
+ 	for(usi=activeUnits.begin();usi!=activeUnits.end();usi++)
+ 	{
+ 		if((*usi)-&gt;unitDef-&gt;windGenerator)
+-			(*usi)-&gt;PushWind(x,z,strength);
++			(*usi)-&gt;UpdateWind(x,z,strength);
+ 	}
+ }
+ 
+
+Modified: trunk/rts/Sim/Weapons/BeamLaser.cpp
+===================================================================
+--- trunk/rts/Sim/Weapons/BeamLaser.cpp	2008-12-09 23:45:35 UTC (rev 7159)
++++ trunk/rts/Sim/Weapons/BeamLaser.cpp	2008-12-10 00:06:23 UTC (rev 7160)
+@@ -269,7 +269,7 @@
+ 		DamageArray dynDamages;
+ 		if (weaponDef-&gt;dynDamageExp &gt; 0)
+ 			dynDamages = weaponDefHandler-&gt;DynamicDamages(weaponDef-&gt;damages, weaponMuzzlePos, curPos, weaponDef-&gt;dynDamageRange&gt;0?weaponDef-&gt;dynDamageRange:weaponDef-&gt;range, weaponDef-&gt;dynDamageExp, weaponDef-&gt;dynDamageMin, weaponDef-&gt;dynDamageInverted);
+-		helper-&gt;Explosion(hitPos, weaponDef-&gt;dynDamageExp&gt;0?dynDamages*(intensity*damageMul):weaponDef-&gt;damages*(intensity*damageMul), areaOfEffect, weaponDef-&gt;edgeEffectiveness, weaponDef-&gt;explosionSpeed,owner, true, 1.0f, weaponDef-&gt;noSelfDamage, weaponDef-&gt;explosionGenerator, hit, dir, weaponDef-&gt;id);
++		helper-&gt;Explosion(hitPos, weaponDef-&gt;dynDamageExp&gt;0?dynDamages*(intensity*damageMul):weaponDef-&gt;damages*(intensity*damageMul), areaOfEffect, weaponDef-&gt;edgeEffectiveness, weaponDef-&gt;explosionSpeed,owner, true, 1.0f, false, false, weaponDef-&gt;explosionGenerator, hit, dir, weaponDef-&gt;id);
+ 	}
+ 
+ 	if(targetUnit)
+
+Modified: trunk/rts/Sim/Weapons/LightningCannon.cpp
+===================================================================
+--- trunk/rts/Sim/Weapons/LightningCannon.cpp	2008-12-09 23:45:35 UTC (rev 7159)
++++ trunk/rts/Sim/Weapons/LightningCannon.cpp	2008-12-10 00:06:23 UTC (rev 7160)
+@@ -110,7 +110,7 @@
+ 	if (weaponDef-&gt;dynDamageExp &gt; 0)
+ 		dynDamages = weaponDefHandler-&gt;DynamicDamages(weaponDef-&gt;damages, weaponMuzzlePos, targetPos, weaponDef-&gt;dynDamageRange&gt;0?weaponDef-&gt;dynDamageRange:weaponDef-&gt;range, weaponDef-&gt;dynDamageExp, weaponDef-&gt;dynDamageMin, weaponDef-&gt;dynDamageInverted);
+ 
+-	helper-&gt;Explosion(weaponMuzzlePos+dir*r,weaponDef-&gt;dynDamageExp&gt;0?dynDamages:weaponDef-&gt;damages,areaOfEffect,weaponDef-&gt;edgeEffectiveness,weaponDef-&gt;explosionSpeed,owner,true,0.5f,weaponDef-&gt;noSelfDamage,weaponDef-&gt;explosionGenerator, u,dir, weaponDef-&gt;id);
++	helper-&gt;Explosion(weaponMuzzlePos+dir*r,weaponDef-&gt;dynDamageExp&gt;0?dynDamages:weaponDef-&gt;damages,areaOfEffect,weaponDef-&gt;edgeEffectiveness,weaponDef-&gt;explosionSpeed,owner,false,0.5f,true,false,weaponDef-&gt;explosionGenerator, u,dir, weaponDef-&gt;id);
+ 
+ 	SAFE_NEW CLightningProjectile(weaponMuzzlePos,
+ 		weaponMuzzlePos + dir * (r + 10), owner, color, weaponDef, 10, this);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001928.html">[Taspring-linux-commit] r7159 -	branches/caiinterface/installer/sections
+</A></li>
+	<LI>Next message: <A HREF="001930.html">[Taspring-linux-commit] r7161 - branches/caiinterface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1929">[ date ]</a>
+              <a href="thread.html#1929">[ thread ]</a>
+              <a href="subject.html#1929">[ subject ]</a>
+              <a href="author.html#1929">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

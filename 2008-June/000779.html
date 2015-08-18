@@ -1,0 +1,210 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5999 - in trunk/rts: Game System
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-June/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5999%20-%20in%20trunk/rts%3A%20Game%20System&In-Reply-To=%3C20080608181847.8DE9647CD%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000778.html">
+   <LINK REL="Next"  HREF="000780.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5999 - in trunk/rts: Game System</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5999%20-%20in%20trunk/rts%3A%20Game%20System&In-Reply-To=%3C20080608181847.8DE9647CD%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5999 - in trunk/rts: Game System">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Jun  8 20:18:47 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000778.html">[Taspring-linux-commit] r5998 - trunk/installer/builddata/maphelper
+</A></li>
+        <LI>Next message: <A HREF="000780.html">[Taspring-linux-commit] r6000 - in trunk/rts: Game Game/UI	Sim/Features
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#779">[ date ]</a>
+              <a href="thread.html#779">[ thread ]</a>
+              <a href="subject.html#779">[ subject ]</a>
+              <a href="author.html#779">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-06-08 20:18:45 +0200 (Sun, 08 Jun 2008)
+New Revision: 5999
+
+Modified:
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameServer.h
+   trunk/rts/System/NetProtocol.cpp
+Log:
+* fixed unhandled netmsg for game hosts
+
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-06-08 16:28:08 UTC (rev 5998)
++++ trunk/rts/Game/GameServer.cpp	2008-06-08 18:18:45 UTC (rev 5999)
+@@ -103,8 +103,6 @@
+ #ifdef DEBUG
+ 	gameClientUpdated=false;
+ #endif
+-	demoReader = 0;
+-	hostif = 0;
+ 	hasLocalClient = false;
+ 	localClientNumber = 0;
+ 	IsPaused = false;
+@@ -138,7 +136,7 @@
+ 	if (!demoName.empty())
+ 	{
+ 		Message(str( format(PlayingDemo) %demoName ));
+-		demoReader = new CDemoReader(demoName, modGameTime+0.1f);
++		demoReader.reset(new CDemoReader(demoName, modGameTime+0.1f));
+ 	}
+ 
+ 	RestrictedAction(&quot;kick&quot;);			RestrictedAction(&quot;kickbynum&quot;);
+@@ -173,14 +171,6 @@
+ 	quitServer=true;
+ 	thread-&gt;join();
+ 	delete thread;
+-	if (demoReader)
+-		delete demoReader;
+-
+-	if (hostif)
+-	{
+-		hostif-&gt;SendQuit();
+-		delete hostif;
+-	}
+ }
+ 
+ void CGameServer::AddLocalClient(unsigned wantedNumber)
+@@ -193,10 +183,10 @@
+ 
+ void CGameServer::AddAutohostInterface(const int remotePort)
+ {
+-	if (hostif == 0)
++	if (!hostif)
+ 	{
+ 		boost::recursive_mutex::scoped_lock scoped_lock(gameServerMutex);
+-		hostif = new AutohostInterface(remotePort);
++		hostif.reset(new AutohostInterface(remotePort));
+ 		hostif-&gt;SendStart();
+ 		Message(str(format(ConnectAutohost) %remotePort));
+ 	}
+@@ -277,8 +267,7 @@
+ 	}
+ 
+ 	if (demoReader-&gt;ReachedEnd()) {
+-		delete demoReader;
+-		demoReader = 0;
++		demoReader.reset();
+ 		Message(DemoEnd);
+ 		gameEndTime = SDL_GetTicks();
+ 	}
+@@ -286,7 +275,7 @@
+ 
+ void CGameServer::Broadcast(boost::shared_ptr&lt;const netcode::RawPacket&gt; packet)
+ {
+-	for (unsigned p = 0; p &lt; MAX_PLAYERS; ++p)
++	for (unsigned p = 0; p &lt; static_cast&lt;unsigned&gt;(MAX_PLAYERS); ++p)
+ 	{
+ 		if (players[p])
+ 			players[p]-&gt;link-&gt;SendData(packet);
+@@ -430,7 +419,7 @@
+ 	}
+ 
+ 	// when hosting a demo, read from file and broadcast data
+-	if (demoReader != 0)
++	if (demoReader)
+ 	{
+ 		CheckSync();
+ 		SendDemoData();
+@@ -472,7 +461,7 @@
+ 	if ((SDL_GetTicks() - serverStartTime) &gt; serverTimeout)
+ 	{
+ 		bool hasPlayers = false;
+-		for (unsigned i = 0; i &lt; MAX_PLAYERS; ++i)
++		for (unsigned i = 0; i &lt; static_cast&lt;unsigned&gt;(MAX_PLAYERS); ++i)
+ 		{
+ 			if (players[i])
+ 				hasPlayers = true;
+@@ -1207,8 +1196,8 @@
+ 	for (unsigned a = 0; (int)a &lt; gs-&gt;activeTeams; ++a)
+ 	{
+ 		bool hasPlayer = false;
+-		for (int b = 0; b &lt; gs-&gt;activePlayers; ++b) {
+-			if (gs-&gt;players[b]-&gt;active &amp;&amp; gs-&gt;players[b]-&gt;team==a &amp;&amp; !gs-&gt;players[b]-&gt;spectator) {
++		for (unsigned b = 0; b &lt; static_cast&lt;unsigned&gt;(gs-&gt;activePlayers); ++b) {
++			if (gs-&gt;players[b]-&gt;active &amp;&amp; gs-&gt;players[b]-&gt;team == static_cast&lt;int&gt;(a) &amp;&amp; !gs-&gt;players[b]-&gt;spectator) {
+ 				hasPlayer = true;
+ 			}
+ 		}
+@@ -1358,7 +1347,7 @@
+ 	}
+ 	if (players[hisNewNumber])
+ 	{
+-		for (unsigned p = 0; p &lt; MAX_PLAYERS; ++p)
++		for (unsigned p = 0; p &lt; static_cast&lt;unsigned&gt;(MAX_PLAYERS); ++p)
+ 		{
+ 			if (!players[p])
+ 			{
+
+Modified: trunk/rts/Game/GameServer.h
+===================================================================
+--- trunk/rts/Game/GameServer.h	2008-06-08 16:28:08 UTC (rev 5998)
++++ trunk/rts/Game/GameServer.h	2008-06-08 18:18:45 UTC (rev 5999)
+@@ -194,8 +194,8 @@
+ 	/// If the server recieves a command, it will forward it to clients if it is not in this set
+ 	std::set&lt;std::string&gt; commandBlacklist;
+ 	boost::scoped_ptr&lt;netcode::UDPListener&gt; UDPNet;
+-	CDemoReader* demoReader;
+-	AutohostInterface* hostif;
++	boost::scoped_ptr&lt;CDemoReader&gt; demoReader;
++	boost::scoped_ptr&lt;AutohostInterface&gt; hostif;
+ 	UnsyncedRNG rng;
+ 	boost::thread* thread;
+ 	mutable boost::recursive_mutex gameServerMutex;
+
+Modified: trunk/rts/System/NetProtocol.cpp
+===================================================================
+--- trunk/rts/System/NetProtocol.cpp	2008-06-08 16:28:08 UTC (rev 5998)
++++ trunk/rts/System/NetProtocol.cpp	2008-06-08 18:18:45 UTC (rev 5999)
+@@ -45,7 +45,6 @@
+ void CNetProtocol::InitLocalClient(const unsigned wantedNumber)
+ {
+ 	server.reset(new netcode::CLocalConnection);
+-	server-&gt;SendData(CBaseNetProtocol::Get().SendAttemptConnect(wantedNumber, NETWORK_VERSION));
+ 	server-&gt;Flush();
+ 	isLocal = true;
+ 	if (!localDemoPlayback)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000778.html">[Taspring-linux-commit] r5998 - trunk/installer/builddata/maphelper
+</A></li>
+	<LI>Next message: <A HREF="000780.html">[Taspring-linux-commit] r6000 - in trunk/rts: Game Game/UI	Sim/Features
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#779">[ date ]</a>
+              <a href="thread.html#779">[ thread ]</a>
+              <a href="subject.html#779">[ subject ]</a>
+              <a href="author.html#779">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,234 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5425 - trunk/rts/Game
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5425%20-%20trunk/rts/Game&In-Reply-To=%3CE1JKISK-0007ML-I4%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000231.html">
+   <LINK REL="Next"  HREF="000233.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5425 - trunk/rts/Game</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5425%20-%20trunk/rts/Game&In-Reply-To=%3CE1JKISK-0007ML-I4%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5425 - trunk/rts/Game">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Jan 30 20:18:44 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000231.html">[Taspring-linux-commit] r5424 - trunk/tools/DedicatedServer
+</A></li>
+        <LI>Next message: <A HREF="000233.html">[Taspring-linux-commit] r5426 - in trunk/tools/springie/Springie: .	autohost utils
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#232">[ date ]</a>
+              <a href="thread.html#232">[ thread ]</a>
+              <a href="subject.html#232">[ subject ]</a>
+              <a href="author.html#232">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-01-30 20:18:44 +0100 (Wed, 30 Jan 2008)
+New Revision: 5425
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameServer.h
+Log:
+* fix singlestep (patch by zizu)
+
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-01-30 16:48:34 UTC (rev 5424)
++++ trunk/rts/Game/Game.cpp	2008-01-30 19:18:44 UTC (rev 5425)
+@@ -1132,7 +1132,7 @@
+ 	}
+ 	else if (cmd == &quot;singlestep&quot;) {
+ 		if (gameServer &amp;&amp; gs-&gt;paused)
+-			gameServer-&gt;CreateNewFrame(false);
++			gameServer-&gt;CreateNewFrame(false, true);
+ 	}
+ 	else if (cmd == &quot;debug&quot;) {
+ 		gu-&gt;drawdebug = !gu-&gt;drawdebug;
+@@ -1900,7 +1900,7 @@
+ #endif
+ 
+ 	if(creatingVideo &amp;&amp; playing &amp;&amp; gameServer){
+-		gameServer-&gt;CreateNewFrame();
++		gameServer-&gt;CreateNewFrame(false, true);
+ 	}
+ 
+ 	if(!ClientReadNet()){
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-01-30 16:48:34 UTC (rev 5424)
++++ trunk/rts/Game/GameServer.cpp	2008-01-30 19:18:44 UTC (rev 5425)
+@@ -1,6 +1,7 @@
+ #include &quot;GameServer.h&quot;
+ 
+ #include &lt;stdarg.h&gt;
++#include &lt;ctime&gt;
+ #include &lt;boost/bind.hpp&gt;
+ #include &lt;SDL_timer.h&gt;
+ 
+@@ -66,7 +67,6 @@
+ 	gamePausable = true;
+ 	noHelperAIs = false;
+ 	sentGameOverMsg = false;
+-	nextserverframenum = 0;
+ 	serverNet = new CBaseNetProtocol();
+ 	serverNet-&gt;InitServer(port);
+ 	rng.Seed(SDL_GetTicks());
+@@ -149,8 +149,7 @@
+ {
+ 	boost::mutex::scoped_lock scoped_lock(gameServerMutex);
+ 	lastTick = newlastTick;
+-//	serverframenum = newserverframenum;
+-	nextserverframenum = newserverframenum+1;
++	serverframenum = newserverframenum;
+ }
+ 
+ void CGameServer::SkipTo(int targetframe)
+@@ -335,7 +334,7 @@
+ 	}
+ 	else if (serverframenum &gt; 0 &amp;&amp; !demoReader)
+ 	{
+-		CreateNewFrame(true);
++		CreateNewFrame(true, false);
+ 	}
+ 	serverNet-&gt;Update();
+ 
+@@ -817,7 +816,7 @@
+ 	}
+ 	timeLeft=0;
+ 	lastTick = SDL_GetTicks()-1;
+-	CreateNewFrame(true);
++	CreateNewFrame(true, false);
+ }
+ 
+ void CGameServer::SetGamePausable(const bool arg)
+@@ -866,44 +865,44 @@
+ #endif
+ }
+ 
+-void CGameServer::CreateNewFrame(bool fromServerThread)
++void CGameServer::CreateNewFrame(bool fromServerThread, bool fixedFrameTime)
+ {
+ 	boost::mutex::scoped_lock scoped_lock(gameServerMutex,!fromServerThread);
+ 	CheckSync();
++	int newFrames = 1;
+ 
+-	// Send out new frame messages.
+-	unsigned currentTick = SDL_GetTicks();
+-	unsigned timeElapsed = currentTick - lastTick;
+-	if (timeElapsed&gt;200) {
+-		timeElapsed=200;
+-	}
++	if(!fixedFrameTime){
++		unsigned currentTick = SDL_GetTicks();
++		unsigned timeElapsed = currentTick - lastTick;
++		if (timeElapsed&gt;200) {
++			timeElapsed=200;
++		}
+ 
+ #ifdef DEBUG
+-	if(gameClientUpdated){
+-		gameClientUpdated=false;
+-	}
++		if(gameClientUpdated){
++			gameClientUpdated=false;
++		}
+ #endif
+ 
+-	timeLeft+=GAME_SPEED*internalSpeed*float(timeElapsed)/1000.0f;
+-	lastTick=currentTick;
++		timeLeft+=GAME_SPEED*internalSpeed*float(timeElapsed)/1000.0f;
++		lastTick=currentTick;
++		newFrames = (timeLeft &gt; 0) ? ceil(timeLeft) : 0;
++		timeLeft -= newFrames;
++	}
+ 
+-	while((timeLeft&gt;0) &amp;&amp; !IsPaused)
+-	{
+ #ifndef NO_AVI
+-		if((!game || !game-&gt;creatingVideo) || !fromServerThread)
++	if(((!game || !game-&gt;creatingVideo) &amp;&amp; !IsPaused) || fixedFrameTime){
++#else
++	if(!IsPaused || fixedFrameTime){
+ #endif
+-		{
+-			if (nextserverframenum!=0) {
+-				serverframenum = nextserverframenum;
+-				nextserverframenum = 0;
+-			} else
+-				serverframenum++;
++		for(int i=0; i &lt; newFrames; ++i){
++			++serverframenum;
++			//Send out new frame messages.
+ 			serverNet-&gt;SendNewFrame(serverframenum);
+ #ifdef SYNCCHECK
+ 			outstandingSyncFrames.push_back(serverframenum);
+ #endif
+ 		}
+-		timeLeft--;
+ 	}
+ }
+ 
+
+Modified: trunk/rts/Game/GameServer.h
+===================================================================
+--- trunk/rts/Game/GameServer.h	2008-01-30 16:48:34 UTC (rev 5424)
++++ trunk/rts/Game/GameServer.h	2008-01-30 19:18:44 UTC (rev 5425)
+@@ -73,7 +73,7 @@
+ 	*/
+ 	void SkipTo(int targetframe);
+ 
+-	void CreateNewFrame(bool fromServerThread=false);
++	void CreateNewFrame(bool fromServerThread, bool fixedFrameTime);
+ 
+ 	bool WaitsOnCon() const;
+ 
+@@ -122,7 +122,6 @@
+ 
+ 	volatile bool quitServer;
+ 	int serverframenum;
+-	int nextserverframenum; //For loading game
+ 
+ 	unsigned serverStartTime;
+ 	unsigned readyTime;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000231.html">[Taspring-linux-commit] r5424 - trunk/tools/DedicatedServer
+</A></li>
+	<LI>Next message: <A HREF="000233.html">[Taspring-linux-commit] r5426 - in trunk/tools/springie/Springie: .	autohost utils
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#232">[ date ]</a>
+              <a href="thread.html#232">[ thread ]</a>
+              <a href="subject.html#232">[ subject ]</a>
+              <a href="author.html#232">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,192 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7510 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2010-August/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7510%20-%20Lobby/TASClient&In-Reply-To=%3C20100814201457.9C001231D9%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002279.html">
+   <LINK REL="Next"  HREF="002281.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7510 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7510%20-%20Lobby/TASClient&In-Reply-To=%3C20100814201457.9C001231D9%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7510 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Aug 14 22:14:57 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002279.html">[Taspring-linux-commit] r7509 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002281.html">[Taspring-linux-commit] r7511 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2280">[ date ]</a>
+              <a href="thread.html#2280">[ thread ]</a>
+              <a href="subject.html#2280">[ subject ]</a>
+              <a href="author.html#2280">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2010-08-14 22:14:56 +0200 (Sat, 14 Aug 2010)
+New Revision: 7510
+
+Modified:
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* duplicate users and battles checks added
+* deleting a user in a battle will raise an error
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2010-08-13 17:40:29 UTC (rev 7509)
++++ Lobby/TASClient/MainUnit.pas	2010-08-14 20:14:56 UTC (rev 7510)
+@@ -2411,8 +2411,13 @@
+ var
+   i: Integer;
+ begin
++  // makes sure all battles are removed first : dirty should be moved somewhere else
++  while Battles.Count &gt; 0 do RemoveBattleByIndex(0); // remove all battles
++
+   for i := 0 to AllClients.Count - 1 do
++  begin
+     TClient(AllClients[i]).Free;
++  end;
+ 
+   AllClients.Clear;
+ end;
+@@ -2684,6 +2689,13 @@
+ var
+   j: integer;
+ begin
++  if (Self.Battle &lt;&gt; nil) then
++  begin
++    if Self.Battle.Clients.IndexOf(Self) &gt; -1 then
++      raise Exception.Create('Critical error: Trying to delete a TClient while it is still in a Battle.Clients')
++    else
++      raise Exception.Create('Trying to delete a TClient with non nil Battle');
++  end;
+   if Name &lt;&gt; DisplayName then
+   begin
+     j := RenamesIds.IndexOf(Id);
+@@ -3108,8 +3120,11 @@
+ var
+   i: Integer;
+ begin
++  for i := 0 to Clients.Count-1 do
++    TClient(Clients[i]).Battle := nil;
+   Clients.Free;
+-  for i := 0 to Bots.Count-1 do TBot(Bots[i]).Free;
++  for i := 0 to Bots.Count-1 do
++    TBot(Bots[i]).Free;
+   Bots.Clear;
+   Bots.Free;
+   inherited Destroy;
+@@ -5805,6 +5820,18 @@
+         Exit;
+       end;
+ 
++      if (tmpInt2 &gt; 0) and (GetClientById(tmpInt2) &lt;&gt; nil) then
++      begin
++        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 149);
++        Exit;
++      end;
++
++      if GetClient(sl[1]) &lt;&gt; nil then
++      begin
++        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 150);
++        Exit;
++      end;
++
+       AddClientToAllClientsList(sl[1], 0, LowerCase(sl[2]), tmpint,tmpInt2); // server will update client's status later
+       if sl[1] = Status.Username then Status.Me := GetClient(Status.Username);
+ 
+@@ -6882,6 +6909,12 @@
+         Exit;
+       end;
+ 
++      if GetBattle(i) &lt;&gt; nil then
++      begin
++        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error,148);
++        Exit;
++      end;
++
+       tmp := sl[5]; // IP
+ 
+       try
+@@ -7158,6 +7191,13 @@
+         Exit;
+       end;
+ 
++      if Battle.Clients[0] = Client then
++      begin
++        AddMainLog(_('Warning: User left a battle he is hosting without closing it!'), Colors.Error);
++        ProcessRemoteCommand('BATTLECLOSED '+IntToStr(Battle.ID));
++        Exit; // the BATTLECLOSED takes care of everything
++      end;
++
+       tmpBool := Client.GetMode=0;
+ 
+       Battle.Clients.Remove(Client);
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2010-08-13 17:40:29 UTC (rev 7509)
++++ Lobby/TASClient/TASClient.dof	2010-08-14 20:14:56 UTC (rev 7510)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=77
+ Release=0
+-Build=972
++Build=978
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.77.0.972
++FileVersion=0.77.0.978
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002279.html">[Taspring-linux-commit] r7509 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002281.html">[Taspring-linux-commit] r7511 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2280">[ date ]</a>
+              <a href="thread.html#2280">[ thread ]</a>
+              <a href="subject.html#2280">[ subject ]</a>
+              <a href="author.html#2280">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,349 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5690 - trunk/rts/Game
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5690%20-%20trunk/rts/Game&In-Reply-To=%3C20080409212248.3996746AE%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000470.html">
+   <LINK REL="Next"  HREF="000472.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5690 - trunk/rts/Game</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5690%20-%20trunk/rts/Game&In-Reply-To=%3C20080409212248.3996746AE%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5690 - trunk/rts/Game">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Apr  9 23:22:47 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000470.html">[Taspring-linux-commit] r5689 - branches
+</A></li>
+        <LI>Next message: <A HREF="000472.html">[Taspring-linux-commit] r5691 - trunk/rts/ExternalAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#471">[ date ]</a>
+              <a href="thread.html#471">[ thread ]</a>
+              <a href="subject.html#471">[ subject ]</a>
+              <a href="author.html#471">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-04-09 23:22:47 +0200 (Wed, 09 Apr 2008)
+New Revision: 5690
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/Game.h
+   trunk/rts/Game/GameHelper.h
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameServer.h
+Log:
+* removed duplicated code in CGameServer
+* fix compile error
+
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-04-09 20:05:13 UTC (rev 5689)
++++ trunk/rts/Game/Game.cpp	2008-04-09 21:22:47 UTC (rev 5690)
+@@ -449,6 +449,8 @@
+ 	lastMoveUpdate = lastframe;
+ 	lastUpdateRaw = lastframe;
+ 	updateDeltaSeconds = 0.0f;
++	script = CScriptHandler::Instance().chosenScript;
++	assert(script);
+ 
+ 	glFogfv(GL_FOG_COLOR,FogLand);
+ 	glFogf(GL_FOG_START, 0.0f);
+@@ -2271,8 +2273,6 @@
+ 	good_fpu_control_registers(&quot;CGame::Update&quot;);
+ 
+ 	mouse-&gt;EmptyMsgQueUpdate();
+-	script = CScriptHandler::Instance().chosenScript;
+-	assert(script);
+ 	thisFps++;
+ 
+ 	unsigned timeNow = SDL_GetTicks();
+@@ -2316,7 +2316,8 @@
+ 		CInputReceiver::CollectGarbage();
+ 	}
+ 
+-	UpdateUI();
++	if (!skipping)
++		UpdateUI();
+ 	net-&gt;Update();
+ 
+ #ifdef DEBUG
+@@ -3081,11 +3082,12 @@
+ 		if(que &lt; leastQue)
+ 			leastQue = que;
+ 	}
+-
+-	// make sure ClientReadNet returns at least every 15 game frames
+-	// so CGame can process keyboard input, and render etc.
+-	if (gameServer)
++	else
++	{
++		// make sure ClientReadNet returns at least every 15 game frames
++		// so CGame can process keyboard input, and render etc.
+ 		timeLeft = 15.0f;
++	}
+ 
+ 	// really process the messages
+ 	while (timeLeft &gt; 0.0f &amp;&amp; (packet = net-&gt;GetData()) != NULL)
+@@ -3734,9 +3736,6 @@
+ 
+ void CGame::UpdateUI()
+ {
+-	if (skipping) {
+-		return;
+-	}
+ 	ASSERT_UNSYNCED_MODE;
+ 	//move camera if arrow keys pressed
+ #ifdef DIRECT_CONTROL_ALLOWED
+
+Modified: trunk/rts/Game/Game.h
+===================================================================
+--- trunk/rts/Game/Game.h	2008-04-09 20:05:13 UTC (rev 5689)
++++ trunk/rts/Game/Game.h	2008-04-09 21:22:47 UTC (rev 5690)
+@@ -34,13 +34,8 @@
+ {
+ public:
+ 	CR_DECLARE(CGame);			//Don't use CGame pointer in CR_MEMBER()!!!
+-	void UpdateUI();
+-	void ClientReadNet();
+ 	void PostLoad();
+ 
+-	void SimFrame();
+-	void StartPlaying();
+-	bool DrawWorld();
+ 	bool Draw();
+ 	bool Update();
+ 	int KeyReleased(unsigned short k);
+@@ -175,6 +170,13 @@
+ 	std::map&lt;int, PlayerTrafficInfo&gt; playerTraffic;
+ 
+ private:
++	void ClientReadNet();
++	void UpdateUI();
++	bool DrawWorld();
++	
++	void SimFrame();
++	void StartPlaying();
++	
+ 	// to smooth out SimFrame calls
+ 	int leastQue;       ///&lt; Lowest value of que in the past second.
+ 	float timeLeft;     ///&lt; How many SimFrame() calls we still may do.
+
+Modified: trunk/rts/Game/GameHelper.h
+===================================================================
+--- trunk/rts/Game/GameHelper.h	2008-04-09 20:05:13 UTC (rev 5689)
++++ trunk/rts/Game/GameHelper.h	2008-04-09 21:22:47 UTC (rev 5690)
+@@ -83,8 +83,8 @@
+ 	std::list&lt;WaitingDamage*&gt; waitingDamages[128];		//probably a symptom of some other problems but im getting paranoid about putting whole classes into high trafic stl containers instead of pointers to them
+ 
+ private:
+-	bool CGameHelper::TestConeHelper(const float3&amp; from, const float3&amp; dir, float length, float spread, const CUnit* u);
+-	bool CGameHelper::TestTrajectoryConeHelper(const float3&amp; from, const float3&amp; flatdir, float length, float linear, float quadratic, float spread, float baseSize, const CUnit* u);
++	bool TestConeHelper(const float3&amp; from, const float3&amp; dir, float length, float spread, const CUnit* u);
++	bool TestTrajectoryConeHelper(const float3&amp; from, const float3&amp; flatdir, float length, float linear, float quadratic, float spread, float baseSize, const CUnit* u);
+ };
+ 
+ extern CGameHelper* helper;
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-04-09 20:05:13 UTC (rev 5689)
++++ trunk/rts/Game/GameServer.cpp	2008-04-09 21:22:47 UTC (rev 5690)
+@@ -209,42 +209,11 @@
+ 		// fast-read and send demo data
+ 		while (serverframenum &lt; targetframe)
+ 		{
+-			unsigned char demobuffer[netcode::NETWORK_BUFFER_SIZE];
+-			unsigned length = 0;
+-	
+-			if ( (length = demoReader-&gt;GetData(demobuffer, netcode::NETWORK_BUFFER_SIZE, modGameTime)) &gt; 0 )
+-			{
+-				if (demobuffer[0] == NETMSG_NEWFRAME || demobuffer[0] == NETMSG_KEYFRAME)
+-				{
+-					serverframenum++;
+-					if (demobuffer[0] == NETMSG_KEYFRAME)
+-						serverNet-&gt;SendKeyFrame(serverframenum);
+-					else
+-						serverNet-&gt;SendNewFrame();
+-	
+-				}
+-				else if ( demobuffer[0] != NETMSG_GAMEDATA &amp;&amp;
+-						demobuffer[0] != NETMSG_SETPLAYERNUM &amp;&amp;
+-						demobuffer[0] != NETMSG_USER_SPEED &amp;&amp;
+-						demobuffer[0] != NETMSG_INTERNAL_SPEED &amp;&amp;
+-						demobuffer[0] != NETMSG_PAUSE) // dont send these from demo
+-				{
+-					serverNet-&gt;RawSend(demobuffer, length);
+-				}
+-			}
+ 			modGameTime = demoReader-&gt;GetNextReadTime()+0.1f; // skip time
+-	
+-			if (demoReader-&gt;ReachedEnd()) {
+-				delete demoReader;
+-				demoReader = 0;
+-				log.Message(DemoEnd);
+-				gameEndTime = SDL_GetTicks();
+-				break;
+-			}
++			SendDemoData(true);
+ 			if (serverframenum % 20 == 0)
+ 				serverNet-&gt;Update(); // send some data
+ 		}
+-		lastTick = SDL_GetTicks();
+ 		CommandMessage msg2(&quot;skip end&quot;, SERVER_PLAYER);
+ 		serverNet-&gt;SendData(msg2.Pack());
+ 		serverNet-&gt;Update();
+@@ -267,6 +236,49 @@
+ 	return playerstring;
+ }
+ 
++void CGameServer::SendDemoData(const bool skipping)
++{
++	unsigned char demobuffer[netcode::NETWORK_BUFFER_SIZE];
++	unsigned length = 0;
++
++	while ( (length = demoReader-&gt;GetData(demobuffer, netcode::NETWORK_BUFFER_SIZE, modGameTime)) &gt; 0 )
++	{
++		if (demobuffer[0] == NETMSG_NEWFRAME || demobuffer[0] == NETMSG_KEYFRAME)
++		{
++			// we can't use CreateNewFrame() here
++			lastTick = SDL_GetTicks();
++			serverframenum++;
++#ifdef SYNCCHECK
++		if (!skipping)
++			outstandingSyncFrames.push_back(serverframenum);
++#endif
++			if (demobuffer[0] == NETMSG_KEYFRAME)
++				serverNet-&gt;SendKeyFrame(serverframenum);
++			else
++				serverNet-&gt;SendNewFrame();
++		}
++		else if ( demobuffer[0] != NETMSG_GAMEDATA &amp;&amp;
++						demobuffer[0] != NETMSG_SETPLAYERNUM &amp;&amp;
++						demobuffer[0] != NETMSG_USER_SPEED &amp;&amp;
++						demobuffer[0] != NETMSG_INTERNAL_SPEED &amp;&amp;
++						demobuffer[0] != NETMSG_PAUSE) // dont send these from demo
++		{
++			serverNet-&gt;RawSend(demobuffer, length);
++		}
++		else if ( demobuffer[0] != NETMSG_GAMEOVER )
++		{
++			sentGameOverMsg = true;
++		}
++	}
++
++	if (demoReader-&gt;ReachedEnd()) {
++		delete demoReader;
++		demoReader = 0;
++		log.Message(DemoEnd);
++		gameEndTime = SDL_GetTicks();
++	}
++}
++
+ void CGameServer::Message(const std::string&amp; message)
+ {
+ 	serverNet-&gt;SendSystemMessage(SERVER_PLAYER, message);
+@@ -399,45 +411,10 @@
+ 	}
+ 
+ 	// when hosting a demo, read from file and broadcast data
+-	if (demoReader != 0) {
+-		unsigned char demobuffer[netcode::NETWORK_BUFFER_SIZE];
+-		unsigned length = 0;
+-
+-		while ( (length = demoReader-&gt;GetData(demobuffer, netcode::NETWORK_BUFFER_SIZE, modGameTime)) &gt; 0 ) {
+-			if (demobuffer[0] == NETMSG_NEWFRAME || demobuffer[0] == NETMSG_KEYFRAME)
+-			{
+-				// we can't use CreateNewFrame() here
+-				CheckSync();
+-				lastTick = SDL_GetTicks();
+-				serverframenum++;
+-				if (demobuffer[0] == NETMSG_KEYFRAME)
+-					serverNet-&gt;SendKeyFrame(serverframenum);
+-				else
+-					serverNet-&gt;SendNewFrame();
+-#ifdef SYNCCHECK
+-				outstandingSyncFrames.push_back(serverframenum);
+-#endif
+-			}
+-			else if ( demobuffer[0] != NETMSG_GAMEDATA &amp;&amp;
+-			          demobuffer[0] != NETMSG_SETPLAYERNUM &amp;&amp;
+-			          demobuffer[0] != NETMSG_USER_SPEED &amp;&amp;
+-			          demobuffer[0] != NETMSG_INTERNAL_SPEED &amp;&amp;
+-			          demobuffer[0] != NETMSG_PAUSE) // dont send these from demo
+-			{
+-				serverNet-&gt;RawSend(demobuffer, length);
+-			}
+-			else if ( demobuffer[0] != NETMSG_GAMEOVER )
+-			{
+-				sentGameOverMsg = true;
+-			}
+-		}
+-
+-		if (demoReader-&gt;ReachedEnd()) {
+-			delete demoReader;
+-			demoReader = 0;
+-			log.Message(DemoEnd);
+-			gameEndTime = SDL_GetTicks();
+-		}
++	if (demoReader != 0)
++	{
++		CheckSync();
++		SendDemoData();
+ 	}
+ 
+ 	ServerReadNet();
+
+Modified: trunk/rts/Game/GameServer.h
+===================================================================
+--- trunk/rts/Game/GameServer.h	2008-04-09 20:05:13 UTC (rev 5689)
++++ trunk/rts/Game/GameServer.h	2008-04-09 21:22:47 UTC (rev 5690)
+@@ -117,6 +117,9 @@
+ 	void GenerateAndSendGameID();
+ 	std::string GetPlayerNames(const std::vector&lt;int&gt;&amp; indices) const;
+ 	
++	/// read data from demo and send it to clients
++	void SendDemoData(const bool skipping=false);
++	
+ 	/**
+ 	@brief skip frames
+ 	
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000470.html">[Taspring-linux-commit] r5689 - branches
+</A></li>
+	<LI>Next message: <A HREF="000472.html">[Taspring-linux-commit] r5691 - trunk/rts/ExternalAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#471">[ date ]</a>
+              <a href="thread.html#471">[ thread ]</a>
+              <a href="subject.html#471">[ subject ]</a>
+              <a href="author.html#471">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

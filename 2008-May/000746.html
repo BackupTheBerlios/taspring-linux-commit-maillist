@@ -1,0 +1,639 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5966 - in trunk: AI/Global/AAI game/AI/AAI
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5966%20-%20in%20trunk%3A%20AI/Global/AAI%20game/AI/AAI&In-Reply-To=%3C20080530160021.E2C0245C0%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000745.html">
+   <LINK REL="Next"  HREF="000747.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5966 - in trunk: AI/Global/AAI game/AI/AAI</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5966%20-%20in%20trunk%3A%20AI/Global/AAI%20game/AI/AAI&In-Reply-To=%3C20080530160021.E2C0245C0%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5966 - in trunk: AI/Global/AAI game/AI/AAI">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri May 30 18:00:21 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000745.html">[Taspring-linux-commit] r5965 - trunk/rts/build/vstudio8
+</A></li>
+        <LI>Next message: <A HREF="000747.html">[Taspring-linux-commit] r5967 - in trunk: Lobby rts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#746">[ date ]</a>
+              <a href="thread.html#746">[ thread ]</a>
+              <a href="subject.html#746">[ subject ]</a>
+              <a href="author.html#746">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: submarine
+Date: 2008-05-30 18:00:20 +0200 (Fri, 30 May 2008)
+New Revision: 5966
+
+Modified:
+   trunk/AI/Global/AAI/AAI ReadMe.txt
+   trunk/AI/Global/AAI/AAI.cpp
+   trunk/AI/Global/AAI/AAIAttack.cpp
+   trunk/AI/Global/AAI/AAIConfig.cpp
+   trunk/AI/Global/AAI/AAIConfig.h
+   trunk/AI/Global/AAI/AAIExecute.cpp
+   trunk/AI/Global/AAI/AAIGroup.cpp
+   trunk/AI/Global/AAI/AAIGroup.h
+   trunk/AI/Global/AAI/AAIMap.cpp
+   trunk/AI/Global/AAI/aidef.h
+   trunk/game/AI/AAI/AAI ReadMe.txt
+Log:
+AAI v0.868	
+
+- Improved fall back behaviour: units with turnrate below MIN_FALLBACK turnrate will not fall back anymore, long ranged units (e.g. snipers) will not fall back to their maximum weapons range anymore; added keywords:	
+MIN_FALLBACK_TURNRATE 250	  
+MAX_FALLBACK_RANGE 800  
+
+- Fixed another possible freeze when AAI's attack manager was flooding the interface with orders
+
+Modified: trunk/AI/Global/AAI/AAI ReadMe.txt
+===================================================================
+--- trunk/AI/Global/AAI/AAI ReadMe.txt	2008-05-30 11:31:12 UTC (rev 5965)
++++ trunk/AI/Global/AAI/AAI ReadMe.txt	2008-05-30 16:00:20 UTC (rev 5966)
+@@ -106,12 +106,19 @@
+ 
+ 
+ 
++AAI v0.868	- Improved fall back behaviour: units with turnrate below MIN_FALLBACK turnrate will not fall back anymore, long ranged 
++		  units (e.g. snipers) will not fall back to their maximum weapons range anymore; added keywords:	
++  		  MIN_FALLBACK_TURNRATE 250	  
++		  MAX_FALLBACK_RANGE 800  
++
++		- Fixed another possible freeze when AAI's attack manager was flooding the interface with orders
++	
++
+ AAI v0.867	- AAI now takes continents into account when sending builder/assistant builders to positions (e.g. it does not try send 
+ 		  ground builders to positions on other islands/continents anymore (unless they are amphibious))
+ 
++		- Fixed a bug that caused builders to leave the buildsite during construction 
+ 
+-AAI v0.866	- Fixed a bug that caused builders to leave the buildsite during construction 
+-
+ 		- Various changes to issued orders; temporarily removed reclaiming. Reclaim orders were given multiple times per frame 
+ 		  thus flooding the interface with orders and causing Spring to freeze/huge drop in FPS 
+ 
+
+Modified: trunk/AI/Global/AAI/AAI.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAI.cpp	2008-05-30 11:31:12 UTC (rev 5965)
++++ trunk/AI/Global/AAI/AAI.cpp	2008-05-30 16:00:20 UTC (rev 5966)
+@@ -749,6 +749,8 @@
+ 		else if(category == STATIONARY_CONSTRUCTOR)
+ 		{
+ 			ut-&gt;AddConstructor(unit, def-&gt;id);
++
++			ut-&gt;units[unit].cons-&gt;Update();
+ 		}
+ 		return;
+ 	}
+@@ -785,6 +787,8 @@
+ 		else if(bt-&gt;IsBuilder(def-&gt;id))
+ 		{
+ 			ut-&gt;AddConstructor(unit, def-&gt;id);
++
++			ut-&gt;units[unit].cons-&gt;Update();
+ 		}
+ 	}
+ }
+
+Modified: trunk/AI/Global/AAI/AAIAttack.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIAttack.cpp	2008-05-30 11:31:12 UTC (rev 5965)
++++ trunk/AI/Global/AAI/AAIAttack.cpp	2008-05-30 16:00:20 UTC (rev 5966)
+@@ -145,7 +145,7 @@
+ 				c.id = CMD_GUARD;
+ 				c.params.push_back(unit);
+ 
+-				(*group)-&gt;GiveOrder(&amp;c, 110, GUARDING);
++				(*group)-&gt;GiveOrder(&amp;c, 110, GUARDING, &quot;Group::AttackSector&quot;);
+ 			}
+ 		}
+ 	}
+
+Modified: trunk/AI/Global/AAI/AAIConfig.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIConfig.cpp	2008-05-30 11:31:12 UTC (rev 5965)
++++ trunk/AI/Global/AAI/AAIConfig.cpp	2008-05-30 16:00:20 UTC (rev 5966)
+@@ -81,8 +81,10 @@
+ 	HEAVY_ASSAULT_RATIO = 25.0f;
+ 	SUPER_HEAVY_ASSAULT_RATIO = 5.0f;
+ 
+-	FALLBACK_DIST_RATIO = 0.9;
+-	MIN_FALLBACK_RANGE = 450;
++	FALLBACK_DIST_RATIO = 0.9f;
++	MIN_FALLBACK_RANGE = 450.0f;
++	MAX_FALLBACK_RANGE = 800.0f;
++	MIN_FALLBACK_TURNRATE = 250.0f;
+ 	
+ 	LEARN_SPEED = 0.2f;
+ 	LEARN_RATE = 5;
+@@ -352,6 +354,16 @@
+ 				fscanf(file, &quot;%f&quot;, &amp;fval);
+ 				MIN_FALLBACK_RANGE = fval;
+ 			}
++			else if(!strcmp(keyword, &quot;MAX_FALLBACK_RANGE&quot;))
++			{
++				fscanf(file, &quot;%f&quot;, &amp;fval);
++				MAX_FALLBACK_RANGE = fval;
++			}
++			else if(!strcmp(keyword, &quot;MIN_FALLBACK_TURNRATE&quot;))
++			{
++				fscanf(file, &quot;%f&quot;, &amp;fval);
++				MIN_FALLBACK_TURNRATE = fval;
++			}
+ 			else if(!strcmp(keyword, &quot;MIN_EFFICIENCY&quot;))
+ 			{
+ 				fscanf(file, &quot;%f&quot;, &amp;fval);
+
+Modified: trunk/AI/Global/AAI/AAIConfig.h
+===================================================================
+--- trunk/AI/Global/AAI/AAIConfig.h	2008-05-30 11:31:12 UTC (rev 5965)
++++ trunk/AI/Global/AAI/AAIConfig.h	2008-05-30 16:00:20 UTC (rev 5966)
+@@ -115,6 +115,8 @@
+ 	// combat behaviour
+ 	float FALLBACK_DIST_RATIO;	// units will try to fall back if enemy is closer than ratio of weapons range of the unit
+ 	float MIN_FALLBACK_RANGE;	// units with lower weapons' range will not fall back
++	float MAX_FALLBACK_RANGE;	// maximum distance units will try to keep to their enemies
++	float MIN_FALLBACK_TURNRATE; // units with lower turnrate will not try to fall back
+ 
+ 	// internal
+ 	float CLIFF_SLOPE;  // cells with greater slope will be considered to be cliffs
+
+Modified: trunk/AI/Global/AAI/AAIExecute.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIExecute.cpp	2008-05-30 11:31:12 UTC (rev 5965)
++++ trunk/AI/Global/AAI/AAIExecute.cpp	2008-05-30 16:00:20 UTC (rev 5966)
+@@ -1473,7 +1473,6 @@
+ 		}
+ 	}
+ 
+-	
+ 	double gr_eff = 0, air_eff = 0, hover_eff = 0, sea_eff = 0, submarine_eff = 0;
+ 	
+ 	bool checkWater, checkGround;
+@@ -1484,7 +1483,7 @@
+ 	float terrain = 3.0f;
+ 
+ 	if(dest-&gt;distance_to_base &gt; 0)
+-		terrain = 15.0f;
++		terrain = 6.0f;
+ 
+ 	if(dest-&gt;water_ratio &lt; 0.15)
+ 	{
+@@ -1515,12 +1514,12 @@
+ 		if(t &lt; 70)
+ 		{
+ 			range = 2.5;
+-			terrain = 30.0f; 
++			terrain = 20.0f; 
+ 		}
+ 		else if(t &lt; 200)
+ 		{
+ 			range = 1;
+-			terrain = 25.0f; 
++			terrain = 10.0f; 
+ 		}
+ 
+ 		t = rand()%500;
+@@ -1564,18 +1563,18 @@
+ 		}
+ 
+ 		// stop building of weak defences if urgency is too low (wait for better defences)
+-		if(urgency &lt; 2.5)
++		if(urgency &lt; 3)
+ 		{
+ 			int id = bt-&gt;GetIDOfAssaultCategory(category);
+ 			
+-			if(bt-&gt;units_static[building].efficiency[id]  &lt; bt-&gt;avg_eff[ai-&gt;side-1][5][id] / 2.0f)
++			if(bt-&gt;units_static[building].efficiency[id]  &lt; 0.75f * bt-&gt;avg_eff[ai-&gt;side-1][5][id] )
+ 				building = 0;
+ 		}
+ 		else if(urgency &lt; 0.75)
+ 		{
+ 			int id = bt-&gt;GetIDOfAssaultCategory(category);
+ 			
+-			if(bt-&gt;units_static[building].efficiency[id]  &lt; bt-&gt;avg_eff[ai-&gt;side-1][5][id])
++			if(bt-&gt;units_static[building].efficiency[id]  &lt; 1.5f * bt-&gt;avg_eff[ai-&gt;side-1][5][id] )
+ 				building = 0;
+ 		}
+ 		
+@@ -1621,18 +1620,18 @@
+ 		}
+ 
+ 		// stop building of weak defences if urgency is too low (wait for better defences)
+-		if(urgency &lt; 2.5)
++		if(urgency &lt; 3)
+ 		{
+ 			int id = bt-&gt;GetIDOfAssaultCategory(category);
+ 			
+-			if(bt-&gt;units_static[building].efficiency[id]  &lt; bt-&gt;avg_eff[ai-&gt;side-1][5][id] / 2.0f)
++			if(bt-&gt;units_static[building].efficiency[id]  &lt; 0.75f * bt-&gt;avg_eff[ai-&gt;side-1][5][id] )
+ 				building = 0;
+ 		}
+ 		else if(urgency &lt; 0.75)
+ 		{
+ 			int id = bt-&gt;GetIDOfAssaultCategory(category);
+ 			
+-			if(bt-&gt;units_static[building].efficiency[id]  &lt; bt-&gt;avg_eff[ai-&gt;side-1][5][id])
++			if(bt-&gt;units_static[building].efficiency[id]  &lt; 1.5f * bt-&gt;avg_eff[ai-&gt;side-1][5][id] )
+ 				building = 0;
+ 		}
+ 
+@@ -2429,22 +2428,20 @@
+ 		for(list&lt;AAISector*&gt;::iterator sector = brain-&gt;sectors[dist].begin(); sector != brain-&gt;sectors[dist].end(); ++sector)
+ 		{
+ 			// stop building further defences if maximum has been reached / sector contains allied buildings / is occupied by another aai instance
+-			if((*sector)-&gt;defences.size() &lt; cfg-&gt;MAX_DEFENCES &amp;&amp; (*sector)-&gt;allied_structures &lt; 100 &amp;&amp; map-&gt;team_sector_map[(*sector)-&gt;x][(*sector)-&gt;y] != cb-&gt;GetMyAllyTeam())
++			if((*sector)-&gt;defences.size() &lt; cfg-&gt;MAX_DEFENCES &amp;&amp; (*sector)-&gt;allied_structures &lt; 50 &amp;&amp; map-&gt;team_sector_map[(*sector)-&gt;x][(*sector)-&gt;y] != cb-&gt;GetMyAllyTeam())
+ 			{
+ 				if((*sector)-&gt;failed_defences &gt; 1)
+-				{
+-					(*sector)-&gt;failed_defences = 0;
+-				}
++					(*sector)-&gt;failed_defences = 0;		
+ 				else
+ 				{
+ 					for(list&lt;int&gt;::iterator cat = map-&gt;map_categories_id.begin(); cat!= map-&gt;map_categories_id.end(); ++cat)
+ 					{
+ 						// anti air defences may be built anywhere
+ 						if(cfg-&gt;AIR_ONLY_MOD || *cat == AIR_ASSAULT)
+-							rating = (1.0f + sqrt((*sector)-&gt;own_structures)) * (1.0f + bt-&gt;attacked_by_category[1][*cat][t]) * (*sector)-&gt;GetThreatByID(*cat, learned, current) / ( (*sector)-&gt;GetDefencePowerVsID(*cat) );
++							rating = (1.0f + sqrt((*sector)-&gt;own_structures)) * (0.5f + bt-&gt;attacked_by_category[1][*cat][t]) * (*sector)-&gt;GetThreatByID(*cat, learned, current) / ( (*sector)-&gt;GetDefencePowerVsID(*cat) );
+ 						// dont build anti ground/hover/sea defences in interior sectors
+ 						else if(!(*sector)-&gt;interior)
+-							rating = (1.0f + sqrt((*sector)-&gt;own_structures)) * (1.0f + bt-&gt;attacked_by_category[1][*cat][t]) * (*sector)-&gt;GetThreatByID(*cat, learned, current) / ( (*sector)-&gt;GetDefencePowerVsID(*cat));		
++							rating = (1.0f + sqrt((*sector)-&gt;own_structures)) * (0.5f + bt-&gt;attacked_by_category[1][*cat][t]) * (*sector)-&gt;GetThreatByID(*cat, learned, current) / ( (*sector)-&gt;GetDefencePowerVsID(*cat) );		
+ 						else
+ 							rating = 0;
+ 								
+@@ -2475,7 +2472,7 @@
+ 
+ 		if(status == BUILDORDER_NOBUILDER)
+ 		{
+-			float temp = 0.05 + 3.0 / ( (float) first-&gt;defences.size() + 0.5f); 
++			float temp = 0.05 + 2.0 / ( (float) first-&gt;defences.size() + 0.5f); 
+ 
+ 			if(urgency[STATIONARY_DEF] &lt; temp)
+ 				urgency[STATIONARY_DEF] = temp;
+@@ -2902,7 +2899,7 @@
+ void AAIExecute::CheckConstruction()
+ {	
+ 	UnitCategory category = UNKNOWN; 
+-	float highest_urgency = 0.3f;		// min urgency (prevents aai from building things it doesnt really need that much)
++	float highest_urgency = 0.5f;		// min urgency (prevents aai from building things it doesnt really need that much)
+ 	bool construction_started = false;
+ 
+ 	//fprintf(ai-&gt;file, &quot;\n&quot;);
+@@ -3577,8 +3574,11 @@
+ {
+ 	float range = bt-&gt;units_static[def_id].range;
+ 
+-	if(range &gt; cfg-&gt;MIN_FALLBACK_RANGE)
++	if(range &gt; cfg-&gt;MIN_FALLBACK_RANGE &amp;&amp; bt-&gt;unitList[def_id-1]-&gt;turnRate &gt;= cfg-&gt;MIN_FALLBACK_TURNRATE)
+ 	{
++		if(range &gt; cfg-&gt;MAX_FALLBACK_RANGE)
++			range = cfg-&gt;MAX_FALLBACK_RANGE;
++
+ 		float3 pos;
+ 
+ 		GetFallBackPos(&amp;pos, unit_id, range);
+@@ -3639,10 +3639,10 @@
+ 
+ void AAIExecute::GiveOrder(Command *c, int unit, const char *owner)
+ {
+-	//++issued_orders;
++	++issued_orders;
+ 
+-	//if(issued_orders%50 == 0)
+-	//	fprintf(ai-&gt;file, &quot;%i th order has been given by %s in frame %i\n&quot;, issued_orders, owner,  cb-&gt;GetCurrentFrame());
++	if(issued_orders%50 == 0)
++		fprintf(ai-&gt;file, &quot;%i th order has been given by %s in frame %i\n&quot;, issued_orders, owner,  cb-&gt;GetCurrentFrame());
+ 
+ 	cb-&gt;GiveOrder(unit, c);
+ }
+\ No newline at end of file
+
+Modified: trunk/AI/Global/AAI/AAIGroup.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIGroup.cpp	2008-05-30 11:31:12 UTC (rev 5965)
++++ trunk/AI/Global/AAI/AAIGroup.cpp	2008-05-30 16:00:20 UTC (rev 5966)
+@@ -59,6 +59,8 @@
+ 	lastCommand.id = CMD_STOP;
+ 	lastCommand.params.resize(3);
+ 
++	lastCommandFrame = 0;
++
+ 	target_sector = 0;
+ 
+ 	// get a rally point
+@@ -217,14 +219,16 @@
+ 	return false;
+ }
+ 
+-void AAIGroup::GiveOrder(Command *c, float importance, UnitTask task)
++void AAIGroup::GiveOrder(Command *c, float importance, UnitTask task, const char *owner)
+ {
++	lastCommandFrame = cb-&gt;GetCurrentFrame();
++
+ 	task_importance = importance;
+ 
+ 	for(list&lt;int2&gt;::iterator i = units.begin(); i != units.end(); ++i)
+ 	{
+ 		//cb-&gt;GiveOrder(i-&gt;x, c);
+-		ai-&gt;execute-&gt;GiveOrder(c, i-&gt;x, &quot;Group::GiveOrder&quot;);
++		ai-&gt;execute-&gt;GiveOrder(c, i-&gt;x, owner);
+ 		ai-&gt;ut-&gt;SetUnitStatus(i-&gt;x, task);
+ 	}
+ }
+@@ -316,7 +320,7 @@
+ 			c.params.push_back(rally_point.y);
+ 			c.params.push_back(rally_point.z);
+ 
+-			GiveOrder(&amp;c, 90, MOVING);
++			GiveOrder(&amp;c, 90, MOVING, &quot;Group::TargetUnitKilled&quot;);
+ 		}
+ 	}
+ }
+@@ -355,7 +359,7 @@
+ 	c.params[1] = cb-&gt;GetElevation(c.params[0], c.params[2]);
+ 
+ 	// move group to that sector
+-	GiveOrder(&amp;c, importance + 8, UNIT_ATTACKING);
++	GiveOrder(&amp;c, importance + 8, UNIT_ATTACKING, &quot;Group::AttackSector&quot;);
+ 	
+ 	target_sector = dest;
+ 	task = GROUP_ATTACKING;			
+@@ -372,7 +376,7 @@
+ 		cmd.params.push_back(enemy_pos-&gt;y);
+ 		cmd.params.push_back(enemy_pos-&gt;z);
+ 
+-		GiveOrder(&amp;cmd, importance, DEFENDING);
++		GiveOrder(&amp;cmd, importance, DEFENDING, &quot;Group::Defend&quot;);
+ 
+ 		target_sector = ai-&gt;map-&gt;GetSectorOfPos(enemy_pos);
+ 	}
+@@ -381,7 +385,7 @@
+ 		cmd.id = CMD_GUARD;
+ 		cmd.params.push_back(unit);
+ 			
+-		GiveOrder(&amp;cmd, importance, GUARDING);
++		GiveOrder(&amp;cmd, importance, GUARDING, &quot;Group::Defend&quot;);
+ 
+ 		float3 pos = cb-&gt;GetUnitPos(unit);
+ 
+@@ -401,7 +405,7 @@
+ 	c.params.push_back(pos-&gt;y);
+ 	c.params.push_back(pos-&gt;z);
+ 
+-	GiveOrder(&amp;c, 105, MOVING);
++	GiveOrder(&amp;c, 105, MOVING, &quot;Group::Retreat&quot;);
+ 
+ 	// set new dest sector
+ 	target_sector = ai-&gt;map-&gt;GetSectorOfPos(pos);
+@@ -453,7 +457,10 @@
+ 
+ void AAIGroup::UnitIdle(int unit)
+ {
+-	// special behaviour of aircraft in not air only mods
++	if(cb-&gt;GetCurrentFrame() - lastCommandFrame &lt; 10)
++		return;
++
++	// special behaviour of aircraft in non air only mods
+ 	if(category == AIR_ASSAULT &amp;&amp; task != GROUP_IDLE &amp;&amp; !cfg-&gt;AIR_ONLY_MOD)
+ 	{
+ 		Command c;
+@@ -462,7 +469,7 @@
+ 		c.params.push_back(rally_point.y);
+ 		c.params.push_back(rally_point.z);
+ 
+-		GiveOrder(&amp;c, 100, MOVING);
++		GiveOrder(&amp;c, 100, MOVING, &quot;Group::Idle_a&quot;);
+ 
+ 		task = GROUP_IDLE;
+ 	}
+@@ -495,7 +502,7 @@
+ 						c.id = CMD_GUARD;
+ 						c.params.push_back(unit);
+ 
+-						GiveOrder(&amp;c, 110, GUARDING);
++						GiveOrder(&amp;c, 110, GUARDING, &quot;Group::Idle_b&quot;);
+ 					}
+ 				}
+ 				else
+@@ -538,7 +545,7 @@
+ 				c.params[1] = cb-&gt;GetElevation(c.params[0], c.params[2]);
+ 
+ 				// move group to that sector
+-				GiveOrder(&amp;c, 110, UNIT_ATTACKING);	
++				GiveOrder(&amp;c, 110, UNIT_ATTACKING, &quot;Group::Idle_c&quot;);	
+ 			}
+ 		}
+ 	}
+@@ -572,7 +579,7 @@
+ 	c.params.push_back(target_pos-&gt;y);
+ 	c.params.push_back(target_pos-&gt;z);
+ 
+-	GiveOrder(&amp;c, 110, UNIT_ATTACKING);
++	GiveOrder(&amp;c, 110, UNIT_ATTACKING, &quot;Group::BombTarget&quot;);
+ 
+ 	ai-&gt;ut-&gt;AssignGroupToEnemy(target_id, this);
+ 
+@@ -587,7 +594,7 @@
+ 	c.params.push_back(pos-&gt;y);
+ 	c.params.push_back(pos-&gt;z);
+ 
+-	GiveOrder(&amp;c, 110, UNIT_ATTACKING);
++	GiveOrder(&amp;c, 110, UNIT_ATTACKING, &quot;Group::DefendAirSpace&quot;);
+ 
+ 	task = GROUP_PATROLING;
+ }
+@@ -598,7 +605,7 @@
+ 	c.id = CMD_ATTACK;
+ 	c.params.push_back(unit_id);
+ 
+-	GiveOrder(&amp;c, 110, UNIT_ATTACKING);
++	GiveOrder(&amp;c, 110, UNIT_ATTACKING, &quot;Group::AirRaidUnit&quot;);
+ 
+ 	ai-&gt;ut-&gt;AssignGroupToEnemy(unit_id, this);
+ 
+@@ -647,7 +654,7 @@
+ 			c.params.push_back(rally_point.y);
+ 			c.params.push_back(rally_point.z);
+ 
+-			GiveOrder(&amp;c, 90, HEADING_TO_RALLYPOINT);
++			GiveOrder(&amp;c, 90, HEADING_TO_RALLYPOINT, &quot;Group::RallyPoint&quot;);
+ 		}
+ 	}
+ }
+
+Modified: trunk/AI/Global/AAI/AAIGroup.h
+===================================================================
+--- trunk/AI/Global/AAI/AAIGroup.h	2008-05-30 11:31:12 UTC (rev 5965)
++++ trunk/AI/Global/AAI/AAIGroup.h	2008-05-30 16:00:20 UTC (rev 5966)
+@@ -17,7 +17,7 @@
+ 
+ 	bool RemoveUnit(int unit, int attacker);
+ 
+-	void GiveOrder(Command *c, float importance, UnitTask task);
++	void GiveOrder(Command *c, float importance, UnitTask task, const char *owner);
+ 
+ 	void AttackSector(AAISector *dest, float importance);
+ 
+@@ -65,6 +65,7 @@
+ 	list&lt;int2&gt; units;
+ 	
+ 	Command lastCommand;
++	int lastCommandFrame;
+ 
+ 	float task_importance;	// importance of current task
+ 
+
+Modified: trunk/AI/Global/AAI/AAIMap.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIMap.cpp	2008-05-30 11:31:12 UTC (rev 5965)
++++ trunk/AI/Global/AAI/AAIMap.cpp	2008-05-30 16:00:20 UTC (rev 5966)
+@@ -2390,10 +2390,10 @@
+ 	}
+ 
+ 	// further increase values close around the bulding (to prevent aai from packing buildings too close together)
+-	xStart = xPos - 2;
+-	xEnd = xPos + 2;
+-	yStart = yPos - 2;
+-	yEnd = yPos + 2;
++	xStart = xPos - 4;
++	xEnd = xPos + 4;
++	yStart = yPos - 4;
++	yEnd = yPos + 4;
+ 
+ 	if(xStart &lt; 0)
+ 		xStart = 0;
+@@ -2411,9 +2411,9 @@
+ 		{
+ 			cell = x + xDefMapSize*y;
+ 			
+-			defence_map[cell] += 128.0f;
+-			air_defence_map[cell] += 128.0f;
+-			submarine_defence_map[cell] += 128.0f;
++			defence_map[cell] += 64.0f;
++			air_defence_map[cell] += 64.0f;
++			submarine_defence_map[cell] += 64.0f;
+ 		}
+ 	}
+ }
+@@ -2448,10 +2448,10 @@
+ 	int yPos = pos-&gt;z / 32;
+ 
+ 	// further decrease values close around the bulding (to prevent aai from packing buildings too close together)
+-	int xStart = xPos - 2;
+-	int xEnd = xPos + 2;
+-	int yStart = yPos - 2;
+-	int yEnd = yPos + 2;
++	int xStart = xPos - 4;
++	int xEnd = xPos + 4;
++	int yStart = yPos - 4;
++	int yEnd = yPos + 4;
+ 
+ 	if(xStart &lt; 0)
+ 		xStart = 0;
+@@ -2469,9 +2469,9 @@
+ 		{
+ 			cell = x + xDefMapSize*y;
+ 			
+-			defence_map[cell] -= 128.0f;
+-			air_defence_map[cell] -= 128.0f;
+-			submarine_defence_map[cell] -= 128.0f;
++			defence_map[cell] -= 64.0f;
++			air_defence_map[cell] -= 64.0f;
++			submarine_defence_map[cell] -= 64.0f;
+ 		}
+ 	}
+ 
+@@ -2555,7 +2555,7 @@
+ 			{
+ 				cell = (xPos + xDefMapSize * yPos) / 4;
+ 
+-				my_rating = terrain_modifier * plateau_map[cell] - (*map)[cell] + 0.15f *  (float)(rand()%20);
++				my_rating = terrain_modifier * plateau_map[cell] - (*map)[cell] + 0.3f *  (float)(rand()%10);
+ 
+ 				// determine minimum distance from buildpos to the edges of the map
+ 				edge_distance = xPos;
+
+Modified: trunk/AI/Global/AAI/aidef.h
+===================================================================
+--- trunk/AI/Global/AAI/aidef.h	2008-05-30 11:31:12 UTC (rev 5965)
++++ trunk/AI/Global/AAI/aidef.h	2008-05-30 16:00:20 UTC (rev 5966)
+@@ -32,7 +32,7 @@
+ #ifndef AIDEF_H
+ #define AIDEF_H
+ 
+-#define AAI_VERSION &quot;0.867&quot;
++#define AAI_VERSION &quot;0.868&quot;
+ #define MAP_FILE_VERSION &quot;MAP_LEARN_0_80&quot;
+ #define TABLE_FILE_VERSION &quot;MOD_LEARN_0_86&quot;
+ #define MAP_DATA_VERSION &quot;MAP_DATA_0_86&quot;
+
+Modified: trunk/game/AI/AAI/AAI ReadMe.txt
+===================================================================
+--- trunk/game/AI/AAI/AAI ReadMe.txt	2008-05-30 11:31:12 UTC (rev 5965)
++++ trunk/game/AI/AAI/AAI ReadMe.txt	2008-05-30 16:00:20 UTC (rev 5966)
+@@ -106,12 +106,19 @@
+ 
+ 
+ 
++AAI v0.868	- Improved fall back behaviour: units with turnrate below MIN_FALLBACK turnrate will not fall back anymore, long ranged 
++		  units (e.g. snipers) will not fall back to their maximum weapons range anymore; added keywords:	
++  		  MIN_FALLBACK_TURNRATE 250	  
++		  MAX_FALLBACK_RANGE 800  
++
++		- Fixed another possible freeze when AAI's attack manager was flooding the interface with orders
++	
++
+ AAI v0.867	- AAI now takes continents into account when sending builder/assistant builders to positions (e.g. it does not try send 
+ 		  ground builders to positions on other islands/continents anymore (unless they are amphibious))
+ 
++		- Fixed a bug that caused builders to leave the buildsite during construction 
+ 
+-AAI v0.866	- Fixed a bug that caused builders to leave the buildsite during construction 
+-
+ 		- Various changes to issued orders; temporarily removed reclaiming. Reclaim orders were given multiple times per frame 
+ 		  thus flooding the interface with orders and causing Spring to freeze/huge drop in FPS 
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000745.html">[Taspring-linux-commit] r5965 - trunk/rts/build/vstudio8
+</A></li>
+	<LI>Next message: <A HREF="000747.html">[Taspring-linux-commit] r5967 - in trunk: Lobby rts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#746">[ date ]</a>
+              <a href="thread.html#746">[ thread ]</a>
+              <a href="subject.html#746">[ subject ]</a>
+              <a href="author.html#746">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

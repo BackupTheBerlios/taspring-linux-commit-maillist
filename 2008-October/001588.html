@@ -1,0 +1,448 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6819 - in trunk: Documentation	installer/builddata/maphelper/maphelper rts/Rendering
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6819%20-%20in%20trunk%3A%20Documentation%0A%09installer/builddata/maphelper/maphelper%20rts/Rendering&In-Reply-To=%3C20081019020041.8B46D472A%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001587.html">
+   <LINK REL="Next"  HREF="001589.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6819 - in trunk: Documentation	installer/builddata/maphelper/maphelper rts/Rendering</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6819%20-%20in%20trunk%3A%20Documentation%0A%09installer/builddata/maphelper/maphelper%20rts/Rendering&In-Reply-To=%3C20081019020041.8B46D472A%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6819 - in trunk: Documentation	installer/builddata/maphelper/maphelper rts/Rendering">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Oct 19 04:00:41 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001587.html">[Taspring-linux-commit] r6818 - trunk/rts/Game
+</A></li>
+        <LI>Next message: <A HREF="001589.html">[Taspring-linux-commit] r6820 - in trunk: Documentation rts/Game	rts/Sim/Misc rts/Sim/Projectiles rts/System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1588">[ date ]</a>
+              <a href="thread.html#1588">[ thread ]</a>
+              <a href="subject.html#1588">[ subject ]</a>
+              <a href="author.html#1588">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: jk
+Date: 2008-10-19 04:00:40 +0200 (Sun, 19 Oct 2008)
+New Revision: 6819
+
+Modified:
+   trunk/Documentation/changelog.txt
+   trunk/installer/builddata/maphelper/maphelper/parse_tdf_map.lua
+   trunk/rts/Rendering/glFont.cpp
+Log:
+ * fixed map defined detailtex
+ * fixed black border blending in engine's font system
+
+Modified: trunk/Documentation/changelog.txt
+===================================================================
+--- trunk/Documentation/changelog.txt	2008-10-18 22:01:42 UTC (rev 6818)
++++ trunk/Documentation/changelog.txt	2008-10-19 02:00:40 UTC (rev 6819)
+@@ -55,7 +55,7 @@
+  - Added /allmapmarks [0|1]
+  - Added /forcestart command
+  - Added /ally teamID [0|1] (Ingame alliances)
+- - Adde /commands (shows all registered commands in the console)
++ - Added /commands (shows all registered commands in the console)
+  - whisper private messages to any other player ingame (excluding spectators) by typing &quot;/w Playername Your secret message&quot;
+  - Added new camera controller: SmoothCamera
+    behaves like overview controller, but feels much smoother
+@@ -175,6 +175,7 @@
+  - Made MeleeWeapon obey impulseFactor.
+ 
+ Maps:
++ - Maps have their own resource_map.lua/resource_map.tdf now.
+  - converted map config scripts to lua format (LuaParser / MapParser)
+    - MapOptions.lua is now handed the 'Map' table information as well
+      (allows one to write a generic MapOptions.lua file that accesses
+
+Modified: trunk/installer/builddata/maphelper/maphelper/parse_tdf_map.lua
+===================================================================
+--- trunk/installer/builddata/maphelper/maphelper/parse_tdf_map.lua	2008-10-18 22:01:42 UTC (rev 6818)
++++ trunk/installer/builddata/maphelper/maphelper/parse_tdf_map.lua	2008-10-19 02:00:40 UTC (rev 6819)
+@@ -1,166 +1,167 @@
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+---
+---  file:     load_tdf_map.lua
+---  brief:    tdf map lua parser (original SMD and SM3 formats)
+---  authors:  Dave Rodgers
+---
+---  Copyright (C) 2008.
+---  Licensed under the terms of the GNU GPL, v2 or later.
+---
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+-
+--- Special table for map config files
+---
+---   Map.name
+---   Map.fullName
+---   Map.configFile
+-
+-local mapConfig = Map.configFile
+-
+-local TDF = VFS.Include('maphelper/parse_tdf.lua')
+-
+-
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+---
+---  Conversion Helpers
+---
+-
+-local function ConvertMoveSpeeds(terrain)
+-  local moveSpeeds = {}
+-  for k, v in pairs(terrain) do
+-    local s, e, type = k:find('^(.*)movespeed$')
+-    if (type) then
+-      moveSpeeds[type] = v
+-      terrain[k] = nil
+-    end
+-  end
+-  terrain.movespeeds = moveSpeeds
+-end
+-
+-
+-local function ConvertTerrainTypes(map)
+-  local typeArray = {}
+-  for k, v in pairs(map) do
+-    if (type(v) == 'table') then
+-      local s, e, num = k:find('^terraintype(.*)$')
+-      local num = tonumber(num)
+-      if (num) then
+-        ConvertMoveSpeeds(v)
+-        typeArray[num] = v
+-        map[k] = nil
+-      end
+-    end
+-  end
+-  map.terraintypes = typeArray
+-end
+-
+-
+-local function ConvertTeams(map)
+-  local teamArray = {}
+-  for k, v in pairs(map) do
+-    local s, e, num = k:find('^team(.*)$')
+-    local num = tonumber(num)
+-    if (num) then
+-      teamArray[num] = {
+-        startpos = {
+-          x = v.startposx,
+-          z = v.startposz,
+-        },
+-      }
+-      map[k] = nil
+-    end
+-  end
+-  map.teams = teamArray
+-end
+-
+-
+-local function ConvertLighting(map)
+-  local light = map.light
+-  if (type(light) ~= 'table') then
+-    return
+-  end
+-  local lighting = {}
+-  for k, v in pairs(light) do
+-    local s, e, prefix = k:find('^(.*)suncolor$')
+-    if (prefix) then
+-      k = prefix .. 'diffusecolor'
+-    end
+-    lighting[k] = v
+-  end
+-  map.light = nil
+-  map.lighting = lighting
+-end
+-
+-
+-local function ConvertWater(map)
+-  -- remove the 'water' prefix
+-  local water = map.water
+-  if (type(water) ~= 'table') then
+-    return
+-  end
+-  for k, v in pairs(water) do
+-    local s, e, suffix = k:find('^water(.*)$')
+-    if (suffix) then
+-      water[suffix] = v
+-      water[k] = nil
+-    end
+-  end
+-  -- FIXME -- handle caustics?
+-end
+-
+-
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+-
+-local function PrintTable(t, indent)
+-  indent = indent or ''
+-  for k,v in pairs(t) do
+-    k = tonumber(k) and '['..k..']' or k
+-    if (type(v) == 'table') then
+-      print(indent .. k .. ' = {')
+-      PrintTable(v, indent .. '  ')
+-      print(indent .. '},')
+-    else
+-      print(indent .. k .. ' = &quot;' .. v .. '&quot;,')
+-    end
+-  end
+-end
+-
+-
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+---
+---  Main Routine
+---
+-
+-return function(sourceText)
+-  local mapData, err = TDF.ParseText(sourceText)
+-  if (mapData == nil) then
+-    error('Error parsing ' .. mapConfig .. ': ' .. err)
+-  end
+-
+-  local map = mapData.map
+-  if (map == nil) then
+-    error('Error parsing ' .. mapConfig .. ': missing MAP section')
+-  end
+-
+-
+-  ConvertTerrainTypes(map)
+-
+-  ConvertLighting(map)
+-
+-  ConvertWater(map)
+-
+-  ConvertTeams(map)
+-
+---  PrintTable(map)  -- FIXME -- debugging
+-
+-  return map
+-end
+-
+-
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
++--------------------------------------------------------------------------------
++--------------------------------------------------------------------------------
++--
++--  file:     load_tdf_map.lua
++--  brief:    tdf map lua parser (original SMD and SM3 formats)
++--  authors:  Dave Rodgers
++--
++--  Copyright (C) 2008.
++--  Licensed under the terms of the GNU GPL, v2 or later.
++--
++--------------------------------------------------------------------------------
++--------------------------------------------------------------------------------
++
++-- Special table for map config files
++--
++--   Map.name
++--   Map.fullName
++--   Map.configFile
++
++local mapConfig = Map.configFile
++
++local TDF = VFS.Include('maphelper/parse_tdf.lua')
++
++
++--------------------------------------------------------------------------------
++--------------------------------------------------------------------------------
++--
++--  Conversion Helpers
++--
++
++local function ConvertMoveSpeeds(terrain)
++  local moveSpeeds = {}
++  for k, v in pairs(terrain) do
++    local s, e, type = k:find('^(.*)movespeed$')
++    if (type) then
++      moveSpeeds[type] = v
++      terrain[k] = nil
++    end
++  end
++  terrain.movespeeds = moveSpeeds
++end
++
++
++local function ConvertTerrainTypes(map)
++  local typeArray = {}
++  for k, v in pairs(map) do
++    if (type(v) == 'table') then
++      local s, e, num = k:find('^terraintype(.*)$')
++      local num = tonumber(num)
++      if (num) then
++        ConvertMoveSpeeds(v)
++        typeArray[num] = v
++        map[k] = nil
++      end
++    end
++  end
++  map.terraintypes = typeArray
++end
++
++
++local function ConvertTeams(map)
++  local teamArray = {}
++  for k, v in pairs(map) do
++    local s, e, num = k:find('^team(.*)$')
++    local num = tonumber(num)
++    if (num) then
++      teamArray[num] = {
++        startpos = {
++          x = v.startposx,
++          z = v.startposz,
++        },
++      }
++      map[k] = nil
++    end
++  end
++  map.teams = teamArray
++end
++
++
++local function ConvertLighting(map)
++  local light = map.light
++  if (type(light) ~= 'table') then
++    return
++  end
++  local lighting = {}
++  for k, v in pairs(light) do
++    local s, e, prefix = k:find('^(.*)suncolor$')
++    if (prefix) then
++      k = prefix .. 'diffusecolor'
++    end
++    lighting[k] = v
++  end
++  map.light = nil
++  map.lighting = lighting
++end
++
++
++local function ConvertWater(map)
++  -- remove the 'water' prefix
++  local water = map.water
++  if (type(water) ~= 'table') then
++    return
++  end
++  for k, v in pairs(water) do
++    local s, e, suffix = k:find('^water(.*)$')
++    if (suffix) then
++      water[suffix] = v
++      water[k] = nil
++    end
++  end
++  -- FIXME -- handle caustics?
++end
++
++
++--------------------------------------------------------------------------------
++--------------------------------------------------------------------------------
++
++local function PrintTable(t, indent)
++  indent = indent or ''
++  for k,v in pairs(t) do
++    k = tonumber(k) and '['..k..']' or k
++    if (type(v) == 'table') then
++      print(indent .. k .. ' = {')
++      PrintTable(v, indent .. '  ')
++      print(indent .. '},')
++    else
++      print(indent .. k .. ' = &quot;' .. v .. '&quot;,')
++    end
++  end
++end
++
++
++--------------------------------------------------------------------------------
++--------------------------------------------------------------------------------
++--
++--  Main Routine
++--
++
++return function(sourceText)
++  local mapData, err = TDF.ParseText(sourceText)
++  if (mapData == nil) then
++    error('Error parsing ' .. mapConfig .. ': ' .. err)
++  end
++
++  local map = mapData.map
++  if (map == nil) then
++    error('Error parsing ' .. mapConfig .. ': missing MAP section')
++  end
++
++  map.resources = {detailTex = map.detailtex}
++
++  ConvertTerrainTypes(map)
++
++  ConvertLighting(map)
++
++  ConvertWater(map)
++
++  ConvertTeams(map)
++
++--  PrintTable(map)  -- FIXME -- debugging
++
++  return map
++end
++
++
++--------------------------------------------------------------------------------
++--------------------------------------------------------------------------------
+
+Modified: trunk/rts/Rendering/glFont.cpp
+===================================================================
+--- trunk/rts/Rendering/glFont.cpp	2008-10-18 22:01:42 UTC (rev 6818)
++++ trunk/rts/Rendering/glFont.cpp	2008-10-19 02:00:40 UTC (rev 6819)
+@@ -57,7 +57,7 @@
+ 	this-&gt;width = width;
+ 	this-&gt;height = height;
+ 	buffer = SAFE_NEW unsigned char[2*width*height];		// luminance and alpha per pixel
+-	memset(buffer, 0, 2*width*height);
++	memset(buffer, 0xFF00, width*height);
+ 	cur = buffer;
+ 	curX = curY = 0;
+ 	curHeight = 0;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001587.html">[Taspring-linux-commit] r6818 - trunk/rts/Game
+</A></li>
+	<LI>Next message: <A HREF="001589.html">[Taspring-linux-commit] r6820 - in trunk: Documentation rts/Game	rts/Sim/Misc rts/Sim/Projectiles rts/System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1588">[ date ]</a>
+              <a href="thread.html#1588">[ thread ]</a>
+              <a href="subject.html#1588">[ subject ]</a>
+              <a href="author.html#1588">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

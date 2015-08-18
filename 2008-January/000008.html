@@ -1,0 +1,242 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5200 - in trunk/rts: Lua Sim/MoveTypes	Sim/Units
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5200%20-%20in%20trunk/rts%3A%20Lua%20Sim/MoveTypes%0A%09Sim/Units&In-Reply-To=%3CE1J9qui-0007Ks-Mv%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000007.html">
+   <LINK REL="Next"  HREF="000009.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5200 - in trunk/rts: Lua Sim/MoveTypes	Sim/Units</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5200%20-%20in%20trunk/rts%3A%20Lua%20Sim/MoveTypes%0A%09Sim/Units&In-Reply-To=%3CE1J9qui-0007Ks-Mv%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5200 - in trunk/rts: Lua Sim/MoveTypes	Sim/Units">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Jan  2 00:52:52 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000007.html">[Taspring-linux-commit] r5199 - trunk/Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="000009.html">[Taspring-linux-commit] r5201 - trunk/installer/sections
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8">[ date ]</a>
+              <a href="thread.html#8">[ thread ]</a>
+              <a href="subject.html#8">[ subject ]</a>
+              <a href="author.html#8">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: KDR_11k
+Date: 2008-01-02 00:52:51 +0100 (Wed, 02 Jan 2008)
+New Revision: 5200
+
+Modified:
+   trunk/rts/Lua/LuaUnitDefs.cpp
+   trunk/rts/Sim/MoveTypes/AirMoveType.cpp
+   trunk/rts/Sim/MoveTypes/AirMoveType.h
+   trunk/rts/Sim/MoveTypes/TAAirMoveType.cpp
+   trunk/rts/Sim/MoveTypes/TAAirMoveType.h
+   trunk/rts/Sim/Units/UnitDef.h
+   trunk/rts/Sim/Units/UnitDefHandler.cpp
+   trunk/rts/Sim/Units/UnitLoader.cpp
+Log:
+*added unit FBI collide tag (boolean, default: 1), currently affects only planes: If set to 0 the plane will not collide with any other unit. Most notably this saves the CPU-heavy collision checks every frame (big performance boost!) and avoids the damage planes normally take from bumping into each other. Projectiles will still collide with the units normally.
+
+Modified: trunk/rts/Lua/LuaUnitDefs.cpp
+===================================================================
+--- trunk/rts/Lua/LuaUnitDefs.cpp	2008-01-01 23:23:21 UTC (rev 5199)
++++ trunk/rts/Lua/LuaUnitDefs.cpp	2008-01-01 23:52:51 UTC (rev 5200)
+@@ -750,6 +750,7 @@
+ 	ADD_FLOAT(&quot;speed&quot;,    ud.speed);
+ 	ADD_FLOAT(&quot;turnRate&quot;, ud.turnRate);
+ 	ADD_BOOL(&quot;upright&quot;,   ud.upright);
++	ADD_BOOL(&quot;collide&quot;, ud.collide);
+ 
+ 	ADD_FLOAT(&quot;losHeight&quot;,     ud.losHeight);
+ 	ADD_FLOAT(&quot;losRadius&quot;,     ud.losRadius);
+
+Modified: trunk/rts/Sim/MoveTypes/AirMoveType.cpp
+===================================================================
+--- trunk/rts/Sim/MoveTypes/AirMoveType.cpp	2008-01-01 23:23:21 UTC (rev 5199)
++++ trunk/rts/Sim/MoveTypes/AirMoveType.cpp	2008-01-01 23:52:51 UTC (rev 5200)
+@@ -31,6 +31,7 @@
+ 
+ 		CR_MEMBER(loopbackAttack),
+ 		CR_MEMBER(isFighter),
++		CR_MEMBER(collide),
+ 
+ 		CR_MEMBER(wingDrag),
+ 		CR_MEMBER(wingAngle),
+@@ -119,6 +120,7 @@
+ 	myGravity(0.8f),
+ 	mySide(1),
+ 	isFighter(false),
++	collide(true),
+ 	oldpos(0,0,0),
+ 	oldGoalPos(0,1,0),
+ 	maneuver(0),
+@@ -315,7 +317,7 @@
+ 		oldpos = pos;
+ 		bool hitBuilding = false;
+ 
+-		if (aircraftState == AIRCRAFT_FLYING || aircraftState == AIRCRAFT_CRASHING) {
++		if (collide &amp;&amp; (aircraftState == AIRCRAFT_FLYING || aircraftState == AIRCRAFT_CRASHING)) {
+ 			vector&lt;CUnit*&gt; nearUnits = qf-&gt;GetUnitsExact(pos, owner-&gt;radius + 6);
+ 			vector&lt;CUnit*&gt;::iterator ui;
+ 
+@@ -1119,6 +1121,8 @@
+ 
+ void CAirMoveType::CheckForCollision(void)
+ {
++	if (!collide) return;
++
+ 	SyncedFloat3&amp; pos=owner-&gt;midPos;
+ 	SyncedFloat3&amp; forward=owner-&gt;frontdir;
+ 	float3 midTestPos=pos+forward*121;
+
+Modified: trunk/rts/Sim/MoveTypes/AirMoveType.h
+===================================================================
+--- trunk/rts/Sim/MoveTypes/AirMoveType.h	2008-01-01 23:23:21 UTC (rev 5199)
++++ trunk/rts/Sim/MoveTypes/AirMoveType.h	2008-01-01 23:52:51 UTC (rev 5200)
+@@ -49,6 +49,7 @@
+ 
+ 	bool loopbackAttack;
+ 	bool isFighter;
++	bool collide;
+ 
+ 	float wingDrag;
+ 	float wingAngle;
+
+Modified: trunk/rts/Sim/MoveTypes/TAAirMoveType.cpp
+===================================================================
+--- trunk/rts/Sim/MoveTypes/TAAirMoveType.cpp	2008-01-01 23:23:21 UTC (rev 5199)
++++ trunk/rts/Sim/MoveTypes/TAAirMoveType.cpp	2008-01-01 23:52:51 UTC (rev 5200)
+@@ -57,6 +57,7 @@
+ 
+ 	CR_MEMBER(lastColWarning),
+ 	CR_MEMBER(lastColWarningType),
++	CR_MEMBER(collide),
+ 
+ 	CR_MEMBER(repairBelowHealth),
+ 	CR_MEMBER(reservedPad),
+@@ -80,6 +81,7 @@
+ 	forceHeading(false),
+ 	dontCheckCol(false),
+ 	dontLand(false),
++	collide(true),
+ 	lastMoveRate(0),
+ 	waitCounter(0),
+ 	deltaSpeed(ZeroVector),
+@@ -837,7 +839,7 @@
+ 	if (pos != oldpos &amp;&amp; aircraftState != AIRCRAFT_TAKEOFF &amp;&amp; padStatus == 0) {
+ 		oldpos = pos;
+ 
+-		if (!dontCheckCol) {
++		if (!dontCheckCol &amp;&amp; collide) {
+ 			vector&lt;CUnit*&gt; nearUnits = qf-&gt;GetUnitsExact(pos, owner-&gt;radius + 6);
+ 			vector&lt;CUnit*&gt;::iterator ui;
+ 
+@@ -974,6 +976,8 @@
+ 
+ void CTAAirMoveType::CheckForCollision(void)
+ {
++	if (!collide) return;
++
+ 	SyncedFloat3&amp; pos = owner-&gt;midPos;
+ 	SyncedFloat3 forward = owner-&gt;speed;
+ 	forward.Normalize();
+
+Modified: trunk/rts/Sim/MoveTypes/TAAirMoveType.h
+===================================================================
+--- trunk/rts/Sim/MoveTypes/TAAirMoveType.h	2008-01-01 23:23:21 UTC (rev 5199)
++++ trunk/rts/Sim/MoveTypes/TAAirMoveType.h	2008-01-01 23:52:51 UTC (rev 5200)
+@@ -26,6 +26,7 @@
+ 	} flyState;
+ 
+ 	bool dontCheckCol;			//needed to get transport close enough to what is going to be transported, better way ?
++	bool collide;             //mods can use this to disable plane collisions
+ 
+ 	float3 goalPos;
+ 	float3 oldpos;
+
+Modified: trunk/rts/Sim/Units/UnitDef.h
+===================================================================
+--- trunk/rts/Sim/Units/UnitDef.h	2008-01-01 23:23:21 UTC (rev 5199)
++++ trunk/rts/Sim/Units/UnitDef.h	2008-01-01 23:52:51 UTC (rev 5200)
+@@ -136,6 +136,7 @@
+ 	float turnRate;
+ 	int moveType;
+ 	bool upright;
++	bool collide;
+ 
+ 	float controlRadius;
+ 	float losRadius;
+
+Modified: trunk/rts/Sim/Units/UnitDefHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-01-01 23:23:21 UTC (rev 5199)
++++ trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-01-01 23:52:51 UTC (rev 5200)
+@@ -282,6 +282,7 @@
+ 	ud.factoryHeadingTakeoff = udTable.GetBool(&quot;factoryHeadingTakeoff&quot;, true);
+ 
+ 	ud.upright = udTable.GetBool(&quot;upright&quot;, false);
++	ud.collide = udTable.GetBool(&quot;collide&quot;, true);
+ 	ud.onoffable = udTable.GetBool(&quot;onoffable&quot;, false);
+ 
+ 	ud.maxSlope = udTable.GetFloat(&quot;maxSlope&quot;, 0.0f);
+
+Modified: trunk/rts/Sim/Units/UnitLoader.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitLoader.cpp	2008-01-01 23:23:21 UTC (rev 5199)
++++ trunk/rts/Sim/Units/UnitLoader.cpp	2008-01-01 23:52:51 UTC (rev 5200)
+@@ -258,6 +258,7 @@
+ 			mt-&gt;wantedHeight = ud-&gt;wantedHeight+gs-&gt;randFloat()*5;
+ 			mt-&gt;orgWantedHeight=mt-&gt;wantedHeight;
+ 			mt-&gt;dontLand = ud-&gt;DontLand ();
++			mt-&gt;collide = ud-&gt;collide;
+ 
+ 			unit-&gt;moveType = mt;
+ 		}
+@@ -267,6 +268,8 @@
+ 			if(type==&quot;Fighter&quot;)
+ 				mt-&gt;isFighter=true;
+ 
++			mt-&gt;collide = ud-&gt;collide;
++
+ 			mt-&gt;wingAngle = ud-&gt;wingAngle;
+ 			mt-&gt;invDrag = 1 - ud-&gt;drag;
+ 			mt-&gt;frontToSpeed = ud-&gt;frontToSpeed;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000007.html">[Taspring-linux-commit] r5199 - trunk/Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="000009.html">[Taspring-linux-commit] r5201 - trunk/installer/sections
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#8">[ date ]</a>
+              <a href="thread.html#8">[ thread ]</a>
+              <a href="subject.html#8">[ subject ]</a>
+              <a href="author.html#8">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

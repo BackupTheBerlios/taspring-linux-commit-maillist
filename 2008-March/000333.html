@@ -1,0 +1,195 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5552 - in trunk/rts: ExternalAI Game	Sim/Objects Sim/Projectiles/WeaponProjectiles System
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-March/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5552%20-%20in%20trunk/rts%3A%20ExternalAI%20Game%0A%09Sim/Objects%20Sim/Projectiles/WeaponProjectiles%20System&In-Reply-To=%3C20080302174547.34F6E4675%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000332.html">
+   <LINK REL="Next"  HREF="000334.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5552 - in trunk/rts: ExternalAI Game	Sim/Objects Sim/Projectiles/WeaponProjectiles System</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5552%20-%20in%20trunk/rts%3A%20ExternalAI%20Game%0A%09Sim/Objects%20Sim/Projectiles/WeaponProjectiles%20System&In-Reply-To=%3C20080302174547.34F6E4675%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5552 - in trunk/rts: ExternalAI Game	Sim/Objects Sim/Projectiles/WeaponProjectiles System">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Mar  2 18:45:46 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000332.html">[Taspring-linux-commit] r5551 - trunk/Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="000334.html">[Taspring-linux-commit] r5553 - in trunk/tools/springie/Springie: .	autohost client
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#333">[ date ]</a>
+              <a href="thread.html#333">[ thread ]</a>
+              <a href="subject.html#333">[ subject ]</a>
+              <a href="author.html#333">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Victor
+Date: 2008-03-02 18:45:45 +0100 (Sun, 02 Mar 2008)
+New Revision: 5552
+
+Modified:
+   trunk/rts/ExternalAI/AICallback.cpp
+   trunk/rts/ExternalAI/IAICallback.h
+   trunk/rts/Game/GameSetup.cpp
+   trunk/rts/Sim/Objects/SolidObject.cpp
+   trunk/rts/Sim/Projectiles/WeaponProjectiles/LaserProjectile.cpp
+   trunk/rts/System/LoadSaveHandler.cpp
+Log:
+* Fixed bug - some ai builders build in factory exit.
+* Added new ai value AIVAL_SCRIPT returning start script text.
+
+Modified: trunk/rts/ExternalAI/AICallback.cpp
+===================================================================
+--- trunk/rts/ExternalAI/AICallback.cpp	2008-03-02 14:52:16 UTC (rev 5551)
++++ trunk/rts/ExternalAI/AICallback.cpp	2008-03-02 17:45:45 UTC (rev 5552)
+@@ -31,6 +31,7 @@
+ #include &quot;Sim/Path/PathManager.h&quot;
+ #include &quot;Sim/Units/CommandAI/CommandAI.h&quot;
+ #include &quot;Sim/Units/CommandAI/LineDrawer.h&quot;
++#include &quot;Sim/Units/UnitTypes/Factory.h&quot;
+ #include &quot;Sim/Units/UnitDefHandler.h&quot;
+ #include &quot;Sim/Units/Unit.h&quot;
+ #include &quot;Sim/Units/UnitHandler.h&quot;
+@@ -899,6 +900,16 @@
+ 					}
+ 				}
+ 			}
++			//Checking factories near - factory can open yard for building
++			if (good) for(int z2=max(0,zs-ysize/2-minDist-2);z2&lt;min(gs-&gt;mapy,zs+(ysize+1)/2+minDist+2);++z2){
++				for(int x2=max(0,xs-xsize/2-minDist-2);x2&lt;min(gs-&gt;mapx,xs+(xsize+1)/2+minDist+2);++x2){
++					CSolidObject* so=readmap-&gt;groundBlockingObjectMap[z2*gs-&gt;mapx+x2];
++					if(so &amp;&amp; so-&gt;immobile &amp;&amp; dynamic_cast&lt;CFactory*&gt;(so) &amp;&amp; ((CFactory*)so)-&gt;opening){
++						good=false;
++						break;
++					}
++				}
++			}
+ 			if(good)
+ 				return bi.pos;
+ 		}
+@@ -1149,6 +1160,10 @@
+ 			*(int*) data = uh-&gt;maxUnits;
+ 			return true;
+ 		}
++		case AIVAL_SCRIPT: {
++			*(const char**) data = gameSetup ? gameSetup-&gt;gameSetupText : &quot;&quot;;
++			return true;
++		}
+ 		default:
+ 			return false;
+ 	}
+
+Modified: trunk/rts/ExternalAI/IAICallback.h
+===================================================================
+--- trunk/rts/ExternalAI/IAICallback.h	2008-03-02 14:52:16 UTC (rev 5551)
++++ trunk/rts/ExternalAI/IAICallback.h	2008-03-02 17:45:45 UTC (rev 5552)
+@@ -36,6 +36,7 @@
+ #define AIVAL_LOCATE_FILE_R              15 // char*
+ #define AIVAL_LOCATE_FILE_W              16 // char*
+ #define AIVAL_UNIT_LIMIT                 17 // int
++#define AIVAL_SCRIPT                     18 // const char* - buffer for pointer to char
+ 
+ struct UnitResourceInfo
+ {
+
+Modified: trunk/rts/Game/GameSetup.cpp
+===================================================================
+--- trunk/rts/Game/GameSetup.cpp	2008-03-02 14:52:16 UTC (rev 5551)
++++ trunk/rts/Game/GameSetup.cpp	2008-03-02 17:45:45 UTC (rev 5552)
+@@ -356,8 +356,9 @@
+ bool CGameSetup::Init(const char* buf, int size)
+ {
+ 	// Copy buffer contents
+-	gameSetupText = SAFE_NEW char[size];
++	gameSetupText = SAFE_NEW char[size+1];
+ 	memcpy(gameSetupText, buf, size);
++	gameSetupText[size] = 0;
+ 	gameSetupTextLength = size;
+ 
+ 	// Parse
+
+Modified: trunk/rts/Sim/Objects/SolidObject.cpp
+===================================================================
+--- trunk/rts/Sim/Objects/SolidObject.cpp	2008-03-02 14:52:16 UTC (rev 5551)
++++ trunk/rts/Sim/Objects/SolidObject.cpp	2008-03-02 17:45:45 UTC (rev 5552)
+@@ -22,13 +22,14 @@
+ 	CR_MEMBER(ysize),
+ 	CR_MEMBER(height),
+ 	CR_MEMBER(heading),
++	CR_ENUM_MEMBER(physicalState),
+ 	CR_MEMBER(midPos),
+ 	CR_MEMBER(isMoving),
+ 	CR_MEMBER(residualImpulse),
+ 	CR_MEMBER(mobility),
+ 	CR_MEMBER(mapPos),
++	CR_MEMBER(buildFacing),
+ 	CR_MEMBER(isMarkedOnBlockingMap),
+-	CR_ENUM_MEMBER(physicalState),
+ 	CR_MEMBER(speed),
+ 	CR_RESERVED(16))
+ );
+
+Modified: trunk/rts/Sim/Projectiles/WeaponProjectiles/LaserProjectile.cpp
+===================================================================
+--- trunk/rts/Sim/Projectiles/WeaponProjectiles/LaserProjectile.cpp	2008-03-02 14:52:16 UTC (rev 5551)
++++ trunk/rts/Sim/Projectiles/WeaponProjectiles/LaserProjectile.cpp	2008-03-02 17:45:45 UTC (rev 5552)
+@@ -35,7 +35,7 @@
+ 	curLength(0),
+ 	stayTime(0),
+ 	intensity(intensity),
+-	intensityFalloff(intensity*weaponDef-&gt;falloffRate)
++	intensityFalloff(weaponDef?intensity*weaponDef-&gt;falloffRate:0)
+ {
+ 	dir=speed;
+ 	dir.Normalize();
+
+Modified: trunk/rts/System/LoadSaveHandler.cpp
+===================================================================
+--- trunk/rts/System/LoadSaveHandler.cpp	2008-03-02 14:52:16 UTC (rev 5551)
++++ trunk/rts/System/LoadSaveHandler.cpp	2008-03-02 17:45:45 UTC (rev 5552)
+@@ -127,7 +127,7 @@
+ 
+ 		string scriptText;
+ 		if (gameSetup) {
+-			scriptText.insert (scriptText.begin(), gameSetup-&gt;gameSetupText, gameSetup-&gt;gameSetupText + gameSetup-&gt;gameSetupTextLength);
++			scriptText = gameSetup-&gt;gameSetupText;
+ 		}
+ 
+ 		WriteString(ofs, scriptText);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000332.html">[Taspring-linux-commit] r5551 - trunk/Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="000334.html">[Taspring-linux-commit] r5553 - in trunk/tools/springie/Springie: .	autohost client
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#333">[ date ]</a>
+              <a href="thread.html#333">[ thread ]</a>
+              <a href="subject.html#333">[ subject ]</a>
+              <a href="author.html#333">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

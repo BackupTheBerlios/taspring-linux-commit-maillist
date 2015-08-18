@@ -1,0 +1,1192 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5849 - in trunk: AI/Global/AAI game/AI/AAI
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5849%20-%20in%20trunk%3A%20AI/Global/AAI%20game/AI/AAI&In-Reply-To=%3C20080505201551.D676747CC%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000628.html">
+   <LINK REL="Next"  HREF="000630.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5849 - in trunk: AI/Global/AAI game/AI/AAI</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5849%20-%20in%20trunk%3A%20AI/Global/AAI%20game/AI/AAI&In-Reply-To=%3C20080505201551.D676747CC%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5849 - in trunk: AI/Global/AAI game/AI/AAI">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon May  5 22:15:51 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000628.html">[Taspring-linux-commit] r5848 - in trunk/rts: Game Game/Camera	Sim/MoveTypes
+</A></li>
+        <LI>Next message: <A HREF="000630.html">[Taspring-linux-commit] r5850 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#629">[ date ]</a>
+              <a href="thread.html#629">[ thread ]</a>
+              <a href="subject.html#629">[ subject ]</a>
+              <a href="author.html#629">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: submarine
+Date: 2008-05-05 22:15:51 +0200 (Mon, 05 May 2008)
+New Revision: 5849
+
+Modified:
+   trunk/AI/Global/AAI/AAI ReadMe.txt
+   trunk/AI/Global/AAI/AAI.cpp
+   trunk/AI/Global/AAI/AAIAttack.cpp
+   trunk/AI/Global/AAI/AAIAttackManager.h
+   trunk/AI/Global/AAI/AAIConfig.cpp
+   trunk/AI/Global/AAI/AAIConfig.h
+   trunk/AI/Global/AAI/AAIConstructor.cpp
+   trunk/AI/Global/AAI/AAIExecute.cpp
+   trunk/AI/Global/AAI/AAIExecute.h
+   trunk/AI/Global/AAI/AAIGroup.cpp
+   trunk/AI/Global/AAI/AAIGroup.h
+   trunk/AI/Global/AAI/AAIMap.cpp
+   trunk/AI/Global/AAI/AAIMap.h
+   trunk/AI/Global/AAI/AAISector.cpp
+   trunk/AI/Global/AAI/AAISector.h
+   trunk/AI/Global/AAI/AAIUnitTable.h
+   trunk/AI/Global/AAI/aidef.h
+   trunk/game/AI/AAI/AAI ReadMe.txt
+Log:
+AAI v0.866	
+
+- Fixed a bug that caused builders to leave the buildsite during construction 
+
+- Various changes to issued orders; temporarily removed reclaiming. Reclaim orders were given multiple times per frame thus flooding the interface with orders and causing Spring to freeze/huge drop in FPS 
+
+Modified: trunk/AI/Global/AAI/AAI ReadMe.txt
+===================================================================
+--- trunk/AI/Global/AAI/AAI ReadMe.txt	2008-05-05 16:43:40 UTC (rev 5848)
++++ trunk/AI/Global/AAI/AAI ReadMe.txt	2008-05-05 20:15:51 UTC (rev 5849)
+@@ -105,8 +105,13 @@
+ 		- Brandon Potter for his TBT 12 cfg file
+ 
+ 
+-AAI v0.864	- Added some unit specific combat behaviour: Units with high ranged weapons will now try to keep enemies distant
++AAI v0.866	- Fixed a bug that caused builders to leave the buildsite during construction 
+ 
++		- Various changes to issued orders; temporarily removed reclaiming. Reclaim orders were given multiple times per frame 
++		  thus flooding the interface with orders and causing Spring to freeze/huge drop in FPS 
++
++		- Added some unit specific combat behaviour: Units with high ranged weapons will now try to keep enemies distant
++
+ 		- Added two new variables to mod config file:
+ 
+ 		  FALLBACK_DIST_RATIO 0.9 - units will try keep enemies at this ratio of their maximum weapons' range
+
+Modified: trunk/AI/Global/AAI/AAI.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAI.cpp	2008-05-05 16:43:40 UTC (rev 5848)
++++ trunk/AI/Global/AAI/AAI.cpp	2008-05-05 20:15:51 UTC (rev 5849)
+@@ -7,11 +7,13 @@
+ // Released under GPL license: see LICENSE.html for more information.
+ // -------------------------------------------------------------------------
+ 
+-#include &quot;AAI.h&quot;
++#include &lt;set&gt;
+ #include &lt;math.h&gt;
+ #include &lt;stdio.h&gt;
+ 
++#include &quot;AAI.h&quot;
+ 
++
+ AAI::AAI()
+ {
+ 	// initialize random numbers generator
+@@ -73,14 +75,7 @@
+ 	// save mod learning data
+ 	bt-&gt;SaveBuildTable();
+ 
+-	delete am;
+-	delete brain;
+-	delete execute;
+-	delete ut;
+-	delete af;
+-	delete map;
+-	delete bt;
+-	
++		
+ 	// delete unit groups
+ 	for(int i = 0; i &lt;= MOBILE_CONSTRUCTOR; i++)
+ 	{
+@@ -90,7 +85,13 @@
+ 		}
+ 	}
+ 
+-//	delete [] group_list;
++	delete am;
++	delete brain;
++	delete execute;
++	delete ut;
++	delete af;
++	delete map;
++	delete bt;
+ 
+ 	fclose(file);
+ }
+@@ -156,8 +157,8 @@
+ 	execute = new AAIExecute(this, brain);
+ 
+ 	// create unit groups
+-//	group_list = new list&lt;AAIGroup*&gt;[MOBILE_CONSTRUCTOR+1];
+ 	group_list.resize(MOBILE_CONSTRUCTOR+1);
++
+ 	// init airforce manager
+ 	af = new AAIAirForceManager(this, cb, bt);
+ 
+@@ -188,13 +189,13 @@
+ 		cat =  bt-&gt;units_static[def-&gt;id].category;
+ 	else
+ 		cat = UNKNOWN;
+-
+-	if(cat &gt;= GROUND_ASSAULT &amp;&amp; cat &lt;= SUBMARINE_ASSAULT) 
+-		execute-&gt;CheckFallBack(damaged, def-&gt;id);
+ 	
+ 	// known attacker
+ 	if(attacker &gt;= 0)
+ 	{
++		if(cat &gt;= GROUND_ASSAULT &amp;&amp; cat &lt;= SUBMARINE_ASSAULT) 
++			execute-&gt;CheckFallBack(damaged, def-&gt;id);
++
+ 		att_def = cb-&gt;GetUnitDef(attacker);
+ 
+ 		// filter out friendly fire
+@@ -245,10 +246,10 @@
+ 			ut-&gt;units[damaged].cons-&gt;Retreat(att_cat);
+ 		
+ 		// building has been attacked
+-		if(cat &lt;= METAL_MAKER)
+-			execute-&gt;DefendUnitVS(damaged, def, att_cat, NULL, 115);
+-		else if(ut-&gt;IsBuilder(damaged))
+-			execute-&gt;DefendUnitVS(damaged, def, att_cat, NULL, 110);
++		//if(cat &lt;= METAL_MAKER)
++		//	execute-&gt;DefendUnitVS(damaged, def, att_cat, NULL, 115);
++		//else if(ut-&gt;IsBuilder(damaged))
++		//	execute-&gt;DefendUnitVS(damaged, def, att_cat, NULL, 110);
+ 	}
+ }
+ 
+@@ -658,17 +659,9 @@
+ 			{
+ 				// look for a safer rallypoint if units get killed on their way 
+ 				if(ut-&gt;units[unit].status == HEADING_TO_RALLYPOINT)
+-				{
+-					float3 pos = execute-&gt;GetRallyPoint(category, 1, 1, 10);
+-
+-					if(pos.x &gt; 0)
+-						ut-&gt;units[unit].group-&gt;rally_point = pos;
+-				}
+-
+-				if(ut-&gt;units[unit].group)
+-					ut-&gt;units[unit].group-&gt;RemoveUnit(unit, attacker);
+-				else
+-					fprintf(file, &quot;ERROR: tried to remove %s but group not found\n&quot;, bt-&gt;unitList[def-&gt;id-1]-&gt;name.c_str());		
++					ut-&gt;units[unit].group-&gt;GetNewRallyPoint();
++					
++				ut-&gt;units[unit].group-&gt;RemoveUnit(unit, attacker);		
+ 			}
+ 			// builder 
+ 			else if(bt-&gt;IsBuilder(def-&gt;id))
+@@ -803,24 +796,14 @@
+ 	{
+ 		if(ut-&gt;units[unit].cons-&gt;assistance &lt; 0 &amp;&amp; ut-&gt;units[unit].cons-&gt;construction_unit_id &lt; 0 )
+ 		{	
+-			/*if(!ut-&gt;units[unit].cons-&gt;factory)
+-			{
+-				char c[120];
++			ut-&gt;SetUnitStatus(unit, UNIT_IDLE);
+ 
+-				if(ut-&gt;units[unit].cons-&gt;construction_unit_id == -1)
+-					sprintf(c, &quot;%s / %i is idle\n&quot;, bt-&gt;unitList[ut-&gt;units[unit].cons-&gt;def_id-1]-&gt;humanName.c_str(), unit);
+-				else
+-					sprintf(c, &quot;%s is idle building %s\n&quot;, bt-&gt;unitList[ut-&gt;units[unit].cons-&gt;def_id-1]-&gt;humanName.c_str(), bt-&gt;unitList[ut-&gt;units[unit].cons-&gt;construction_def_id-1]-&gt;humanName.c_str());
+-
+-				cb-&gt;SendTextMsg(c,0);
+-			}*/
+-
+ 			ut-&gt;units[unit].cons-&gt;Idle();
+ 
+ 			if(ut-&gt;constructors.size() &lt; 4)
+ 				execute-&gt;CheckConstruction();
+ 
+-			ut-&gt;SetUnitStatus(unit, UNIT_IDLE);
++			
+ 		}
+ 	}
+ 	// idle combat units will report to their groups
+@@ -831,28 +814,10 @@
+ 	}
+ 	else
+ 		ut-&gt;SetUnitStatus(unit, UNIT_IDLE);
+-
+ }
+ 
+ void AAI::UnitMoveFailed(int unit) 
+-{
+-	// not a good solution at all, hopefully not necessary in the future due to bug fixes 
+-	// in the path finding routines
+-	/*float3 pos = cb-&gt;GetUnitPos(unit);
+-
+-	int x = pos.x/map-&gt;xSectorSize;
+-	int y = pos.z/map-&gt;ySectorSize;
+-	
+-	if(x &lt; 0 || y &lt; 0 || x &gt;= map-&gt;xSectors || y &gt;= map-&gt;ySectors)
+-		return;
+-
+-	pos = map-&gt;sector[x][y].GetCenter();
+-	pos.x += rand()%4 * map-&gt;xSectorSize;
+-	pos.z += rand()%4 * map-&gt;ySectorSize;
+-
+-	execute-&gt;moveUnitTo(unit, &amp;pos);*/
+-
+-	
++{	
+ 	const UnitDef *def = cb-&gt;GetUnitDef(unit);
+ 
+ 	if(ut-&gt;units[unit].cons)
+@@ -874,8 +839,6 @@
+ 			}
+ 		}
+ 	}
+-
+-
+ }
+ 
+ void AAI::EnemyEnterLOS(int enemy) {}
+@@ -931,7 +894,7 @@
+ 	}
+ 	
+ 	// update groups
+-	if(!(tick%219))
++	if(!(tick%169))
+ 	{
+ 		for(list&lt;UnitCategory&gt;::iterator category = bt-&gt;assault_categories.begin(); category != bt-&gt;assault_categories.end(); category++)
+ 		{
+@@ -1024,17 +987,17 @@
+ 	}
+ 
+ 	// recheck rally points
+-	if(!(tick%2577))
++	if(!(tick%1877))
+ 	{
+-		for(list&lt;UnitCategory&gt;::iterator category = bt-&gt;assault_categories.begin(); category != bt-&gt;assault_categories.end(); category++)
++		for(list&lt;UnitCategory&gt;::iterator category = bt-&gt;assault_categories.begin(); category != bt-&gt;assault_categories.end(); ++category)
+ 		{
+-			for(list&lt;AAIGroup*&gt;::iterator group = group_list[*category].begin(); group != group_list[*category].end(); group++)
+-				(*group)-&gt;rally_point = execute-&gt;GetRallyPoint(*category, 1, 1, 10);
++			for(list&lt;AAIGroup*&gt;::iterator group = group_list[*category].begin(); group != group_list[*category].end(); ++group)
++				(*group)-&gt;UpdateRallyPoint();
+ 		}
+ 	}
+ 
+ 	// recalculate efficiency stats
+-	if(!(tick%2827))
++	if(!(tick%2927))
+ 	{
+ 		if(aai_instance == 1)
+ 			bt-&gt;UpdateMinMaxAvgEfficiency();
+
+Modified: trunk/AI/Global/AAI/AAIAttack.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIAttack.cpp	2008-05-05 16:43:40 UTC (rev 5848)
++++ trunk/AI/Global/AAI/AAIAttack.cpp	2008-05-05 20:15:51 UTC (rev 5849)
+@@ -63,19 +63,22 @@
+ 		pos = (*group)-&gt;GetGroupPos();
+ 		sector = ai-&gt;map-&gt;GetSectorOfPos(&amp;pos);
+ 
+-		if(sector)
++		(*group)-&gt;GetNewRallyPoint();	
++
++		/*if(sector)
+ 		{
+ 			int max_dist = sector-&gt;distance_to_base/2;
+ 			int min_dist = max_dist - 1;
+ 
+ 			if(min_dist &lt; 1) 
+ 				min_dist = 1;
++
+ 		
+-			pos = ai-&gt;execute-&gt;GetRallyPointCloseTo((*group)-&gt;category, ((*group)-&gt;GetGroupPos() + ai-&gt;brain-&gt;base_center) / 2.0f, min_dist, max_dist);
++			pos = ai-&gt;execute-&gt;GetRallyPointCloseTo((*group)-&gt;category, (*group)-&gt;group_movement_type, ((*group)-&gt;GetGroupPos() + ai-&gt;brain-&gt;base_center) / 2.0f, min_dist, max_dist);
+ 
+ 			if(pos.x &gt; 0)
+ 				(*group)-&gt;rally_point = pos;	
+-		}
++		}*/
+ 		
+ 		(*group)-&gt;Retreat(&amp;(*group)-&gt;rally_point);
+ 		(*group)-&gt;attack = 0;
+@@ -87,7 +90,9 @@
+ 		pos = (*group)-&gt;GetGroupPos();
+ 		sector = ai-&gt;map-&gt;GetSectorOfPos(&amp;pos);
+ 
+-		if(sector)
++		(*group)-&gt;GetNewRallyPoint();	
++
++		/*if(sector)
+ 		{
+ 			int max_dist = sector-&gt;distance_to_base/2;
+ 			int min_dist = max_dist - 1;
+@@ -95,12 +100,9 @@
+ 			if(min_dist &lt; 1) 
+ 				min_dist = 1;
+ 		
+-			pos = ai-&gt;execute-&gt;GetRallyPointCloseTo((*group)-&gt;category, ((*group)-&gt;GetGroupPos() + ai-&gt;brain-&gt;base_center) / 2.0f, min_dist, max_dist);
++			(*group)-&gt;GetNewRallyPoint();	
++		}*/
+ 
+-			if(pos.x &gt; 0)
+-				(*group)-&gt;rally_point = pos;	
+-		}
+-
+ 		(*group)-&gt;Retreat(&amp;(*group)-&gt;rally_point);
+ 		(*group)-&gt;attack = 0;
+ 	}
+
+Modified: trunk/AI/Global/AAI/AAIAttackManager.h
+===================================================================
+--- trunk/AI/Global/AAI/AAIAttackManager.h	2008-05-05 16:43:40 UTC (rev 5848)
++++ trunk/AI/Global/AAI/AAIAttackManager.h	2008-05-05 20:15:51 UTC (rev 5849)
+@@ -9,7 +9,9 @@
+ 
+ #pragma once
+ 
++
+ #include &quot;aidef.h&quot;
++#include &lt;set&gt;
+ 
+ using std::set;
+ 
+
+Modified: trunk/AI/Global/AAI/AAIConfig.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIConfig.cpp	2008-05-05 16:43:40 UTC (rev 5848)
++++ trunk/AI/Global/AAI/AAIConfig.cpp	2008-05-05 20:15:51 UTC (rev 5849)
+@@ -82,7 +82,7 @@
+ 	SUPER_HEAVY_ASSAULT_RATIO = 5.0f;
+ 
+ 	FALLBACK_DIST_RATIO = 0.9;
+-	MIN_FALLBACK_RANGE = 500;
++	MIN_FALLBACK_RANGE = 450;
+ 	
+ 	LEARN_SPEED = 0.2f;
+ 	LEARN_RATE = 5;
+
+Modified: trunk/AI/Global/AAI/AAIConfig.h
+===================================================================
+--- trunk/AI/Global/AAI/AAIConfig.h	2008-05-05 16:43:40 UTC (rev 5848)
++++ trunk/AI/Global/AAI/AAIConfig.h	2008-05-05 20:15:51 UTC (rev 5849)
+@@ -1,10 +1,10 @@
+ #pragma once
+ 
++
+ #include &lt;stdio.h&gt;
+ #include &quot;ExternalAI/IAICallback.h&quot;
+ #include &lt;list&gt;
+ #include &lt;vector&gt;
+-//#include &quot;aidef.h&quot;
+ 
+ using std::string;
+ using std::list;
+
+Modified: trunk/AI/Global/AAI/AAIConstructor.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIConstructor.cpp	2008-05-05 16:43:40 UTC (rev 5848)
++++ trunk/AI/Global/AAI/AAIConstructor.cpp	2008-05-05 20:15:51 UTC (rev 5849)
+@@ -108,6 +108,7 @@
+ 					c.id = -def_id;
+ 					ai-&gt;cb-&gt;GiveOrder(unit_id, &amp;c);
+ 					construction_def_id = def_id;
++					task == BUILDING;
+ 
+ 					++ai-&gt;futureUnits[cat];
+ 
+@@ -133,6 +134,7 @@
+ 
+ 						ai-&gt;cb-&gt;GiveOrder(unit_id, &amp;c);
+ 						construction_def_id = def_id;
++						task == BUILDING;
+ 
+ 						++ai-&gt;futureUnits[cat];
+ 
+@@ -140,8 +142,11 @@
+ 						//	++ai-&gt;futureFactories;
+ 
+ 						buildque-&gt;pop_front();
++
+ 					}
+ 				}
++
++				return;
+ 			}
+ 		}
+ 
+@@ -172,7 +177,7 @@
+ 				}
+ 			}
+ 		}
+-		else if(task == UNIT_IDLE)
++		/*else if(task == UNIT_IDLE)
+ 		{
+ 			float3 pos = cb-&gt;GetUnitPos(unit_id);
+ 
+@@ -195,27 +200,27 @@
+ 						if(def-&gt;canResurrect)
+ 						{
+ 							if(rand()%2 == 1)
+-							{
+ 								c.id = CMD_RESURRECT;
+-							} else
+-							{
++							else
+ 								c.id = CMD_RECLAIM;
+-							}
+-						} else {
++						} 
++						else
+ 							c.id = CMD_RECLAIM;
+-						}
++
+ 						c.params.resize(4);
+ 						c.params[0] = pos.x;
+ 						c.params[1] = cb-&gt;GetElevation(pos.x, pos.z);
+ 						c.params[2] = pos.z;
+ 						c.params[3] = 500.0;
+ 
+-						cb-&gt;GiveOrder(unit_id, &amp;c);
++						//cb-&gt;GiveOrder(unit_id, &amp;c);
+ 						task = RECLAIMING;
++						ai-&gt;execute-&gt;GiveOrder(&amp;c, unit_id, &quot;Builder::Reclaming&quot;);
+ 					}
+ 				}
+-			}
++			}	
+ 		}
++		*/
+ 	}
+ }
+ 
+@@ -334,7 +339,8 @@
+ 	Command c;
+ 	c.id = CMD_RECLAIM;
+ 	c.params.push_back(unit_id);
+-	cb-&gt;GiveOrder(this-&gt;unit_id, &amp;c);
++	//cb-&gt;GiveOrder(this-&gt;unit_id, &amp;c);
++	ai-&gt;execute-&gt;GiveOrder(&amp;c, this-&gt;unit_id, &quot;Builder::GiveRelaimOrder&quot;);
+ }
+ 
+ 
+@@ -438,7 +444,8 @@
+ 			c.id = CMD_REPAIR;
+ 		}
+ 		c.params.push_back(constructor);
+-		cb-&gt;GiveOrder(unit_id, &amp;c);
++		//cb-&gt;GiveOrder(unit_id, &amp;c);
++		ai-&gt;execute-&gt;GiveOrder(&amp;c, unit_id, &quot;Builder::Assist&quot;);
+ 
+ 		task = ASSISTING;
+ 		assistance = constructor;
+@@ -448,7 +455,8 @@
+ 		Command c;
+ 		c.id = CMD_REPAIR;
+ 		c.params.push_back(target_unit);
+-		cb-&gt;GiveOrder(unit_id, &amp;c);
++		//cb-&gt;GiveOrder(unit_id, &amp;c);
++		ai-&gt;execute-&gt;GiveOrder(&amp;c, unit_id, &quot;Builder::Assist&quot;);
+ 
+ 		task = ASSISTING;
+ 		assistance = constructor;
+@@ -518,7 +526,8 @@
+ 	
+ 	Command c;
+ 	c.id = CMD_STOP;
+-	cb-&gt;GiveOrder(unit_id, &amp;c);
++	//cb-&gt;GiveOrder(unit_id, &amp;c);
++	ai-&gt;execute-&gt;GiveOrder(&amp;c, unit_id, &quot;Builder::StopAssisting&quot;);
+ }
+ void AAIConstructor::RemoveAssitant(int unit_id)
+ {
+@@ -613,7 +622,8 @@
+ 			c.params.push_back(cb-&gt;GetElevation(pos.x, pos.z));
+ 			c.params.push_back(pos.z);
+ 
+-			cb-&gt;GiveOrder(unit_id, &amp;c);
++			ai-&gt;execute-&gt;GiveOrder(&amp;c, unit_id, &quot;BuilderRetreat&quot;);
++			//cb-&gt;GiveOrder(unit_id, &amp;c);
+ 		}
+ 	}
+ }
+
+Modified: trunk/AI/Global/AAI/AAIExecute.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIExecute.cpp	2008-05-05 16:43:40 UTC (rev 5848)
++++ trunk/AI/Global/AAI/AAIExecute.cpp	2008-05-05 20:15:51 UTC (rev 5849)
+@@ -18,6 +18,8 @@
+ 
+ AAIExecute::AAIExecute(AAI *ai, AAIBrain *brain)
+ {
++	issued_orders = 0;
++
+ 	this-&gt;ai = ai;
+ 	this-&gt;cb = ai-&gt;cb;
+ 	this-&gt;bt = ai-&gt;bt;
+@@ -85,7 +87,8 @@
+ 	c.params[1] = position-&gt;y;
+ 	c.params[2] = position-&gt;z;
+ 
+-	cb-&gt;GiveOrder(unit, &amp;c);
++	//cb-&gt;GiveOrder(unit, &amp;c);
++	GiveOrder(&amp;c, unit, &quot;moveUnitTo&quot;);
+ 	ut-&gt;SetUnitStatus(unit, MOVING);
+ }
+ 
+@@ -94,7 +97,8 @@
+ 	Command c;
+ 	c.id = CMD_STOP;
+ 
+-	cb-&gt;GiveOrder(unit, &amp;c);
++	//cb-&gt;GiveOrder(unit, &amp;c);
++	GiveOrder(&amp;c, unit, &quot;StopUnit&quot;);
+ 	ut-&gt;SetUnitStatus(unit, UNIT_IDLE);
+ }
+ 
+@@ -574,58 +578,58 @@
+ 	}
+ }
+ 
+-float3 AAIExecute::GetRallyPoint(UnitCategory category, int min_dist, int max_dist, int random)
++float3 AAIExecute::GetRallyPoint(unsigned int unit_movement_type, int min_dist, int max_dist)
+ {
+-	AAISector* best_sector = 0;
+-	float best_rating = 0, my_rating;
++	float3 pos;
+ 
+-	int combat_cat = bt-&gt;GetIDOfAssaultCategory(category);
++	// check neighbouring sectors
++	for(int i = min_dist; i &lt;= max_dist; ++i)
++	{
++		if(unit_movement_type &amp; MOVE_TYPE_GROUND)
++			brain-&gt;sectors[i].sort(suitable_for_ground_rallypoint);
++		else if(unit_movement_type &amp; MOVE_TYPE_SEA)
++			brain-&gt;sectors[i].sort(suitable_for_sea_rallypoint);
++		else 
++			brain-&gt;sectors[i].sort(suitable_for_all_rallypoint);
+ 
+-	bool land = true; 
+-	bool water = true;
++		for(list&lt;AAISector*&gt;::iterator sector = brain-&gt;sectors[i].begin(); sector != brain-&gt;sectors[i].end(); sector++)
++		{
++			pos = (*sector)-&gt;GetMovePos(unit_movement_type);
+ 
+-	if(!cfg-&gt;AIR_ONLY_MOD)
+-	{
+-		if(category == GROUND_ASSAULT)
+-			water = false;
+-		else if(category == SEA_ASSAULT || category == SUBMARINE_ASSAULT)
+-			land = false;
+-	}	
++			if(pos.x &gt; 0)
++				return pos;
++		}
++	}
+ 
++	return ZeroVector;	
++}
++
++float3 AAIExecute::GetRallyPointCloseTo(UnitCategory category, unsigned int unit_movement_type, float3 pos, int min_dist, int max_dist)
++{
++	//float3 pos;
++
+ 	// check neighbouring sectors
+ 	for(int i = min_dist; i &lt;= max_dist; ++i)
+ 	{
++		if(unit_movement_type &amp; MOVE_TYPE_GROUND)
++			brain-&gt;sectors[i].sort(suitable_for_ground_rallypoint);
++		else if(unit_movement_type &amp; MOVE_TYPE_SEA)
++			brain-&gt;sectors[i].sort(suitable_for_sea_rallypoint);
++		else 
++			brain-&gt;sectors[i].sort(suitable_for_all_rallypoint);
++
+ 		for(list&lt;AAISector*&gt;::iterator sector = brain-&gt;sectors[i].begin(); sector != brain-&gt;sectors[i].end(); sector++)
+ 		{
+-			my_rating = 24.0f / ((*sector)-&gt;mobile_combat_power[combat_cat] + 4.0f) + 2 * (*sector)-&gt;GetMapBorderDist();
+-			
+-			if(land)
+-				my_rating += 8 * pow((*sector)-&gt;flat_ratio, 2);
++			pos = (*sector)-&gt;GetMovePos(unit_movement_type);
+ 
+-			if(water)
+-				my_rating += 8 * pow((*sector)-&gt;water_ratio, 2);	
+-
+-			my_rating += 0.25 * (rand()%random);
+-
+-			my_rating /= sqrt(10.0f + (*sector)-&gt;allied_structures);
+-
+-			if(my_rating &gt; best_rating)
+-			{
+-				best_rating = my_rating;
+-				best_sector = *sector;
+-			}
++			if(pos.x &gt; 0)
++				return pos;
+ 		}
+ 	}
+ 
+-	if(best_sector)
+-		return best_sector-&gt;GetCenter();
+-	else
+-		return ZeroVector;	
+-}
++	return ZeroVector;	
+ 
+-float3 AAIExecute::GetRallyPointCloseTo(UnitCategory category, float3 pos, int min_dist, int max_dist)
+-{
+-	AAISector* best_sector = 0;
++	/*AAISector* best_sector = 0;
+ 	float best_rating = 0, my_rating;
+ 	float3 center;
+ 
+@@ -668,9 +672,9 @@
+ 	}
+ 
+ 	if(best_sector)
+-		return best_sector-&gt;GetCenter();
++		return best_sector-&gt;GetMovePos(unit_movement_type);
+ 	else
+-		return ZeroVector;		
++		return ZeroVector;	*/	
+ }
+ 
+ 
+@@ -2489,7 +2493,8 @@
+ 					Command c;
+ 					c.id = CMD_ONOFF;
+ 					c.params.push_back(0);
+-					cb-&gt;GiveOrder(*maker, &amp;c);
++					//cb-&gt;GiveOrder(*maker, &amp;c);
++					GiveOrder(&amp;c, *maker, &quot;ToggleMMaker&quot;);
+ 
+ 					futureRequestedEnergy += cb-&gt;GetUnitDef(*maker)-&gt;energyUpkeep;
+ 					++disabledMMakers;
+@@ -2512,7 +2517,8 @@
+ 					Command c;
+ 					c.id = CMD_ONOFF;
+ 					c.params.push_back(1);
+-					cb-&gt;GiveOrder(*maker, &amp;c);
++					//cb-&gt;GiveOrder(*maker, &amp;c);
++					GiveOrder(&amp;c, *maker, &quot;ToggleMMaker&quot;);
+ 
+ 					futureRequestedEnergy -= usage;
+ 					--disabledMMakers;
+@@ -3039,6 +3045,24 @@
+ 	return ( left_rating / sqrt(left-&gt;own_structures+ 1.0f) &gt;  right_rating / sqrt(right-&gt;own_structures+ 1.0f) );
+ }
+ 
++bool AAIExecute::suitable_for_ground_rallypoint(AAISector *left, AAISector *right)
++{
++	return ( (left-&gt;flat_ratio  + 0.5 * left-&gt;GetMapBorderDist())/ ((float) (left-&gt;rally_points + 1) )
++		&gt;  (right-&gt;flat_ratio  + 0.5 * right-&gt;GetMapBorderDist())/ ((float) (right-&gt;rally_points + 1) ) );
++}
++
++bool AAIExecute::suitable_for_sea_rallypoint(AAISector *left, AAISector *right)
++{
++	return ( (left-&gt;water_ratio  + 0.5 * left-&gt;GetMapBorderDist())/ ((float) (left-&gt;rally_points + 1) )
++		&gt;  (right-&gt;water_ratio  + 0.5 * right-&gt;GetMapBorderDist())/ ((float) (right-&gt;rally_points + 1) ) );
++}
++
++bool AAIExecute::suitable_for_all_rallypoint(AAISector *left, AAISector *right)
++{
++	return ( (left-&gt;flat_ratio + left-&gt;water_ratio + 0.5 * left-&gt;GetMapBorderDist())/ ((float) (left-&gt;rally_points + 1) )
++		&gt;  (right-&gt;flat_ratio + right-&gt;water_ratio + 0.5 * right-&gt;GetMapBorderDist())/ ((float) (right-&gt;rally_points + 1) ) );
++}
++
+ bool AAIExecute::defend_vs_ground(AAISector *left, AAISector *right)
+ {
+ 	return ((2 + 2 * left-&gt;GetThreatBy(GROUND_ASSAULT, learned, current)) / (left-&gt;GetDefencePowerVs(GROUND_ASSAULT)+ 1))
+@@ -3529,7 +3553,8 @@
+ 			c.params[1] = cb-&gt;GetElevation(pos.x, pos.z);
+ 			c.params[2] = pos.z;
+ 
+-			cb-&gt;GiveOrder(unit_id, &amp;c);
++			//cb-&gt;GiveOrder(unit_id, &amp;c);
++			GiveOrder(&amp;c, unit_id, &quot;Fallback&quot;);
+ 		}
+ 	}
+ }
+@@ -3570,4 +3595,14 @@
+ 		pos-&gt;x += unit_pos.x;
+ 		pos-&gt;z += unit_pos.z;
+ 	}	
++}
++
++void AAIExecute::GiveOrder(Command *c, int unit, const char *owner)
++{
++	//++issued_orders;
++
++	//if(issued_orders%50 == 0)
++	//	fprintf(ai-&gt;file, &quot;%i th order has been given by %s in frame %i\n&quot;, issued_orders, owner,  cb-&gt;GetCurrentFrame());
++
++	cb-&gt;GiveOrder(unit, c);
+ }
+\ No newline at end of file
+
+Modified: trunk/AI/Global/AAI/AAIExecute.h
+===================================================================
+--- trunk/AI/Global/AAI/AAIExecute.h	2008-05-05 16:43:40 UTC (rev 5848)
++++ trunk/AI/Global/AAI/AAIExecute.h	2008-05-05 20:15:51 UTC (rev 5849)
+@@ -118,8 +118,8 @@
+ 	// 
+ 	AAIGroup* GetClosestGroupOfCategory(UnitCategory category, UnitType type, float3 pos, int importance); 
+ 
+-	float3 GetRallyPoint(UnitCategory category, int min_dist, int max_dist, int random);
+-	float3 GetRallyPointCloseTo(UnitCategory category, float3 pos, int min_dist, int max_dist);
++	float3 GetRallyPoint(unsigned int unit_movement_type, int min_dist, int max_dist);
++	float3 GetRallyPointCloseTo(UnitCategory category, unsigned int unit_movement_type, float3 pos, int min_dist, int max_dist);
+ 
+ 	AAIMetalSpot* FindMetalSpotClosestToBuilder(int land_mex, int water_mex);
+ 	AAIMetalSpot* FindMetalSpot(bool land, bool water);
+@@ -141,7 +141,10 @@
+ 	bool static defend_vs_ground(AAISector *left, AAISector *right);
+ 	bool static defend_vs_air(AAISector *left, AAISector *right);
+ 	bool static defend_vs_hover(AAISector *left, AAISector *right);
+-	bool static defend_vs_sea(AAISector *left, AAISector *right);
++	bool static defend_vs_sea(AAISector *left, AAISector *right);	
++	bool static suitable_for_ground_rallypoint(AAISector *left, AAISector *right);
++	bool static suitable_for_sea_rallypoint(AAISector *left, AAISector *right);
++	bool static suitable_for_all_rallypoint(AAISector *left, AAISector *right);
+ 
+ 	// cache to speed things up a bit
+ 	float static learned;
+@@ -180,6 +183,11 @@
+ 	AAISector *next_defence;
+ 	UnitCategory def_category;
+ 
++	// debug
++	int issued_orders;
++	void GiveOrder(Command *c, int unit, const char *owner);
++
++
+ private:
+ 	AAI *ai;
+ 	IAICallback *cb;
+
+Modified: trunk/AI/Global/AAI/AAIGroup.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIGroup.cpp	2008-05-05 16:43:40 UTC (rev 5848)
++++ trunk/AI/Global/AAI/AAIGroup.cpp	2008-05-05 20:15:51 UTC (rev 5849)
+@@ -19,6 +19,7 @@
+ 	this-&gt;bt = ai-&gt;bt;
+ 
+ 	attack = 0;
++	rally_point = ZeroVector;
+ 
+ 	category = bt-&gt;units_static[def-&gt;id].category;
+ 	combat_category = bt-&gt;GetIDOfAssaultCategory(category);
+@@ -60,8 +61,9 @@
+ 
+ 	target_sector = 0;
+ 
+-	rally_point = ai-&gt;execute-&gt;GetRallyPoint(category, 1, 1, 10);
+-
++	// get a rally point
++	GetNewRallyPoint();
++	
+ 	// get speed group (if necessary)
+ 	if(cfg-&gt;AIR_ONLY_MOD)
+ 	{
+@@ -95,6 +97,13 @@
+ 	attack = 0;
+ 
+ 	units.clear();
++
++	if(rally_point.x &gt; 0)
++	{
++		AAISector *sector = ai-&gt;map-&gt;GetSectorOfPos(&amp;rally_point);
++
++		--sector-&gt;rally_points;
++	}
+ }
+ 
+ bool AAIGroup::AddUnit(int unit_id, int def_id, UnitType type)
+@@ -134,7 +143,8 @@
+ 			if(category != AIR_ASSAULT)
+ 				c.options |= SHIFT_KEY;
+ 
+-			cb-&gt;GiveOrder(unit_id, &amp;c);
++			//cb-&gt;GiveOrder(unit_id, &amp;c);
++			ai-&gt;execute-&gt;GiveOrder(&amp;c, unit_id, &quot;Group::AddUnit&quot;);
+ 		}
+ 
+ 		return true;
+@@ -213,14 +223,15 @@
+ 
+ 	for(list&lt;int2&gt;::iterator i = units.begin(); i != units.end(); ++i)
+ 	{
+-		cb-&gt;GiveOrder(i-&gt;x, c);
++		//cb-&gt;GiveOrder(i-&gt;x, c);
++		ai-&gt;execute-&gt;GiveOrder(c, i-&gt;x, &quot;Group::GiveOrder&quot;);
+ 		ai-&gt;ut-&gt;SetUnitStatus(i-&gt;x, task);
+ 	}
+ }
+ 
+ void AAIGroup::Update()
+ {
+-	task_importance *= 0.96f;
++	task_importance *= 0.97f;
+ 
+ 	// attacking groups recheck target
+ 	if(task == GROUP_ATTACKING &amp;&amp; target_sector)
+@@ -263,7 +274,8 @@
+ 					c.params[1] = cb-&gt;GetElevation(pos.x, pos.z);
+ 					c.params[2] = pos.z;
+ 
+-					cb-&gt;GiveOrder(unit-&gt;x, &amp;c);
++					//cb-&gt;GiveOrder(unit-&gt;x, &amp;c);
++					ai-&gt;execute-&gt;GiveOrder(&amp;c, unit-&gt;x, &quot;GroupFallBack&quot;);
+ 				}
+ 			}
+ 		}
+@@ -553,3 +565,50 @@
+ 
+ 	task = GROUP_ATTACKING;
+ }
++
++void AAIGroup::UpdateRallyPoint()
++{
++	AAISector *sector = ai-&gt;map-&gt;GetSectorOfPos(&amp;rally_point);
++
++	// check if rally point lies within base (e.g. AAI has expanded its base after rally point had been set)
++	if(sector-&gt;distance_to_base &lt;= 0)
++		GetNewRallyPoint();
++
++	// check if rally point is blocked by building
++		
++	
++}
++
++void AAIGroup::GetNewRallyPoint()
++{
++	AAISector *sector;
++
++	// delete old rally point (if there is any)
++	if(rally_point.x &gt; 0)
++	{
++		sector = ai-&gt;map-&gt;GetSectorOfPos(&amp;rally_point);
++
++		--sector-&gt;rally_points;
++	}
++
++	rally_point = ai-&gt;execute-&gt;GetRallyPoint(group_movement_type, 1, 1);
++
++	if(rally_point.x &gt; 0)
++	{
++		//add new rally point to sector
++		sector = ai-&gt;map-&gt;GetSectorOfPos(&amp;rally_point);
++		++sector-&gt;rally_points;
++
++		// send idle groups to new rally point
++		if(task == GROUP_IDLE)
++		{
++			Command c;
++			c.id = CMD_MOVE;
++			c.params.push_back(rally_point.x);
++			c.params.push_back(rally_point.y);
++			c.params.push_back(rally_point.z);
++
++			GiveOrder(&amp;c, 90, HEADING_TO_RALLYPOINT);
++		}
++	}
++}
+
+Modified: trunk/AI/Global/AAI/AAIGroup.h
+===================================================================
+--- trunk/AI/Global/AAI/AAIGroup.h	2008-05-05 16:43:40 UTC (rev 5848)
++++ trunk/AI/Global/AAI/AAIGroup.h	2008-05-05 20:15:51 UTC (rev 5849)
+@@ -42,6 +42,12 @@
+ 
+ 	void TargetUnitKilled();
+ 
++	// checks current rally point and chooses new one if necessary
++	void UpdateRallyPoint();
++
++	// gets a new rally point and orders units to get there
++	void GetNewRallyPoint();
++
+ 	void UnitIdle(int unit);
+ 
+ 	float GetPowerVS(int assault_cat_id);
+
+Modified: trunk/AI/Global/AAI/AAIMap.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIMap.cpp	2008-05-05 16:43:40 UTC (rev 5848)
++++ trunk/AI/Global/AAI/AAIMap.cpp	2008-05-05 20:15:51 UTC (rev 5849)
+@@ -2665,4 +2665,4 @@
+ 		y = yContMapSize - 1;
+ 
+ 	return continent_map[y * xContMapSize + x];
+-}
++}
+\ No newline at end of file
+
+Modified: trunk/AI/Global/AAI/AAIMap.h
+===================================================================
+--- trunk/AI/Global/AAI/AAIMap.h	2008-05-05 16:43:40 UTC (rev 5848)
++++ trunk/AI/Global/AAI/AAIMap.h	2008-05-05 20:15:51 UTC (rev 5849)
+@@ -4,7 +4,6 @@
+ #include &quot;AAISector.h&quot;
+ 
+ class AAIBuildTable;
+-//class AAISector;
+ class AAI;
+ 
+ class AAIMap
+@@ -23,9 +22,6 @@
+ 	void BuildMapPos2Pos(float3 *pos, const UnitDef* def);
+ 	void Pos2FinalBuildPos(float3 *pos, const UnitDef *def);
+ 
+-	// ensures a position lies within the map
+-	//void PosInMap(float3 *pos);
+-
+ 	// returns id of continent the cell belongs to
+ 	int GetContinentID(int x, int y);
+ 	int GetContinentID(float3 *pos);
+
+Modified: trunk/AI/Global/AAI/AAISector.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAISector.cpp	2008-05-05 16:43:40 UTC (rev 5848)
++++ trunk/AI/Global/AAI/AAISector.cpp	2008-05-05 20:15:51 UTC (rev 5849)
+@@ -51,6 +51,7 @@
+ 	interior = false;
+ 	distance_to_base = -1;
+ 	last_scout = 1;
++	rally_points = 0;
+ 	
+ 	// nothing sighted in that sector
+ 	enemy_structures = 0;
+@@ -678,6 +679,78 @@
+ 	return false;
+ }
+ 
++float3 AAISector::GetMovePos(unsigned int unit_movement_type)
++{
++	int x,y;
++
++	float height;
++
++	float3 pos = ZeroVector;	
++		
++	// try to get random spot
++	for(int i = 0; i &lt; 6; ++i)
++	{
++		pos.x = left + map-&gt;xSectorSize * (0.2f + 0.06f * (float)(rand()%11) );
++		pos.z = top + map-&gt;ySectorSize * (0.2f + 0.06f * (float)(rand()%11) );
++
++		height = ai-&gt;cb-&gt;GetElevation(pos.x, pos.z);
++
++		// check if cell height matches movement type 
++		if(height &gt;= 0 &amp;&amp; !(unit_movement_type &amp; MOVE_TYPE_SEA) )
++		{			
++			// get cell index of middlepoint
++			x = (int) (pos.x / SQUARE_SIZE);
++			y = (int) (pos.z / SQUARE_SIZE);
++
++			if(map-&gt;buildmap[x + y * map-&gt;xMapSize] != 1)
++				return pos;
++		}	
++		else if(height &lt; 0 &amp;&amp; !(unit_movement_type &amp; MOVE_TYPE_GROUND) )
++		{			
++			// get cell index of middlepoint
++			x = (int) (pos.x / SQUARE_SIZE);
++			y = (int) (pos.z / SQUARE_SIZE);
++
++			if(map-&gt;buildmap[x + y * map-&gt;xMapSize] != 5)
++				return pos;
++		}	
++	}
++
++	// search systematically 
++	for(int i = 0; i &lt; map-&gt;xSectorSizeMap; i += 8)
++	{
++		for(int j = 0; j &lt; map-&gt;ySectorSizeMap; j += 8)
++		{
++			pos.x = left + i * SQUARE_SIZE;
++			pos.z = top + j * SQUARE_SIZE;
++	
++			height = ai-&gt;cb-&gt;GetElevation(pos.x, pos.z);
++
++			// check if cell height matches movement type 
++			if(height &gt;= 0 &amp;&amp; !(unit_movement_type &amp; MOVE_TYPE_SEA) )
++			{			
++				// get cell index of middlepoint
++				x = (int) (pos.x / SQUARE_SIZE);
++				y = (int) (pos.z / SQUARE_SIZE);
++
++				if(map-&gt;buildmap[x + y * map-&gt;xMapSize] != 1)
++					return pos;
++			}	
++			else if(height &lt; 0 &amp;&amp; !(unit_movement_type &amp; MOVE_TYPE_GROUND) )
++			{			
++				// get cell index of middlepoint
++				x = (int) (pos.x / SQUARE_SIZE);
++				y = (int) (pos.z / SQUARE_SIZE);
++
++				if(map-&gt;buildmap[x + y * map-&gt;xMapSize] != 5)
++					return pos;
++			}
++		}
++	}
++
++	return ZeroVector;
++}
++
+ void AAISector::GetMovePos(float3 *pos, unsigned int movement_type, int continent)
+ {
+ 	if(movement_type &amp;  MOVE_TYPE_CONTINENT_BOUND)
+
+Modified: trunk/AI/Global/AAI/AAISector.h
+===================================================================
+--- trunk/AI/Global/AAI/AAISector.h	2008-05-05 16:43:40 UTC (rev 5848)
++++ trunk/AI/Global/AAI/AAISector.h	2008-05-05 20:15:51 UTC (rev 5849)
+@@ -85,8 +85,14 @@
+ 	float GetLostUnits(float ground, float air, float hover, float sea, float submarine);
+ 
+ 	// returns center of the sector
+-	float3 GetCenter();			
++	float3 GetCenter();
+ 
++	// returns a position in sector for the movement type (ZeroVector if none found)
++	float3 GetMovePos(unsigned int unit_movement_type);
++
++	// returns a position in sector on specified continent for the movement type (ZeroVector if none found)
++	void GetMovePos(float3 *pos, unsigned int movement_type, int continent); 
++
+ 	// returns true is pos is within sector
+ 	bool PosInSector(float3 *pos);
+ 
+@@ -94,9 +100,6 @@
+ 	float GetWaterRatio();
+ 	float GetFlatRatio();
+ 
+-	// returns a position in sector on specified continent for the movement type (ZeroVector if none found)
+-	void GetMovePos(float3 *pos, unsigned int movement_type, int continent); 
+-
+ 	// returns true if sector is connected with a big ocean (and not only a small pond)
+ 	bool ConnectedToOcean();
+ 
+@@ -107,6 +110,8 @@
+ 	float own_structures;
+ 	float allied_structures;
+ 
++	int rally_points;	// how many groups got a rally point in that sector
++
+ 	list&lt;AAIDefence&gt; defences;
+ 	int failed_defences; // how many times aai tried to build defences and could not find possible constructionsite
+ 
+
+Modified: trunk/AI/Global/AAI/AAIUnitTable.h
+===================================================================
+--- trunk/AI/Global/AAI/AAIUnitTable.h	2008-05-05 16:43:40 UTC (rev 5848)
++++ trunk/AI/Global/AAI/AAIUnitTable.h	2008-05-05 20:15:51 UTC (rev 5849)
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include &lt;set&gt;
+ #include &quot;aidef.h&quot;
+ 
+ using std::set;
+
+Modified: trunk/AI/Global/AAI/aidef.h
+===================================================================
+--- trunk/AI/Global/AAI/aidef.h	2008-05-05 16:43:40 UTC (rev 5848)
++++ trunk/AI/Global/AAI/aidef.h	2008-05-05 20:15:51 UTC (rev 5849)
+@@ -2,14 +2,12 @@
+ // 
+ // standard headers 
+ 
+-#include &lt;stdlib.h&gt;
+-#include &lt;string.h&gt;
+-#include &lt;time.h&gt;
+-#include &lt;stdio.h&gt;
+-#include &lt;set&gt;
+ #include &lt;list&gt;
+ #include &lt;vector&gt;
++#include &lt;stdio.h&gt;
++#include &lt;time.h&gt;
+ #include &lt;string&gt;
++
+ #include &quot;ExternalAI/IAICheats.h&quot;
+ #include &quot;ExternalAI/IGlobalAI.h&quot;
+ #include &quot;ExternalAI/IGlobalAICallback.h&quot;
+@@ -24,6 +22,7 @@
+ #include &quot;AAIConfig.h&quot;
+ 
+ 
++
+ #ifdef _MSC_VER
+ #pragma warning(disable: 4244 4018) // signed/unsigned and loss of precision...
+ #endif 
+@@ -33,7 +32,7 @@
+ #ifndef AIDEF_H
+ #define AIDEF_H
+ 
+-#define AAI_VERSION &quot;0.864&quot;
++#define AAI_VERSION &quot;0.866&quot;
+ #define MAP_FILE_VERSION &quot;MAP_LEARN_0_80&quot;
+ #define TABLE_FILE_VERSION &quot;MOD_LEARN_0_86&quot;
+ #define MAP_DATA_VERSION &quot;MAP_DATA_0_86&quot;
+
+Modified: trunk/game/AI/AAI/AAI ReadMe.txt
+===================================================================
+--- trunk/game/AI/AAI/AAI ReadMe.txt	2008-05-05 16:43:40 UTC (rev 5848)
++++ trunk/game/AI/AAI/AAI ReadMe.txt	2008-05-05 20:15:51 UTC (rev 5849)
+@@ -105,8 +105,13 @@
+ 		- Brandon Potter for his TBT 12 cfg file
+ 
+ 
+-AAI v0.864	- Added some unit specific combat behaviour: Units with high ranged weapons will now try to keep enemies distant
++AAI v0.866	- Fixed a bug that caused builders to leave the buildsite during construction 
+ 
++		- Various changes to issued orders; temporarily removed reclaiming. Reclaim orders were given multiple times per frame 
++		  thus flooding the interface with orders and causing Spring to freeze/huge drop in FPS 
++
++		- Added some unit specific combat behaviour: Units with high ranged weapons will now try to keep enemies distant
++
+ 		- Added two new variables to mod config file:
+ 
+ 		  FALLBACK_DIST_RATIO 0.9 - units will try keep enemies at this ratio of their maximum weapons' range
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000628.html">[Taspring-linux-commit] r5848 - in trunk/rts: Game Game/Camera	Sim/MoveTypes
+</A></li>
+	<LI>Next message: <A HREF="000630.html">[Taspring-linux-commit] r5850 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#629">[ date ]</a>
+              <a href="thread.html#629">[ thread ]</a>
+              <a href="subject.html#629">[ subject ]</a>
+              <a href="author.html#629">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

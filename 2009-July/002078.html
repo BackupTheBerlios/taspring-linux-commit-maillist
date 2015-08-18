@@ -1,0 +1,462 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7308 - in Lobby/TASClient: . Themes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7308%20-%20in%20Lobby/TASClient%3A%20.%20Themes&In-Reply-To=%3C20090727215745.E67703B6F2%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002077.html">
+   <LINK REL="Next"  HREF="002079.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7308 - in Lobby/TASClient: . Themes</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7308%20-%20in%20Lobby/TASClient%3A%20.%20Themes&In-Reply-To=%3C20090727215745.E67703B6F2%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7308 - in Lobby/TASClient: . Themes">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon Jul 27 23:57:45 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002077.html">[Taspring-linux-commit] r7307 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002079.html">[Taspring-linux-commit] r7309 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2078">[ date ]</a>
+              <a href="thread.html#2078">[ thread ]</a>
+              <a href="subject.html#2078">[ subject ]</a>
+              <a href="author.html#2078">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2009-07-27 23:57:44 +0200 (Mon, 27 Jul 2009)
+New Revision: 7308
+
+Modified:
+   Lobby/TASClient/BattleFormUnit.pas
+   Lobby/TASClient/LobbyScriptUnit.pas
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.dpr
+   Lobby/TASClient/TASClient.res
+   Lobby/TASClient/Themes/TBXMacOSXG32Theme.pas
+Log:
+* -no3d param added
+* possible fix for debug mode python crash
+
+Modified: Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.pas	2009-07-26 21:16:13 UTC (rev 7307)
++++ Lobby/TASClient/BattleFormUnit.pas	2009-07-27 21:57:44 UTC (rev 7308)
+@@ -2888,7 +2888,7 @@
+ 
+   //Utility.LoadMiniMap(TMapItem(MapListForm.Maps[CurrentMapIndex]).MapName,MinimapZoomedForm.Image1.Picture.Bitmap);
+ 
+-  if Preferences.LoadMetalHeightMinimaps then
++  if Preferences.LoadMetalHeightMinimaps and not MainUnit.NO3D then
+     MinimapZoomedForm.Image1.Canvas.StretchDraw(Rect(0, 0, MinimapZoomedForm.Image1.Width, MinimapZoomedForm.Image1.Height), MapImage.Picture.Bitmap)
+   else
+     MinimapZoomedForm.Image1.Canvas.StretchDraw(Rect(0, 0, MinimapZoomedForm.Image1.Width, MinimapZoomedForm.Image1.Height), TImage(Sender).Picture.Bitmap);
+@@ -2896,7 +2896,7 @@
+   MinimapZoomedForm.DrawStartPositions(GetMapItem(CurrentMapIndex).MapInfo,MinimapZoomedForm.Image1);
+   MinimapZoomedForm.Caption := _('Minimap (') + Utility.MapList[CurrentMapIndex] + ', ' + IntToStr(GetMapItem(CurrentMapIndex).MapInfo.Width div 64) + ' x ' + IntToStr(GetMapItem(CurrentMapIndex).MapInfo.Height div 64) + ')';
+ 
+-  if Preferences.LoadMetalHeightMinimaps then
++  if Preferences.LoadMetalHeightMinimaps and not MainUnit.NO3D then
+   begin
+     Minimap3DPreview.Camera.Position.X := -50;
+     Minimap3DPreview.Camera.Position.Y := 50;
+
+Modified: Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- Lobby/TASClient/LobbyScriptUnit.pas	2009-07-26 21:16:13 UTC (rev 7307)
++++ Lobby/TASClient/LobbyScriptUnit.pas	2009-07-27 21:57:44 UTC (rev 7308)
+@@ -255,7 +255,7 @@
+     constructor Create(fName: string; tup: Variant);
+   end;
+ 
+-  procedure AcquireMainThread;
++  function AcquireMainThread:boolean;
+   procedure ReleaseMainThread;
+   procedure PyDict_SetItemStringDecRef(dp: PPyObject; Key: PAnsiChar; const V : Variant);
+   procedure PyDict_SetItemDecRef(dp: PPyObject; Key: PPyObject; const V : Variant);
+@@ -2332,13 +2332,17 @@
+ //    procedures
+ //------------------------------------------------------------------------------------------------------
+ 
+-procedure AcquireMainThread;
++function AcquireMainThread:boolean;
+ begin
++  Result := False;
+   if Preferences.ScriptsDisabled or not ScriptsInitialized then Exit;
+-  if GetCurrentThreadId &lt;&gt; MainThreadID then Exit;
++  //if GetCurrentThreadId &lt;&gt; MainThreadID then Exit;
++  if GetCurrentThreadId &lt;&gt; MainThreadID then
++    while MainThreadFocused do;
+   if MainThreadFocused then Exit;
+   GetPythonEngine.PyEval_AcquireThread(MainThreadState);
+   MainThreadFocused := True;
++  Result := True;
+ end;
+ 
+ procedure PostMsgs;
+@@ -2365,7 +2369,9 @@
+ procedure ReleaseMainThread;
+ begin
+   if Preferences.ScriptsDisabled or not ScriptsInitialized then Exit;
+-  if GetCurrentThreadId &lt;&gt; MainThreadID then Exit;
++  //if GetCurrentThreadId &lt;&gt; MainThreadID then Exit;
++  if GetCurrentThreadId &lt;&gt; MainThreadID then
++    while MainThreadFocused do;
+   if not MainThreadFocused then Exit;
+   GetPythonEngine.PyEval_ReleaseThread(MainThreadState);
+   MainThreadFocused := False;
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2009-07-26 21:16:13 UTC (rev 7307)
++++ Lobby/TASClient/MainUnit.dfm	2009-07-27 21:57:44 UTC (rev 7308)
+@@ -7203,8 +7203,9 @@
+     FatalAbort = False
+     FatalMsgDlg = False
+     AutoFinalize = False
++    InitThreads = True
+     IO = PyInOut
+-    PyFlags = [pfDebug]
++    PyFlags = [pfOptimize]
+     Left = 452
+     Top = 166
+   end
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2009-07-26 21:16:13 UTC (rev 7307)
++++ Lobby/TASClient/MainUnit.pas	2009-07-27 21:57:44 UTC (rev 7308)
+@@ -1726,6 +1726,7 @@
+   RunningUnderWine: Boolean = False; // set via -wine argument to the program
+   RunningWithMainMenu: Boolean = False; // set via -menu argument to the program
+   RunningWithMainMenuDev: Boolean = False; // set via -menudev argument to the program
++  NO3D: Boolean = False; // set via -no3d argument to the program
+ 
+   MyInternetIp: String;
+ 
+@@ -4556,9 +4557,11 @@
+ 
+   try
+     handleCommandReturn := false;
+-    AcquireMainThread;
+-    try if not Preferences.ScriptsDisabled then handleCommandReturn := handlers.handleCommand(s); except end;
+-    ReleaseMainThread;
++    if AcquireMainThread then
++    begin
++      try if not Preferences.ScriptsDisabled then handleCommandReturn := handlers.handleCommand(s); except end;
++      ReleaseMainThread;
++    end;
+ 
+     if handleCommandReturn then Exit
+     else if sl[0] = 'CONNECT' then TryToConnect
+@@ -5053,9 +5056,11 @@
+ begin
+   tmp := s;
+ 
+-  AcquireMainThread;
+-  try if not Preferences.ScriptsDisabled then s := handlers.handleIn(s); except end;
+-  ReleaseMainThread;
++  if AcquireMainThread then
++  begin
++    try if not Preferences.ScriptsDisabled then s := handlers.handleIn(s); except end;
++    ReleaseMainThread;
++  end;
+ 
+   if Debug.Enabled and ((not Debug.FilterPingPong) or (s &lt;&gt; 'PONG')) then
+     if (s &lt;&gt; 'ACQUIREUSERID') or Status.Me.GetAccess then
+@@ -7332,9 +7337,11 @@
+       AddMainLog(_('Error: Server sent unknown or invalid command!'), Colors.Error);
+     end;
+   finally
+-    AcquireMainThread;
+-    try if not Preferences.ScriptsDisabled then handlers.handleIn2(s); except end;
+-    ReleaseMainThread;
++    if AcquireMainThread then
++    begin
++      try if not Preferences.ScriptsDisabled then handlers.handleIn2(s); except end;
++      ReleaseMainThread;
++    end;
+     
+     ProcessingRemoteCommand := False;
+     Status.LastCommandReceived := sl[0];
+@@ -7904,7 +7911,8 @@
+     Exit;
+   end;
+ 
+-  AcquireMainThread;
++  if AcquireMainThread then
++  begin
+   try
+     if not Preferences.ScriptsDisabled then
+     begin
+@@ -7922,6 +7930,7 @@
+   finally
+     ReleaseMainThread;
+   end;
++  end;
+ 
+   try
+     sUTF8 := UTF8Encode(s+EOL);
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2009-07-26 21:16:13 UTC (rev 7307)
++++ Lobby/TASClient/TASClient.dof	2009-07-27 21:57:44 UTC (rev 7308)
+@@ -100,7 +100,7 @@
+ DebugSourceDirs=
+ UsePackages=0
+ [Parameters]
+-RunParams=
++RunParams=-no3d
+ HostApplication=C:\Program Files\Spring\TASClient.exe
+ Launcher=
+ UseLauncher=0
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=50
+ Release=0
+-Build=672
++Build=674
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.50.0.672
++FileVersion=0.50.0.674
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.dpr
+===================================================================
+--- Lobby/TASClient/TASClient.dpr	2009-07-26 21:16:13 UTC (rev 7307)
++++ Lobby/TASClient/TASClient.dpr	2009-07-27 21:57:44 UTC (rev 7308)
+@@ -145,6 +145,7 @@
+     MainUnit.RunningWithMainMenuDev := MainUnit.RunningWithMainMenuDev or (UpperCase(ParamStr(i)) = '-MENUDEV');
+     MainUnit.Debug.Enabled := MainUnit.Debug.Enabled or (UpperCase(ParamStr(i)) = '-DEBUG');
+     MainUnit.Debug.Log := MainUnit.Debug.Log or (UpperCase(ParamStr(i)) = '-LOG');
++    MainUnit.NO3D := MainUnit.NO3D or (UpperCase(ParamStr(i)) = '-NO3D');
+ 
+     if UpperCase(ParamStr(i)) = '-INIFILE' then
+     begin
+@@ -256,10 +257,13 @@
+   if MainUnit.Debug.Enabled then
+     Misc.TryToAddLog(MainUnit.StartDebugLog,'Creating MainForm ...');
+   Application.CreateForm(TMainForm, MainForm);
++  if MainUnit.NO3D then
++  begin
++    if MainUnit.Debug.Enabled then
++      Misc.TryToAddLog(MainUnit.StartDebugLog,'Creating Minimap3DPreview ...');
++    Application.CreateForm(TMinimap3DPreview, Minimap3DPreview);
++  end;
+   if MainUnit.Debug.Enabled then
+-    Misc.TryToAddLog(MainUnit.StartDebugLog,'Creating Minimap3DPreview ...');
+-  Application.CreateForm(TMinimap3DPreview, Minimap3DPreview);
+-  if MainUnit.Debug.Enabled then
+     Misc.TryToAddLog(MainUnit.StartDebugLog,'Creating MapSelectionForm ...');
+   Application.CreateForm(TMapSelectionForm, MapSelectionForm);
+   if MainUnit.Debug.Enabled then
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+Modified: Lobby/TASClient/Themes/TBXMacOSXG32Theme.pas
+===================================================================
+--- Lobby/TASClient/Themes/TBXMacOSXG32Theme.pas	2009-07-26 21:16:13 UTC (rev 7307)
++++ Lobby/TASClient/Themes/TBXMacOSXG32Theme.pas	2009-07-27 21:57:44 UTC (rev 7308)
+@@ -243,8 +243,8 @@
+ 
+ { TTBXSimpleTheme }
+ 
+-Const
+-  FStretchFilter= sfLanczos;//sfNearest;//sfLinear;//sfMitchell;//sfSpline;//
++//Const
++  //FStretchFilter= sfLanczos;//sfNearest;//sfLinear;//sfMitchell;//sfSpline;//
+ 
+ Type
+   TDrawStyle = (bsDefault, bsHover, bsDisabled, bsPushed, bsSelected, bsSelectedHover);
+@@ -285,13 +285,13 @@
+   Begin
+     StockBitmap321:= TBitmap32.Create;
+     StockBitmap321.DrawMode:=dmBlend;
+-    StockBitmap321.StretchFilter:= FStretchFilter;
++    //StockBitmap321.StretchFilter:= FStretchFilter;
+   End;
+   If Not Assigned(StockBitmap322) then
+   Begin
+     StockBitmap322:= TBitmap32.Create;
+     StockBitmap322.DrawMode:=dmBlend;
+-    StockBitmap322.StretchFilter:= FStretchFilter;
++    //StockBitmap322.StretchFilter:= FStretchFilter;
+   End;
+ 
+   P:=TPngObject.Create;
+@@ -303,7 +303,7 @@
+     RadioM:= TBitmap32.Create;
+     PngObjectToBitmap32(P, RadioM);
+     RadioM.DrawMode:=dmBlend;
+-    RadioM.StretchFilter:= FStretchFilter;
++    //RadioM.StretchFilter:= FStretchFilter;
+   End;
+   If Not Assigned(CheckM) then
+   Begin
+@@ -313,7 +313,7 @@
+     CheckM:= TBitmap32.Create;
+     PngObjectToBitmap32(P, CheckM);
+     CheckM.DrawMode:=dmBlend;
+-    CheckM.StretchFilter:= FStretchFilter;
++    //CheckM.StretchFilter:= FStretchFilter;
+   End;
+   If Not Assigned(BOTON) then
+   Begin
+@@ -323,7 +323,7 @@
+     BOTON:= TBitmap32.Create;
+     PngObjectToBitmap32(P, BOTON);
+     BOTON.DrawMode:=dmBlend;
+-    BOTON.StretchFilter:= FStretchFilter;
++    //BOTON.StretchFilter:= FStretchFilter;
+   End;
+   If Not Assigned(TOOLBARBUTTONS) then
+   Begin
+@@ -333,7 +333,7 @@
+     TOOLBARBUTTONS:= TBitmap32.Create;
+     PngObjectToBitmap32(P, TOOLBARBUTTONS);
+     TOOLBARBUTTONS.DrawMode:=dmBlend;
+-    TOOLBARBUTTONS.StretchFilter:= FStretchFilter;
++    //TOOLBARBUTTONS.StretchFilter:= FStretchFilter;
+   End;
+   If Not Assigned(TOOLBARBUTTONSSPLIT) then
+   Begin
+@@ -343,7 +343,7 @@
+     TOOLBARBUTTONSSPLIT:= TBitmap32.Create;
+     PngObjectToBitmap32(P, TOOLBARBUTTONSSPLIT);
+     TOOLBARBUTTONSSPLIT.DrawMode:=dmBlend;
+-    TOOLBARBUTTONSSPLIT.StretchFilter:= FStretchFilter;
++    //TOOLBARBUTTONSSPLIT.StretchFilter:= FStretchFilter;
+   End;
+   If Not Assigned(TOOLBARBUTTONSSPLITDROPDOWN) then
+   Begin
+@@ -353,7 +353,7 @@
+     TOOLBARBUTTONSSPLITDROPDOWN:= TBitmap32.Create;
+     PngObjectToBitmap32(P, TOOLBARBUTTONSSPLITDROPDOWN);
+     TOOLBARBUTTONSSPLITDROPDOWN.DrawMode:=dmBlend;
+-    TOOLBARBUTTONSSPLITDROPDOWN.StretchFilter:= FStretchFilter;
++    //TOOLBARBUTTONSSPLITDROPDOWN.StretchFilter:= FStretchFilter;
+   End;
+   If Not Assigned(SPINBUTTONBACKGROUNDRIGHT) then
+   Begin
+@@ -363,7 +363,7 @@
+     SPINBUTTONBACKGROUNDRIGHT:= TBitmap32.Create;
+     PngObjectToBitmap32(P, SPINBUTTONBACKGROUNDRIGHT);
+     SPINBUTTONBACKGROUNDRIGHT.DrawMode:=dmBlend;
+-    SPINBUTTONBACKGROUNDRIGHT.StretchFilter:= FStretchFilter;
++    //SPINBUTTONBACKGROUNDRIGHT.StretchFilter:= FStretchFilter;
+   End;
+   If Not Assigned(COMBOBOX) then
+   Begin
+@@ -373,7 +373,7 @@
+     COMBOBOX:= TBitmap32.Create;
+     PngObjectToBitmap32(P, COMBOBOX);
+     COMBOBOX.DrawMode:=dmBlend;
+-    COMBOBOX.StretchFilter:= FStretchFilter;
++    //COMBOBOX.StretchFilter:= FStretchFilter;
+   End;
+   If Not Assigned(MDICLOSE) then
+   Begin
+@@ -383,7 +383,7 @@
+     MDICLOSE:= TBitmap32.Create;
+     PngObjectToBitmap32(P, MDICLOSE);
+     MDICLOSE.DrawMode:=dmBlend;
+-    MDICLOSE.StretchFilter:= FStretchFilter;
++    //MDICLOSE.StretchFilter:= FStretchFilter;
+   End;
+   If Not Assigned(SPINBUTTONBACKGROUNDUP) then
+   Begin
+@@ -393,7 +393,7 @@
+     SPINBUTTONBACKGROUNDUP:= TBitmap32.Create;
+     PngObjectToBitmap32(P, SPINBUTTONBACKGROUNDUP);
+     SPINBUTTONBACKGROUNDUP.DrawMode:=dmBlend;
+-    SPINBUTTONBACKGROUNDUP.StretchFilter:= FStretchFilter;
++    //SPINBUTTONBACKGROUNDUP.StretchFilter:= FStretchFilter;
+   End;
+   If Not Assigned(SPINBUTTONBACKGROUNDDOWN) then
+   Begin
+@@ -403,7 +403,7 @@
+     SPINBUTTONBACKGROUNDDOWN:= TBitmap32.Create;
+     PngObjectToBitmap32(P, SPINBUTTONBACKGROUNDDOWN);
+     SPINBUTTONBACKGROUNDDOWN.DrawMode:=dmBlend;
+-    SPINBUTTONBACKGROUNDDOWN.StretchFilter:= FStretchFilter;
++    //SPINBUTTONBACKGROUNDDOWN.StretchFilter:= FStretchFilter;
+   End;
+   If Not Assigned(CLOSEGLYPH) then
+   Begin
+@@ -413,7 +413,7 @@
+     CLOSEGLYPH:= TBitmap32.Create;
+     PngObjectToBitmap32(P, CLOSEGLYPH);
+     CLOSEGLYPH.DrawMode:=dmBlend;
+-    CLOSEGLYPH.StretchFilter:= FStretchFilter;
++    //CLOSEGLYPH.StretchFilter:= FStretchFilter;
+   End;
+   If Not Assigned(MINIMIZEGLYPH) then
+   Begin
+@@ -423,7 +423,7 @@
+     MINIMIZEGLYPH:= TBitmap32.Create;
+     PngObjectToBitmap32(P, MINIMIZEGLYPH);
+     MINIMIZEGLYPH.DrawMode:=dmBlend;
+-    MINIMIZEGLYPH.StretchFilter:= FStretchFilter;
++    //MINIMIZEGLYPH.StretchFilter:= FStretchFilter;
+   End;
+   If Not Assigned(MAXIMIZEGLYPH) then
+   Begin
+@@ -433,7 +433,7 @@
+     MAXIMIZEGLYPH:= TBitmap32.Create;
+     PngObjectToBitmap32(P, MAXIMIZEGLYPH);
+     MAXIMIZEGLYPH.DrawMode:=dmBlend;
+-    MAXIMIZEGLYPH.StretchFilter:= FStretchFilter;
++    //MAXIMIZEGLYPH.StretchFilter:= FStretchFilter;
+   End;
+   P.Free;
+ end;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002077.html">[Taspring-linux-commit] r7307 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002079.html">[Taspring-linux-commit] r7309 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2078">[ date ]</a>
+              <a href="thread.html#2078">[ thread ]</a>
+              <a href="subject.html#2078">[ subject ]</a>
+              <a href="author.html#2078">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

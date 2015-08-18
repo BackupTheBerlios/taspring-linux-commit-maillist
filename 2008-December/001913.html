@@ -1,0 +1,1147 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7144 - in trunk: rts/System tools/unitsync
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7144%20-%20in%20trunk%3A%20rts/System%20tools/unitsync&In-Reply-To=%3C20081206222825.69004478C%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001912.html">
+   <LINK REL="Next"  HREF="001914.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7144 - in trunk: rts/System tools/unitsync</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7144%20-%20in%20trunk%3A%20rts/System%20tools/unitsync&In-Reply-To=%3C20081206222825.69004478C%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r7144 - in trunk: rts/System tools/unitsync">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Dec  6 23:28:25 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001912.html">[Taspring-linux-commit] r7143 - in branches/caiinterface: .	AI/Interfaces/Java rts/ExternalAI/Interface rts/Sim/Misc	tools/unitsync
+</A></li>
+        <LI>Next message: <A HREF="001914.html">[Taspring-linux-commit] r7145 - in trunk/rts/Map: . SMF
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1913">[ date ]</a>
+              <a href="thread.html#1913">[ thread ]</a>
+              <a href="subject.html#1913">[ subject ]</a>
+              <a href="author.html#1913">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: hoijui
+Date: 2008-12-06 23:28:24 +0100 (Sat, 06 Dec 2008)
+New Revision: 7144
+
+Added:
+   trunk/rts/System/Info.cpp
+   trunk/rts/System/Info.h
+   trunk/rts/System/Option.cpp
+   trunk/rts/System/Option.h
+Modified:
+   trunk/rts/System/LogOutput.cpp
+   trunk/rts/System/LogOutput.h
+   trunk/tools/unitsync/unitsync.cpp
+   trunk/tools/unitsync/unitsync.h
+Log:
+* extracted Options loading from unitsync (needed for later integration of C AI Interface branch)
+* added Info (works similar to Options, but has a simpler format, only key/value/description(optional))
+* made default LogSubsystem externally available -&gt; allows easy modularization of log code, see Option.cpp for an example
+
+Added: trunk/rts/System/Info.cpp
+===================================================================
+--- trunk/rts/System/Info.cpp	                        (rev 0)
++++ trunk/rts/System/Info.cpp	2008-12-06 22:28:24 UTC (rev 7144)
+@@ -0,0 +1,121 @@
++/*
++	Copyright (c) 2008 Robin Vobruba &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">hoijui.quaero at gmail.com</A>&gt;
++
++	This program is free software; you can redistribute it and/or modify
++	it under the terms of the GNU General Public License as published by
++	the Free Software Foundation; either version 2 of the License, or
++	(at your option) any later version.
++
++	This program is distributed in the hope that it will be useful,
++	but WITHOUT ANY WARRANTY; without even the implied warranty of
++	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++	GNU General Public License for more details.
++
++	You should have received a copy of the GNU General Public License
++	along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#include &quot;Info.h&quot;
++
++#include &quot;System/Util.h&quot;
++#include &quot;System/Exceptions.h&quot;
++#include &quot;Lua/LuaParser.h&quot;
++
++#include &lt;assert.h&gt;
++
++static const char* InfoItem_badKeyChars = &quot; =;\r\n\t&quot;;
++
++static bool parseInfoItem(const LuaTable&amp; root, int index, InfoItem&amp; inf,
++		std::set&lt;string&gt;&amp; infoSet, CLogSubsystem&amp; logSubsystem)
++{
++	const LuaTable&amp; infsTbl = root.SubTable(index);
++	if (!infsTbl.IsValid()) {
++		logOutput.Print(logSubsystem,
++				&quot;parseInfoItem: subtable %d invalid&quot;, index);
++		return false;
++	}
++
++	// common info properties
++	inf.key = infsTbl.GetString(&quot;key&quot;, &quot;&quot;);
++	if (inf.key.empty()
++			|| (inf.key.find_first_of(InfoItem_badKeyChars) != string::npos)) {
++		logOutput.Print(logSubsystem,
++				&quot;parseInfoItem: empty key or key contains bad characters&quot;);
++		return false;
++	}
++	std::string lowerKey = StringToLower(inf.key);
++	if (infoSet.find(inf.key) != infoSet.end()) {
++		logOutput.Print(logSubsystem, &quot;parseInfoItem: key toLowerCase(%s) exists already&quot;,
++				inf.key.c_str());
++		return false;
++	}
++	inf.value = infsTbl.GetString(&quot;value&quot;, inf.key);
++	if (inf.value.empty()) {
++		logOutput.Print(logSubsystem, &quot;parseInfoItem: %s: empty value&quot;,
++				inf.key.c_str());
++		return false;
++	}
++	inf.desc = infsTbl.GetString(&quot;desc&quot;, &quot;&quot;);
++
++	infoSet.insert(lowerKey);
++
++	return true;
++}
++
++
++void parseInfo(
++		std::vector&lt;InfoItem&gt;&amp; info,
++		const std::string&amp; fileName,
++		const std::string&amp; fileModes,
++		const std::string&amp; accessModes,
++		std::set&lt;std::string&gt;* infoSet,
++		CLogSubsystem* logSubsystem) {
++
++	if (!logSubsystem) {
++		assert(logSubsystem);
++	}
++
++	LuaParser luaParser(fileName, fileModes, accessModes);
++
++	if (!luaParser.Execute()) {
++		throw content_error(&quot;luaParser.Execute() failed: &quot;
++				+ luaParser.GetErrorLog());
++	}
++
++	const LuaTable root = luaParser.GetRoot();
++	if (!root.IsValid()) {
++		throw content_error(&quot;root table invalid&quot;);
++	}
++
++	std::set&lt;std::string&gt;* myInfoSet = NULL;
++	if (infoSet == NULL) {
++		myInfoSet = new std::set&lt;std::string&gt;();
++	} else {
++		myInfoSet = infoSet;
++	}
++	for (int index = 1; root.KeyExists(index); index++) {
++		InfoItem inf;
++		if (parseInfoItem(root, index, inf, *myInfoSet, *logSubsystem)) {
++			info.push_back(inf);
++		}
++	}
++	if (infoSet == NULL) {
++		delete myInfoSet;
++		myInfoSet = NULL;
++	}
++}
++
++std::vector&lt;InfoItem&gt; parseInfo(
++		const std::string&amp; fileName,
++		const std::string&amp; fileModes,
++		const std::string&amp; accessModes,
++		std::set&lt;std::string&gt;* infoSet,
++		CLogSubsystem* logSubsystem) {
++
++	std::vector&lt;InfoItem&gt; info;
++
++	parseInfo(info, fileName, fileModes, accessModes, infoSet,
++			logSubsystem);
++
++	return info;
++}
+
+
+Property changes on: trunk/rts/System/Info.cpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/rts/System/Info.h
+===================================================================
+--- trunk/rts/System/Info.h	                        (rev 0)
++++ trunk/rts/System/Info.h	2008-12-06 22:28:24 UTC (rev 7144)
+@@ -0,0 +1,53 @@
++/*
++	Copyright (c) 2008 Robin Vobruba &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">hoijui.quaero at gmail.com</A>&gt;
++
++	This program is free software; you can redistribute it and/or modify
++	it under the terms of the GNU General Public License as published by
++	the Free Software Foundation; either version 2 of the License, or
++	(at your option) any later version.
++
++	This program is distributed in the hope that it will be useful,
++	but WITHOUT ANY WARRANTY; without even the implied warranty of
++	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++	GNU General Public License for more details.
++
++	You should have received a copy of the GNU General Public License
++	along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++// The structs in this files relate to *Info.lua files
++// They are used for AIs (-&gt; AIInfo.lua) for example;
++// This file is used (at least) by unitsync and the engine
++
++#ifndef _INFO_H
++#define _INFO_H
++
++#include &quot;System/FileSystem/VFSModes.h&quot;
++#include &quot;LogOutput.h&quot;
++
++#include &lt;string&gt;
++#include &lt;vector&gt;
++#include &lt;set&gt;
++
++struct InfoItem {
++	std::string key;
++	std::string value;
++	std::string desc;
++};
++
++void parseInfo(
++		std::vector&lt;InfoItem&gt;&amp; options,
++		const std::string&amp; fileName,
++		const std::string&amp; fileModes = SPRING_VFS_RAW,
++		const std::string&amp; accessModes = SPRING_VFS_RAW,
++		std::set&lt;std::string&gt;* infoSet = NULL,
++		CLogSubsystem* logSubsystem = &amp;(CLogOutput::GetDefaultLogSubsystem()));
++
++std::vector&lt;InfoItem&gt; parseInfo(
++		const std::string&amp; fileName,
++		const std::string&amp; fileModes = SPRING_VFS_RAW,
++		const std::string&amp; accessModes = SPRING_VFS_RAW,
++		std::set&lt;std::string&gt;* infoSet = NULL,
++		CLogSubsystem* logSubsystem = &amp;(CLogOutput::GetDefaultLogSubsystem()));
++
++#endif // _INFO_H
+
+
+Property changes on: trunk/rts/System/Info.h
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/rts/System/LogOutput.cpp
+===================================================================
+--- trunk/rts/System/LogOutput.cpp	2008-12-06 21:09:25 UTC (rev 7143)
++++ trunk/rts/System/LogOutput.cpp	2008-12-06 22:28:24 UTC (rev 7144)
+@@ -238,12 +238,13 @@
+ 	OutputDebugString(str);
+ 	if (newline)
+ 		OutputDebugString(&quot;\n&quot;);
+-#endif
++#endif // _MSC_VER
+ 
+ 	if (filelog) {
+ #if !defined UNITSYNC &amp;&amp; !defined DEDICATED
+-		if (gs)
++		if (gs) {
+ 			(*filelog) &lt;&lt; IntToString(gs-&gt;frameNum, &quot;[%7d] &quot;);
++		}
+ #endif
+ 		if (subsystem.name &amp;&amp; *subsystem.name)
+ 			(*filelog) &lt;&lt; subsystem.name &lt;&lt; &quot;: &quot;;
+@@ -351,6 +352,12 @@
+ }
+ 
+ 
++CLogSubsystem&amp; CLogOutput::GetDefaultLogSubsystem()
++{
++	return LOG_DEFAULT;
++}
++
++
+ CLogOutput&amp; CLogOutput::operator&lt;&lt; (const int i)
+ {
+ 	char t[50];
+
+Modified: trunk/rts/System/LogOutput.h
+===================================================================
+--- trunk/rts/System/LogOutput.h	2008-12-06 21:09:25 UTC (rev 7143)
++++ trunk/rts/System/LogOutput.h	2008-12-06 22:28:24 UTC (rev 7144)
+@@ -78,6 +78,7 @@
+ 	void Print(const std::string&amp; text);
+ 	void Print(CLogSubsystem&amp; subsystem, const std::string&amp; text);
+ 	void Printv(CLogSubsystem&amp; subsystem, const char* fmt, va_list argp);
++	static CLogSubsystem&amp; GetDefaultLogSubsystem();
+ 
+ 	CLogOutput&amp; operator&lt;&lt;(const int i);
+ 	CLogOutput&amp; operator&lt;&lt;(const float f);
+
+Added: trunk/rts/System/Option.cpp
+===================================================================
+--- trunk/rts/System/Option.cpp	                        (rev 0)
++++ trunk/rts/System/Option.cpp	2008-12-06 22:28:24 UTC (rev 7144)
+@@ -0,0 +1,227 @@
++/*
++	Copyright (c) 2008 Robin Vobruba &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">hoijui.quaero at gmail.com</A>&gt;
++
++	This program is free software; you can redistribute it and/or modify
++	it under the terms of the GNU General Public License as published by
++	the Free Software Foundation; either version 2 of the License, or
++	(at your option) any later version.
++
++	This program is distributed in the hope that it will be useful,
++	but WITHOUT ANY WARRANTY; without even the implied warranty of
++	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++	GNU General Public License for more details.
++
++	You should have received a copy of the GNU General Public License
++	along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++#ifndef _OPTION_CPP
++#define _OPTION_CPP
++
++#include &quot;Option.h&quot;
++
++#include &quot;System/Util.h&quot;
++#include &quot;System/Exceptions.h&quot;
++#include &quot;Lua/LuaParser.h&quot;
++#include &quot;Map/MapParser.h&quot;
++
++#include &lt;assert.h&gt;
++
++static const char* Option_badKeyChars = &quot; =;\r\n\t&quot;;
++
++static bool parseOption(const LuaTable&amp; root, int index, Option&amp; opt,
++		std::set&lt;string&gt;&amp; optionsSet, CLogSubsystem&amp; logSubsystem) {
++
++	const LuaTable&amp; optTbl = root.SubTable(index);
++	if (!optTbl.IsValid()) {
++		logOutput.Print(logSubsystem,
++				&quot;parseOption: subtable %d invalid&quot;, index);
++		return false;
++	}
++
++	// common options properties
++	opt.key = optTbl.GetString(&quot;key&quot;, &quot;&quot;);
++	if (opt.key.empty()
++			|| (opt.key.find_first_of(Option_badKeyChars) != string::npos)) {
++		logOutput.Print(logSubsystem,
++				&quot;parseOption: empty key or key contains bad characters&quot;);
++		return false;
++	}
++	opt.key = StringToLower(opt.key);
++	if (optionsSet.find(opt.key) != optionsSet.end()) {
++		logOutput.Print(logSubsystem, &quot;parseOption: key %s exists already&quot;,
++				opt.key.c_str());
++		return false;
++	}
++	opt.name = optTbl.GetString(&quot;name&quot;, opt.key);
++	if (opt.name.empty()) {
++		logOutput.Print(logSubsystem, &quot;parseOption: %s: empty name&quot;,
++				opt.key.c_str());
++		return false;
++	}
++	opt.desc = optTbl.GetString(&quot;desc&quot;, opt.name);
++
++	opt.section = optTbl.GetString(&quot;section&quot;, &quot;&quot;);
++	opt.style = optTbl.GetString(&quot;style&quot;, &quot;&quot;);
++
++	opt.type = optTbl.GetString(&quot;type&quot;, &quot;&quot;);
++	opt.type = StringToLower(opt.type);
++
++	// option type specific properties
++	if (opt.type == &quot;bool&quot;) {
++		opt.typeCode = opt_bool;
++		opt.boolDef = optTbl.GetBool(&quot;def&quot;, false);
++	}
++	else if (opt.type == &quot;number&quot;) {
++		opt.typeCode = opt_number;
++		opt.numberDef  = optTbl.GetFloat(&quot;def&quot;,  0.0f);
++		opt.numberMin  = optTbl.GetFloat(&quot;min&quot;,  -1.0e30f);
++		opt.numberMax  = optTbl.GetFloat(&quot;max&quot;,  +1.0e30f);
++		opt.numberStep = optTbl.GetFloat(&quot;step&quot;, 0.0f);
++	}
++	else if (opt.type == &quot;string&quot;) {
++		opt.typeCode = opt_string;
++		opt.stringDef    = optTbl.GetString(&quot;def&quot;, &quot;&quot;);
++		opt.stringMaxLen = optTbl.GetInt(&quot;maxlen&quot;, 0);
++	}
++	else if (opt.type == &quot;list&quot;) {
++		opt.typeCode = opt_list;
++
++		const LuaTable&amp; listTbl = optTbl.SubTable(&quot;items&quot;);
++		if (!listTbl.IsValid()) {
++			logOutput.Print(logSubsystem, &quot;parseOption: %s: subtable items invalid&quot;, opt.key.c_str());
++			return false;
++		}
++
++		for (int i = 1; listTbl.KeyExists(i); i++) {
++			OptionListItem item;
++
++			// string format
++			item.key = listTbl.GetString(i, &quot;&quot;);
++			if (!item.key.empty() &amp;&amp;
++			    (item.key.find_first_of(Option_badKeyChars) == string::npos)) {
++				item.name = item.key;
++				item.desc = item.name;
++				opt.list.push_back(item);
++				continue;
++			}
++
++			// table format  (name &amp; desc)
++			const LuaTable&amp; itemTbl = listTbl.SubTable(i);
++			if (!itemTbl.IsValid()) {
++				logOutput.Print(logSubsystem,
++						&quot;parseOption: %s: subtable %d of subtable items invalid&quot;,
++						opt.key.c_str(), i);
++				break;
++			}
++			item.key = itemTbl.GetString(&quot;key&quot;, &quot;&quot;);
++			if (item.key.empty() || (item.key.find_first_of(Option_badKeyChars) != string::npos)) {
++				logOutput.Print(logSubsystem,
++						&quot;parseOption: %s: empty key or key contains bad characters&quot;,
++						opt.key.c_str());
++				return false;
++			}
++			item.key = StringToLower(item.key);
++			item.name = itemTbl.GetString(&quot;name&quot;, item.key);
++			if (item.name.empty()) {
++				logOutput.Print(logSubsystem, &quot;parseOption: %s: empty name&quot;,
++						opt.key.c_str());
++				return false;
++			}
++			item.desc = itemTbl.GetString(&quot;desc&quot;, item.name);
++			opt.list.push_back(item);
++		}
++
++		if (opt.list.size() &lt;= 0) {
++			logOutput.Print(logSubsystem, &quot;parseOption: %s: empty list&quot;,
++					opt.key.c_str());
++			return false; // no empty lists
++		}
++
++		opt.listDef = optTbl.GetString(&quot;def&quot;, opt.list[0].name);
++	}
++	else if (opt.type == &quot;section&quot;) {
++		opt.typeCode = opt_section;
++	}
++	else {
++		logOutput.Print(logSubsystem, &quot;parseOption: %s: unknown type %s&quot;,
++				opt.key.c_str(), opt.type.c_str());
++		return false; // unknown type
++	}
++
++	optionsSet.insert(opt.key);
++
++	return true;
++}
++
++
++void parseOptions(
++		std::vector&lt;Option&gt;&amp; options,
++		const std::string&amp; fileName,
++		const std::string&amp; fileModes,
++		const std::string&amp; accessModes,
++		const std::string&amp; mapName,
++		std::set&lt;std::string&gt;* optionsSet,
++		CLogSubsystem* logSubsystem) {
++
++	if (!logSubsystem) {
++		assert(logSubsystem);
++	}
++
++	LuaParser luaParser(fileName, fileModes, accessModes);
++
++	const string configName = MapParser::GetMapConfigName(mapName);
++
++	if (!mapName.empty() &amp;&amp; !configName.empty()) {
++		luaParser.GetTable(&quot;Map&quot;);
++		luaParser.AddString(&quot;fileName&quot;, mapName);
++		luaParser.AddString(&quot;fullName&quot;, &quot;maps/&quot; + mapName);
++		luaParser.AddString(&quot;configFile&quot;, configName);
++		luaParser.EndTable();
++	}
++
++	if (!luaParser.Execute()) {
++		throw content_error(&quot;luaParser.Execute() failed: &quot;
++				+ luaParser.GetErrorLog());
++	}
++
++	const LuaTable root = luaParser.GetRoot();
++	if (!root.IsValid()) {
++		throw content_error(&quot;root table invalid&quot;);
++	}
++
++	std::set&lt;std::string&gt;* myOptionsSet = NULL;
++	if (optionsSet == NULL) {
++		myOptionsSet = new std::set&lt;std::string&gt;();
++	} else {
++		myOptionsSet = optionsSet;
++	}
++	for (int index = 1; root.KeyExists(index); index++) {
++		Option opt;
++		if (parseOption(root, index, opt, *myOptionsSet, *logSubsystem)) {
++			options.push_back(opt);
++		}
++	}
++	if (optionsSet == NULL) {
++		delete myOptionsSet;
++		myOptionsSet = NULL;
++	}
++}
++
++std::vector&lt;Option&gt; parseOptions(
++		const std::string&amp; fileName,
++		const std::string&amp; fileModes,
++		const std::string&amp; accessModes,
++		const std::string&amp; mapName,
++		std::set&lt;std::string&gt;* optionsSet,
++		CLogSubsystem* logSubsystem) {
++
++	std::vector&lt;Option&gt; options;
++
++	parseOptions(options, fileName, fileModes, accessModes, mapName, optionsSet,
++			logSubsystem);
++
++	return options;
++}
++
++#endif // _OPTION_CPP
+
+
+Property changes on: trunk/rts/System/Option.cpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/rts/System/Option.h
+===================================================================
+--- trunk/rts/System/Option.h	                        (rev 0)
++++ trunk/rts/System/Option.h	2008-12-06 22:28:24 UTC (rev 7144)
+@@ -0,0 +1,97 @@
++/*
++	Copyright (c) 2008 Robin Vobruba &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">hoijui.quaero at gmail.com</A>&gt;
++
++	This program is free software; you can redistribute it and/or modify
++	it under the terms of the GNU General Public License as published by
++	the Free Software Foundation; either version 2 of the License, or
++	(at your option) any later version.
++
++	This program is distributed in the hope that it will be useful,
++	but WITHOUT ANY WARRANTY; without even the implied warranty of
++	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++	GNU General Public License for more details.
++
++	You should have received a copy of the GNU General Public License
++	along with this program.  If not, see &lt;<A HREF="http://www.gnu.org/licenses/">http://www.gnu.org/licenses/</A>&gt;.
++*/
++
++// The structs in this files relate to *Options.lua files
++// They are used for Mods and Skirmish AIs for example;
++// This file is used (at least) by unitsync and the engine
++
++#ifndef _OPTION_H
++#define	_OPTION_H
++
++#include &quot;System/FileSystem/VFSModes.h&quot;
++#include &quot;LogOutput.h&quot;
++
++#include &lt;string&gt;
++#include &lt;vector&gt;
++#include &lt;set&gt;
++
++/**
++ * @brief Available mod/map/ai option types
++ * @sa GetOptionType
++ */
++enum OptionType {
++	opt_error   = 0, ///&lt; error
++	opt_bool    = 1, ///&lt; boolean option
++	opt_list    = 2, ///&lt; list option (e.g. combobox)
++	opt_number  = 3, ///&lt; numeric option (e.g. spinner / slider)
++	opt_string  = 4, ///&lt; string option (e.g. textbox)
++	opt_section = 5  ///&lt; option section (e.g. groupbox)
++};
++
++
++struct OptionListItem {
++	std::string key;
++	std::string name;
++	std::string desc;
++};
++
++
++struct Option {
++	Option() : typeCode(opt_error) {}
++
++	std::string key;
++	std::string name;
++	std::string desc;
++	std::string section;
++	std::string style;
++
++	std::string type; // &quot;bool&quot;, &quot;number&quot;, &quot;string&quot;, &quot;list&quot;, &quot;section&quot;
++
++	OptionType typeCode;
++
++	bool   boolDef;
++
++	float  numberDef;
++	float  numberMin;
++	float  numberMax;
++	float  numberStep; // aligned to numberDef
++
++	std::string stringDef;
++	int         stringMaxLen;
++
++	std::string listDef;
++	std::vector&lt;OptionListItem&gt; list;
++};
++
++void parseOptions(
++		std::vector&lt;Option&gt;&amp; options,
++		const std::string&amp; fileName,
++		const std::string&amp; fileModes = SPRING_VFS_RAW,
++		const std::string&amp; accessModes = SPRING_VFS_RAW,
++		const std::string&amp; mapName = &quot;&quot;,
++		std::set&lt;std::string&gt;* optionsSet = NULL,
++		CLogSubsystem* logSubsystem = &amp;(CLogOutput::GetDefaultLogSubsystem()));
++
++std::vector&lt;Option&gt; parseOptions(
++		const std::string&amp; fileName,
++		const std::string&amp; fileModes = SPRING_VFS_RAW,
++		const std::string&amp; accessModes = SPRING_VFS_RAW,
++		const std::string&amp; mapName = &quot;&quot;,
++		std::set&lt;std::string&gt;* optionsSet = NULL,
++		CLogSubsystem* logSubsystem = &amp;(CLogOutput::GetDefaultLogSubsystem()));
++
++#endif // _OPTION_H
+
+
+Property changes on: trunk/rts/System/Option.h
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/tools/unitsync/unitsync.cpp
+===================================================================
+--- trunk/tools/unitsync/unitsync.cpp	2008-12-06 21:09:25 UTC (rev 7143)
++++ trunk/tools/unitsync/unitsync.cpp	2008-12-06 22:28:24 UTC (rev 7144)
+@@ -24,6 +24,8 @@
+ #include &quot;System/LogOutput.h&quot;
+ #include &quot;System/Util.h&quot;
+ #include &quot;System/exportdefines.h&quot;
++#include &quot;System/Info.h&quot;
++#include &quot;System/Option.h&quot;
+ 
+ 
+ // unitsync only:
+@@ -406,7 +408,7 @@
+  * This function returns the units internal mod name. For example it would
+  * return 'armck' and not 'Arm Construction kbot'.
+  */
+-EXPORT(const char *) GetUnitName(int unit)
++EXPORT(const char*) GetUnitName(int unit)
+ {
+ 	try {
+ 		logOutput.Print(LOG_UNITSYNC, &quot;syncer: get unit %d name\n&quot;, unit);
+@@ -426,7 +428,7 @@
+  * This function returns the units human name. For example it would return
+  * 'Arm Construction kbot' and not 'armck'.
+  */
+-EXPORT(const char *) GetFullUnitName(int unit)
++EXPORT(const char*) GetFullUnitName(int unit)
+ {
+ 	try {
+ 		logOutput.Print(LOG_UNITSYNC, &quot;syncer: get full unit %d name\n&quot;, unit);
+@@ -518,7 +520,7 @@
+ }
+ 
+ 
+-// Updated on every call to getmapcount
++// Updated on every call to GetMapCount
+ static vector&lt;string&gt; mapNames;
+ 
+ 
+@@ -1322,14 +1324,14 @@
+  * @return NULL on error; the name of the archive on success
+  * @see GetPrimaryModArchiveCount
+  */
+-EXPORT(const char*) GetPrimaryModArchiveList(int arnr)
++EXPORT(const char*) GetPrimaryModArchiveList(int archiveNr)
+ {
+ 	try {
+ 		CheckInit();
+-		CheckBounds(arnr, primaryArchives.size());
++		CheckBounds(archiveNr, primaryArchives.size());
+ 
+-		logOutput.Print(LOG_UNITSYNC, &quot;primary mod archive list: %s\n&quot;, primaryArchives[arnr].c_str());
+-		return GetStr(primaryArchives[arnr]);
++		logOutput.Print(LOG_UNITSYNC, &quot;primary mod archive list: %s\n&quot;, primaryArchives[archiveNr].c_str());
++		return GetStr(primaryArchives[archiveNr]);
+ 	}
+ 	UNITSYNC_CATCH_BLOCKS;
+ 	return NULL;
+@@ -1574,196 +1576,20 @@
+ //////////////////////////
+ //////////////////////////
+ 
+-static const char* badKeyChars = &quot; =;\r\n\t&quot;;
+ 
++static std::vector&lt;Option&gt; options;
++static std::set&lt;std::string&gt; optionsSet;
+ 
+-struct ListItem {
+-	string key;
+-	string name;
+-	string desc;
+-};
+-
+-
+-struct Option {
+-	Option() : typeCode(opt_error) {}
+-
+-	string key;
+-	string name;
+-	string desc;
+-	string section;
+-	string style;
+-
+-	string type; // &quot;bool&quot;, &quot;number&quot;, &quot;string&quot;, &quot;list&quot;, &quot;section&quot;
+-
+-	OptionType typeCode;
+-
+-	bool   boolDef;
+-
+-	float  numberDef;
+-	float  numberMin;
+-	float  numberMax;
+-	float  numberStep; // aligned to numberDef
+-
+-	string stringDef;
+-	int    stringMaxLen;
+-
+-	string listDef;
+-	vector&lt;ListItem&gt; list;
+-};
+-
+-
+-static vector&lt;Option&gt; options;
+-static set&lt;string&gt; optionsSet;
+-
+-
+-static bool ParseOption(const LuaTable&amp; root, int index, Option&amp; opt)
+-{
+-	const LuaTable&amp; optTbl = root.SubTable(index);
+-	if (!optTbl.IsValid()) {
+-		logOutput.Print(LOG_UNITSYNC, &quot;ParseOption: subtable %d invalid&quot;, index);
+-		return false;
+-	}
+-
+-	// common options properties
+-	opt.key = optTbl.GetString(&quot;key&quot;, &quot;&quot;);
+-	if (opt.key.empty() || (opt.key.find_first_of(badKeyChars) != string::npos)) {
+-		logOutput.Print(LOG_UNITSYNC, &quot;ParseOption: empty key or key contains bad characters&quot;);
+-		return false;
+-	}
+-	opt.key = StringToLower(opt.key);
+-	if (optionsSet.find(opt.key) != optionsSet.end()) {
+-		logOutput.Print(LOG_UNITSYNC, &quot;ParseOption: key %s exists already&quot;, opt.key.c_str());
+-		return false;
+-	}
+-	opt.name = optTbl.GetString(&quot;name&quot;, opt.key);
+-	if (opt.name.empty()) {
+-		logOutput.Print(LOG_UNITSYNC, &quot;ParseOption: %s: empty name&quot;, opt.key.c_str());
+-		return false;
+-	}
+-	opt.desc = optTbl.GetString(&quot;desc&quot;, opt.name);
+-
+-	opt.section = optTbl.GetString(&quot;section&quot;, &quot;&quot;);
+-	opt.style = optTbl.GetString(&quot;style&quot;, &quot;&quot;);
+-
+-	opt.type = optTbl.GetString(&quot;type&quot;, &quot;&quot;);
+-	opt.type = StringToLower(opt.type);
+-
+-	// option type specific properties
+-	if (opt.type == &quot;bool&quot;) {
+-		opt.typeCode = opt_bool;
+-		opt.boolDef = optTbl.GetBool(&quot;def&quot;, false);
+-	}
+-	else if (opt.type == &quot;number&quot;) {
+-		opt.typeCode = opt_number;
+-		opt.numberDef  = optTbl.GetFloat(&quot;def&quot;,  0.0f);
+-		opt.numberMin  = optTbl.GetFloat(&quot;min&quot;,  -1.0e30f);
+-		opt.numberMax  = optTbl.GetFloat(&quot;max&quot;,  +1.0e30f);
+-		opt.numberStep = optTbl.GetFloat(&quot;step&quot;, 0.0f);
+-	}
+-	else if (opt.type == &quot;string&quot;) {
+-		opt.typeCode = opt_string;
+-		opt.stringDef    = optTbl.GetString(&quot;def&quot;, &quot;&quot;);
+-		opt.stringMaxLen = optTbl.GetInt(&quot;maxlen&quot;, 0);
+-	}
+-	else if (opt.type == &quot;list&quot;) {
+-		opt.typeCode = opt_list;
+-
+-		const LuaTable&amp; listTbl = optTbl.SubTable(&quot;items&quot;);
+-		if (!listTbl.IsValid()) {
+-			logOutput.Print(LOG_UNITSYNC, &quot;ParseOption: %s: subtable items invalid&quot;, opt.key.c_str());
+-			return false;
+-		}
+-
+-		for (int i = 1; listTbl.KeyExists(i); i++) {
+-			ListItem item;
+-
+-			// string format
+-			item.key = listTbl.GetString(i, &quot;&quot;);
+-			if (!item.key.empty() &amp;&amp;
+-			    (item.key.find_first_of(badKeyChars) == string::npos)) {
+-				item.name = item.key;
+-				item.desc = item.name;
+-				opt.list.push_back(item);
+-				continue;
+-			}
+-
+-			// table format  (name &amp; desc)
+-			const LuaTable&amp; itemTbl = listTbl.SubTable(i);
+-			if (!itemTbl.IsValid()) {
+-				logOutput.Print(LOG_UNITSYNC, &quot;ParseOption: %s: subtable %d of subtable items invalid&quot;, opt.key.c_str(), i);
+-				break;
+-			}
+-			item.key = itemTbl.GetString(&quot;key&quot;, &quot;&quot;);
+-			if (item.key.empty() || (item.key.find_first_of(badKeyChars) != string::npos)) {
+-				logOutput.Print(LOG_UNITSYNC, &quot;ParseOption: %s: empty key or key contains bad characters&quot;, opt.key.c_str());
+-				return false;
+-			}
+-			item.key = StringToLower(item.key);
+-			item.name = itemTbl.GetString(&quot;name&quot;, item.key);
+-			if (item.name.empty()) {
+-				logOutput.Print(LOG_UNITSYNC, &quot;ParseOption: %s: empty name&quot;, opt.key.c_str());
+-				return false;
+-			}
+-			item.desc = itemTbl.GetString(&quot;desc&quot;, item.name);
+-			opt.list.push_back(item);
+-		}
+-
+-		if (opt.list.size() &lt;= 0) {
+-			logOutput.Print(LOG_UNITSYNC, &quot;ParseOption: %s: empty list&quot;, opt.key.c_str());
+-			return false; // no empty lists
+-		}
+-
+-		opt.listDef = optTbl.GetString(&quot;def&quot;, opt.list[0].name);
+-	}
+-	else if (opt.type == &quot;section&quot;) {
+-		opt.typeCode = opt_section;
+-	}
+-	else {
+-		logOutput.Print(LOG_UNITSYNC, &quot;ParseOption: %s: unknown type %s&quot;, opt.key.c_str(), opt.type.c_str());
+-		return false; // unknown type
+-	}
+-
+-	optionsSet.insert(opt.key);
+-
+-	return true;
+-}
+-
+-
+ static void ParseOptions(const string&amp; fileName,
+                          const string&amp; fileModes,
+                          const string&amp; accessModes,
+                          const string&amp; mapName = &quot;&quot;)
+ {
+-	LuaParser luaParser(fileName, fileModes, accessModes);
++	parseOptions(options, fileName, fileModes, accessModes, mapName,
++			&amp;optionsSet, &amp;LOG_UNITSYNC);
++}
+ 
+-	const string configName = MapParser::GetMapConfigName(mapName);
+ 
+-	if (!mapName.empty() &amp;&amp; !configName.empty()) {
+-		luaParser.GetTable(&quot;Map&quot;);
+-		luaParser.AddString(&quot;fileName&quot;, mapName);
+-		luaParser.AddString(&quot;fullName&quot;, &quot;maps/&quot; + mapName);
+-		luaParser.AddString(&quot;configFile&quot;, configName);
+-		luaParser.EndTable();
+-	}
+-
+-	if (!luaParser.Execute()) {
+-		throw content_error(&quot;luaParser.Execute() failed: &quot; + luaParser.GetErrorLog());
+-	}
+-
+-	const LuaTable root = luaParser.GetRoot();
+-	if (!root.IsValid()) {
+-		throw content_error(&quot;root table invalid&quot;);
+-	}
+-
+-	for (int index = 1; root.KeyExists(index); index++) {
+-		Option opt;
+-		if (ParseOption(root, index, opt)) {
+-			options.push_back(opt);
+-		}
+-	}
+-};
+-
+-
+ static void CheckOptionIndex(int optIndex)
+ {
+ 	CheckInit();
+@@ -1843,7 +1669,7 @@
+ }
+ 
+ 
+-// Common Parameters
++// Common Options Parameters
+ 
+ /**
+  * @brief Retrieve an option's key
+@@ -2155,7 +1981,7 @@
+ {
+ 	try {
+ 		CheckOptionType(optIndex, opt_list);
+-		const vector&lt;ListItem&gt;&amp; list = options[optIndex].list;
++		const vector&lt;OptionListItem&gt;&amp; list = options[optIndex].list;
+ 		CheckBounds(itemIndex, list.size());
+ 		return GetStr(list[itemIndex].key);
+ 	}
+@@ -2177,7 +2003,7 @@
+ {
+ 	try {
+ 		CheckOptionType(optIndex, opt_list);
+-		const vector&lt;ListItem&gt;&amp; list = options[optIndex].list;
++		const vector&lt;OptionListItem&gt;&amp; list = options[optIndex].list;
+ 		CheckBounds(itemIndex, list.size());
+ 		return GetStr(list[itemIndex].name);
+ 	}
+@@ -2199,7 +2025,7 @@
+ {
+ 	try {
+ 		CheckOptionType(optIndex, opt_list);
+-		const vector&lt;ListItem&gt;&amp; list = options[optIndex].list;
++		const vector&lt;OptionListItem&gt;&amp; list = options[optIndex].list;
+ 		CheckBounds(itemIndex, list.size());
+ 		return GetStr(list[itemIndex].desc);
+ 	}
+@@ -2461,9 +2287,11 @@
+ 	return -1;
+ }
+ 
+-
+-// Does not currently support more than one call at a time (a new call to initfind destroys data from previous ones)
+-// pass the returned handle to findfiles to get the results
++/**
++ * Does not currently support more than one call at a time.
++ * (a new call to initfind destroys data from previous ones)
++ * pass the returned handle to findfiles to get the results
++ */
+ EXPORT(int) InitFindVFS(const char* pattern)
+ {
+ 	try {
+@@ -2480,8 +2308,11 @@
+ 	return -1;
+ }
+ 
+-// Does not currently support more than one call at a time (a new call to initfind destroys data from previous ones)
+-// pass the returned handle to findfiles to get the results
++/**
++ * Does not currently support more than one call at a time.
++ * (a new call to initfind destroys data from previous ones)
++ * pass the returned handle to findfiles to get the results
++ */
+ EXPORT(int) InitDirListVFS(const char* path, const char* pattern, const char* modes)
+ {
+ 	try {
+@@ -2498,8 +2329,11 @@
+ 	return -1;
+ }
+ 
+-// Does not currently support more than one call at a time (a new call to initfind destroys data from previous ones)
+-// pass the returned handle to findfiles to get the results
++/**
++ * Does not currently support more than one call at a time.
++ * (a new call to initfind destroys data from previous ones)
++ * pass the returned handle to findfiles to get the results
++ */
+ EXPORT(int) InitSubDirsVFS(const char* path, const char* pattern, const char* modes)
+ {
+ 	try {
+@@ -2768,7 +2602,7 @@
+ 	ConfigHandler::Instantiate(filenameAsAbsolutePath);
+ }
+ 
+-EXPORT(const char* ) GetSpringConfigFile()
++EXPORT(const char*) GetSpringConfigFile()
+ {
+ 	return GetStr(configHandler.GetConfigFile());
+ }
+@@ -2786,15 +2620,15 @@
+  * @param defvalue default string value to use if key is not found, may not be NULL
+  * @return string value
+  */
+-EXPORT(const char*) GetSpringConfigString( const char* name, const char* defvalue )
++EXPORT(const char*) GetSpringConfigString(const char* name, const char* defValue)
+ {
+ 	try {
+ 		CheckConfigHandler();
+-		string res = configHandler.GetString( name, defvalue );
++		string res = configHandler.GetString(name, defValue);
+ 		return GetStr(res);
+ 	}
+ 	UNITSYNC_CATCH_BLOCKS;
+-	return defvalue;
++	return defValue;
+ }
+ 
+ /**
+@@ -2803,14 +2637,14 @@
+  * @param defvalue default integer value to use if key is not found
+  * @return integer value
+  */
+-EXPORT(int) GetSpringConfigInt( const char* name, const int defvalue )
++EXPORT(int) GetSpringConfigInt(const char* name, const int defValue)
+ {
+ 	try {
+ 		CheckConfigHandler();
+-		return configHandler.Get( name, defvalue );
++		return configHandler.Get(name, defValue);
+ 	}
+ 	UNITSYNC_CATCH_BLOCKS;
+-	return defvalue;
++	return defValue;
+ }
+ 
+ /**
+@@ -2819,14 +2653,14 @@
+  * @param defvalue default float value to use if key is not found
+  * @return float value
+  */
+-EXPORT(float) GetSpringConfigFloat( const char* name, const float defvalue )
++EXPORT(float) GetSpringConfigFloat(const char* name, const float defValue)
+ {
+ 	try {
+ 		CheckConfigHandler();
+-		return configHandler.Get( name, defvalue );
++		return configHandler.Get(name, defValue);
+ 	}
+ 	UNITSYNC_CATCH_BLOCKS;
+-	return defvalue;
++	return defValue;
+ }
+ 
+ /**
+@@ -2852,7 +2686,7 @@
+ {
+ 	try {
+ 		CheckConfigHandler();
+-		configHandler.Set( name, value );
++		configHandler.Set(name, value);
+ 	}
+ 	UNITSYNC_CATCH_BLOCKS;
+ }
+@@ -2866,7 +2700,7 @@
+ {
+ 	try {
+ 		CheckConfigHandler();
+-		configHandler.Set( name, value );
++		configHandler.Set(name, value);
+ 	}
+ 	UNITSYNC_CATCH_BLOCKS;
+ }
+@@ -2900,7 +2734,7 @@
+ 
+ 
+ // deprecated 2008/10
+-EXPORT(const char *) GetCurrentList()
++EXPORT(const char*) GetCurrentList()
+ {
+ 	DEPRECATED;
+ 	return NULL;
+@@ -2919,7 +2753,7 @@
+ }
+ 
+ // deprecated 2008/10
+-EXPORT(const char *) GetClientDiff(int id)
++EXPORT(const char*) GetClientDiff(int id)
+ {
+ 	DEPRECATED;
+ 	return NULL;
+
+Modified: trunk/tools/unitsync/unitsync.h
+===================================================================
+--- trunk/tools/unitsync/unitsync.h	2008-12-06 21:09:25 UTC (rev 7143)
++++ trunk/tools/unitsync/unitsync.h	2008-12-06 22:28:24 UTC (rev 7144)
+@@ -48,20 +48,6 @@
+ 
+ 
+ /**
+- * @brief Available mod/map option types
+- * @sa GetOptionType
+- */
+-enum OptionType {
+-	opt_error   = 0, ///&lt; error
+-	opt_bool    = 1, ///&lt; boolean option
+-	opt_list    = 2, ///&lt; list option (e.g. combobox)
+-	opt_number  = 3, ///&lt; numeric option (e.g. spinner / slider)
+-	opt_string  = 4, ///&lt; string option (e.g. textbox)
+-	opt_section = 5  ///&lt; option section (e.g. groupbox)
+-};
+-
+-
+-/**
+  * @brief Available bitmap typeHints
+  * @sa GetInfoMap
+  */
+@@ -75,5 +61,4 @@
+ 
+ const char *GetStr(std::string str);
+ 
+-#endif
+-
++#endif // UNITSYNC_H
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001912.html">[Taspring-linux-commit] r7143 - in branches/caiinterface: .	AI/Interfaces/Java rts/ExternalAI/Interface rts/Sim/Misc	tools/unitsync
+</A></li>
+	<LI>Next message: <A HREF="001914.html">[Taspring-linux-commit] r7145 - in trunk/rts/Map: . SMF
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1913">[ date ]</a>
+              <a href="thread.html#1913">[ thread ]</a>
+              <a href="subject.html#1913">[ subject ]</a>
+              <a href="author.html#1913">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

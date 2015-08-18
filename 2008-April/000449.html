@@ -1,0 +1,921 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5668 - trunk/Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5668%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080405211321.A081B46B1%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000448.html">
+   <LINK REL="Next"  HREF="000450.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5668 - trunk/Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5668%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080405211321.A081B46B1%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5668 - trunk/Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Apr  5 23:13:21 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000448.html">[Taspring-linux-commit] r5667 - in trunk: rts/Game rts/System	rts/System/Net tools/DedicatedServer
+</A></li>
+        <LI>Next message: <A HREF="000450.html">[Taspring-linux-commit] r5669 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#449">[ date ]</a>
+              <a href="thread.html#449">[ thread ]</a>
+              <a href="subject.html#449">[ subject ]</a>
+              <a href="author.html#449">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2008-04-05 23:13:17 +0200 (Sat, 05 Apr 2008)
+New Revision: 5668
+
+Modified:
+   trunk/Lobby/TASClient/MainUnit.dfm
+   trunk/Lobby/TASClient/MainUnit.pas
+   trunk/Lobby/TASClient/Misc.pas
+   trunk/Lobby/TASClient/PreferencesFormUnit.dfm
+   trunk/Lobby/TASClient/PreferencesFormUnit.pas
+   trunk/Lobby/TASClient/ReplaysUnit.dfm
+   trunk/Lobby/TASClient/ReplaysUnit.pas
+   trunk/Lobby/TASClient/TASClient.dof
+   trunk/Lobby/TASClient/TASClient.res
+Log:
+- 1500 lines per channel limit added FIFO based after
+- few replay bug fixed
+- replay form not modal anymore
+- reloading replay is now threaded too
+- big memory leak fixed on reloading replays
+
+Modified: trunk/Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.dfm	2008-04-05 15:56:35 UTC (rev 5667)
++++ trunk/Lobby/TASClient/MainUnit.dfm	2008-04-05 21:13:17 UTC (rev 5668)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 293
+-  Top = 182
++  Left = 302
++  Top = 312
+   Width = 789
+   Height = 548
+   Caption = 'TASClient'
+
+Modified: trunk/Lobby/TASClient/MainUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.pas	2008-04-05 15:56:35 UTC (rev 5667)
++++ trunk/Lobby/TASClient/MainUnit.pas	2008-04-05 21:13:17 UTC (rev 5668)
+@@ -509,7 +509,7 @@
+ 
+ const
+   VERSION_NUMBER = '0.37'; // Must be float value! (with a period as a decimal seperator)
+-  BETA_NUMBER = 270;
++  BETA_NUMBER = 271;
+   CHECK_BETA_LOBBY_URL = '<A HREF="http://tasclient.no-ip.org/TASClient.txt">http://tasclient.no-ip.org/TASClient.txt</A>';
+   PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER + ' beta';
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+@@ -829,11 +829,13 @@
+     CompleteKeyList: TStrings;
+     KeyValueList: TStrings;
+     FUpperCaseScript: string;
++    Corrupted: boolean;
+     function GetScript:String;
+     procedure SetScript(Script: string);
+     procedure WriteScriptKeys(f: TStrings; completeKey: String;writtenKeys: TStrings; headWrite: Boolean);
+   public
+     constructor Create(Script: string);
++    destructor Destroy; override;
+     function DoesTokenExist(Token: string): Boolean;
+     function ReadMapName: string;
+     function ReadModName: string;
+@@ -857,6 +859,7 @@
+     procedure AddOrChangeKeyValue(completeKey: String; value: String);
+     procedure RemoveKey(completeKey: String);
+     procedure TryToRemoveUDPSourcePort;
++    function isCorrupted: boolean;
+ 
+     property Script: string read GetScript write SetScript;
+   end;
+@@ -878,6 +881,7 @@
+     function GetSpectatorCount: integer;
+     function GetLength: integer;
+     function GetTeamCount: integer;
++    destructor Destroy; override;
+   end;
+ 
+   TReplayPlayer = class
+@@ -2694,8 +2698,16 @@
+   CompleteKeyList := TStringList.Create;
+   KeyValueList := TStringList.Create;
+   self.ParseScript;
++  self.Corrupted := false;
+ end;
+ 
++destructor TScript.Destroy;
++begin
++  CompleteKeyList.Free;
++  KeyValueList.Free;
++  inherited Destroy;
++end;
++
+ procedure TScript.SetScript(Script: string);
+ begin
+   FScript := Script;
+@@ -2714,13 +2726,21 @@
+ function TScript.ReadMapName: string;
+ begin
+   Result := ReadKeyValue('GAME/MAPNAME');
+-  if Result = '' then raise Exception.Create('Corrupt script file!');
++  if Result = '' then
++  begin
++    self.Corrupted := true;
++    raise Exception.Create('Corrupt script file!');
++  end;
+ end;
+ 
+ function TScript.ReadModName: string;
+ begin
+   Result := ReadKeyValue('GAME/GAMETYPE');
+-  if Result = '' then raise Exception.Create('Corrupt script file!');
++  if Result = '' then
++  begin
++    self.Corrupted := true;
++    raise Exception.Create('Corrupt script file!');
++  end;
+ end;
+ 
+ function TScript.ReadStartMetal: Integer;
+@@ -2728,10 +2748,15 @@
+   tmp: String;
+ begin
+   tmp := ReadKeyValue('GAME/STARTMETAL');
+-  if tmp = '' then raise Exception.Create('Corrupt script file!');
+-    try
++  if tmp = '' then
++  begin
++    self.Corrupted := true;
++    raise Exception.Create('Corrupt script file!');
++  end;
++  try
+     Result := StrToInt(tmp);
+   except
++    self.Corrupted := true;
+     raise Exception.Create('Corrupt script file!');
+   end;
+ end;
+@@ -2741,10 +2766,15 @@
+   tmp: String;
+ begin
+   tmp := ReadKeyValue('GAME/STARTENERGY');
+-  if tmp = '' then raise Exception.Create('Corrupt script file!');
+-    try
++  if tmp = '' then
++  begin
++    self.Corrupted := true;
++    raise Exception.Create('Corrupt script file!');
++  end;
++  try
+     Result := StrToInt(tmp);
+   except
++    self.Corrupted := true;
+     raise Exception.Create('Corrupt script file!');
+   end;
+ end;
+@@ -2754,10 +2784,15 @@
+   tmp: String;
+ begin
+   tmp := ReadKeyValue('GAME/MAXUNITS');
+-  if tmp = '' then raise Exception.Create('Corrupt script file!');
++  if tmp = '' then
++  begin
++    self.Corrupted := true;
++    raise Exception.Create('Corrupt script file!');
++  end;
+   try
+     Result := StrToInt(tmp);
+   except
++    self.Corrupted := true;
+     raise Exception.Create('Corrupt script file!');
+   end;
+ end;
+@@ -2767,10 +2802,15 @@
+   tmp: String;
+ begin
+   tmp := ReadKeyValue('GAME/STARTPOSTYPE');
+-  if tmp = '' then raise Exception.Create('Corrupt script file!');
++  if tmp = '' then
++  begin
++    self.Corrupted := true;
++    raise Exception.Create('Corrupt script file!');
++  end;
+   try
+     Result := StrToInt(tmp);
+   except
++    self.Corrupted := true;
+     raise Exception.Create('Corrupt script file!');
+   end;
+ end;
+@@ -2780,10 +2820,15 @@
+   tmp: String;
+ begin
+   tmp := ReadKeyValue('GAME/GAMEMODE');
+-  if tmp = '' then raise Exception.Create('Corrupt script file!');
++  if tmp = '' then
++  begin
++    self.Corrupted := true;
++    raise Exception.Create('Corrupt script file!');
++  end;
+   try
+     Result := StrToInt(tmp);
+   except
++    self.Corrupted := true;
+     raise Exception.Create('Corrupted script file!');
+   end;
+ end;
+@@ -2793,10 +2838,15 @@
+   tmp: String;
+ begin
+   tmp := ReadKeyValue('GAME/LIMITDGUN');
+-  if tmp = '' then raise Exception.Create('Corrupt script file!');
++  if tmp = '' then
++  begin
++    self.Corrupted := true;
++    raise Exception.Create('Corrupt script file!');
++  end;
+   try
+     Result := StrToBool(tmp);
+   except
++    self.Corrupted := true;
+     raise Exception.Create('Corrupt script file!');
+   end;
+ end;
+@@ -2806,10 +2856,15 @@
+   tmp: String;
+ begin
+   tmp := ReadKeyValue('GAME/DIMINISHINGMMS');
+-  if tmp = '' then raise Exception.Create('Corrupt script file!');
++  if tmp = '' then
++  begin
++    self.Corrupted := true;
++    raise Exception.Create('Corrupt script file!');
++  end;
+   try
+     Result := StrToBool(tmp);
+   except
++    self.Corrupted := true;
+     raise Exception.Create('Corrupt script file!');
+   end;
+ end;
+@@ -2819,10 +2874,15 @@
+   tmp: String;
+ begin
+   tmp := ReadKeyValue('GAME/GHOSTEDBUILDINGS');
+-  if tmp = '' then raise Exception.Create('Corrupt script file!');
++  if tmp = '' then
++  begin
++    self.Corrupted := true;
++    raise Exception.Create('Corrupt script file!');
++  end;
+   try
+     Result := StrToBool(tmp);
+   except
++    self.Corrupted := true;
+     raise Exception.Create('Corrupt script file!');
+   end;
+ end;
+@@ -2910,6 +2970,7 @@
+     for i:=0 to subKeys.Count-1 do
+       RemoveKey(completeKey + '/' + subKeys[i]);
+   end;
++  subKeys.Free;
+ end;
+ 
+ procedure TScript.TryToRemoveUDPSourcePort;
+@@ -2917,6 +2978,11 @@
+   RemoveKey('GAME/SOURCEPORT');
+ end;
+ 
++function TScript.isCorrupted: boolean;
++begin
++  Result := self.Corrupted;
++end;
++
+ procedure TScript.ParseScript;
+ var
+   currentCompleteKey: TStrings;
+@@ -2952,6 +3018,8 @@
+       end;
+     end;
+   end;
++  currentCompleteKey.Free;
++  lineScript.Free;
+ end;
+ 
+ function TScript.GetSubKeys(completeKey: string):TStrings;
+@@ -2969,6 +3037,8 @@
+       if Result.IndexOf(sl2[sl1.Count])=-1 then
+           Result.Add(sl2[sl1.Count]);
+     end;
++  sl1.Free;
++  sl2.Free;
+ end;
+ 
+ function TScript.GetBruteScript:String;// DEBUG METHOD
+@@ -2989,6 +3059,8 @@
+   writtenKeys := TStringList.Create;
+   WriteScriptKeys(ScriptLines,'',writtenKeys,False);
+   Result := Misc.JoinStringList(ScriptLines,EOL);
++  ScriptLines.Free;
++  writtenKeys.Free;
+ end;
+ 
+ procedure TScript.WriteScriptKeys(f: TStrings; completeKey: String;writtenKeys: TStrings; headWrite: Boolean);
+@@ -3005,7 +3077,11 @@
+   begin
+     j := CompleteKeyList.IndexOf(LowerCase(completeKey));
+     if j = -1 then
++    begin
++      sl1.Free;
++      sl2.Free;
+       Exit;
++    end;
+     f.Add(StrRepeat(#9,sl2.Count-1) + sl2[sl2.Count-1]+'='+KeyValueList[j]+';');
+     writtenKeys.Add(LowerCase(completeKey));
+   end
+@@ -3026,7 +3102,8 @@
+     if completeKey &lt;&gt; '' then
+       writtenKeys.Add(LowerCase(completeKey));
+   end;
+-
++  sl1.Free;
++  sl2.Free;
+ end;
+ 
+ function TScript.ReadKeyValue(completeKey: string):String;
+@@ -6931,16 +7008,16 @@
+     len := (Sender as TWSocket).Receive(@sBuffer[1], 256);
+     if len &lt;= 0 then Exit;
+ 
+-    s := UTF8Decode(LeftStr(sBuffer,len));
++    s := UTF8Decode(LeftBStr(sBuffer,len));
+     s2 := s;
+-    if Pos('chris',s2)&gt;0 then
++    if Pos('29093',s2)&gt;0 then
+     begin
+       ReceiveBuffer := ReceiveBuffer;
+     end;
+ 
+     for i := 1 to length(s) do
+     begin
+-      if (s[i] = #13) or (s[i] = #10) then
++      if (s[i] = #$A) then
+       begin
+         PostMessage(MainForm.Handle, WM_DATAHASARRIVED, Enqueue(ReceiveBuffer), 0);
+         ReceiveBuffer := '';
+@@ -7418,7 +7495,7 @@
+ 
+ procedure TMainForm.ReplaysButtonClick(Sender: TObject);
+ begin
+-  ReplaysForm.ShowModal;
++  ReplaysForm.Show;
+ end;
+ 
+ procedure TMainForm.SortLabelClick(Sender: TObject);
+@@ -8100,6 +8177,20 @@
+   PlayerList := TList.Create;
+ end;
+ 
++destructor TReplay.Destroy;
++var
++  i:integer;
++begin
++  for i := 0 to PlayerList.Count-1 do
++  begin
++    TReplayPlayer(PlayerList[i]^).free;
++    FreeMem(PlayerList[i]);
++  end;
++  PlayerList.Free;
++  Script.Free;
++  inherited Destroy;
++end;
++
+ function TReplay.GetSpectatorCount: integer;
+ var
+   i:integer;
+
+Modified: trunk/Lobby/TASClient/Misc.pas
+===================================================================
+--- trunk/Lobby/TASClient/Misc.pas	2008-04-05 15:56:35 UTC (rev 5667)
++++ trunk/Lobby/TASClient/Misc.pas	2008-04-05 21:13:17 UTC (rev 5668)
+@@ -375,6 +375,8 @@
+   p: TPoint;
+   pMax: TPoint;
+ begin
++  if RichEdit.Lines.Count &gt;= 1500 then
++    RichEdit.Lines.Delete(0);
+   RichEdit.Lines.BeginUpdate;
+ 
+     // save the scroll pos
+
+Modified: trunk/Lobby/TASClient/PreferencesFormUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/PreferencesFormUnit.dfm	2008-04-05 15:56:35 UTC (rev 5667)
++++ trunk/Lobby/TASClient/PreferencesFormUnit.dfm	2008-04-05 21:13:17 UTC (rev 5668)
+@@ -1,6 +1,6 @@
+ object PreferencesForm: TPreferencesForm
+-  Left = 238
+-  Top = 452
++  Left = 335
++  Top = 217
+   BorderStyle = bsDialog
+   Caption = 'Preferences'
+   ClientHeight = 392
+
+Modified: trunk/Lobby/TASClient/PreferencesFormUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/PreferencesFormUnit.pas	2008-04-05 15:56:35 UTC (rev 5667)
++++ trunk/Lobby/TASClient/PreferencesFormUnit.pas	2008-04-05 21:13:17 UTC (rev 5668)
+@@ -11,7 +11,7 @@
+   JvPageList, JvNavigationPane, JvComponentBase, JvTabBar, JvLookOut,
+   JvSpeedbar, JvExExtCtrls, JvCaptionPanel, JvExComCtrls, JvComCtrls, JvButton,
+   JvMovableBevel, TntStdCtrls, SpTBXEditors, TBXThemes, TBXDkPanels,
+-  SpTBXControls, SpTBXItem, TBX, SpTBXTabs, TB2Item, VirtualTrees, HttpProt,MainUnit;
++  SpTBXControls, SpTBXItem, TBX, SpTBXTabs, TB2Item, VirtualTrees, HttpProt,MainUnit,WSocket;
+ 
+ type
+ 
+@@ -682,7 +682,6 @@
+   if Status.LoggedIn and (Status.Username &lt;&gt; UsernameEdit.Text) then
+   begin
+     MainForm.TryToDisconnect;
+-    MainForm.TryToConnect;
+   end;
+ 
+   SaveOnClose := True;
+
+Modified: trunk/Lobby/TASClient/ReplaysUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/ReplaysUnit.dfm	2008-04-05 15:56:35 UTC (rev 5667)
++++ trunk/Lobby/TASClient/ReplaysUnit.dfm	2008-04-05 21:13:17 UTC (rev 5668)
+@@ -1,6 +1,6 @@
+ object ReplaysForm: TReplaysForm
+-  Left = 674
+-  Top = 198
++  Left = 538
++  Top = 134
+   Width = 809
+   Height = 640
+   Caption = 'Replays'
+
+Modified: trunk/Lobby/TASClient/ReplaysUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/ReplaysUnit.pas	2008-04-05 15:56:35 UTC (rev 5667)
++++ trunk/Lobby/TASClient/ReplaysUnit.pas	2008-04-05 21:13:17 UTC (rev 5668)
+@@ -318,8 +318,6 @@
+     ReplaysForm.ReloadButton.Enabled := True;
+   finally
+ //***    MainForm.AddMainLog(IntToStr(GetTickCount - StartTime) + ' ms taken to reload replays!', Colors.Info);
+-    ReplaysForm.LoadingPanel.Enabled := False;
+-    ReplaysForm.LoadingPanel.Visible := False;
+   end;
+ 
+ end;
+@@ -334,6 +332,7 @@
+   s: TScript;
+   dateFormat: TFormatSettings;
+   tmp:String;
++  i: integer;
+ begin
+   // old replay date format '2007-11-4 16:15: 4 GMT'
+   dateFormat.DateSeparator := '-';
+@@ -342,6 +341,12 @@
+ 
+   StartTime := GetTickCount;
+ 
++  for i:=0 to ReplayList.Count-1 do
++    try
++      TReplay(ReplayList[i]).Free;
++    except
++      //
++    end;
+   ReplayList.Clear;
+   VDTReplays.Clear;
+ 
+@@ -387,7 +392,9 @@
+             VDTReplays.RootNodeCount := VDTReplays.RootNodeCount +1;
+             rep.Node := VDTReplays.GetLast;
+           end;
+-        end;
++        end
++        else
++          rep.Free;
+       end
+     until FindNext(sr) &lt;&gt; 0;
+     FindClose(sr);
+@@ -718,7 +725,7 @@
+ var
+   count:integer;
+   tmp: String;
+-  player: TReplayPlayer;
++  player: ^TReplayPlayer;
+   sl : TStringList;
+   f: file of Byte;
+   doReadPlayerStats: boolean;
+@@ -734,6 +741,7 @@
+     except
+       CloseFile(f);
+       MainForm.AddMainLog('Error : couldn''t open the replay file '+replay.FileName,Colors.Error);
++      sl.Free;
+       Exit;
+     end;
+     doReadPlayerStats := true;
+@@ -741,67 +749,95 @@
+ 
+   sl := TStringList.Create;
+   count := 0;
++
+   while True do
+   begin
+     tmp := replay.Script.ReadKeyValue('GAME/PLAYER'+ IntToStr(count)+'/NAME');
+     if tmp = '' then break;
+-    player := TReplayPlayer.Create;
+-    player.UserName := tmp;
++    New(player);
++    player^ := TReplayPlayer.Create;
+ 
++    player^.UserName := tmp;
++
+     tmp := replay.Script.ReadKeyValue('GAME/PLAYER'+ IntToStr(count)+'/Rank');
+     if tmp &lt;&gt; '' then
+-      player.Rank := StrToInt(tmp);
++      player^.Rank := StrToInt(tmp);
+ 
+     tmp := replay.Script.ReadKeyValue('GAME/PLAYER'+ IntToStr(count)+'/countrycode');
+     if tmp &lt;&gt; '' then
+-      player.CountryCode := tmp;
++      player^.CountryCode := tmp;
+ 
+     tmp := replay.Script.ReadKeyValue('GAME/PLAYER'+ IntToStr(count)+'/spectator');
+     if tmp = '' then
+     begin
+       Result := false;
++      sl.Free;
++      if doReadPlayerStats then
++        CloseFile(f);
++      Player^.Free;
++      FreeMem(player);
+       Exit;
+     end;
+-    player.Spectator := StrToBool(tmp);
++    player^.Spectator := StrToBool(tmp);
+ 
+-    if not player.Spectator then
++    if not player^.Spectator then
+     begin
+       tmp := replay.Script.ReadKeyValue('GAME/PLAYER'+ IntToStr(count)+'/team');
+       if (tmp = '') then
+       begin
+         Result := false;
++        sl.Free;
++        if doReadPlayerStats then
++          CloseFile(f);
++        Player^.Free;
++        FreeMem(player);
+         Exit;
+       end;
+-      player.Id := StrToInt(tmp)+1;
++      player^.Id := StrToInt(tmp)+1;
+ 
+-      tmp := replay.Script.ReadKeyValue('GAME/team'+ IntToStr(player.Id-1)+'/allyteam');
++      tmp := replay.Script.ReadKeyValue('GAME/team'+ IntToStr(player^.Id-1)+'/allyteam');
+       if (tmp = '') then
+       begin
+         Result := false;
++        sl.Free;
++        if doReadPlayerStats then
++          CloseFile(f);
++        Player^.Free;
++        FreeMem(player);
+         Exit;
+       end;
+-      player.Team := StrToInt(tmp)+1;
++      player^.Team := StrToInt(tmp)+1;
+ 
+-      tmp := replay.Script.ReadKeyValue('GAME/team'+ IntToStr(player.Id-1)+'/rgbcolor');
++      tmp := replay.Script.ReadKeyValue('GAME/team'+ IntToStr(player^.Id-1)+'/rgbcolor');
+       if (tmp = '') then
+       begin
+         Result := false;
++        sl.Free;
++        if doReadPlayerStats then
++          CloseFile(f);
++        Player^.Free;
++        FreeMem(player);
+         Exit;
+       end;
+       ParseDelimited(sl,tmp,' ','');
+       try
+-        player.Color := RGB(Ceil(StrToFloat(sl[0])*255),Ceil(StrToFloat(sl[1])*255),Ceil(StrToFloat(sl[2])*255));
++        player^.Color := RGB(Ceil(StrToFloat(sl[0])*255),Ceil(StrToFloat(sl[1])*255),Ceil(StrToFloat(sl[2])*255));
+       except
+         Result := false;
++        sl.Free;
++        if doReadPlayerStats then
++          CloseFile(f);
++        Player^.Free;
++        FreeMem(player);
+         Exit;
+       end;
+     end;
++    replay.PlayerList.Add(Player);
+ 
+-    replay.PlayerList.Add(Player);
+     if doReadPlayerStats then
+     begin
+       try
+-        BlockRead(f, Player.Stats, sizeof(Player.Stats));
++        BlockRead(f, Player^.Stats, sizeof(Player^.Stats));
+       except
+         //MainForm.AddMainLog('Error : couldn''t read the players stats in the replay file '+replay.FileName,Colors.Error);
+         CloseFile(f);
+@@ -810,6 +846,7 @@
+     end;
+     Inc(count);
+   end;
++  sl.Free;
+   if doReadPlayerStats then
+     CloseFile(f);
+   if count=0 then
+@@ -850,6 +887,7 @@
+ procedure TReplaysForm.CloseButtonClick(Sender: TObject);
+ begin
+   ModalResult := mrCancel;
++  Close;
+ end;
+ 
+ procedure TReplaysForm.FormCreate(Sender: TObject);
+@@ -868,12 +906,11 @@
+ end;
+ 
+ procedure TReplaysForm.ReloadButtonClick(Sender: TObject);
+-var
+-  i: Integer;
+ begin
+-  InitWaitForm.ChangeCaption(MSG_RELOADREPLAYS);
++  ReplaysUnit.TReadReplaysThrd.Create(False);
++  {InitWaitForm.ChangeCaption(MSG_RELOADREPLAYS);
+   InitWaitForm.TakeAction := 4; // reload replay list
+-  InitWaitForm.ShowModal; // this will reload replay list
++  InitWaitForm.ShowModal; // this will reload replay list }
+ end;
+ 
+ function TReplaysForm.LoadReplay(Replay: TReplay): Boolean;
+@@ -899,7 +936,7 @@
+   for i:=0 to Replay.PlayerList.Count-1 do
+   begin
+     VDTPlayers.RootNodeCount := VDTPlayers.RootNodeCount + 1;
+-    TReplayPlayer(Replay.PlayerList[i]).Node := VDTPlayers.GetLast;
++    TReplayPlayer(Replay.PlayerList[i]^).Node := VDTPlayers.GetLast;
+   end;
+   VDTPlayers.TreeOptions.AutoOptions := [toAutoDropExpand,toAutoScrollOnExpand,toAutoSort,toAutoTristateTracking,toAutoDeleteMovedNodes];
+   VDTPlayers.SortTree(VDTPlayers.Header.SortColumn,VDTPlayers.Header.SortDirection);
+@@ -914,14 +951,18 @@
+   GradeComboBox.ItemIndex := Min(b, 10); // 11 grades max. (0..10)
+   SaveButton.Enabled := False;
+ 
+-  lblStartPos.Caption := 'Start pos : '+BattleForm.StartPosRadioGroup.Items[Replay.Script.ReadStartPosType];
+-  lblGameEnd.Caption := 'Game end condition: '+BattleForm.GameEndRadioGroup.Items[Replay.Script.ReadGameMode];
+-  lblMetal.Caption := 'Start metal : '+IntToStr(Replay.Script.ReadStartMetal);
+-  lblEnergy.Caption := 'Start energy : '+IntToStr(Replay.Script.ReadStartEnergy);
+-  lblMaxUnits.Caption := 'Max units : '+IntToStr(Replay.Script.ReadMaxUnits);
+-  chkLimiteDGun.Checked := Replay.Script.ReadLimitDGun;
+-  chkGhosted.Checked := Replay.Script.ReadGhostedBuildings;
+-  chkDiminishing.Checked := Replay.Script.ReadDiminishingMMs;
++  try
++    lblStartPos.Caption := 'Start pos : '+BattleForm.StartPosRadioGroup.Items[Replay.Script.ReadStartPosType];
++    lblGameEnd.Caption := 'Game end condition: '+BattleForm.GameEndRadioGroup.Items[Replay.Script.ReadGameMode];
++    lblMetal.Caption := 'Start metal : '+IntToStr(Replay.Script.ReadStartMetal);
++    lblEnergy.Caption := 'Start energy : '+IntToStr(Replay.Script.ReadStartEnergy);
++    lblMaxUnits.Caption := 'Max units : '+IntToStr(Replay.Script.ReadMaxUnits);
++    chkLimiteDGun.Checked := Replay.Script.ReadLimitDGun;
++    chkGhosted.Checked := Replay.Script.ReadGhostedBuildings;
++    chkDiminishing.Checked := Replay.Script.ReadDiminishingMMs;
++  except
++    on E: Exception do MessageDlg(E.Message,mtError,[mbOk],E.HelpContext);
++  end;
+ 
+   lstDisabledUnits.Items.AddStrings(Replay.Script.ReadDisabledUnits);
+ 
+@@ -1130,13 +1171,13 @@
+   Replay := GetReplayFromNode(VDTReplays.FocusedNode);
+ 
+   for i := 0 to Replay.PlayerList.Count - 1 do
+-    if TReplayPlayer(Replay.PlayerList[i]).Node &lt;&gt; nil then
+-    if TReplayPlayer(Replay.PlayerList[i]).Node.Index = Node.index then
++    if TReplayPlayer(Replay.PlayerList[i]^).Node &lt;&gt; nil then
++    if TReplayPlayer(Replay.PlayerList[i]^).Node.Index = Node.index then
+   begin
+-    Result := Replay.PlayerList[i];
++    Result := TReplayPlayer(Replay.PlayerList[i]^);
+     exit;
+   end;
+-  Result := Replay.PlayerList[Replay.PlayerList.Count-1];
++  Result := TReplayPlayer(Replay.PlayerList[Replay.PlayerList.Count-1]^);
+ end;
+ 
+ procedure TReplaysForm.VDTReplaysDrawNode(Sender: TBaseVirtualTree;
+@@ -1150,6 +1191,9 @@
+   textAlign: Cardinal;
+   i: integer;
+ begin
++  if not (Sender as TVirtualDrawTree).Visible then
++    Exit;
++    
+   with Sender as TVirtualDrawTree, PaintInfo do
+   begin
+     Replay := GetReplayFromNode(Node);
+@@ -1173,7 +1217,7 @@
+       1: // date time
+         s := DateTimeToStr(Replay.Date);
+       2: // host name
+-        s := TReplayPlayer(Replay.PlayerList[0]).UserName;
++        s := TReplayPlayer(Replay.PlayerList[0]^).UserName;
+       3: // mod
+         s := Replay.Script.ReadModName;
+       4: // map
+@@ -1200,7 +1244,7 @@
+           tmp := '??';
+         s := IntToStr(Replay.PlayerList.Count-Replay.GetSpectatorCount) +'+'+IntToStr(Replay.GetSpectatorCount)+'/' + tmp + '  ';
+         for i:=0 to Replay.PlayerList.Count-1 do
+-          s := s + ' ' + TReplayPlayer(Replay.PlayerList[i]).UserName;
++          s := s + ' ' + TReplayPlayer(Replay.PlayerList[i]^).UserName;
+       end;
+       9: // file name
+         s := Replay.FileName;
+@@ -1280,11 +1324,15 @@
+ 
+ procedure TReplaysForm.InitVDTForRefresh;
+ begin
++  ReplaysForm.LoadingPanel.Visible := True;
++  VDTReplays.Visible := false;
+   VDTReplays.TreeOptions.AutoOptions := [toAutoDropExpand,toAutoScrollOnExpand,toAutoTristateTracking,toAutoDeleteMovedNodes];
+ end;
+ 
+ procedure TReplaysForm.TerminateVDTRefresh;
+ begin
++  VDTReplays.Visible := true;
++  ReplaysForm.LoadingPanel.Visible := False;
+   if VDTReplays.RootNodeCount = 0 then
+   begin
+     VDTPlayers.Refresh;
+@@ -1300,7 +1348,7 @@
+   ReplaysForm.VDTReplays.FocusedNode := ReplaysForm.VDTReplays.GetFirst;
+   ReplaysForm.VDTReplays.Selected[ReplaysForm.VDTReplays.FocusedNode] := true;
+ 
+-  ReplaysForm.VDTReplaysClick
++  ReplaysForm.VDTReplaysClick;
+ end;
+ 
+ procedure TReplaysForm.VDTReplaysClick;
+@@ -1335,6 +1383,8 @@
+   FlagBitmap: TBitmap;
+   TempPenColor,TempBrushColor: TColor;
+ begin
++  if not VDTReplays.Visible then
++    Exit;
+   if VDTReplays.RootNodeCount = 0 then
+     Exit;
+ 
+@@ -1400,19 +1450,19 @@
+         if not ReplayPlayer.Spectator then
+           s := IntToStr(ReplayPlayer.Team);
+       3: // mouse pixels
+-        if ReplayPlayer.Stats.mousePixels &gt; 0 then
++        if (ReplayPlayer.Stats.mousePixels &gt; 0) and (Replay.demoHeader.wallclockTime &gt;0 ) then
+           s := IntToStr(Ceil(ReplayPlayer.Stats.mousePixels*60/Replay.demoHeader.wallclockTime));
+       4: // mouse clicks
+-        if ReplayPlayer.Stats.mouseClicks &gt; 0 then
++        if (ReplayPlayer.Stats.mouseClicks &gt; 0) and (Replay.demoHeader.wallclockTime &gt;0 ) then
+           s := IntToStr(Ceil(ReplayPlayer.Stats.mouseClicks*60/Replay.demoHeader.wallclockTime));
+       5: // key presses
+-        if ReplayPlayer.Stats.keyPresses &gt; 0 then
++        if (ReplayPlayer.Stats.keyPresses &gt; 0) and (Replay.demoHeader.wallclockTime &gt;0 ) then
+           s := IntToStr(Ceil(ReplayPlayer.Stats.keyPresses*60/Replay.demoHeader.wallclockTime));
+       6: // num commands
+-        if ReplayPlayer.Stats.numCommands &gt; 0 then
++        if (ReplayPlayer.Stats.numCommands &gt; 0) and (Replay.demoHeader.wallclockTime &gt;0 ) then
+           s := IntToStr(Ceil(ReplayPlayer.Stats.numCommands*60/Replay.demoHeader.wallclockTime));
+       7: // units per commands
+-        if ReplayPlayer.Stats.numCommands &gt; 0 then
++        if (ReplayPlayer.Stats.numCommands &gt; 0) and (ReplayPlayer.Stats.numCommands &gt;0 ) then
+           s := FloatToStr(RoundTo(ReplayPlayer.Stats.unitCommands/ReplayPlayer.Stats.numCommands,-2));
+     end;
+ 
+@@ -2500,7 +2550,9 @@
+ procedure TReplaysForm.VDTReplaysKeyUp(Sender: TObject; var Key: Word;
+   Shift: TShiftState);
+ begin
+-  VDTReplaysClick;
++  if (Key = VK_UP) or (Key = VK_DOWN) then
++    VDTReplaysClick;
++  Key := 0;
+ end;
+ 
+ procedure TReplaysForm.FilterListCompareNodes(Sender: TBaseVirtualTree;
+@@ -2599,7 +2651,7 @@
+       1: // date time
+         s := DateTimeToStr(Replay.Date);
+       2: // host name
+-        s := TReplayPlayer(Replay.PlayerList[0]).UserName;
++        s := TReplayPlayer(Replay.PlayerList[0]^).UserName;
+       3: // mod
+         s := Replay.Script.ReadModName;
+       4: // map
+@@ -2623,7 +2675,7 @@
+           tmp := '??';
+         s := IntToStr(Replay.PlayerList.Count-Replay.GetSpectatorCount) +'+'+IntToStr(Replay.GetSpectatorCount)+'/' + tmp + '  ';
+         for i:=0 to Replay.PlayerList.Count-1 do
+-          s := s + ' ' + TReplayPlayer(Replay.PlayerList[i]).UserName;
++          s := s + ' ' + TReplayPlayer(Replay.PlayerList[i]^).UserName;
+       end;
+       9: // file name
+         s := Replay.FileName;
+@@ -2666,7 +2718,7 @@
+       1: // date time
+         s := DateTimeToStr(Replay.Date);
+       2: // host name
+-        s := TReplayPlayer(Replay.PlayerList[0]).UserName;
++        s := TReplayPlayer(Replay.PlayerList[0]^).UserName;
+       3: // mod
+         s := Replay.Script.ReadModName;
+       4: // map
+@@ -2690,7 +2742,7 @@
+           tmp := '??';
+         s := IntToStr(Replay.PlayerList.Count-Replay.GetSpectatorCount) +'+'+IntToStr(Replay.GetSpectatorCount)+'/' + tmp + '  ';
+         for i:=0 to Replay.PlayerList.Count-1 do
+-          s := s + ' ' + TReplayPlayer(Replay.PlayerList[i]).UserName;
++          s := s + ' ' + TReplayPlayer(Replay.PlayerList[i]^).UserName;
+       end;
+       9: // file name
+         s := Replay.FileName;
+
+Modified: trunk/Lobby/TASClient/TASClient.dof
+===================================================================
+--- trunk/Lobby/TASClient/TASClient.dof	2008-04-05 15:56:35 UTC (rev 5667)
++++ trunk/Lobby/TASClient/TASClient.dof	2008-04-05 21:13:17 UTC (rev 5668)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=3
+ Release=0
+-Build=270
++Build=271
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TA Spring lobby client
+-FileVersion=0.3.0.270
++FileVersion=0.3.0.271
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: trunk/Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000448.html">[Taspring-linux-commit] r5667 - in trunk: rts/Game rts/System	rts/System/Net tools/DedicatedServer
+</A></li>
+	<LI>Next message: <A HREF="000450.html">[Taspring-linux-commit] r5669 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#449">[ date ]</a>
+              <a href="thread.html#449">[ thread ]</a>
+              <a href="subject.html#449">[ subject ]</a>
+              <a href="author.html#449">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,186 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5340 - trunk/rts/System/FileSystem
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5340%20-%20trunk/rts/System/FileSystem&In-Reply-To=%3CE1JFZaz-0004m5-9S%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000146.html">
+   <LINK REL="Next"  HREF="000148.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5340 - trunk/rts/System/FileSystem</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5340%20-%20trunk/rts/System/FileSystem&In-Reply-To=%3CE1JFZaz-0004m5-9S%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5340 - trunk/rts/System/FileSystem">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Jan 17 19:36:09 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000146.html">[Taspring-linux-commit] r5339 - trunk/rts/Lua
+</A></li>
+        <LI>Next message: <A HREF="000148.html">[Taspring-linux-commit] r5341 - trunk/rts/Game/UI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#147">[ date ]</a>
+              <a href="thread.html#147">[ thread ]</a>
+              <a href="subject.html#147">[ subject ]</a>
+              <a href="author.html#147">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: trepan
+Date: 2008-01-17 19:36:09 +0100 (Thu, 17 Jan 2008)
+New Revision: 5340
+
+Modified:
+   trunk/rts/System/FileSystem/VFSHandler.cpp
+   trunk/rts/System/FileSystem/VFSHandler.h
+Log:
+* Treat SDD file sizes as dynamic, so that lua scripts can
+  be reloaded while dev'ing without having file size mismatches
+  (LuaRules, LuaGaia, mod widgets, etc...)
+
+
+Modified: trunk/rts/System/FileSystem/VFSHandler.cpp
+===================================================================
+--- trunk/rts/System/FileSystem/VFSHandler.cpp	2008-01-17 15:27:28 UTC (rev 5339)
++++ trunk/rts/System/FileSystem/VFSHandler.cpp	2008-01-17 18:36:09 UTC (rev 5340)
+@@ -2,6 +2,7 @@
+ #include &quot;VFSHandler.h&quot;
+ #include &quot;ArchiveFactory.h&quot;
+ #include &quot;ArchiveBase.h&quot;
++#include &quot;ArchiveDir.h&quot; // for FileData::dynamic
+ #include &lt;algorithm&gt;
+ #include &lt;set&gt;
+ #include &quot;Platform/FileSystem.h&quot;
+@@ -19,8 +20,9 @@
+ 	CArchiveBase* ar = archives[arName];
+ 	if (!ar) {
+ 		ar = CArchiveFactory::OpenArchive(arName);
+-		if (!ar)
++		if (!ar) {
+ 			return false;
++		}
+ 		archives[arName] = ar;
+ 	}
+ 
+@@ -30,12 +32,14 @@
+ 
+ 	for (cur = ar-&gt;FindFiles(0, &amp;name, &amp;size); cur != 0; cur = ar-&gt;FindFiles(cur, &amp;name, &amp;size)) {
+ 		StringToLowerInPlace(name);
+-		if ((!override) &amp;&amp; (files.find(name) != files.end()))
++		if ((!override) &amp;&amp; (files.find(name) != files.end())) {
+ 			continue;
++		}
+ 
+ 		FileData d;
+ 		d.ar = ar;
+ 		d.size = size;
++		d.dynamic = !!dynamic_cast&lt;CArchiveDir*&gt;(ar);
+ 		files[name] = d;
+ 	}
+ 	return true;
+@@ -52,27 +56,50 @@
+ {
+ 	StringToLowerInPlace(name);
+ 	filesystem.ForwardSlashes(name);
+-	FileData fd = files[name];
+ 
++	map&lt;string, FileData&gt;::iterator fi = files.find(name);
++	if (fi == files.end()) {
++		return -1;
++	}
++	FileData&amp; fd = fi-&gt;second;
++
+ 	int fh = fd.ar-&gt;OpenFile(name);
+-	if (!fh)
++	if (!fh) {
+ 		return -1;
+-	fd.ar-&gt;ReadFile(fh, buffer, fd.size);
++	}
++	const int fsize = fd.dynamic ? fd.ar-&gt;FileSize(fh) : fd.size;
++
++	fd.ar-&gt;ReadFile(fh, buffer, fsize);
+ 	fd.ar-&gt;CloseFile(fh);
+ 
+-	return fd.size;
++	return fsize;
+ }
+ 
+ int CVFSHandler::GetFileSize(string name)
+ {
+ 	StringToLowerInPlace(name);
+ 	filesystem.ForwardSlashes(name);
+-	map&lt;string, FileData&gt;::iterator f = files.find(name);
+ 
+-	if (f == files.end())
++	map&lt;string, FileData&gt;::iterator fi = files.find(name);
++	if (fi == files.end()) {
+ 		return -1;
+-	else
+-		return f-&gt;second.size;
++	}
++	FileData&amp; fd = fi-&gt;second;
++
++	if (!fd.dynamic) {
++		return fd.size;
++	}
++	else {
++		const int fh = fd.ar-&gt;OpenFile(name);
++		if (fh == 0) {
++			return -1;
++		} else {
++			const int fsize = fd.ar-&gt;FileSize(fh);
++			fd.ar-&gt;CloseFile(fh);
++			return fsize;
++		}
++	}
++	return -1;
+ }
+ 
+ // Returns all the files in the given (virtual) directory without the preceeding pathname
+
+Modified: trunk/rts/System/FileSystem/VFSHandler.h
+===================================================================
+--- trunk/rts/System/FileSystem/VFSHandler.h	2008-01-17 15:27:28 UTC (rev 5339)
++++ trunk/rts/System/FileSystem/VFSHandler.h	2008-01-17 18:36:09 UTC (rev 5340)
+@@ -15,6 +15,7 @@
+ 	struct FileData{
+ 		CArchiveBase *ar;
+ 		int size;
++		bool dynamic;
+ 	};
+ 	map&lt;string, FileData&gt; files; 
+ 	map&lt;string, CArchiveBase*&gt; archives;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000146.html">[Taspring-linux-commit] r5339 - trunk/rts/Lua
+</A></li>
+	<LI>Next message: <A HREF="000148.html">[Taspring-linux-commit] r5341 - trunk/rts/Game/UI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#147">[ date ]</a>
+              <a href="thread.html#147">[ thread ]</a>
+              <a href="subject.html#147">[ subject ]</a>
+              <a href="author.html#147">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,234 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7114 - trunk/rts/System/Net
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7114%20-%20trunk/rts/System/Net&In-Reply-To=%3C20081203002221.675DD46C4%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001882.html">
+   <LINK REL="Next"  HREF="001884.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7114 - trunk/rts/System/Net</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7114%20-%20trunk/rts/System/Net&In-Reply-To=%3C20081203002221.675DD46C4%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r7114 - trunk/rts/System/Net">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Dec  3 01:22:21 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001882.html">[Taspring-linux-commit] r7113 - in branches/caiinterface: .	AI/Interfaces AI/Interfaces/C AI/Interfaces/Java AI/Skirmish	AI/Skirmish/KAIK AI/Skirmish/NullAI	AI/Skirmish/NullLegacyCppAI AI/Skirmish/RAI	AI/Wrappers/LegacyCpp rts/ExternalAI rts/ExternalAI/Interface	rts/Game/StartScripts rts/Sim/Misc rts/System	rts/System/Script tools/unitsync
+</A></li>
+        <LI>Next message: <A HREF="001884.html">[Taspring-linux-commit] r7115 - in branches/caiinterface:	AI/Interfaces AI/Interfaces/C AI/Skirmish	AI/Wrappers/LegacyCpp rts/ExternalAI rts/ExternalAI/Interface	rts/Game rts/Game/StartScripts rts/Sim/Misc rts/System/Script	rts/build/cmake tools/unitsync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1883">[ date ]</a>
+              <a href="thread.html#1883">[ thread ]</a>
+              <a href="subject.html#1883">[ subject ]</a>
+              <a href="author.html#1883">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-12-03 01:22:20 +0100 (Wed, 03 Dec 2008)
+New Revision: 7114
+
+Modified:
+   trunk/rts/System/Net/UDPConnection.cpp
+   trunk/rts/System/Net/UDPConnection.h
+Log:
+* make the UDP buffer variable sized to prevent overruns due to large commands and / or lag
+
+
+Modified: trunk/rts/System/Net/UDPConnection.cpp
+===================================================================
+--- trunk/rts/System/Net/UDPConnection.cpp	2008-12-01 19:48:22 UTC (rev 7113)
++++ trunk/rts/System/Net/UDPConnection.cpp	2008-12-03 00:22:20 UTC (rev 7114)
+@@ -48,11 +48,7 @@
+ 
+ void UDPConnection::SendData(boost::shared_ptr&lt;const RawPacket&gt; data)
+ {
+-	if(outgoingLength + data-&gt;length &gt;= UDPBufferSize){
+-		throw network_error(&quot;Buffer overflow in UDPConnection (SendData)&quot;);
+-	}
+-	memcpy(&amp;outgoingData[outgoingLength], data-&gt;data, data-&gt;length);
+-	outgoingLength += data-&gt;length;
++	outgoingData.push_back(data);
+ }
+ 
+ bool UDPConnection::HasIncomingData() const
+@@ -91,9 +87,9 @@
+ 	if (!sharedSocket)
+ 	{
+ 		unsigned recv = 0;
+-		unsigned char buffer[UDPBufferSize];
++		unsigned char buffer[4096];
+ 		sockaddr_in fromAddr;
+-		while ((recv = mySocket-&gt;RecvFrom(buffer, UDPBufferSize, &amp;fromAddr)) &gt;= hsize)
++		while ((recv = mySocket-&gt;RecvFrom(buffer, 4096, &amp;fromAddr)) &gt;= hsize)
+ 		{
+ 			RawPacket* data = new RawPacket(buffer, recv);
+ 			if (CheckAddress(fromAddr))
+@@ -171,14 +167,14 @@
+ 	//process all in order packets that we have waiting
+ 	while ((wpi = waitingPackets.find(lastInOrder+1)) != waitingPackets.end())
+ 	{
+-		unsigned char buf[UDPBufferSize];
++		unsigned char buf[4096];
+ 		unsigned bufLength = 0;
+ 
+ 		if (fragmentBuffer)
+ 		{
+ 			// combine with fragment buffer
+ 			bufLength += fragmentBuffer-&gt;length;
+-			assert(fragmentBuffer-&gt;length &lt; UDPBufferSize);
++			assert(fragmentBuffer-&gt;length &lt; 4096);
+ 			memcpy(buf, fragmentBuffer-&gt;data, bufLength);
+ 			delete fragmentBuffer;
+ 			fragmentBuffer = NULL;
+@@ -186,7 +182,7 @@
+ 
+ 		lastInOrder++;
+ #if (BOOST_VERSION &gt;= 103400)
+-		assert((wpi-&gt;second-&gt;length + bufLength) &lt; UDPBufferSize);
++		assert((wpi-&gt;second-&gt;length + bufLength) &lt; 4096);
+ 		memcpy(buf + bufLength, wpi-&gt;second-&gt;data, wpi-&gt;second-&gt;length);
+ 		bufLength += (wpi-&gt;second)-&gt;length;
+ #else
+@@ -259,27 +255,43 @@
+ 
+ void UDPConnection::Flush(const bool forced)
+ {
+-	const float curTime = SDL_GetTicks();
+-	if (forced || (outgoingLength&gt;0 &amp;&amp; (lastSendTime &lt; (curTime - 200 + outgoingLength * 10))))
++	const unsigned curTime = SDL_GetTicks();
++
++	unsigned outgoingLength = 0;
++	for (packetList::const_iterator it = outgoingData.begin(); it != outgoingData.end(); ++it)
++		outgoingLength += (*it)-&gt;length;
++
++	if (forced || (!outgoingData.empty() &amp;&amp; (lastSendTime &lt; (curTime - 200 + outgoingLength * 10))))
+ 	{
+ 		lastSendTime=SDL_GetTicks();
+ 
++		uint8_t buffer[1500];
++		unsigned pos = 0;
+ 		// Manually fragment packets to respect configured UDP_MTU.
+ 		// This is an attempt to fix the bug where players drop out of the game if
+ 		// someone in the game gives a large order.
+ 
+-		if (outgoingLength &gt; mtu)
+-			++fragmentedFlushes;
+-
+-		unsigned pos = 0;
+-		do
++		while (!outgoingData.empty())
+ 		{
+-			unsigned length = std::min(mtu, outgoingLength);
+-			SendRawPacket(outgoingData + pos, length, currentNum++);
+-			unackedPackets.push_back(new RawPacket(outgoingData + pos, length));
+-			outgoingLength -= length;
+-			pos += mtu;
+-		} while (outgoingLength &gt; 0);
++			{
++				packetList::iterator it = outgoingData.begin();
++				unsigned numBytes = std::min(mtu-pos, (*it)-&gt;length);
++				memcpy(buffer+pos, (*it)-&gt;data, numBytes);
++				pos+= numBytes;
++				if (numBytes == (*it)-&gt;length) // full packet copied
++					outgoingData.pop_front();
++				else // partially transfered
++					(*it).reset(new RawPacket((*it)-&gt;data + numBytes, (*it)-&gt;length - numBytes));
++			} // iterator &quot;it&quot; is now invalid
++			if (pos &gt; 0 &amp;&amp; (pos == mtu || outgoingData.empty()))
++			{
++				if (pos == mtu)
++					++fragmentedFlushes;
++				SendRawPacket(buffer, pos, currentNum++);
++				unackedPackets.push_back(new RawPacket(buffer, pos));
++				pos = 0;
++			}
++		}
+ 	}
+ }
+ 
+@@ -342,7 +354,6 @@
+ 	waitingPackets.clear();
+ 	firstUnacked=0;
+ 	currentNum=0;
+-	outgoingLength=0;
+ 	lastNak=-1;
+ 	lastNakTime=0;
+ 	lastSendTime=0;
+
+Modified: trunk/rts/System/Net/UDPConnection.h
+===================================================================
+--- trunk/rts/System/Net/UDPConnection.h	2008-12-01 19:48:22 UTC (rev 7113)
++++ trunk/rts/System/Net/UDPConnection.h	2008-12-03 00:22:20 UTC (rev 7114)
+@@ -5,16 +5,12 @@
+ #include &lt;boost/ptr_container/ptr_map.hpp&gt;
+ #include &lt;boost/shared_ptr.hpp&gt;
+ #include &lt;deque&gt;
++#include &lt;list&gt;
+ 
+ #include &quot;Connection.h&quot;
+ #include &quot;UDPSocket.h&quot;
+ 
+ namespace netcode {
+-#ifndef SYNCDEBUG
+-const unsigned UDPBufferSize = 16384;
+-#else
+-const unsigned UDPBufferSize = 40000;
+-#endif
+ 
+ /**
+ How Spring protocolheader looks like (size in bytes):
+@@ -85,6 +81,7 @@
+ 	unsigned lastReceiveTime;
+ 	
+ 	typedef boost::ptr_map&lt;int,RawPacket&gt; packetMap;
++	typedef std::list&lt; boost::shared_ptr&lt;const RawPacket&gt; &gt; packetList;
+ 	/// all packets with number &lt;= nextAck arrived at the other end
+ 	void AckPackets(const int nextAck);
+ 	/// add header to data and send it
+@@ -98,8 +95,7 @@
+ 	bool sharedSocket;
+ 
+ 	///outgoing stuff (pure data without header) waiting to be sended
+-	unsigned char outgoingData[UDPBufferSize];
+-	unsigned outgoingLength;
++	packetList outgoingData;
+ 
+ 	/// packets the other side didn't ack'ed until now
+ 	boost::ptr_deque&lt;RawPacket&gt; unackedPackets;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001882.html">[Taspring-linux-commit] r7113 - in branches/caiinterface: .	AI/Interfaces AI/Interfaces/C AI/Interfaces/Java AI/Skirmish	AI/Skirmish/KAIK AI/Skirmish/NullAI	AI/Skirmish/NullLegacyCppAI AI/Skirmish/RAI	AI/Wrappers/LegacyCpp rts/ExternalAI rts/ExternalAI/Interface	rts/Game/StartScripts rts/Sim/Misc rts/System	rts/System/Script tools/unitsync
+</A></li>
+	<LI>Next message: <A HREF="001884.html">[Taspring-linux-commit] r7115 - in branches/caiinterface:	AI/Interfaces AI/Interfaces/C AI/Skirmish	AI/Wrappers/LegacyCpp rts/ExternalAI rts/ExternalAI/Interface	rts/Game rts/Game/StartScripts rts/Sim/Misc rts/System/Script	rts/build/cmake tools/unitsync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1883">[ date ]</a>
+              <a href="thread.html#1883">[ thread ]</a>
+              <a href="subject.html#1883">[ subject ]</a>
+              <a href="author.html#1883">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

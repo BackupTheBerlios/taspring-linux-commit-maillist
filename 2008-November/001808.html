@@ -1,0 +1,1519 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7039 - trunk/AI/Global/AAI
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-November/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7039%20-%20trunk/AI/Global/AAI&In-Reply-To=%3C20081113185827.9E57C475F%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001807.html">
+   <LINK REL="Next"  HREF="001809.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7039 - trunk/AI/Global/AAI</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7039%20-%20trunk/AI/Global/AAI&In-Reply-To=%3C20081113185827.9E57C475F%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r7039 - trunk/AI/Global/AAI">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Nov 13 19:58:27 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001807.html">[Taspring-linux-commit] r7038 - in trunk/rts: Game Sim/Misc
+</A></li>
+        <LI>Next message: <A HREF="001809.html">[Taspring-linux-commit] r7040 - in trunk/AI/Global: AAI TestGlobalAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1808">[ date ]</a>
+              <a href="thread.html#1808">[ thread ]</a>
+              <a href="subject.html#1808">[ subject ]</a>
+              <a href="author.html#1808">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: submarine
+Date: 2008-11-13 19:58:26 +0100 (Thu, 13 Nov 2008)
+New Revision: 7039
+
+Modified:
+   trunk/AI/Global/AAI/AAI.cpp
+   trunk/AI/Global/AAI/AAI.h
+   trunk/AI/Global/AAI/AAIBrain.cpp
+   trunk/AI/Global/AAI/AAIConstructor.cpp
+   trunk/AI/Global/AAI/AAIExecute.cpp
+   trunk/AI/Global/AAI/AAIExecute.h
+   trunk/AI/Global/AAI/AAIMap.cpp
+   trunk/AI/Global/AAI/AAIMap.h
+   trunk/AI/Global/AAI/AAISector.cpp
+   trunk/AI/Global/AAI/AAISector.h
+   trunk/AI/Global/AAI/AAIUnitTable.cpp
+   trunk/AI/Global/AAI/AAIUnitTable.h
+   trunk/AI/Global/AAI/aidef.h
+Log:
+Some code refactoring in AAI
+
+Modified: trunk/AI/Global/AAI/AAI.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAI.cpp	2008-11-13 17:15:11 UTC (rev 7038)
++++ trunk/AI/Global/AAI/AAI.cpp	2008-11-13 18:58:26 UTC (rev 7039)
+@@ -29,13 +29,6 @@
+ 	
+ 	side = 0;
+ 
+-	for(int i = 0; i &lt;= MOBILE_CONSTRUCTOR; i++)
+-	{
+-		activeUnits[i] = 0;
+-		futureUnits[i] = 0;
+-		requestedUnits[i] = 0;
+-	}
+-
+ 	initialized = false;
+ }
+ 
+@@ -49,7 +42,7 @@
+ 	fprintf(file, &quot;Unit category	active / under construction\n&quot;);
+ 	for(int i = 0; i &lt;= MOBILE_CONSTRUCTOR; ++i)
+ 	{
+-		fprintf(file, &quot;%-20s: %i / %i\n&quot;, bt-&gt;GetCategoryString2((UnitCategory)i), activeUnits[i], futureUnits[i]); 
++		fprintf(file, &quot;%-20s: %i / %i\n&quot;, bt-&gt;GetCategoryString2((UnitCategory)i), ut-&gt;activeUnits[i], ut-&gt;futureUnits[i]); 
+ 	}
+ 
+ 	fprintf(file, &quot;\nGround Groups:    %i\n&quot;, group_list[GROUND_ASSAULT].size());
+@@ -269,8 +262,8 @@
+ 	bt-&gt;units_dynamic[def-&gt;id].requested -= 1;
+ 	bt-&gt;units_dynamic[def-&gt;id].under_construction += 1;
+ 
+-	requestedUnits[category] -= 1;
+-	futureUnits[category] += 1;
++	ut-&gt;requestedUnits[category] -= 1;
++	ut-&gt;futureUnits[category] += 1;
+ 
+ 	// add to unittable 
+ 	ut-&gt;AddUnit(unit, def-&gt;id);
+@@ -279,7 +272,7 @@
+ 	if(!initialized &amp;&amp; ut-&gt;IsDefCommander(def-&gt;id))
+ 	{
+ 		// UnitFinished() will decrease it later -&gt; prevents AAI from having -1 future commanders 
+-		requestedUnits[COMMANDER] += 1;
++		ut-&gt;requestedUnits[COMMANDER] += 1;
+ 		ut-&gt;futureBuilders += 1;
+ 		bt-&gt;units_dynamic[def-&gt;id].under_construction += 1;
+ 
+@@ -297,20 +290,18 @@
+ 		UnitCategory category = bt-&gt;units_static[def-&gt;id].category;
+ 		
+ 		// UnitFinished() will decrease it later 
+-		requestedUnits[category] += 1;	
++		ut-&gt;requestedUnits[category] += 1;	
+ 		bt-&gt;units_dynamic[def-&gt;id].requested += 1;
+ 
++		if(bt-&gt;IsFactory(def-&gt;id))
++			ut-&gt;futureFactories += 1;
++
+ 		if(category == SCOUT)
+ 			ut-&gt;futureScouts += 1;
+ 		else if(category &lt;= METAL_MAKER &amp;&amp; category &gt; UNKNOWN)
+ 		{
+ 			float3 pos = cb-&gt;GetUnitPos(unit);
+-			map-&gt;Pos2FinalBuildPos(&amp;pos, def);
+-
+-			if(pos.y &lt; 0)
+-				execute-&gt;InitBuildingAt(def, pos, true);
+-			else
+-				execute-&gt;InitBuildingAt(def, pos, false);
++			execute-&gt;InitBuildingAt(def, &amp;pos, pos.y &lt; 0);
+ 		}
+ 	}
+ 	else
+@@ -353,8 +344,8 @@
+ 
+ 	UnitCategory category = bt-&gt;units_static[def-&gt;id].category;
+ 	
+-	futureUnits[category] -= 1;
+-	activeUnits[category] += 1;
++	ut-&gt;futureUnits[category] -= 1;
++	ut-&gt;activeUnits[category] += 1;
+ 	
+ 	bt-&gt;units_dynamic[def-&gt;id].under_construction -= 1;
+ 	bt-&gt;units_dynamic[def-&gt;id].active += 1;
+@@ -460,10 +451,10 @@
+ 	// get unit&#180;s id 
+ 	const UnitDef *def = cb-&gt;GetUnitDef(unit);
+ 
+-	// get unit's category
++	// get unit's category and position
+ 	UnitCategory category = bt-&gt;units_static[def-&gt;id].category;
+-	// and position
+ 	float3 pos = cb-&gt;GetUnitPos(unit);
++
+ 	int x = pos.x/map-&gt;xSectorSize;
+ 	int y = pos.z/map-&gt;ySectorSize;
+ 
+@@ -485,14 +476,15 @@
+ 	// unfinished unit has been killed
+ 	if(cb-&gt;UnitBeingBuilt(unit))
+ 	{
+-		futureUnits[category] -= 1;
++		ut-&gt;FutureUnitKilled(category);
++
+ 		bt-&gt;units_dynamic[def-&gt;id].under_construction -= 1;
+ 
+ 		// unfinished building
+ 		if(!def-&gt;canfly &amp;&amp; !def-&gt;movedata)
+ 		{
+ 			// delete buildtask
+-			for(list&lt;AAIBuildTask*&gt;::iterator task = build_tasks.begin(); task != build_tasks.end(); task++)
++			for(list&lt;AAIBuildTask*&gt;::iterator task = build_tasks.begin(); task != build_tasks.end(); ++task)
+ 			{
+ 				if((*task)-&gt;unit_id == unit)
+ 				{	
+@@ -532,14 +524,15 @@
+ 	}
+ 	else	// finished unit/building has been killed
+ 	{
+-		activeUnits[category] -= 1;
++		ut-&gt;ActiveUnitKilled(category);
++
+ 		bt-&gt;units_dynamic[def-&gt;id].active -= 1;
+ 		
+ 		// update buildtable
+ 		if(attacker)
+ 		{
+ 			const UnitDef *def_att = cb-&gt;GetUnitDef(attacker);
+-			
++
+ 			if(def_att)
+ 			{
+ 				int killer = bt-&gt;GetIDOfAssaultCategory(bt-&gt;units_static[def_att-&gt;id].category);
+@@ -564,14 +557,8 @@
+ 		{
+ 			// decrease number of units of that category in the target sector
+ 			if(validSector)
+-			{
+-				map-&gt;sector[x][y].unitsOfType[category] -= 1;
+-				map-&gt;sector[x][y].own_structures -= bt-&gt;units_static[def-&gt;id].cost;
+-
+-				if(map-&gt;sector[x][y].own_structures &lt; 0)
+-					map-&gt;sector[x][y].own_structures = 0;
+-			}
+-
++				map-&gt;sector[x][y].RemoveBuildingType(def-&gt;id);
++			
+ 			// check if building belongs to one of this groups
+ 			if(category == STATIONARY_DEF)
+ 			{
+@@ -609,77 +596,27 @@
+ 				ut-&gt;RemoveMetalMaker(unit);
+ 			}
+ 			
+-			// clean up 
++			// clean up buildmap &amp; some other stuff
+ 			if(category == STATIONARY_CONSTRUCTOR)
+ 			{
+ 				ut-&gt;RemoveConstructor(unit, def-&gt;id);
+-
+-				// speed up reconstruction
+-				execute-&gt;urgency[category] += 1.5;
+ 		
+-				// clear buildmap
+-				map-&gt;Pos2BuildMapPos(&amp;pos, def);
++				map-&gt;UpdateBuildMap(pos, def, false, bt-&gt;CanPlacedWater(def-&gt;id), true);
+ 
+-				if(bt-&gt;CanPlacedLand(def-&gt;id))
+-				{
+-					map-&gt;CheckRows(pos.x, pos.z, def-&gt;xsize, def-&gt;zsize, false, false);
+-					map-&gt;SetBuildMap(pos.x, pos.z, def-&gt;xsize, def-&gt;zsize, 0);
+-					map-&gt;BlockCells(pos.x, pos.z - 8, def-&gt;xsize, 8, false, false);
+-					map-&gt;BlockCells(pos.x + def-&gt;xsize, pos.z - 8, cfg-&gt;X_SPACE, def-&gt;zsize + 1.5 * cfg-&gt;Y_SPACE, false, false);
+-					map-&gt;BlockCells(pos.x, pos.z + def-&gt;zsize, def-&gt;xsize, 1.5 * cfg-&gt;Y_SPACE - 8, false, false);
+-				}
+-				else
+-				{
+-					map-&gt;CheckRows(pos.x, pos.z, def-&gt;xsize, def-&gt;zsize, false, true);	
+-					map-&gt;SetBuildMap(pos.x, pos.z, def-&gt;xsize, def-&gt;zsize, 4);
+-					map-&gt;BlockCells(pos.x, pos.z - 8, def-&gt;xsize, 8, false, true);
+-					map-&gt;BlockCells(pos.x + def-&gt;xsize, pos.z - 8, cfg-&gt;X_SPACE, def-&gt;zsize + 1.5 * cfg-&gt;Y_SPACE, false, true);
+-					map-&gt;BlockCells(pos.x, pos.z + def-&gt;zsize, def-&gt;xsize, 1.5 * cfg-&gt;Y_SPACE - 8, false, true);
+-				}
++				// speed up reconstruction
++				execute-&gt;urgency[STATIONARY_CONSTRUCTOR] += 1.5;
+ 			}
+ 			// hq
+ 			else if(category == COMMANDER)
+ 			{
+ 				ut-&gt;RemoveCommander(unit, def-&gt;id);
+ 
+-				// clear buildmap
+-				map-&gt;Pos2BuildMapPos(&amp;pos, def);
+-
+-				if(def-&gt;minWaterDepth &lt;= 0)
+-				{
+-					map-&gt;CheckRows(pos.x, pos.z, def-&gt;xsize, def-&gt;zsize, false, false);
+-					map-&gt;SetBuildMap(pos.x, pos.z, def-&gt;xsize, def-&gt;zsize, 0);
+-					map-&gt;BlockCells(pos.x, pos.z - 8, def-&gt;xsize, 8, false, false);
+-					map-&gt;BlockCells(pos.x + def-&gt;xsize, pos.z - 8, cfg-&gt;X_SPACE, def-&gt;zsize + 1.5 * cfg-&gt;Y_SPACE, false, false);
+-					map-&gt;BlockCells(pos.x, pos.z + def-&gt;zsize, def-&gt;xsize, 1.5 * cfg-&gt;Y_SPACE - 8, false, false);
+-				}
+-				else
+-				{
+-					map-&gt;CheckRows(pos.x, pos.z, def-&gt;xsize, def-&gt;zsize, false, true);	
+-					map-&gt;SetBuildMap(pos.x, pos.z, def-&gt;xsize, def-&gt;zsize, 4);
+-					map-&gt;BlockCells(pos.x, pos.z - 8, def-&gt;xsize, 8, false, true);
+-					map-&gt;BlockCells(pos.x + def-&gt;xsize, pos.z - 8, cfg-&gt;X_SPACE, def-&gt;zsize + 1.5 * cfg-&gt;Y_SPACE, false, true);
+-					map-&gt;BlockCells(pos.x, pos.z + def-&gt;zsize, def-&gt;xsize, 1.5 * cfg-&gt;Y_SPACE - 8, false, true);
+-				}
++				map-&gt;UpdateBuildMap(pos, def, false, bt-&gt;CanPlacedWater(def-&gt;id), true);
+ 			}
+ 			// other building
+ 			else
+-			{
+-				// clear buildmap
+-				map-&gt;Pos2BuildMapPos(&amp;pos, def);
++				map-&gt;UpdateBuildMap(pos, def, false, bt-&gt;CanPlacedWater(def-&gt;id), false);
+ 
+-				if(def-&gt;minWaterDepth &lt;= 0)
+-				{
+-					map-&gt;SetBuildMap(pos.x, pos.z, def-&gt;xsize, def-&gt;zsize, 0);
+-					map-&gt;CheckRows(pos.x, pos.z, def-&gt;xsize, def-&gt;zsize, false, false);
+-				}
+-				else
+-				{
+-					map-&gt;SetBuildMap(pos.x, pos.z, def-&gt;xsize, def-&gt;zsize, 4);
+-					map-&gt;CheckRows(pos.x, pos.z, def-&gt;xsize, def-&gt;zsize, false, true);
+-				}
+-			}
+-
+ 			// if no buildings left in that sector, remove from base sectors
+ 			if(map-&gt;sector[x][y].GetNumberOfBuildings() == 0 &amp;&amp; brain-&gt;sectors[0].size() &gt; 0)
+ 			{
+@@ -702,7 +639,7 @@
+ 
+ 				// add enemy building to sector
+ 				if(validSector &amp;&amp; map-&gt;sector[x][y].distance_to_base &gt; 0)
+-					map-&gt;sector[x][y].enemy_structures += 5;
++					map-&gt;sector[x][y].enemy_structures += 5.0f;
+ 				
+ 			}
+ 			// assault units 
+@@ -767,7 +704,7 @@
+ 			if(builder-&gt;construction_unit_id == -1)
+ 			{
+ 				--bt-&gt;units_dynamic[builder-&gt;construction_def_id].requested;
+-				--futureUnits[builder-&gt;construction_category];
++				--ut-&gt;futureUnits[builder-&gt;construction_category];
+ 
+ 				// clear up buildmap etc.
+ 				execute-&gt;ConstructionFailed(builder-&gt;build_pos, builder-&gt;construction_def_id);
+
+Modified: trunk/AI/Global/AAI/AAI.h
+===================================================================
+--- trunk/AI/Global/AAI/AAI.h	2008-11-13 17:15:11 UTC (rev 7038)
++++ trunk/AI/Global/AAI/AAI.h	2008-11-13 18:58:26 UTC (rev 7039)
+@@ -69,11 +69,6 @@
+ 	// if there is more than one instance of AAI, make sure to allocate/free memory only once
+ 	int aai_instance;
+ 
+-	// number of active/under construction units of all different types
+-	int activeUnits[(int)MOBILE_CONSTRUCTOR+1];
+-	int futureUnits[(int)MOBILE_CONSTRUCTOR+1];
+-	int requestedUnits[(int)MOBILE_CONSTRUCTOR+1];
+-
+ 	// list of buildtasks
+ 	list&lt;AAIBuildTask*&gt; build_tasks;
+ 
+
+Modified: trunk/AI/Global/AAI/AAIBrain.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIBrain.cpp	2008-11-13 17:15:11 UTC (rev 7038)
++++ trunk/AI/Global/AAI/AAIBrain.cpp	2008-11-13 18:58:26 UTC (rev 7039)
+@@ -318,7 +318,7 @@
+ 			if(pos.x &gt; 0 &amp;&amp; pos.z &gt; 0)
+ 			{
+ 				pos.y = cb-&gt;GetElevation(pos.x, pos.z);
+-				execute-&gt;moveUnitTo(ai-&gt;cmdr-&gt;unit_id, &amp;pos);
++				execute-&gt;MoveUnitTo(ai-&gt;cmdr-&gt;unit_id, &amp;pos);
+ 			}
+ 		}
+ 	}*/
+
+Modified: trunk/AI/Global/AAI/AAIConstructor.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIConstructor.cpp	2008-11-13 17:15:11 UTC (rev 7038)
++++ trunk/AI/Global/AAI/AAIConstructor.cpp	2008-11-13 18:58:26 UTC (rev 7039)
+@@ -59,10 +59,8 @@
+ 		{
+ 			if(construction_unit_id == -1)
+ 			{
+-				//cb-&gt;SendTextMsg(&quot;construction aborted&quot;, 0);
+-
+ 				ai-&gt;bt-&gt;units_dynamic[construction_def_id].active -= 1;
+-				--ai-&gt;futureUnits[construction_category];
++				ai-&gt;ut-&gt;futureUnits[construction_category] -= 1;
+ 
+ 				// clear up buildmap etc.
+ 				ai-&gt;execute-&gt;ConstructionFailed(build_pos, construction_def_id);
+@@ -134,7 +132,7 @@
+ 						construction_def_id = def_id;
+ 						task = BUILDING;
+ 
+-						++ai-&gt;futureUnits[cat];
++						++ai-&gt;ut-&gt;futureUnits[cat];
+ 
+ 						//if(bt-&gt;IsFactory(def_id))
+ 						//	++ai-&gt;futureFactories;
+@@ -165,7 +163,7 @@
+ 				{
+ 					//cb-&gt;SendTextMsg(&quot;idle&quot;, 0);
+ 					ai-&gt;bt-&gt;units_dynamic[construction_def_id].active -= 1;
+-					ai-&gt;futureUnits[construction_category] -= 1;
++					ai-&gt;ut-&gt;futureUnits[construction_category] -= 1;
+ 	
+ 					// clear up buildmap etc.
+ 					ai-&gt;execute-&gt;ConstructionFailed(build_pos, construction_def_id);
+@@ -346,10 +344,9 @@
+ {
+ 	// get def and final position
+ 	const UnitDef *def = ai-&gt;bt-&gt;unitList[id_building-1];
+-	ai-&gt;map-&gt;Pos2FinalBuildPos(&amp;pos, def);
+ 	
+ 	// give order if building can be placed at the desired position (position lies within a valid sector)
+-	if(ai-&gt;execute-&gt;InitBuildingAt(def, pos, water))
++	if(ai-&gt;execute-&gt;InitBuildingAt(def, &amp;pos, water))
+ 	{
+ 		order_tick = cb-&gt;GetCurrentFrame();
+ 
+@@ -378,7 +375,10 @@
+ 
+ 		// increase number of active units of that type/category
+ 		bt-&gt;units_dynamic[def-&gt;id].requested += 1;
+-		ai-&gt;requestedUnits[construction_category] += 1;
++		ai-&gt;ut-&gt;requestedUnits[construction_category] += 1;
++
++		if(bt-&gt;IsFactory(id_building))
++			ai-&gt;ut-&gt;futureFactories += 1;
+ 	}
+ }
+ 
+@@ -499,7 +499,7 @@
+ 			if(construction_unit_id == -1)
+ 			{
+ 				ai-&gt;bt-&gt;units_dynamic[construction_def_id].requested -= 1; 
+-				ai-&gt;requestedUnits[construction_category] -= 1;
++				ai-&gt;ut-&gt;requestedUnits[construction_category] -= 1;
+ 
+ 				// killed on the way to the buildsite 
+ 				int x = build_pos.x / ai-&gt;map-&gt;xSectorSize;
+
+Modified: trunk/AI/Global/AAI/AAIExecute.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIExecute.cpp	2008-11-13 17:15:11 UTC (rev 7038)
++++ trunk/AI/Global/AAI/AAIExecute.cpp	2008-11-13 18:58:26 UTC (rev 7039)
+@@ -161,54 +161,31 @@
+ 	}
+ }
+ 
+-bool AAIExecute::InitBuildingAt(const UnitDef *def, float3 pos, bool water)
+-{			
++bool AAIExecute::InitBuildingAt(const UnitDef *def, float3 *pos, bool water)
++{		
+ 	// determine target sector
+-	int x = pos.x/map-&gt;xSectorSize;
+-	int y = pos.z/map-&gt;ySectorSize;
++	int x = pos-&gt;x / map-&gt;xSectorSize;
++	int y = pos-&gt;z / map-&gt;ySectorSize;
+ 
+-	// drop bad sectors (should only happen when defending mexes at the edge of the map)
+-	if(x &lt; 0 || y &lt; 0 || x &gt;= map-&gt;xSectors || y &gt;= map-&gt;ySectors)
+-		return false;
++	// update buildmap
++	map-&gt;UpdateBuildMap(*pos, def, true, water, bt-&gt;IsFactory(def-&gt;id));
+ 
+-	// increase number of units of that category in the target sector
+-	UnitCategory category = bt-&gt;units_static[def-&gt;id].category;
++	// drop bad sectors (should only happen when defending mexes at the edge of the map)
++	if(x &gt;= 0 &amp;&amp; y &gt;= 0 &amp;&amp; x &lt; map-&gt;xSectors &amp;&amp; y &lt; map-&gt;ySectors)
++	{
++		// increase number of units of that category in the target sector
++		UnitCategory category = bt-&gt;units_static[def-&gt;id].category;
+ 	
+-	map-&gt;sector[x][y].unitsOfType[category] += 1;
+-	map-&gt;sector[x][y].own_structures += bt-&gt;units_static[def-&gt;id].cost;
++		map-&gt;sector[x][y].unitsOfType[category] += 1;
++		map-&gt;sector[x][y].own_structures += bt-&gt;units_static[def-&gt;id].cost;
+ 
+-	// update buildmap of sector
+-	map-&gt;Pos2BuildMapPos(&amp;pos, def);
+-
+-	// factory
+-	if(bt-&gt;IsFactory(def-&gt;id))
+-	{
+-		ut-&gt;futureFactories += 1;
+-
+-		if(water)
+-			map-&gt;SetBuildMap(pos.x, pos.z, def-&gt;xsize, def-&gt;zsize, 5);
+-		else
+-			map-&gt;SetBuildMap(pos.x, pos.z, def-&gt;xsize, def-&gt;zsize, 1);
+-
+-		map-&gt;BlockCells(pos.x, pos.z - 8, def-&gt;xsize, 8, true, water);
+-		map-&gt;BlockCells(pos.x + def-&gt;xsize, pos.z - 8, cfg-&gt;X_SPACE, def-&gt;zsize + 1.5 * cfg-&gt;Y_SPACE, true, water);
+-		map-&gt;BlockCells(pos.x, pos.z + def-&gt;zsize, def-&gt;xsize, 1.5 * cfg-&gt;Y_SPACE - 8, true, water);
++		return true;
+ 	}
+-	// normal building
+ 	else
+-	{
+-		if(water)
+-			map-&gt;SetBuildMap(pos.x, pos.z, def-&gt;xsize, def-&gt;zsize, 5);
+-		else
+-			map-&gt;SetBuildMap(pos.x, pos.z, def-&gt;xsize, def-&gt;zsize, 1);
+-	}
+-	
+-	// prevent ai from building too many things in a row
+-	map-&gt;CheckRows(pos.x, pos.z, def-&gt;xsize, def-&gt;zsize, true, water);
+-
+-	return true;
++		return false;	
+ }
+-void AAIExecute::moveUnitTo(int unit, float3 *position)
++
++void AAIExecute::MoveUnitTo(int unit, float3 *position)
+ {
+ 	Command c;
+ 
+@@ -220,7 +197,7 @@
+ 	c.params[2] = position-&gt;z;
+ 
+ 	//cb-&gt;GiveOrder(unit, &amp;c);
+-	GiveOrder(&amp;c, unit, &quot;moveUnitTo&quot;);
++	GiveOrder(&amp;c, unit, &quot;MoveUnitTo&quot;);
+ 	ut-&gt;SetUnitStatus(unit, MOVING);
+ }
+ 
+@@ -360,7 +337,7 @@
+ 			brain-&gt;GetNewScoutDest(&amp;pos, *scout);
+ 
+ 			if(pos.x &gt; 0)
+-				moveUnitTo(*scout, &amp;pos);
++				MoveUnitTo(*scout, &amp;pos);
+ 		}
+ 	}
+ }
+@@ -707,12 +684,12 @@
+ 
+ bool AAIExecute::BuildExtractor()
+ {
+-	if(ai-&gt;futureUnits[POWER_PLANT] + ai-&gt;requestedUnits[POWER_PLANT] &gt; 2)
++	if(ai-&gt;ut-&gt;futureUnits[POWER_PLANT] + ai-&gt;ut-&gt;requestedUnits[POWER_PLANT] &gt; 2)
+ 		return true;
+ 
+ 	AAIConstructor *builder, *land_builder = 0, *water_builder = 0; 
+ 	float3 pos;
+-	int land_mex, water_mex;
++	int land_mex = 0, water_mex = 0;
+ 	float min_dist;
+ 
+ 	float cost = 0.25f + brain-&gt;Affordable() / 6.0f;
+@@ -760,6 +737,8 @@
+ 			bt-&gt;BuildConstructorFor(land_mex);
+ 			land_mex = bt-&gt;GetMex(ai-&gt;side, cost, efficiency, false, false, true);
+ 		}
++
++		land_builder = ut-&gt;FindBuilder(land_mex, true);
+ 	}
+ 
+ 	if(map-&gt;water_metal_spots &gt; 0)
+@@ -771,12 +750,11 @@
+ 			bt-&gt;BuildConstructorFor(water_mex);
+ 			water_mex = bt-&gt;GetMex(ai-&gt;side, cost, efficiency, false, true, true);
+ 		}
++
++		water_builder = ut-&gt;FindBuilder(water_mex, true);
+ 	}
+ 
+ 	// check if there is any builder for at least one of the selected extractors available
+-	land_builder = ut-&gt;FindBuilder(land_mex, true);
+-	water_builder = ut-&gt;FindBuilder(water_mex, true);
+-
+ 	if(!land_builder &amp;&amp; !water_builder)
+ 		return false;
+ 
+@@ -867,10 +845,10 @@
+ 	// order mex construction for best spot
+ 	if(best &gt;= 0)
+ 	{
+-		if(spots[best]-&gt;pos.y &gt;= 0)
+-			builders[best]-&gt;GiveConstructionOrder(land_mex, spots[best]-&gt;pos, false);
+-		else
++		if(spots[best]-&gt;pos.y &lt; 0)
+ 			builders[best]-&gt;GiveConstructionOrder(water_mex, spots[best]-&gt;pos, true);
++		else
++			builders[best]-&gt;GiveConstructionOrder(land_mex, spots[best]-&gt;pos, false);
+ 				
+ 		spots[best]-&gt;occupied = true;
+ 
+@@ -886,11 +864,11 @@
+ 
+ bool AAIExecute::BuildPowerPlant()
+ {	
+-	if(ai-&gt;futureUnits[POWER_PLANT] + ai-&gt;requestedUnits[POWER_PLANT] &gt; 1)
++	if(ai-&gt;ut-&gt;futureUnits[POWER_PLANT] + ai-&gt;ut-&gt;requestedUnits[POWER_PLANT] &gt; 1)
+ 		return true;
+-	else if(ai-&gt;futureUnits[POWER_PLANT] &lt;= 0 &amp;&amp; ai-&gt;requestedUnits[POWER_PLANT] &gt; 0)
++	else if(ai-&gt;ut-&gt;futureUnits[POWER_PLANT] &lt;= 0 &amp;&amp; ai-&gt;ut-&gt;requestedUnits[POWER_PLANT] &gt; 0)
+ 		return true;
+-	else if(ai-&gt;futureUnits[POWER_PLANT] &gt; 0)
++	else if(ai-&gt;ut-&gt;futureUnits[POWER_PLANT] &gt; 0)
+ 	{
+ 		// try to assist construction of other power plants first
+ 		AAIConstructor *builder;
+@@ -929,7 +907,7 @@
+ 		// power plant construction has not started -&gt; builder is still on its way to constrcution site, wait until starting a new power plant
+ 		return false;
+ 	}
+-	else if(ut-&gt;activeFactories &lt; 1 &amp;&amp; ai-&gt;activeUnits[POWER_PLANT] &gt;= 2)
++	else if(ut-&gt;activeFactories &lt; 1 &amp;&amp; ai-&gt;ut-&gt;activeUnits[POWER_PLANT] &gt;= 2)
+ 		return true;
+ 
+ 	// stop building power plants if already to much available energy
+@@ -950,7 +928,7 @@
+ 	float energy = cb-&gt;GetEnergyIncome()+1;
+ 
+ 	// check if already one power_plant under construction and energy short 
+-	if(ai-&gt;futureUnits[POWER_PLANT] + ai-&gt;requestedUnits[POWER_PLANT]&gt; 0 &amp;&amp; ai-&gt;activeUnits[POWER_PLANT] &gt; 9 &amp;&amp; averageEnergySurplus &lt; 100)
++	if(ai-&gt;ut-&gt;futureUnits[POWER_PLANT] + ai-&gt;ut-&gt;requestedUnits[POWER_PLANT]&gt; 0 &amp;&amp; ai-&gt;ut-&gt;activeUnits[POWER_PLANT] &gt; 9 &amp;&amp; averageEnergySurplus &lt; 100)
+ 	{
+ 		urgency = 0.4f + GetEnergyUrgency();
+ 		max_power = 0.5f;
+@@ -958,7 +936,7 @@
+ 	}
+ 	else
+ 	{
+-		max_power = 0.5f + pow((float) ai-&gt;activeUnits[POWER_PLANT], 0.8f);
++		max_power = 0.5f + pow((float) ai-&gt;ut-&gt;activeUnits[POWER_PLANT], 0.8f);
+ 		eff = 0.5 + 1.0f / (brain-&gt;Affordable() + 0.5f);
+ 		urgency = 0.5f + GetEnergyUrgency();
+ 	}
+@@ -967,7 +945,7 @@
+ 	learned = 70000.0 / (cb-&gt;GetCurrentFrame() + 35000) + 1;
+ 	current = 2.5 - learned;
+ 
+-	if(ai-&gt;activeUnits[POWER_PLANT] &gt;= 2)
++	if(ai-&gt;ut-&gt;activeUnits[POWER_PLANT] &gt;= 2)
+ 		brain-&gt;sectors[0].sort(suitable_for_power_plant);
+ 
+ 	// get water and ground plant
+@@ -1044,7 +1022,7 @@
+ 
+ 		if(checkWater &amp;&amp; water_plant)
+ 		{
+-			if(ut-&gt;constructors.size() &gt; 1 || ai-&gt;activeUnits[POWER_PLANT] &gt;= 2)
++			if(ut-&gt;constructors.size() &gt; 1 || ai-&gt;ut-&gt;activeUnits[POWER_PLANT] &gt;= 2)
+ 				pos = (*sector)-&gt;GetBuildsite(water_plant, true);
+ 			else 
+ 			{
+@@ -1091,10 +1069,10 @@
+ 
+ bool AAIExecute::BuildMetalMaker()
+ {
+-	if(ut-&gt;activeFactories &lt; 1 &amp;&amp; ai-&gt;activeUnits[EXTRACTOR] &gt;= 2)
++	if(ut-&gt;activeFactories &lt; 1 &amp;&amp; ai-&gt;ut-&gt;activeUnits[EXTRACTOR] &gt;= 2)
+ 		return true;
+ 
+-	if(ai-&gt;futureUnits[METAL_MAKER] + ai-&gt;requestedUnits[METAL_MAKER] &gt; 0 || disabledMMakers &gt;= 1)
++	if(ai-&gt;ut-&gt;futureUnits[METAL_MAKER] + ai-&gt;ut-&gt;requestedUnits[METAL_MAKER] &gt; 0 || disabledMMakers &gt;= 1)
+ 		return true;
+ 
+ 	bool checkWater, checkGround;
+@@ -1107,7 +1085,7 @@
+ 	
+ 	float cost = 0.25f + brain-&gt;Affordable() / 2.0f;
+ 
+-	float efficiency = 0.25f + ai-&gt;activeUnits[METAL_MAKER] / 4.0f ;
++	float efficiency = 0.25f + ai-&gt;ut-&gt;activeUnits[METAL_MAKER] / 4.0f ;
+ 	float metal = efficiency;
+ 
+ 
+@@ -1225,7 +1203,7 @@
+ 
+ bool AAIExecute::BuildStorage()
+ {
+-	if(ai-&gt;futureUnits[STORAGE] + ai-&gt;requestedUnits[STORAGE]&gt; 0 || ai-&gt;activeUnits[STORAGE] &gt;= cfg-&gt;MAX_STORAGE)
++	if(ai-&gt;ut-&gt;futureUnits[STORAGE] + ai-&gt;ut-&gt;requestedUnits[STORAGE]&gt; 0 || ai-&gt;ut-&gt;activeUnits[STORAGE] &gt;= cfg-&gt;MAX_STORAGE)
+ 		return true;
+ 
+ 	if(ut-&gt;activeFactories &lt; 2)
+@@ -1240,7 +1218,7 @@
+ 	float energy = 2 / (cb-&gt;GetEnergyStorage() + futureStoredMetal - cb-&gt;GetEnergy() + 1);
+ 
+ 	// urgency &lt; 4
+-	float urgency = 16.0 / (ai-&gt;activeUnits[METAL_MAKER] + ai-&gt;futureUnits[METAL_MAKER] + 4);
++	float urgency = 16.0 / (ai-&gt;ut-&gt;activeUnits[METAL_MAKER] + ai-&gt;ut-&gt;futureUnits[METAL_MAKER] + 4);
+ 
+ 	for(list&lt;AAISector*&gt;::iterator sector = brain-&gt;sectors[0].begin(); sector != brain-&gt;sectors[0].end(); sector++)
+ 	{
+@@ -1346,7 +1324,7 @@
+ 
+ bool AAIExecute::BuildAirBase()
+ {
+-	if(ai-&gt;futureUnits[AIR_BASE] + ai-&gt;requestedUnits[AIR_BASE] &gt; 0 || ai-&gt;activeUnits[AIR_BASE] &gt;= cfg-&gt;MAX_AIR_BASE)
++	if(ai-&gt;ut-&gt;futureUnits[AIR_BASE] + ai-&gt;ut-&gt;requestedUnits[AIR_BASE] &gt; 0 || ai-&gt;ut-&gt;activeUnits[AIR_BASE] &gt;= cfg-&gt;MAX_AIR_BASE)
+ 		return true;
+ 
+ 	int airbase = 0;
+@@ -1459,7 +1437,7 @@
+ 
+ bool AAIExecute::BuildDefences()
+ {
+-	if(ai-&gt;futureUnits[STATIONARY_DEF] + ai-&gt;requestedUnits[STATIONARY_DEF] &gt; 2 || next_defence &lt;= 0)
++	if(ai-&gt;ut-&gt;futureUnits[STATIONARY_DEF] + ai-&gt;ut-&gt;requestedUnits[STATIONARY_DEF] &gt; 2 || next_defence &lt;= 0)
+ 		return true;
+ 
+ 	BuildOrderStatus status = BuildStationaryDefenceVS(def_category, next_defence);
+@@ -1695,7 +1673,7 @@
+ 
+ bool AAIExecute::BuildArty()
+ {
+-	if(ai-&gt;futureUnits[STATIONARY_ARTY] || ai-&gt;requestedUnits[STATIONARY_ARTY])
++	if(ai-&gt;ut-&gt;futureUnits[STATIONARY_ARTY] || ai-&gt;ut-&gt;requestedUnits[STATIONARY_ARTY])
+ 		return true;
+ 
+ 	AAIConstructor *builder;
+@@ -1799,7 +1777,7 @@
+ 
+ bool AAIExecute::BuildFactory()
+ {
+-	if(ai-&gt;futureUnits[STATIONARY_CONSTRUCTOR] + ai-&gt;requestedUnits[STATIONARY_CONSTRUCTOR] &gt; 0)
++	if(ai-&gt;ut-&gt;futureUnits[STATIONARY_CONSTRUCTOR] + ai-&gt;ut-&gt;requestedUnits[STATIONARY_CONSTRUCTOR] &gt; 0)
+ 		return true;
+ 
+ 	AAIConstructor *builder = 0, *temp_builder;
+@@ -2067,7 +2045,7 @@
+ 
+ bool AAIExecute::BuildRecon()
+ {
+-	if(ai-&gt;futureUnits[STATIONARY_RECON] + ai-&gt;requestedUnits[STATIONARY_RECON])
++	if(ai-&gt;ut-&gt;futureUnits[STATIONARY_RECON] + ai-&gt;ut-&gt;requestedUnits[STATIONARY_RECON])
+ 		return true;
+ 
+ 	int radar = 0;
+@@ -2179,7 +2157,7 @@
+ 
+ bool AAIExecute::BuildJammer()
+ {
+-	if(ai-&gt;futureUnits[STATIONARY_JAMMER] + ai-&gt;requestedUnits[STATIONARY_JAMMER] &gt; 0)
++	if(ai-&gt;ut-&gt;futureUnits[STATIONARY_JAMMER] + ai-&gt;ut-&gt;requestedUnits[STATIONARY_JAMMER] &gt; 0)
+ 		return true;
+ 
+ 	int jammer = 0;
+@@ -2408,10 +2386,10 @@
+ 	if(cfg-&gt;MAX_STAT_ARTY == 0)
+ 		return;
+ 
+-	if(ai-&gt;futureUnits[STATIONARY_ARTY] +  ai-&gt;requestedUnits[STATIONARY_ARTY]&gt; 0)
++	if(ai-&gt;ut-&gt;futureUnits[STATIONARY_ARTY] +  ai-&gt;ut-&gt;requestedUnits[STATIONARY_ARTY]&gt; 0)
+ 		return;
+ 
+-	if(ai-&gt;activeUnits[STATIONARY_ARTY] &gt;= cfg-&gt;MAX_STAT_ARTY)
++	if(ai-&gt;ut-&gt;activeUnits[STATIONARY_ARTY] &gt;= cfg-&gt;MAX_STAT_ARTY)
+ 		return;
+ 
+ 	float temp = 0.05f;
+@@ -2457,7 +2435,7 @@
+ 
+ void AAIExecute::CheckDefences()
+ {
+-	if(ut-&gt;activeFactories &lt; cfg-&gt;MIN_FACTORIES_FOR_DEFENCES || ai-&gt;futureUnits[STATIONARY_DEF] +  ai-&gt;requestedUnits[STATIONARY_DEF] &gt; 2)
++	if(ut-&gt;activeFactories &lt; cfg-&gt;MIN_FACTORIES_FOR_DEFENCES || ai-&gt;ut-&gt;futureUnits[STATIONARY_DEF] +  ai-&gt;ut-&gt;requestedUnits[STATIONARY_DEF] &gt; 2)
+ 		return;
+ 
+ 	int t = brain-&gt;GetGamePeriod();
+@@ -2551,7 +2529,7 @@
+ 		urgency[POWER_PLANT] = temp;
+ 
+ 	// build storages if needed
+-	if(ai-&gt;activeUnits[STORAGE] + ai-&gt;requestedUnits[STORAGE] + ai-&gt;futureUnits[STORAGE] &lt; cfg-&gt;MAX_STORAGE 
++	if(ai-&gt;ut-&gt;activeUnits[STORAGE] + ai-&gt;ut-&gt;requestedUnits[STORAGE] + ai-&gt;ut-&gt;futureUnits[STORAGE] &lt; cfg-&gt;MAX_STORAGE 
+ 		&amp;&amp; ut-&gt;activeFactories &gt;= cfg-&gt;MIN_FACTORIES_FOR_STORAGE)
+ 	{
+ 		float temp = max(GetMetalStorageUrgency(), GetEnergyStorageUrgency());
+@@ -2564,11 +2542,11 @@
+ 	if(averageEnergySurplus &lt; 1.5 * cfg-&gt;METAL_ENERGY_RATIO)
+ 	{
+ 		// try to accelerate power plant construction
+-		if(ai-&gt;futureUnits[POWER_PLANT] +  ai-&gt;requestedUnits[POWER_PLANT]&gt; 0)
++		if(ai-&gt;ut-&gt;futureUnits[POWER_PLANT] +  ai-&gt;ut-&gt;requestedUnits[POWER_PLANT]&gt; 0)
+ 			AssistConstructionOfCategory(POWER_PLANT, 10);
+ 
+ 		// try to disbale some metal makers
+-		if((ai-&gt;activeUnits[METAL_MAKER] - disabledMMakers) &gt; 0)
++		if((ai-&gt;ut-&gt;activeUnits[METAL_MAKER] - disabledMMakers) &gt; 0)
+ 		{
+ 			for(set&lt;int&gt;::iterator maker = ut-&gt;metal_makers.begin(); maker != ut-&gt;metal_makers.end(); maker++)
+ 			{
+@@ -2616,11 +2594,11 @@
+ 	if(averageMetalSurplus &lt; 15.0/cfg-&gt;METAL_ENERGY_RATIO)
+ 	{
+ 		// try to accelerate mex construction
+-		if(ai-&gt;futureUnits[EXTRACTOR] &gt; 0)
++		if(ai-&gt;ut-&gt;futureUnits[EXTRACTOR] &gt; 0)
+ 			AssistConstructionOfCategory(EXTRACTOR, 10);
+ 
+ 		// try to accelerate mex construction
+-		if(ai-&gt;futureUnits[METAL_MAKER] &gt; 0 &amp;&amp; averageEnergySurplus &gt; cfg-&gt;MIN_METAL_MAKER_ENERGY)
++		if(ai-&gt;ut-&gt;futureUnits[METAL_MAKER] &gt; 0 &amp;&amp; averageEnergySurplus &gt; cfg-&gt;MIN_METAL_MAKER_ENERGY)
+ 			AssistConstructionOfCategory(METAL_MAKER, 10);
+ 	}
+ }
+@@ -2716,7 +2694,7 @@
+ 
+ void AAIExecute::CheckRadarUpgrade()
+ {
+-	if(ai-&gt;futureUnits[STATIONARY_RECON] + ai-&gt;requestedUnits[STATIONARY_RECON]  &gt; 0)
++	if(ai-&gt;ut-&gt;futureUnits[STATIONARY_RECON] + ai-&gt;ut-&gt;requestedUnits[STATIONARY_RECON]  &gt; 0)
+ 		return;
+ 
+ 	float cost = brain-&gt;Affordable();
+@@ -2779,7 +2757,7 @@
+ 
+ void AAIExecute::CheckJammerUpgrade()
+ {
+-	if(ai-&gt;futureUnits[STATIONARY_JAMMER] + ai-&gt;requestedUnits[STATIONARY_JAMMER]  &gt; 0)
++	if(ai-&gt;ut-&gt;futureUnits[STATIONARY_JAMMER] + ai-&gt;ut-&gt;requestedUnits[STATIONARY_JAMMER]  &gt; 0)
+ 		return;
+ 
+ 	float cost = brain-&gt;Affordable();
+@@ -2844,14 +2822,14 @@
+ 	if(surplus &lt; 0)
+ 		surplus = 0;
+ 
+-	if(ai-&gt;activeUnits[POWER_PLANT] &gt; 8)
++	if(ai-&gt;ut-&gt;activeUnits[POWER_PLANT] &gt; 8)
+ 	{
+ 		if(averageEnergySurplus &gt; 1000)
+ 			return 0;
+ 		else
+ 			return 8.0 / pow( surplus / cfg-&gt;METAL_ENERGY_RATIO + 2.0f, 2.0f);
+ 	}
+-	else if(ai-&gt;activeUnits[POWER_PLANT] &gt; 0)
++	else if(ai-&gt;ut-&gt;activeUnits[POWER_PLANT] &gt; 0)
+ 		return 15.0 / pow( surplus / cfg-&gt;METAL_ENERGY_RATIO + 2.0f, 2.0f);
+ 	else
+ 		return 6.0;
+@@ -2859,7 +2837,7 @@
+ 
+ float AAIExecute::GetMetalUrgency()
+ {
+-	if(ai-&gt;activeUnits[EXTRACTOR] &gt; 0)
++	if(ai-&gt;ut-&gt;activeUnits[EXTRACTOR] &gt; 0)
+ 		return 20.0 / pow(averageMetalSurplus * cfg-&gt;METAL_ENERGY_RATIO + 2.0f, 2.0f);
+ 	else
+ 		return 6.5;
+@@ -2883,7 +2861,7 @@
+ 
+ void AAIExecute::CheckFactories()
+ {
+-	if(ai-&gt;futureUnits[STATIONARY_CONSTRUCTOR] + ai-&gt;requestedUnits[STATIONARY_CONSTRUCTOR] &gt; 0)
++	if(ai-&gt;ut-&gt;futureUnits[STATIONARY_CONSTRUCTOR] + ai-&gt;ut-&gt;requestedUnits[STATIONARY_CONSTRUCTOR] &gt; 0)
+ 		return;
+ 
+ 	for(list&lt;int&gt;::iterator fac = bt-&gt;units_of_category[STATIONARY_CONSTRUCTOR][ai-&gt;side-1].begin(); fac != bt-&gt;units_of_category[STATIONARY_CONSTRUCTOR][ai-&gt;side-1].end(); ++fac)
+@@ -2909,10 +2887,10 @@
+ void AAIExecute::CheckRecon()
+ {
+ 	if(ut-&gt;activeFactories &lt; cfg-&gt;MIN_FACTORIES_FOR_RADAR_JAMMER
+-		|| ai-&gt;activeUnits[STATIONARY_RECON] &gt;= brain-&gt;sectors[0].size())
++		|| ai-&gt;ut-&gt;activeUnits[STATIONARY_RECON] &gt;= brain-&gt;sectors[0].size())
+ 		return;
+ 
+-	float urgency = 1.0f / (ai-&gt;activeUnits[STATIONARY_RECON]+1);
++	float urgency = 1.0f / (ai-&gt;ut-&gt;activeUnits[STATIONARY_RECON]+1);
+ 
+ 	if(this-&gt;urgency[STATIONARY_RECON] &lt; urgency)
+ 		this-&gt;urgency[STATIONARY_RECON] = urgency;
+@@ -2921,20 +2899,20 @@
+ void AAIExecute::CheckAirBase()
+ {
+ 	// only build repair pad if any air units have been built yet
+-	if(ai-&gt;activeUnits[AIR_BASE] +  ai-&gt;requestedUnits[AIR_BASE] + ai-&gt;futureUnits[AIR_BASE] &lt; cfg-&gt;MAX_AIR_BASE &amp;&amp; ai-&gt;group_list[AIR_ASSAULT].size() &gt; 0)
++	if(ai-&gt;ut-&gt;activeUnits[AIR_BASE] +  ai-&gt;ut-&gt;requestedUnits[AIR_BASE] + ai-&gt;ut-&gt;futureUnits[AIR_BASE] &lt; cfg-&gt;MAX_AIR_BASE &amp;&amp; ai-&gt;group_list[AIR_ASSAULT].size() &gt; 0)
+ 			urgency[AIR_BASE] = 0.5f;	
+ 
+ }
+ 
+ void AAIExecute::CheckJammer()
+ {
+-	if(ut-&gt;activeFactories &lt; 2 || ai-&gt;activeUnits[STATIONARY_JAMMER] &gt; brain-&gt;sectors[0].size())
++	if(ut-&gt;activeFactories &lt; 2 || ai-&gt;ut-&gt;activeUnits[STATIONARY_JAMMER] &gt; brain-&gt;sectors[0].size())
+ 	{
+ 		this-&gt;urgency[STATIONARY_JAMMER] = 0;
+ 	}
+ 	else
+ 	{
+-		float temp = 0.2f / ((float) (ai-&gt;activeUnits[STATIONARY_JAMMER]+1)) + 0.05f;
++		float temp = 0.2f / ((float) (ai-&gt;ut-&gt;activeUnits[STATIONARY_JAMMER]+1)) + 0.05f;
+ 
+ 		if(urgency[STATIONARY_JAMMER] &lt; temp)
+ 			urgency[STATIONARY_JAMMER] = temp;
+@@ -3103,14 +3081,14 @@
+ 
+ bool AAIExecute::suitable_for_ground_factory(AAISector *left, AAISector *right)
+ {
+-	return ( (4 * (left-&gt;flat_ratio - left-&gt;water_ratio) + 2 * left-&gt;GetMapBorderDist())   
+-			&gt; (4 * (right-&gt;flat_ratio - right-&gt;water_ratio) + 2 * right-&gt;GetMapBorderDist()) );
++	return ( (2.0f * (left-&gt;flat_ratio - left-&gt;water_ratio) + left-&gt;GetMapBorderDist())   
++			&gt; (2.0f * (right-&gt;flat_ratio - right-&gt;water_ratio) + right-&gt;GetMapBorderDist()) );
+ }
+ 
+ bool AAIExecute::suitable_for_sea_factory(AAISector *left, AAISector *right)
+ {
+-	return ( (4 * left-&gt;water_ratio + 2 * left-&gt;GetMapBorderDist())   
+-			&gt; (4 * right-&gt;water_ratio + 2 * right-&gt;GetMapBorderDist()) );
++	return ( (2.0f * left-&gt;water_ratio + left-&gt;GetMapBorderDist())   
++			&gt; (2.0f * right-&gt;water_ratio + right-&gt;GetMapBorderDist()) );
+ }
+ 
+ bool AAIExecute::suitable_for_arty(AAISector *left, AAISector *right)
+@@ -3124,50 +3102,50 @@
+ 	if(!right-&gt;interior)
+ 		right_rating += 3.0f;
+ 
+-	return ( left_rating / sqrt(left-&gt;own_structures+ 1.0f) &gt;  right_rating / sqrt(right-&gt;own_structures+ 1.0f) );
++	return ( left_rating / fastmath::sqrt(left-&gt;own_structures+ 1.0f) &gt;  right_rating / sqrt(right-&gt;own_structures+ 1.0f) );
+ }
+ 
+ bool AAIExecute::suitable_for_ground_rallypoint(AAISector *left, AAISector *right)
+ {
+-	return ( (left-&gt;flat_ratio  + 0.5 * left-&gt;GetMapBorderDist())/ ((float) (left-&gt;rally_points + 1) )
+-		&gt;  (right-&gt;flat_ratio  + 0.5 * right-&gt;GetMapBorderDist())/ ((float) (right-&gt;rally_points + 1) ) );
++	return ( (left-&gt;flat_ratio  + 0.5f * left-&gt;GetMapBorderDist())/ ((float) (left-&gt;rally_points + 1) )
++		&gt;  (right-&gt;flat_ratio  + 0.5f * right-&gt;GetMapBorderDist())/ ((float) (right-&gt;rally_points + 1) ) );
+ }
+ 
+ bool AAIExecute::suitable_for_sea_rallypoint(AAISector *left, AAISector *right)
+ {
+-	return ( (left-&gt;water_ratio  + 0.5 * left-&gt;GetMapBorderDist())/ ((float) (left-&gt;rally_points + 1) )
+-		&gt;  (right-&gt;water_ratio  + 0.5 * right-&gt;GetMapBorderDist())/ ((float) (right-&gt;rally_points + 1) ) );
++	return ( (left-&gt;water_ratio  + 0.5f * left-&gt;GetMapBorderDist())/ ((float) (left-&gt;rally_points + 1) )
++		&gt;  (right-&gt;water_ratio  + 0.5f * right-&gt;GetMapBorderDist())/ ((float) (right-&gt;rally_points + 1) ) );
+ }
+ 
+ bool AAIExecute::suitable_for_all_rallypoint(AAISector *left, AAISector *right)
+ {
+-	return ( (left-&gt;flat_ratio + left-&gt;water_ratio + 0.5 * left-&gt;GetMapBorderDist())/ ((float) (left-&gt;rally_points + 1) )
+-		&gt;  (right-&gt;flat_ratio + right-&gt;water_ratio + 0.5 * right-&gt;GetMapBorderDist())/ ((float) (right-&gt;rally_points + 1) ) );
++	return ( (left-&gt;flat_ratio + left-&gt;water_ratio + 0.5f * left-&gt;GetMapBorderDist())/ ((float) (left-&gt;rally_points + 1) )
++		&gt;  (right-&gt;flat_ratio + right-&gt;water_ratio + 0.5f * right-&gt;GetMapBorderDist())/ ((float) (right-&gt;rally_points + 1) ) );
+ }
+ 
+ bool AAIExecute::defend_vs_ground(AAISector *left, AAISector *right)
+ {
+-	return ((2 + 2 * left-&gt;GetThreatBy(GROUND_ASSAULT, learned, current)) / (left-&gt;GetDefencePowerVs(GROUND_ASSAULT)+ 1))
+-		&gt;  ((2 + 2 * right-&gt;GetThreatBy(GROUND_ASSAULT, learned, current)) / (right-&gt;GetDefencePowerVs(GROUND_ASSAULT)+ 1));
++	return ((2.0f + 2.0f * left-&gt;GetThreatBy(GROUND_ASSAULT, learned, current)) / (left-&gt;GetDefencePowerVs(GROUND_ASSAULT)+ 1.0f))
++		&gt;  ((2.0f + 2.0f * right-&gt;GetThreatBy(GROUND_ASSAULT, learned, current)) / (right-&gt;GetDefencePowerVs(GROUND_ASSAULT)+ 1.0f));
+ }
+ 
+ bool AAIExecute::defend_vs_air(AAISector *left, AAISector *right)
+ {
+-	return ((2 + 2 * left-&gt;GetThreatBy(AIR_ASSAULT, learned, current)) / (left-&gt;GetDefencePowerVs(AIR_ASSAULT)+ 1))
+-		&gt;  ((2 + 2 * right-&gt;GetThreatBy(AIR_ASSAULT, learned, current)) / (right-&gt;GetDefencePowerVs(AIR_ASSAULT)+ 1));
++	return ((2.0f + 2.0f * left-&gt;GetThreatBy(AIR_ASSAULT, learned, current)) / (left-&gt;GetDefencePowerVs(AIR_ASSAULT)+ 1.0f))
++		&gt;  ((2.0f + 2.0f * right-&gt;GetThreatBy(AIR_ASSAULT, learned, current)) / (right-&gt;GetDefencePowerVs(AIR_ASSAULT)+ 1.0f));
+ }
+ 
+ bool AAIExecute::defend_vs_hover(AAISector *left, AAISector *right)
+ {
+-	return ((2 + 2 * left-&gt;GetThreatBy(HOVER_ASSAULT, learned, current)) / (left-&gt;GetDefencePowerVs(HOVER_ASSAULT)+ 1))
+-		&gt;  ((2 + 2 * right-&gt;GetThreatBy(HOVER_ASSAULT, learned, current)) / (right-&gt;GetDefencePowerVs(HOVER_ASSAULT)+ 1));
++	return ((2.0f + 2.0f * left-&gt;GetThreatBy(HOVER_ASSAULT, learned, current)) / (left-&gt;GetDefencePowerVs(HOVER_ASSAULT)+ 1.0f))
++		&gt;  ((2.0f + 2.0f * right-&gt;GetThreatBy(HOVER_ASSAULT, learned, current)) / (right-&gt;GetDefencePowerVs(HOVER_ASSAULT)+ 1.0f));
+ 
+ }
+ 
+ bool AAIExecute::defend_vs_sea(AAISector *left, AAISector *right)
+ {
+-	return ((2 + 2 * left-&gt;GetThreatBy(SEA_ASSAULT, learned, current)) / (left-&gt;GetDefencePowerVs(SEA_ASSAULT)+ 1))
+-		&gt;  ((2 + 2 * right-&gt;GetThreatBy(SEA_ASSAULT, learned, current)) / (right-&gt;GetDefencePowerVs(SEA_ASSAULT)+ 1));
++	return ((2.0f + 2.0f * left-&gt;GetThreatBy(SEA_ASSAULT, learned, current)) / (left-&gt;GetDefencePowerVs(SEA_ASSAULT)+ 1.0f))
++		&gt;  ((2.0f + 2.0f * right-&gt;GetThreatBy(SEA_ASSAULT, learned, current)) / (right-&gt;GetDefencePowerVs(SEA_ASSAULT)+ 1.0f));
+ 
+ }
+ 
+@@ -3190,13 +3168,7 @@
+ 
+ 	// decrease number of units of that category in the target sector 
+ 	if(validSector)
+-	{
+-		--map-&gt;sector[x][y].unitsOfType[category];
+-		map-&gt;sector[x][y].own_structures -= bt-&gt;units_static[def-&gt;id].cost;
+-
+-		if(map-&gt;sector[x][y].own_structures &lt; 0)
+-			map-&gt;sector[x][y].own_structures = 0;
+-	}
++		map-&gt;sector[x][y].RemoveBuildingType(def_id);
+ 	
+ 	// free metalspot if mex was odered to be built
+ 	if(category == EXTRACTOR &amp;&amp; build_pos.x &gt; 0)
+@@ -3237,55 +3209,35 @@
+ 			futureRequestedEnergy = 0;
+ 	}
+ 	else if(category == STATIONARY_DEF)
+-	{
+-		// remove defence from map				
++	{		
+ 		map-&gt;RemoveDefence(&amp;build_pos, def-&gt;id); 
+ 	}
+ 	
+ 	// clear buildmap
+ 	if(category == STATIONARY_CONSTRUCTOR)
+ 	{
+-		bool water = false;
+-		int value = 0;
++		ut-&gt;futureFactories -= 1;
+ 
+-		if(!bt-&gt;CanPlacedLand(def_id))
+-		{
+-			water = true;
+-			value = 4;
+-		}
+-
+-		--ut-&gt;futureFactories;
+-
+ 		for(list&lt;int&gt;::iterator unit = bt-&gt;units_static[def-&gt;id].canBuildList.begin();  unit != bt-&gt;units_static[def-&gt;id].canBuildList.end(); ++unit)		
+ 			bt-&gt;units_dynamic[*unit].constructorsRequested -= 1;
+ 
+-		// remove future ressource demand now factory has been finished
++		// remove future ressource demand since factory is no longer being built
+ 		futureRequestedMetal -= bt-&gt;units_static[def-&gt;id].efficiency[0];
+ 		futureRequestedEnergy -= bt-&gt;units_static[def-&gt;id].efficiency[1];
+ 
++		if(futureRequestedEnergy &lt; 0)
++			futureRequestedEnergy = 0;
++
++		if(futureRequestedMetal &lt; 0)
++			futureRequestedMetal = 0;
++
+ 		// update buildmap of sector
+-		map-&gt;Pos2BuildMapPos(&amp;build_pos, def);
+-		map-&gt;CheckRows(build_pos.x, build_pos.z, def-&gt;xsize, def-&gt;zsize, false, water);
+-		
+-		map-&gt;SetBuildMap(build_pos.x, build_pos.z, def-&gt;xsize, def-&gt;zsize, value);
+-		map-&gt;BlockCells(build_pos.x, build_pos.z - 8, def-&gt;xsize, 8, false, water);
+-		map-&gt;BlockCells(build_pos.x + def-&gt;xsize, build_pos.z - 8, cfg-&gt;X_SPACE, def-&gt;zsize + 1.5 * cfg-&gt;Y_SPACE, false, water);
+-		map-&gt;BlockCells(build_pos.x, build_pos.z + def-&gt;zsize, def-&gt;xsize, 1.5 * cfg-&gt;Y_SPACE - 8, false, water);
++		map-&gt;UpdateBuildMap(build_pos, def, false, bt-&gt;CanPlacedWater(def_id), true);
+ 	}
+ 	else // normal building
+ 	{
+-		map-&gt;Pos2BuildMapPos(&amp;build_pos, def);
+-			
+-		if(def-&gt;minWaterDepth &lt;= 0)
+-		{
+-			map-&gt;SetBuildMap(build_pos.x, build_pos.z, def-&gt;xsize, def-&gt;zsize, 0);
+-			map-&gt;CheckRows(build_pos.x, build_pos.z, def-&gt;xsize, def-&gt;zsize, false, false);
+-		}
+-		else
+-		{
+-				map-&gt;SetBuildMap(build_pos.x, build_pos.z, def-&gt;xsize, def-&gt;zsize, 4);
+-				map-&gt;CheckRows(build_pos.x, build_pos.z, def-&gt;xsize, def-&gt;zsize, false, true);
+-		}
++		// update buildmap of sector
++		map-&gt;UpdateBuildMap(build_pos, def, false, bt-&gt;CanPlacedWater(def_id), false);
+ 	}
+ }
+ 
+@@ -3556,4 +3508,4 @@
+ 	//	fprintf(ai-&gt;file, &quot;%i th order has been given by %s in frame %i\n&quot;, issued_orders, owner,  cb-&gt;GetCurrentFrame());
+ 
+ 	cb-&gt;GiveOrder(unit, c);
+-}
++}
+\ No newline at end of file
+
+Modified: trunk/AI/Global/AAI/AAIExecute.h
+===================================================================
+--- trunk/AI/Global/AAI/AAIExecute.h	2008-11-13 17:15:11 UTC (rev 7038)
++++ trunk/AI/Global/AAI/AAIExecute.h	2008-11-13 18:58:26 UTC (rev 7039)
+@@ -28,13 +28,13 @@
+ 	void InitAI(int commander_unit_id, const UnitDef *commander_def);
+ 
+ 	// return true if building will be placed at a valid pos = inside sectors
+-	bool InitBuildingAt(const UnitDef *def, float3 pos, bool water);
++	bool InitBuildingAt(const UnitDef *def, float3 *pos, bool water);
+ 
+ 	void ConstructBuildingAt(int building, int builder, float3 position); 
+ 
+ 	void CreateBuildTask(int unit, const UnitDef *def, float3 *pos);
+ 
+-	void moveUnitTo(int unit, float3 *position);  
++	void MoveUnitTo(int unit, float3 *position);  
+ 
+ 	void stopUnit(int unit);
+ 
+
+Modified: trunk/AI/Global/AAI/AAIMap.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIMap.cpp	2008-11-13 17:15:11 UTC (rev 7038)
++++ trunk/AI/Global/AAI/AAIMap.cpp	2008-11-13 18:58:26 UTC (rev 7039)
+@@ -1397,6 +1397,16 @@
+ 
+ void AAIMap::BlockCells(int xPos, int yPos, int width, int height, bool block, bool water)
+ {
++	// make sure to stay within map if too close to the edges
++	int xEnd = xPos + width; 
++	int yEnd = yPos + height; 
++
++	if(xEnd &gt; xMapSize)
++		xEnd = xMapSize;
++	
++	if(yEnd &gt; yMapSize)
++		yEnd = yMapSize;
++
+ 	//float3 my_pos;
+ 	int empty, cell;
+ 
+@@ -1407,9 +1417,9 @@
+ 
+ 	if(block)	// block cells
+ 	{
+-		for(int x = xPos; x &lt; xPos + width; ++x)
++		for(int y = yPos; y &lt; yEnd; ++y)
+ 		{
+-			for(int y = yPos; y &lt; yPos + height; ++y)
++			for(int x = xPos; x &lt; xEnd; ++x)
+ 			{
+ 				cell = x + xMapSize*y;
+ 
+@@ -1435,9 +1445,9 @@
+ 	}
+ 	else		// unblock cells
+ 	{
+-		for(int x = xPos; x &lt; xPos + width; ++x)
++		for(int y = yPos; y &lt; yEnd; ++y)
+ 		{
+-			for(int y = yPos; y &lt; yPos + height; ++y)
++			for(int x = xPos; x &lt; xEnd; ++x)
+ 			{
+ 				cell = x + xMapSize*y;
+ 
+@@ -1466,7 +1476,41 @@
+ 	}
+ }
+ 
++void AAIMap::UpdateBuildMap(float3 build_pos, const UnitDef *def, bool block, bool water, bool factory)
++{
++	Pos2BuildMapPos(&amp;build_pos, def);
++		
++	if(block)
++	{
++		if(water)
++			SetBuildMap(build_pos.x, build_pos.z, def-&gt;xsize, def-&gt;zsize, 5);
++		else
++			SetBuildMap(build_pos.x, build_pos.z, def-&gt;xsize, def-&gt;zsize, 1);
++	}
++	else
++	{
++		// remove spaces before freeing up buildspace
++		CheckRows(build_pos.x, build_pos.z, def-&gt;xsize, def-&gt;zsize, block, water);
+ 
++		if(water)
++			SetBuildMap(build_pos.x, build_pos.z, def-&gt;xsize, def-&gt;zsize, 4);
++		else
++			SetBuildMap(build_pos.x, build_pos.z, def-&gt;xsize, def-&gt;zsize, 0);
++	}
++
++	if(factory)
++	{
++		// extra space for factories to keep exits clear
++		BlockCells(build_pos.x, build_pos.z - 8, def-&gt;xsize, 8, block, water);
++		BlockCells(build_pos.x + def-&gt;xsize, build_pos.z - 8, cfg-&gt;X_SPACE, def-&gt;zsize + 1.5f * (float)cfg-&gt;Y_SPACE, block, water);
++		BlockCells(build_pos.x, build_pos.z + def-&gt;zsize, def-&gt;xsize, 1.5f * (float)cfg-&gt;Y_SPACE - 8, block, water);
++	}
++
++	// add spaces after blocking buildspace
++	if(block)
++		CheckRows(build_pos.x, build_pos.z, def-&gt;xsize, def-&gt;zsize, block, water);
++}
++
+ void AAIMap::Pos2FinalBuildPos(float3 *pos, const UnitDef* def)
+ {
+ 	if(def-&gt;xsize&amp;2) // check if xsize is a multiple of 4
+@@ -1483,17 +1527,28 @@
+ int AAIMap::GetNextX(int direction, int xPos, int yPos, int value)
+ {
+ 	int x = xPos;
+-	// scan line until next free cell found
+-	while(buildmap[x+yPos*xMapSize] == value)
++	
++	if(direction)
+ 	{
+-		if(direction)
++		while(buildmap[x+yPos*xMapSize] == value)
++		{
+ 			++x;
+-		else
++			
++			// search went out of map
++			if(x &gt;= xMapSize)
++				return -1;
++		}
++	}
++	else
++	{
++		while(buildmap[x+yPos*xMapSize] == value)
++		{
+ 			--x;
+-
+-		// search went out of map
+-		if(x &lt; 0 || x &gt;= xMapSize)
+-			return -1;
++			
++			// search went out of map
++			if(x &lt; 0)
++				return -1;
++		}
+ 	}
+ 
+ 	return x;
+@@ -1501,18 +1556,31 @@
+ 
+ int AAIMap::GetNextY(int direction, int xPos, int yPos, int value)
+ {
+-	int y = yPos;
+-	// scan line until next free cell found
+-	while(buildmap[xPos+y*xMapSize] == value)
++	int y = yPos; 
++
++	if(direction)
+ 	{
+-		if(direction)
++		// scan line until next free cell found
++		while(buildmap[xPos+y*xMapSize] == value)
++		{
+ 			++y;
+-		else
++		
++			// search went out of map
++			if(y &gt;= yMapSize)
++				return -1;
++		}
++	}
++	else
++	{
++		// scan line until next free cell found
++		while(buildmap[xPos+y*xMapSize] == value)
++		{
+ 			--y;
+-
+-		// search went out of map
+-		if(y &lt; 0 || y &gt;= yMapSize)
+-			return -1;
++		
++			// search went out of map
++			if(y &lt; 0)
++				return -1;
++		}
+ 	}
+ 
+ 	return y;
+@@ -1537,9 +1605,9 @@
+ 	int cliffs = 0;
+ 
+ 	// count cells with big slope
+-	for(int x = xPos; x &lt; xPos + xSize; x++)
++	for(int x = xPos; x &lt; xPos + xSize; ++x)
+ 	{
+-		for(int y = yPos; y &lt; yPos + ySize; y++)
++		for(int y = yPos; y &lt; yPos + ySize; ++y)
+ 		{
+ 			if(buildmap[x+y*xMapSize] == 3)
+ 				++cliffs;
+@@ -1557,12 +1625,12 @@
+ 	int yPos = sector-&gt;y * ySectorSize;
+ 
+ 	// count cells with big slope
+-	for(int x = xPos; x &lt; xPos + xSectorSizeMap; x++)
++	for(int x = xPos; x &lt; xPos + xSectorSizeMap; ++x)
+ 	{
+-		for(int y = yPos; y &lt; yPos + ySectorSizeMap; y++)
++		for(int y = yPos; y &lt; yPos + ySectorSizeMap; ++y)
+ 		{
+ 			if(buildmap[x+y*xMapSize] == 3)
+-				cliffs++;
++				++cliffs;
+ 		}
+ 	}
+ 
+@@ -2679,5 +2747,4 @@
+ 		y = yContMapSize - 1;
+ 
+ 	return continent_map[y * xContMapSize + x];
+-}
+-
++}
+\ No newline at end of file
+
+Modified: trunk/AI/Global/AAI/AAIMap.h
+===================================================================
+--- trunk/AI/Global/AAI/AAIMap.h	2008-11-13 17:15:11 UTC (rev 7038)
++++ trunk/AI/Global/AAI/AAIMap.h	2008-11-13 18:58:26 UTC (rev 7039)
+@@ -55,6 +55,9 @@
+ 	// blocks/unblocks cells (to prevent AAI from packing buildings too close to each other)
+ 	void BlockCells(int xPos, int yPos, int width, int height, bool block, bool water);
+ 
++	// updates buildmap ((un)block cells + insert/remove spaces) if regular building is added/removed (factories need some extra space)
++	void UpdateBuildMap(float3 build_pos, const UnitDef *def, bool block, bool water, bool factory);
++
+ 	// returns number of cells with big slope
+ 	int GetCliffyCells(int xPos, int yPos, int xSize, int ySize);
+ 	int GetCliffyCellsInSector(AAISector *sector);
+
+Modified: trunk/AI/Global/AAI/AAISector.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAISector.cpp	2008-11-13 17:15:11 UTC (rev 7038)
++++ trunk/AI/Global/AAI/AAISector.cpp	2008-11-13 18:58:26 UTC (rev 7039)
+@@ -520,6 +520,16 @@
+ 		/(learned + current);
+ }
+ 
++void AAISector::RemoveBuildingType(int def_id)
++{
++	unitsOfType[ai-&gt;bt-&gt;units_static[def_id].category] -= 1;
++	
++	own_structures -= ai-&gt;bt-&gt;units_static[def_id].cost;
++
++	if(own_structures &lt; 0)
++		own_structures = 0;
++}
++
+ void AAISector::RemoveDefence(int unit_id)
+ {
+ 	for(list&lt;AAIDefence&gt;::iterator i = defences.begin(); i != defences.end(); i++)
+@@ -770,5 +780,4 @@
+ 	}
+ 
+ 	*pos = ZeroVector;
+-}
+-
++}
+\ No newline at end of file
+
+Modified: trunk/AI/Global/AAI/AAISector.h
+===================================================================
+--- trunk/AI/Global/AAI/AAISector.h	2008-11-13 17:15:11 UTC (rev 7038)
++++ trunk/AI/Global/AAI/AAISector.h	2008-11-13 18:58:26 UTC (rev 7039)
+@@ -69,6 +69,9 @@
+ 	void RemoveDefence(int unit_id);
+ 	void AddDefence(int unit_id, int def_id);
+ 
++	// removes building from sector -&gt; update own_structure &amp; unitsOfType[]
++	void RemoveBuildingType(int def_id);
++
+ 	// returns the category with the weakest defence in comparison with threat
+ 	UnitCategory GetWeakestCategory();
+ 
+
+Modified: trunk/AI/Global/AAI/AAIUnitTable.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIUnitTable.cpp	2008-11-13 17:15:11 UTC (rev 7038)
++++ trunk/AI/Global/AAI/AAIUnitTable.cpp	2008-11-13 18:58:26 UTC (rev 7039)
+@@ -21,7 +21,7 @@
+ 	units.resize(cfg-&gt;MAX_UNITS);
+ 
+ 	// fill buildtable 
+-	for(int i = 0; i &lt; cfg-&gt;MAX_UNITS; i++)
++	for(int i = 0; i &lt; cfg-&gt;MAX_UNITS; ++i)
+ 	{
+ 		units[i].unit_id = -1;
+ 		units[i].def_id = 0;
+@@ -30,6 +30,13 @@
+ 		units[i].status = UNIT_KILLED;
+ 	}
+ 
++	for(int i = 0; i &lt;= MOBILE_CONSTRUCTOR; ++i)
++	{
++		activeUnits[i] = 0;
++		futureUnits[i] = 0;
++		requestedUnits[i] = 0;
++	}
++
+ 	activeScouts = futureScouts = 0;
+ 	activeBuilders = futureBuilders = 0;
+ 	activeFactories = futureFactories = 0;
+@@ -44,8 +51,6 @@
+ 	{
+ 		delete units[*cons].cons;
+ 	}
+-
+-//	delete [] units;
+ }
+ 
+ 
+@@ -514,3 +519,13 @@
+ 	else
+ 		return false;
+ }
++
++void AAIUnitTable::ActiveUnitKilled(UnitCategory category)
++{
++	--activeUnits[category];
++}
++
++void AAIUnitTable::FutureUnitKilled(UnitCategory category)
++{
++	--futureUnits[category];
++}
+\ No newline at end of file
+
+Modified: trunk/AI/Global/AAI/AAIUnitTable.h
+===================================================================
+--- trunk/AI/Global/AAI/AAIUnitTable.h	2008-11-13 17:15:11 UTC (rev 7038)
++++ trunk/AI/Global/AAI/AAIUnitTable.h	2008-11-13 18:58:26 UTC (rev 7039)
+@@ -58,11 +58,18 @@
+ 
+ 	void AssignGroupToEnemy(int unit, AAIGroup *group);
+ 
++	// determine whether unit with specified def/unit id is commander/constrcutor
+ 	bool IsUnitCommander(int unit_id);
+ 	bool IsDefCommander(int def_id);
+-
+ 	bool IsBuilder(int unit_id);
+ 
++	// get/set methods
++	//int GetActiveScouts();
++	//int GetActiveBuilders();
++	//int GetActiveFactories();
++	void ActiveUnitKilled(UnitCategory category);
++	void FutureUnitKilled(UnitCategory category);
++
+ 	AAI *ai;
+ 	AAIExecute *execute;
+ 	AAIBuildTable *bt;
+@@ -71,12 +78,7 @@
+ 	// units[i].unitId = -1 -&gt; not used , -2 -&gt; enemy unit
+ 	vector&lt;AAIUnit&gt; units;
+ 
+-	// number of active/under construction units of all different types
+-	int activeScouts, futureScouts;
+-	int activeBuilders, futureBuilders;
+-	int activeFactories, futureFactories;
+-
+-	// commanders id
++	// id of commander
+ 	int cmdr;
+ 		
+ 	set&lt;int&gt; scouts;
+@@ -88,4 +90,12 @@
+ 	set&lt;int&gt; power_plants;
+ 	set&lt;int&gt; stationary_arty;
+ 
++	// number of active/under construction units of all different types
++	int activeUnits[(int)MOBILE_CONSTRUCTOR+1];
++	int futureUnits[(int)MOBILE_CONSTRUCTOR+1];
++	int requestedUnits[(int)MOBILE_CONSTRUCTOR+1];
++
++	int activeScouts, futureScouts;
++	int activeBuilders, futureBuilders;
++	int activeFactories, futureFactories;
+ };
+
+Modified: trunk/AI/Global/AAI/aidef.h
+===================================================================
+--- trunk/AI/Global/AAI/aidef.h	2008-11-13 17:15:11 UTC (rev 7038)
++++ trunk/AI/Global/AAI/aidef.h	2008-11-13 18:58:26 UTC (rev 7039)
+@@ -3,7 +3,7 @@
+ //
+ // A skirmish AI for the TA Spring engine.
+ // Copyright Alexander Seizinger
+-//
++// 
+ // Released under GPL license: see LICENSE.html for more information.
+ // -------------------------------------------------------------------------
+ 
+@@ -20,7 +20,7 @@
+ #include &quot;ExternalAI/aibase.h&quot;
+ #include &quot;Sim/Units/UnitDef.h&quot;
+ #include &quot;Sim/MoveTypes/MoveInfo.h&quot;
+-#include &quot;System/Vec2.h&quot;
++#include &quot;System/vec2.h&quot;
+ #include &quot;Sim/Misc/GlobalConstants.h&quot;
+ #include &quot;Sim/Weapons/WeaponDefHandler.h&quot;
+ #include &quot;Sim/Weapons/Weapon.h&quot;
+@@ -31,7 +31,7 @@
+ 
+ #ifdef _MSC_VER
+ #pragma warning(disable: 4244 4018) // signed/unsigned and loss of precision...
+-#endif
++#endif 
+ 
+ void ReplaceExtension (const char *n, char *dst,int s, const char *ext);
+ 
+@@ -44,7 +44,7 @@
+ #define MAP_CACHE_VERSION &quot;MAP_DATA_0_87&quot;
+ #define CONTINENT_DATA_VERSION &quot;MOVEMENT_MAPS_0_87&quot;
+ 
+-// all paths
++// all paths 
+ #define MAIN_PATH &quot;AI/AAI/&quot;
+ #define AILOG_PATH &quot;log/&quot;
+ #define MOD_CFG_PATH &quot;cfg/mod/&quot;
+@@ -62,7 +62,7 @@
+ public:
+ 	AAIMetalSpot(float3 pos, float amount) {this-&gt;pos = pos; this-&gt;amount = amount; occupied = false; extractor = -1; extractor_def = -1;}
+ 	AAIMetalSpot() {pos = ZeroVector; amount = 0; occupied = false; extractor = -1; extractor_def = -1;}
+-
++	
+ 	float3 pos;
+ 	bool occupied;
+ 	int extractor;		// -1 if unocuppied
+@@ -107,9 +107,9 @@
+ enum SectorType {UNKNOWN_SECTOR, LAND_SECTOR, LAND_WATER_SECTOR, WATER_SECTOR};
+ 
+ enum UnitCategory {UNKNOWN, STATIONARY_DEF, STATIONARY_ARTY, STORAGE, STATIONARY_CONSTRUCTOR, AIR_BASE,
+-STATIONARY_RECON, STATIONARY_JAMMER, STATIONARY_LAUNCHER, DEFLECTION_SHIELD, POWER_PLANT, EXTRACTOR, METAL_MAKER,
+-COMMANDER, GROUND_ASSAULT, AIR_ASSAULT, HOVER_ASSAULT, SEA_ASSAULT, SUBMARINE_ASSAULT, GROUND_ARTY, SEA_ARTY, HOVER_ARTY,
+-SCOUT, MOBILE_TRANSPORT, MOBILE_JAMMER, MOBILE_LAUNCHER, MOBILE_CONSTRUCTOR};
++STATIONARY_RECON, STATIONARY_JAMMER, STATIONARY_LAUNCHER, DEFLECTION_SHIELD, POWER_PLANT, EXTRACTOR, METAL_MAKER, 
++COMMANDER, GROUND_ASSAULT, AIR_ASSAULT, HOVER_ASSAULT, SEA_ASSAULT, SUBMARINE_ASSAULT, GROUND_ARTY, SEA_ARTY, HOVER_ARTY, 
++SCOUT, MOBILE_TRANSPORT, MOBILE_JAMMER, MOBILE_LAUNCHER, MOBILE_CONSTRUCTOR}; 
+ 
+ enum GroupTask {GROUP_IDLE, GROUP_ATTACKING, GROUP_DEFENDING, GROUP_PATROLING, GROUP_BOMBING, GROUP_RETREATING};
+ 
+@@ -149,7 +149,7 @@
+ struct UnitTypeStatic
+ {
+ 	int def_id;
+-	int side;				// 0 if side has not been set
++	int side;				// 0 if side has not been set 
+ 	list&lt;int&gt; canBuildList;
+ 	list&lt;int&gt; builtByList;
+ 	vector&lt;float&gt; efficiency;		// 0 -&gt; ground assault, 1 -&gt; air assault, 2 -&gt; hover assault
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001807.html">[Taspring-linux-commit] r7038 - in trunk/rts: Game Sim/Misc
+</A></li>
+	<LI>Next message: <A HREF="001809.html">[Taspring-linux-commit] r7040 - in trunk/AI/Global: AAI TestGlobalAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1808">[ date ]</a>
+              <a href="thread.html#1808">[ thread ]</a>
+              <a href="subject.html#1808">[ subject ]</a>
+              <a href="author.html#1808">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

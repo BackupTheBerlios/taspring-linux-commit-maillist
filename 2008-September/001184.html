@@ -1,0 +1,233 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6414 - in site/trunk/wwwroot: . templates
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6414%20-%20in%20site/trunk/wwwroot%3A%20.%20templates&In-Reply-To=%3C20080913114418.8B4F84A30%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001183.html">
+   <LINK REL="Next"  HREF="001185.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6414 - in site/trunk/wwwroot: . templates</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6414%20-%20in%20site/trunk/wwwroot%3A%20.%20templates&In-Reply-To=%3C20080913114418.8B4F84A30%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6414 - in site/trunk/wwwroot: . templates">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Sep 13 13:44:18 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001183.html">[Taspring-linux-commit] r6413 - trunk/rts/System/Sync
+</A></li>
+        <LI>Next message: <A HREF="001185.html">[Taspring-linux-commit] r6415 - in trunk:	installer/builddata/springcontent/shaders rts/Game/UI rts/Lua	rts/Map/SMF rts/Rendering/Env rts/Sim/Units
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1184">[ date ]</a>
+              <a href="thread.html#1184">[ thread ]</a>
+              <a href="subject.html#1184">[ subject ]</a>
+              <a href="author.html#1184">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: fnordia
+Date: 2008-09-13 13:44:18 +0200 (Sat, 13 Sep 2008)
+New Revision: 6414
+
+Modified:
+   site/trunk/wwwroot/imagerotate.php
+   site/trunk/wwwroot/index.css
+   site/trunk/wwwroot/index.php
+   site/trunk/wwwroot/screenshot.php
+   site/trunk/wwwroot/templates/frontpage.html
+Log:
+Improved cache handling for rotated content
+
+Modified: site/trunk/wwwroot/imagerotate.php
+===================================================================
+--- site/trunk/wwwroot/imagerotate.php	2008-09-13 09:52:53 UTC (rev 6413)
++++ site/trunk/wwwroot/imagerotate.php	2008-09-13 11:44:18 UTC (rev 6414)
+@@ -2,8 +2,21 @@
+ 
+     include_once('includes/db.php');
+ 
+-    $category = (int)$_GET['cat'];
++    $category = 32;
+ 
++    // We'd like the image to only be up for rotation every 2 minutes
++    $time_now = gmmktime();
++    $time_now -= ($time_now % 120);
++    header(&quot;Etag: &quot; . $time_now);
++    
++    if (array_key_exists('HTTP_IF_NONE_MATCH', $_SERVER)) {
++        $timestamp = (int)$_SERVER['HTTP_IF_NONE_MATCH'];
++        if ($timestamp + 120 &gt; $time_now) {
++            header(&quot;HTTP/1.1 304 Not Modified&quot;);
++            exit();            
++        }
++    }    
++            
+     // Find suitable images to rotate
+     $sql = '';
+     $sql .= 'select physical_filename, real_filename, topic_title ';
+
+Modified: site/trunk/wwwroot/index.css
+===================================================================
+--- site/trunk/wwwroot/index.css	2008-09-13 09:52:53 UTC (rev 6413)
++++ site/trunk/wwwroot/index.css	2008-09-13 11:44:18 UTC (rev 6414)
+@@ -12,7 +12,6 @@
+ 	text-decoration: underline;
+ }
+ .welcome {
+-	background-image: url(/imagerotate.php?cat=33);
+ 	background-repeat:no-repeat;
+ 	font-family: &quot;Trebuchet MS&quot;, Tahoma, Geneva, Verdana, Arial, sans-serif;
+ 	font-size: 24px;
+
+Modified: site/trunk/wwwroot/index.php
+===================================================================
+--- site/trunk/wwwroot/index.php	2008-09-13 09:52:53 UTC (rev 6413)
++++ site/trunk/wwwroot/index.php	2008-09-13 11:44:18 UTC (rev 6414)
+@@ -27,6 +27,16 @@
+         $news .= str_replace($newskeys, $newsdata, $newstemplate);
+     }
+     
++    // Get a random welcome image
++    $sql = '';
++    $sql .= 'select a.attach_id ';
++    $sql .= 'from phpbb3_attachments as a, phpbb3_topics as t ';
++    $sql .= &quot;where t.forum_id = 33 and a.topic_id = t.topic_id &quot;;
++    $sql .= 'order by rand() limit 1';    
++    $res = mysql_query($sql);
++    $row = mysql_fetch_array($res);
++    $welcome = '/screenshot.php?id=' . $row['attach_id'];
++    
+     // Fetch 4 random screenshots
+     $sql = '';
+     $sql .= 'select physical_filename, real_filename, topic_title, t.topic_id ';
+@@ -85,8 +95,8 @@
+                     
+     // Compose the frontpage
+     $fptemplate = file_get_contents('templates/frontpage.html');
+-    $fpkeys = array('#NEWSITEMS#', '#SCREEN1#', '#SCREEN2#', '#SCREEN3#', '#SCREEN4#', '#VIDEOFILE#', '#VIDEOIMAGE#');
+-    $fpitems = array($news, $screenthumbs[0], $screenthumbs[1], $screenthumbs[2], $screenthumbs[3], $videofile, $videoimage);
++    $fpkeys = array('#NEWSITEMS#', '#WELCOME#', '#SCREEN1#', '#SCREEN2#', '#SCREEN3#', '#SCREEN4#', '#VIDEOFILE#', '#VIDEOIMAGE#');
++    $fpitems = array($news, $welcome, $screenthumbs[0], $screenthumbs[1], $screenthumbs[2], $screenthumbs[3], $videofile, $videoimage);
+     $fp = str_replace($fpkeys, $fpitems, $fptemplate);
+         
+     // Compose the final page
+
+Modified: site/trunk/wwwroot/screenshot.php
+===================================================================
+--- site/trunk/wwwroot/screenshot.php	2008-09-13 09:52:53 UTC (rev 6413)
++++ site/trunk/wwwroot/screenshot.php	2008-09-13 11:44:18 UTC (rev 6414)
+@@ -1,15 +1,23 @@
+ &lt;?php
+ 
+     include_once('includes/db.php');
+-
++    
+     $topic = (int)$_GET['topic'];    
+     $type = (int)$_GET['video'];
++    $id = (int)$_GET['id'];
+             
+-    // Force the topic id to belong to the screenshots or videos forum
++    // Force the topic id to belong to the screenshots, videos or welcome image forum
+     $sql = '';
+     $sql .= 'select physical_filename, real_filename, topic_title, extension ';
+     $sql .= 'from phpbb3_attachments as a, phpbb3_topics as t ';
+-    $sql .= &quot;where (t.forum_id = 35 or t.forum_id = 34) and a.topic_id = t.topic_id and a.topic_id = $topic &quot;;
++    $sql .= &quot;where (t.forum_id = 35 or t.forum_id = 34 or t.forum_id = 33) and a.topic_id = t.topic_id &quot;;
++    if ($topic &gt; 0)
++        $sql .= &quot;and a.topic_id = $topic &quot;;
++    elseif ($id &gt; 0)
++        $sql .= &quot;and a.attach_id = $id &quot;;
++    else
++        die('no id or topic');
++        
+     if (!$type)
+         $sql .= &quot;and (extension = 'gif' or extension = 'jpg' or extension = 'jpeg' or extension = 'png')&quot;;
+     else
+@@ -21,7 +29,22 @@
+     }
+     $row = mysql_fetch_array($res);
+     $fname = 'phpbb/files/' . $row['physical_filename'];    
++  
++    // Perhaps the browser already has the image  
++    $last_modified_time = filemtime($fname);
++    $etag = md5($fname . $last_modified_time . $topic . $type);
++
++    header(&quot;Last-Modified: &quot; . gmdate(&quot;D, d M Y H:i:s&quot;, $last_modified_time) . &quot; GMT&quot;);
++    header(&quot;Etag: $etag&quot;);
++
++    if (@strtotime($_SERVER['HTTP_IF_MODIFIED_SINCE']) == $last_modified_time ||
++        trim($_SERVER['HTTP_IF_NONE_MATCH']) == $etag) 
++    {
++        header(&quot;HTTP/1.1 304 Not Modified&quot;);
++        exit();
++    }     
+     
++    // Ok then, transfer it!
+     $picext = $row['extension'];
+         
+     $mimetype = 'image/png';
+@@ -33,7 +56,7 @@
+         $mimetype = 'image/gif';
+     elseif ($picext == 'flv')
+         $mimetype = 'video/x-flv';
+-            
++                    
+     header(&quot;Content-Type: $mimetype&quot;);  
+     header('Content-Length: ' . filesize($fname));
+     readfile($fname);
+
+Modified: site/trunk/wwwroot/templates/frontpage.html
+===================================================================
+--- site/trunk/wwwroot/templates/frontpage.html	2008-09-13 09:52:53 UTC (rev 6413)
++++ site/trunk/wwwroot/templates/frontpage.html	2008-09-13 11:44:18 UTC (rev 6414)
+@@ -2,13 +2,13 @@
+     &lt;td&gt;
+      
+       &lt;table width=&quot;760&quot; border=&quot;0&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot;&gt;
+-&lt;tr height=&quot;239&quot; valign=&quot;bottom&quot;&gt;
++        &lt;tr height=&quot;239&quot; valign=&quot;bottom&quot;&gt;
+           &lt;td bgcolor=&quot;#20292E&quot;&gt;
+             &lt;img src=&quot;images/pixel.gif&quot; height=&quot;4&quot; width=&quot;1&quot; /&gt;&lt;br /&gt;
+           &lt;/td&gt;
+           &lt;td&gt;
+           
+-            &lt;table width=&quot;758&quot; border=&quot;0&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot;  class=&quot;welcome&quot; &gt;
++            &lt;table width=&quot;758&quot; border=&quot;0&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot;  class=&quot;welcome&quot; style=&quot;background-image: url(#WELCOME#)&quot;&gt;
+               &lt;tr height=&quot;227&quot; valign=&quot;bottom&quot;&gt;
+                 &lt;td&gt;
+                   &lt;img src=&quot;images/pixel.gif&quot; height=&quot;4&quot; width=&quot;12&quot; /&gt;&lt;br /&gt;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001183.html">[Taspring-linux-commit] r6413 - trunk/rts/System/Sync
+</A></li>
+	<LI>Next message: <A HREF="001185.html">[Taspring-linux-commit] r6415 - in trunk:	installer/builddata/springcontent/shaders rts/Game/UI rts/Lua	rts/Map/SMF rts/Rendering/Env rts/Sim/Units
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1184">[ date ]</a>
+              <a href="thread.html#1184">[ thread ]</a>
+              <a href="subject.html#1184">[ subject ]</a>
+              <a href="author.html#1184">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

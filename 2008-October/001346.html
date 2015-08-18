@@ -1,0 +1,178 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6576 - in trunk: . rts/build/scons	rts/lib/streflop
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6576%20-%20in%20trunk%3A%20.%20rts/build/scons%0A%09rts/lib/streflop&In-Reply-To=%3C20081006220221.0253D46DD%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001345.html">
+   <LINK REL="Next"  HREF="001347.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6576 - in trunk: . rts/build/scons	rts/lib/streflop</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6576%20-%20in%20trunk%3A%20.%20rts/build/scons%0A%09rts/lib/streflop&In-Reply-To=%3C20081006220221.0253D46DD%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6576 - in trunk: . rts/build/scons	rts/lib/streflop">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Oct  7 00:02:20 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001345.html">[Taspring-linux-commit] r6575 - in trunk: . rts/build/scons	rts/lib/streflop
+</A></li>
+        <LI>Next message: <A HREF="001347.html">[Taspring-linux-commit] r6577 - / trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1346">[ date ]</a>
+              <a href="thread.html#1346">[ thread ]</a>
+              <a href="subject.html#1346">[ subject ]</a>
+              <a href="author.html#1346">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: imbaczek
+Date: 2008-10-07 00:02:20 +0200 (Tue, 07 Oct 2008)
+New Revision: 6576
+
+Modified:
+   trunk/SConstruct
+   trunk/rts/build/scons/rts.py
+   trunk/rts/lib/streflop/Makefile.common
+Log:
+autodetect target CPU architecture
+
+use scons configure arch=&lt;value&gt;
+&lt;value&gt; can be one none, auto or whatever gcc -march option supports (it's passed verbatim); default auto
+
+Modified: trunk/SConstruct
+===================================================================
+--- trunk/SConstruct	2008-10-06 21:00:26 UTC (rev 6575)
++++ trunk/SConstruct	2008-10-06 22:02:20 UTC (rev 6576)
+@@ -211,6 +211,8 @@
+ # Build streflop (which has it's own Makefile-based build system)
+ if not 'configure' in sys.argv and not 'test' in sys.argv and not 'install' in sys.argv:
+ 	cmd = &quot;CC=&quot; + env['CC'] + &quot; CXX=&quot; + env['CXX'] + &quot; --no-print-directory -C rts/lib/streflop&quot;
++	if env.has_key('streflop_extra'):
++		cmd += &quot; &quot; + env['streflop_extra']
+ 	if env['fpmath'] == 'sse':
+ 		cmd = &quot;STREFLOP_SSE=1 &quot; + cmd
+ 	else:
+@@ -219,6 +221,7 @@
+ 		cmd += &quot; WIN32=1&quot;
+ 	if env.GetOption('clean'):
+ 		cmd += &quot; clean&quot;
++	print 'streflop options:', cmd
+ 	if env['platform'] == 'freebsd':
+ 		status = os.system(&quot;gmake &quot; + cmd)
+ 	else:
+
+Modified: trunk/rts/build/scons/rts.py
+===================================================================
+--- trunk/rts/build/scons/rts.py	2008-10-06 21:00:26 UTC (rev 6575)
++++ trunk/rts/build/scons/rts.py	2008-10-06 22:02:20 UTC (rev 6576)
+@@ -1,6 +1,7 @@
+ # Copyright (C) 2006  Tobi Vollebregt
+ 
+ import os, sys
++import platform
+ import SCons.Util
+ from SCons.Options import Options
+ import config, detect, filelist
+@@ -93,6 +94,7 @@
+ 		('synccheck',         'Set to yes to enable sync checker &amp; resyncer', True),
+ 		('synctrace',         'Enable sync tracing', False),
+ 		('optimize',          'Enable processor optimizations during compilation', 1),
++		('arch',	      'CPU architecture to use', 'auto'),
+ 		('profile',           'Set to yes to produce a binary with profiling information', False),
+ 		('profile_generate',  'Set to yes to compile with -fprofile-generate to generate profiling information', False),
+ 		('profile_use',       'Set to yes to compile with -fprofile-use to use profiling information', False),
+@@ -126,6 +128,7 @@
+ 		('CC',            'c compiler'),
+ 		('CXX',           'c++ compiler'),
+ 		('spring_defines','extra c preprocessor defines for spring'),
++		('streflop_extra','extra options for streflop Makefile'),
+ 		('is_configured', 'configuration version stamp'))
+ 
+ 	usropts.Update(env)
+@@ -152,7 +155,7 @@
+ 		for key in ['platform', 'gml', 'debug', 'optimize', 'profile', 'profile_use', 'profile_generate', 'cpppath',
+ 			'libpath', 'prefix', 'installprefix', 'datadir', 'bindir', 'libdir', 'cachedir', 'strip',
+ 			'disable_avi', 'use_tcmalloc', 'use_mmgr', 'use_gch', 'LINKFLAGS', 'LIBPATH', 'LIBS', 'CCFLAGS',
+-			'CXXFLAGS', 'CPPDEFINES', 'CPPPATH', 'CC', 'CXX', 'is_configured', 'spring_defines']:
++			'CXXFLAGS', 'CPPDEFINES', 'CPPPATH', 'CC', 'CXX', 'is_configured', 'spring_defines', 'arch']:
+ 			if env.has_key(key): env.__delitem__(key)
+ 
+ 		print &quot;\nNow configuring.  If something fails, consult `config.log' for details.\n&quot;
+@@ -215,6 +218,26 @@
+ 		# Other options copied from streflop makefiles.
+ 		env['CCFLAGS'] = ['-fsingle-precision-constant', '-frounding-math', '-fsignaling-nans', '-mieee-fp']
+ 
++		# set architecture
++		if 'arch' in args and args['arch'] != 'auto':
++			arch = args['arch']
++			if not arch or arch == 'none':
++				print 'Configuring for default architecture'
++				env['streflop_extra'] = ''
++			else:
++				print 'Configuring for', arch
++				env['CCFLAGS'] += ['-march=' + arch]
++				env['streflop_extra'] = 'ARCH=' + arch
++		else:
++			bits, archname = platform.architecture()
++			if bits == '32bit' or env['platform'] == 'windows':
++				print 'Configuring for i686'
++				env['CCFLAGS'] += ['-march=i686']
++				env['streflop_extra'] = 'ARCH=i686'
++			else:
++				print 'Configuring for default architecture'
++				env['streflop_extra'] = ''
++
+ 		# profile?
+ 		bool_opt('profile', False)
+ 		if env['profile']:
+
+Modified: trunk/rts/lib/streflop/Makefile.common
+===================================================================
+--- trunk/rts/lib/streflop/Makefile.common	2008-10-06 21:00:26 UTC (rev 6575)
++++ trunk/rts/lib/streflop/Makefile.common	2008-10-06 22:02:20 UTC (rev 6576)
+@@ -20,6 +20,10 @@
+ ifdef WIN32
+ 	CXXFLAGS += -mthreads
+ endif
++ifdef ARCH
++	CXXFLAGS += -march=$(ARCH)
++endif
++
+ #CXXFLAGS = -O0 -pipe -g
+ 
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001345.html">[Taspring-linux-commit] r6575 - in trunk: . rts/build/scons	rts/lib/streflop
+</A></li>
+	<LI>Next message: <A HREF="001347.html">[Taspring-linux-commit] r6577 - / trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1346">[ date ]</a>
+              <a href="thread.html#1346">[ thread ]</a>
+              <a href="subject.html#1346">[ subject ]</a>
+              <a href="author.html#1346">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

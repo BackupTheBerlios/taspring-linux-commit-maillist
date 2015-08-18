@@ -1,0 +1,585 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7578 - in Lobby/TASClient: . Python
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2011-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7578%20-%20in%20Lobby/TASClient%3A%20.%20Python&In-Reply-To=%3C20110120232135.3B5B72EC67%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002347.html">
+   <LINK REL="Next"  HREF="002349.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7578 - in Lobby/TASClient: . Python</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7578%20-%20in%20Lobby/TASClient%3A%20.%20Python&In-Reply-To=%3C20110120232135.3B5B72EC67%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7578 - in Lobby/TASClient: . Python">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Jan 21 00:21:35 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002347.html">[Taspring-linux-commit] r7577 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002349.html">[Taspring-linux-commit] r7579 - in Lobby/TASClient: . Python	Python/scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2348">[ date ]</a>
+              <a href="thread.html#2348">[ thread ]</a>
+              <a href="subject.html#2348">[ subject ]</a>
+              <a href="author.html#2348">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2011-01-21 00:21:34 +0100 (Fri, 21 Jan 2011)
+New Revision: 7578
+
+Modified:
+   Lobby/TASClient/LobbyScriptUnit.pas
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/Python/api.txt
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* PYTHON : DownloadMap2, DownloadMod2, AddItemToMenu2, DisplayNotification2, AddEvent2, SynchronizedUpdate2 function added to pass a callbackFunction directly instead of a moduleName+functionName
+
+Modified: Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- Lobby/TASClient/LobbyScriptUnit.pas	2011-01-19 02:29:58 UTC (rev 7577)
++++ Lobby/TASClient/LobbyScriptUnit.pas	2011-01-20 23:21:34 UTC (rev 7578)
+@@ -20,23 +20,20 @@
+   end;
+ 
+   TScriptSimpleCallback = record
+-    moduleName : string;
+-    functionName : string;
++    func: PPyObject;
+     args: PPyObject;
+   end;
+   PScriptSimpleCallback = ^TScriptSimpleCallback;
+ 
+   TScriptDownloadCallback = record
+-    moduleName : string;
+-    functionName : string;
++    func: PPyObject;
+     args: PPyObject;
+     form: TForm;
+   end;
+   PScriptDownloadCallback = ^TScriptDownloadCallback;
+ 
+   TScriptMenuItemCallBack = record
+-    moduleName : string;
+-    functionName : string;
++    func: PPyObject;
+     menu: TTBCustomItem;
+     args: PPyObject;
+   end;
+@@ -50,10 +47,9 @@
+ 
+   TScriptEventHandler = class(TObject)
+     protected
+-      FModuleName: string;
+-      FFunctionName: string;
++      Ffunc: PPyObject;
+     public
+-      constructor Create(moduleName: string; functionName: string);
++      constructor Create(func: PPyObject);
+       function wrapEvent(args: PPyObject): Variant;
+   end;
+ 
+@@ -85,8 +81,7 @@
+   {$METHODINFO ON}
+ 
+   TGUIUpdateCallback = record
+-    moduleName : string;
+-    functionName : string;
++    func: PPyObject;
+     args: PPyObject;
+   end;
+   PGUIUpdateCallback = ^TGUIUpdateCallback;
+@@ -123,6 +118,7 @@
+     public
+       constructor Create;
+       function AddItemToMenu(menu: string;compName: string; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string;itemCaption: string): Integer;
++      function AddItemToMenu2(menu: string;compName: string; callbackArgs: Variant; callbackFunction: Variant;itemCaption: string): Integer;
+       function AddSubmenuToMenu(menu: string;compName: string; itemCaption: string): Integer;
+       function AddSeparatorToMenu(menu: string;compName: string): Integer;
+       procedure SetMenuItemState(id: integer; c: boolean; e: boolean);
+@@ -130,6 +126,7 @@
+ 
+       procedure DisplaySimpleNotification(title: string; msg: string; displayTime: integer);
+       procedure DisplayNotification(title: string; msg: string; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string; displayTime: integer);
++      procedure DisplayNotification2(title: string; msg: string; callbackArgs: Variant; callbackFunction: Variant; displayTime: integer);
+ 
+       function GetControlProperties(component: string; prop: string): Variant;
+       function SetControlProperties(component: string; prop : string; propertiesV : Variant): boolean;
+@@ -138,6 +135,7 @@
+       function AddControl(name: string;parent: string; className: string):boolean;
+       function AddToRichEdit(richedit : string; msg : string; color : integer): boolean;
+       procedure AddEvent(component: string; event: string;moduleName: string; functionName: string);
++      procedure AddEvent2(component: string; event: string;callbackFunction: Variant);
+       function ExecMethod(component: string;methodName: string; parameters: Variant): integer;
+       function GetRichEditList: Variant;
+       function GetColors: Variant;
+@@ -156,6 +154,7 @@
+       procedure ManualDock(component: string; dockDest: string);
+ 
+       procedure SynchronizedUpdate(callbackModuleName: string; callbackFunctionName: string;callbackArgs: Variant);
++      procedure SynchronizedUpdate2(callbackFunction: Variant;callbackArgs: Variant);
+   end;
+ 
+   TCallback = class(TPersistent)
+@@ -206,7 +205,6 @@
+       procedure ReloadScript(name: WideString);
+       procedure SendProtocol(data: WideString);
+       procedure HandleProtocol(data: WideString);
+-      //procedure NewThread(functionName: String;tuple: Variant);
+       function GetUsers: Variant;
+       function GetMyUser: Variant;
+       function GetBattles: Variant;
+@@ -229,13 +227,14 @@
+       function GetSpringExe: String;
+ 
+       procedure DownloadMap(mapName: string; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string);
++      procedure DownloadMap2(mapName: string; callbackArgs: Variant; callbackFunction: Variant);
+       procedure DownloadMod(modName: string; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string);
++      procedure DownloadMod2(modName: string; callbackArgs: Variant; callbackFunction: Variant);
+ 
+       procedure DownloadCallbackEvent(snc: PScriptDownloadCallback;progress: integer);
+ 
+       constructor Create;
+       destructor Destroy;
+-      
+   end;
+ 
+   TFileDownloadInfo = record
+@@ -978,15 +977,12 @@
+ end;
+ 
+ procedure TCallback.DownloadCallbackEvent(snc: PScriptDownloadCallback;progress: integer);
+-var
+-  m : PPyObject;
+ begin
+   AcquireMainThread;
+   with GetPythonEngine do
+   begin
+-    m := FindFunction(snc.moduleName,snc.functionName);
+     PyList_SetItem(snc.args,0,PyLong_FromLong(progress));
+-    if EvalPyFunction(m,PyList_AsTuple(snc.args)) then
++    if EvalPyFunction(snc.func,PyList_AsTuple(snc.args)) then
+       TSpringDownloaderForm(snc.form).CancelButtonClick(nil);
+   end;
+   ReleaseMainThread;
+@@ -1468,16 +1464,20 @@
+   AcquireMainThread;
+ end;
+ 
+-procedure TCallback.DownloadMap(mapName: string; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string);
++procedure TCallback.DownloadMap2(mapName: string; callbackArgs: Variant; callbackFunction: Variant);
+ var
+   snc : PScriptDownloadCallback;
+   params: PFileDownloadInfo;
+ begin
+-  New(snc);
+-  snc.moduleName := callbackModuleName;
+-  snc.functionName := callbackFunctionName;
+   with GetPythonEngine do
+   begin
++    if not PyFunction_Check(VariantAsPyObject(callbackFunction)) then
++    begin
++      Print('Error: Invalid DownloadMap2 callback function.');
++      Exit;
++    end;
++    New(snc);
++    snc.func := VariantAsPyObject(callbackFunction);
+     snc.args := VariantAsPyObject(callbackArgs);
+     PyList_Insert(snc.args,0,PyLong_FromLong(0));
+   end;
+@@ -1496,16 +1496,28 @@
+       Print(E.Message);
+   end;
+ end;
++
++procedure TCallback.DownloadMap(mapName: string; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string);
++begin
++  with GetPythonEngine do
++    DownloadMap2(mapName,callbackArgs,PyObjectAsVariant(FindFunction(callbackModuleName,callbackFunctionName)));
++end;
++
+ procedure TCallback.DownloadMod(modName: string; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string);
++begin
++  with GetPythonEngine do
++    DownloadMod2(modName,callbackArgs,PyObjectAsVariant(FindFunction(callbackModuleName,callbackFunctionName)));
++end;
++
++procedure TCallback.DownloadMod2(modName: string; callbackArgs: Variant; callbackFunction: Variant);
+ var
+   snc : PScriptDownloadCallback;
+   params: PFileDownloadInfo;
+ begin
+   New(snc);
+-  snc.moduleName := callbackModuleName;
+-  snc.functionName := callbackFunctionName;
+   with GetPythonEngine do
+   begin
++    snc.func := VariantAsPyObject(callbackFunction);
+     snc.args := VariantAsPyObject(callbackArgs);
+     PyList_Insert(snc.args,0,PyLong_FromLong(0));
+   end;
+@@ -1789,7 +1801,6 @@
+ 
+ procedure TGUI.MenuItemClick(Sender: TObject);
+ var
+-  m : PPyObject;
+   s: string;
+   i: integer;
+   miCb : PScriptMenuItemCallBack;
+@@ -1798,16 +1809,20 @@
+   with GetPythonEngine do
+   begin
+     miCb := PScriptMenuItemCallBack(Pointer((Sender as TSpTBXItem).Tag));
+-    m := FindFunction(miCb.moduleName,miCb.functionName);
+ 
+     AddSelectionArgs(miCb);
+ 
+-    EvalPyFunction(m,PyList_AsTuple(miCb.args));
++    EvalPyFunction(miCb.func,PyList_AsTuple(miCb.args));
+   end;
+   ReleaseMainThread;
+ end;
+ 
+ function TGUI.AddItemToMenu(menu: string;compName: string; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string;itemCaption: string): Integer;
++begin
++  with GetPythonEngine do
++    AddItemToMenu2(menu,compName,callbackArgs,PyObjectAsVariant(FindFunction(callbackModuleName,callbackFunctionName)),itemCaption);
++end;
++function TGUI.AddItemToMenu2(menu: string;compName: string; callbackArgs: Variant; callbackFunction: Variant;itemCaption: string): Integer;
+ var
+   m : TTBCustomItem;
+   s: PPyObject;
+@@ -1846,8 +1861,7 @@
+       Caption := itemCaption;
+       OnClick := MenuItemClick;
+       New(itemCb);
+-      itemCb.moduleName := callbackModuleName;
+-      itemCb.functionName := callbackFunctionName;
++      itemCb.func := VariantAsPyObject(callbackFunction);
+       itemCb.args := VariantAsPyObject(callbackArgs);
+ 
+       // adding the selection empty args
+@@ -1953,14 +1967,19 @@
+ end;
+ 
+ procedure TGUI.SynchronizedUpdate(callbackModuleName: string; callbackFunctionName: string;callbackArgs: Variant);
++begin
++  with GetPythonEngine do
++    SynchronizedUpdate2(PyObjectAsVariant(FindFunction(callbackModuleName,callbackFunctionName)),callbackArgs);
++end;
++
++procedure TGUI.SynchronizedUpdate2(callbackFunction: Variant;callbackArgs: Variant);
+ var
+   ucb: PGUIUpdateCallback;
+ begin
+   with GetPythonEngine do
+   begin
+     New(ucb);
+-    ucb.moduleName := callbackModuleName;
+-    ucb.functionName := callbackFunctionName;
++    ucb.func := VariantAsPyObject(callbackFunction);
+     ucb.args := PyList_AsTuple(VariantAsPyObject(callbackArgs));
+     PostMessage(MainForm.Handle,WM_SCRIPT,6,Integer(ucb));
+   end;
+@@ -2036,6 +2055,12 @@
+ end;
+ 
+ procedure TGUI.DisplayNotification(title: string; msg: string; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string; displayTime: integer);
++begin
++  with GetPythonEngine do
++    DisplayNotification2(title,msg,callbackArgs,PyObjectAsVariant(FindFunction(callbackModuleName,callbackFunctionName)),displayTime);
++end;
++
++procedure TGUI.DisplayNotification2(title: string; msg: string; callbackArgs: Variant; callbackFunction: Variant; displayTime: integer);
+ var
+   snc : PScriptSimpleCallback;
+   N : TJvDesktopAlert;
+@@ -2043,8 +2068,7 @@
+   N := MainForm.MakeNotification(title,msg,displayTime,True);
+   N.OnMessageClick := SimpleCallbackEvent;
+   New(snc);
+-  snc.moduleName := callbackModuleName;
+-  snc.functionName := callbackFunctionName;
++  snc.func := GetPythonEngine.VariantAsPyObject(callbackFunction);
+   snc.args := GetPythonEngine.VariantAsPyObject(callbackArgs);
+   N.Tag := Longint(snc);
+   MainForm.ExecuteNotification(N);
+@@ -2052,16 +2076,14 @@
+ 
+ procedure TGUI.SimpleCallbackEvent(Sender: TObject);
+ var
+-  m : PPyObject;
+   snc : PScriptSimpleCallback;
+ begin
+   AcquireMainThread;
+   with GetPythonEngine do
+   begin
+     snc := PScriptSimpleCallback(Pointer((Sender as TComponent).Tag));
+-    m := FindFunction(snc.moduleName,snc.functionName);
+ 
+-    EvalPyFunction(m,PyList_AsTuple(snc.args));
++    EvalPyFunction(snc.func,PyList_AsTuple(snc.args));
+   end;
+   ReleaseMainThread;
+ end;
+@@ -2579,59 +2601,67 @@
+ end;
+ 
+ procedure TGUI.AddEvent(component: string; event: string;moduleName: string; functionName: string);
++begin
++  with GetPythonEngine do
++    AddEvent2(component,event,PyObjectAsVariant(FindFunction(moduleName,functionName)));
++end;
++
++procedure TGUI.AddEvent2(component: string; event: string;callbackFunction: Variant);
+ var
+   comp: TComponent;
+   callable: PPyObject;
+   eh: ^TScriptEventHandler;
+   m: TMethod;
++  func: PPyObject;
+ begin
+   comp := GetComponentFromString(component);
+   New(eh);
++  func := GetPythonEngine.VariantAsPyObject(callbackFunction);
+   if GetPerpertyInfo(comp,event).PropType^.Name = 'TWebBrowserBeforeNavigate2' then
+   begin
+-    eh^ := TScriptEventHandlerTWebBrowserBeforeNavigate2.Create(moduleName,functionName);
++    eh^ := TScriptEventHandlerTWebBrowserBeforeNavigate2.Create(func);
+     m.Code := TScriptEventHandlerTWebBrowserBeforeNavigate2(eh^).MethodAddress('eventHandler');
+     m.Data := Pointer(eh^);
+     SetMethodProp(comp,event,m);
+   end
+   else if GetPerpertyInfo(comp,event).PropType^.Name = 'TNotifyEvent' then
+   begin
+-    eh^ := TScriptEventHandlerDefault.Create(moduleName,functionName);
++    eh^ := TScriptEventHandlerDefault.Create(func);
+     m.Code := TScriptEventHandlerDefault(eh^).MethodAddress('eventHandler');
+     m.Data := Pointer(eh^);
+     SetMethodProp(comp,event,m);
+   end
+   else if GetPerpertyInfo(comp,event).PropType^.Name = 'TMouseEvent' then
+   begin
+-    eh^ := TScriptEventHandlerTMouseEvent.Create(moduleName,functionName);
++    eh^ := TScriptEventHandlerTMouseEvent.Create(func);
+     m.Code := TScriptEventHandlerTMouseEvent(eh^).MethodAddress('eventHandler');
+     m.Data := Pointer(eh^);
+     SetMethodProp(comp,event,m);
+   end
+   else if GetPerpertyInfo(comp,event).PropType^.Name = 'TMouseMoveEvent' then
+   begin
+-    eh^ := TScriptEventHandlerTMouseMoveEvent.Create(moduleName,functionName);
++    eh^ := TScriptEventHandlerTMouseMoveEvent.Create(func);
+     m.Code := TScriptEventHandlerTMouseMoveEvent(eh^).MethodAddress('eventHandler');
+     m.Data := Pointer(eh^);
+     SetMethodProp(comp,event,m);
+   end
+   else if GetPerpertyInfo(comp,event).PropType^.Name = 'TKeyEvent' then
+   begin
+-    eh^ := TScriptEventHandlerTKeyEvent.Create(moduleName,functionName);
++    eh^ := TScriptEventHandlerTKeyEvent.Create(func);
+     m.Code := TScriptEventHandlerTKeyEvent(eh^).MethodAddress('eventHandler');
+     m.Data := Pointer(eh^);
+     SetMethodProp(comp,event,m);
+   end
+   else if GetPerpertyInfo(comp,event).PropType^.Name = 'TKeyPressEvent' then
+   begin
+-    eh^ := TScriptEventHandlerTKeyPressEvent.Create(moduleName,functionName);
++    eh^ := TScriptEventHandlerTKeyPressEvent.Create(func);
+     m.Code := TScriptEventHandlerTKeyPressEvent(eh^).MethodAddress('eventHandler');
+     m.Data := Pointer(eh^);
+     SetMethodProp(comp,event,m);
+   end
+   else
+   begin // default event handler
+-    eh^ := TScriptEventHandlerDefault.Create(moduleName,functionName);
++    eh^ := TScriptEventHandlerDefault.Create(func);
+     m.Code := TScriptEventHandlerDefault(eh^).MethodAddress('eventHandler');
+     m.Data := Pointer(eh^);
+     SetMethodProp(comp,event,m);
+@@ -3102,23 +3132,18 @@
+ //    TScriptEventHandler TScriptEventHandlerDefault TScriptEventHandlerOnBeforeNavigate2
+ //------------------------------------------------------------------------------------------------------
+ 
+-constructor TScriptEventHandler.Create(moduleName: string; functionName: string);
++constructor TScriptEventHandler.Create(func: PPyObject);
+ begin
+-  FModuleName := moduleName;
+-  FFunctionName := functionName;
++  Ffunc := func;
+ end;
+ function TScriptEventHandler.wrapEvent(args: PPyObject): Variant;
+-var
+-  m : PPyObject;
+ begin
+   AcquireMainThread;
+   with GetPythonEngine do
+   begin
+-    m := FindFunction(Self.FModuleName,Self.FFunctionName);
+-
+     Result := False;
+     try
+-      Result := EvalPyFunction(m,args);
++      Result := EvalPyFunction(Ffunc,args);
+     except
+       on E:Exception do
+       begin
+@@ -3234,15 +3259,12 @@
+ end;
+ 
+ procedure GUISynchronizedUpdate(ucb: PGUIUpdateCallback);
+-var
+-  m: PPyObject;
+ begin
+   AcquireMainThread;
+   with GetPythonEngine do
+   begin
+-    m := FindFunction(ucb.moduleName,ucb.functionName);
+     try
+-      EvalPyFunction(m,ucb.args);
++      EvalPyFunction(ucb.func,ucb.args);
+     except
+     end;
+     Py_XDECREF(ucb.args);
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2011-01-19 02:29:58 UTC (rev 7577)
++++ Lobby/TASClient/MainUnit.pas	2011-01-20 23:21:34 UTC (rev 7578)
+@@ -421,7 +421,7 @@
+   );
+ 
+ const
+-  VERSION_NUMBER = '0.84'; // Must be float value! (with a period as a decimal seperator)
++  VERSION_NUMBER = '0.85'; // Must be float value! (with a period as a decimal seperator)
+   AUTOUPDATE_URL = '<A HREF="http://tasclient.no-ip.org/TASClient_update_v5.txt">http://tasclient.no-ip.org/TASClient_update_v5.txt</A>';
+   PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER;
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+
+Modified: Lobby/TASClient/Python/api.txt
+===================================================================
+--- Lobby/TASClient/Python/api.txt	2011-01-19 02:29:58 UTC (rev 7577)
++++ Lobby/TASClient/Python/api.txt	2011-01-20 23:21:34 UTC (rev 7578)
+@@ -75,13 +75,15 @@
+ - SetMyBattleStatus(Spec: boolean)
+ - ChangeMap(mapName)
+ - DownloadMap(mapName,callBackArgs,callBackModuleName,callBackFunctionName)
++  DownloadMap2(mapName,callBackArgs,callBackFunction)
+ 	The progress in % is returned as first argument added to the argsTuple.
+ 	Progress = -1 : download complete
+ 	Progress = -2 : download failed (file not found, SD not launched etc)
+ 	Progress = -3 : download canceled
+ 	
+-	callBackFunctionName return Cancel : boolean
++	callBackFunction return Cancel : boolean
+ - DownloadMod(modName,callBackArgs,callBackModuleName,callBackFunctionName)
++  DownloadMod2(modName,callBackArgs,callBackFunction)
+ 	Same as DownloadMap
+ - GetSpringExe 
+ 	return the full spring exe path
+@@ -92,6 +94,7 @@
+ menuName = [Char (returning Channel,line text, char position in the line, selected text), HostBattle, Options, Help, HelpWiki, HelpDownload, BattleItem (returning the BattleId), PlayerItem (Returning the Player Name), PlayerItemModeration (Returning the Player Name), BattlePlayerItem (Returning the Player Name), BattleMinimap, BattleAdmin, BattleAdminBalance, BattleAdminRankLimit, BattleLadder, ReplayItem (Returning the Replay index)] 
+ 
+ - AddItemToMenu(menuName/SubmenuId,name,argsTuple,callbackModuleName,callbackFunctionName,caption) return itemId
++  AddItemToMenu2(menuName/SubmenuId,name,argsTuple,callBackFunction,caption) return itemId
+ 	The selected item id is returned as first argument added to the argsTuple.
+ 	
+ - AddSubmenuToMenu(menuName/SubmenuId,name,caption) return SubmenuId
+@@ -101,8 +104,10 @@
+ 	Id can be an itemId or a SubmenuId or a SeparatorId.
+ 	
+ - DisplayNotification(title, msg, argsTuple, onClickModuleName, onClickFunctionName, displayTime)
++  DisplayNotification2(title, msg, argsTuple, onClickFunction, displayTime)
++	Display a notification and handle its OnClick event
++	displayTime in ms
+ - DisplaySimpleNotification(title, msg, displayTime)
+-	displayTime in ms
+ - GetControlProperties(controlName,controlClassTypePropertyPath)
+ - SetControlProperties(controlName,controlClassTypePropertyPath, properties)
+ - AddControl(name, parent, className)
+@@ -130,6 +135,7 @@
+ 	iconsDictExample = {0:{'File':'filepath.bmp/jpg/png', 'Name':'Rank1', 'MaskColor':16777215}, 1:{'File':'filepath.bmp/jpg/png', 'Name':'Rank2', 'MaskColor':16777215} ...}
+ - SetPlayerIconId(playerNick,iconTypeName,iconId)
+ - AddEvent(control, event, callbackModuleName, callbackFunctionName)
++  AddEvent2(control, event, callbackFunction)
+ 	Event fully handled :
+ 		TWebBrowserBeforeNavigate2(Sender,PostData,TargetFrameName,URL)
+ 		TNotifyEvent(Sender)
+@@ -146,7 +152,8 @@
+ 	allow you to execute a published method (mostly control events functions)
+ 	check the TASClient sources to get the list of functions (ex: ExecMethod('MainForm','mnuPlaynowClick',()) )
+ - ManualDock(component, dockDest)
+-- SynchronizedUpdate(moduleName,functionName,arguments)
++- SynchronizedUpdate(callbackModuleName,callbackFunctionName,arguments)
++  SynchronizedUpdate2(callbackFunction,arguments)
+ 	gui is not thread safe, using it in a thread will result in a dead lock, if you need to update gui items, put everything in a function and call it using this method from your thread.
+ 
+ 
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2011-01-19 02:29:58 UTC (rev 7577)
++++ Lobby/TASClient/TASClient.dof	2011-01-20 23:21:34 UTC (rev 7578)
+@@ -113,9 +113,9 @@
+ IncludeVerInfo=1
+ AutoIncBuild=1
+ MajorVer=0
+-MinorVer=84
++MinorVer=85
+ Release=0
+-Build=1234
++Build=1236
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.84.0.1234
++FileVersion=0.85.0.1236
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002347.html">[Taspring-linux-commit] r7577 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002349.html">[Taspring-linux-commit] r7579 - in Lobby/TASClient: . Python	Python/scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2348">[ date ]</a>
+              <a href="thread.html#2348">[ thread ]</a>
+              <a href="subject.html#2348">[ subject ]</a>
+              <a href="author.html#2348">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,251 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5275 - in trunk/rts/Sim: Misc	Units/CommandAI
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5275%20-%20in%20trunk/rts/Sim%3A%20Misc%0A%09Units/CommandAI&In-Reply-To=%3CE1JBE8i-0004f9-GE%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000082.html">
+   <LINK REL="Next"  HREF="000084.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5275 - in trunk/rts/Sim: Misc	Units/CommandAI</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5275%20-%20in%20trunk/rts/Sim%3A%20Misc%0A%09Units/CommandAI&In-Reply-To=%3CE1JBE8i-0004f9-GE%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5275 - in trunk/rts/Sim: Misc	Units/CommandAI">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Jan  5 19:53:00 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000082.html">[Taspring-linux-commit] r5274 - in trunk: rts/Game	tools/DedicatedServer
+</A></li>
+        <LI>Next message: <A HREF="000084.html">[Taspring-linux-commit] r5276 - in trunk:	installer/builddata/springcontent/LuaGadgets rts/Lua	rts/Sim/Units/UnitTypes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#83">[ date ]</a>
+              <a href="thread.html#83">[ thread ]</a>
+              <a href="subject.html#83">[ subject ]</a>
+              <a href="author.html#83">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: imbaczek
+Date: 2008-01-05 19:52:58 +0100 (Sat, 05 Jan 2008)
+New Revision: 5275
+
+Modified:
+   trunk/rts/Sim/Misc/FeatureHandler.cpp
+   trunk/rts/Sim/Units/CommandAI/BuilderCAI.cpp
+   trunk/rts/Sim/Units/CommandAI/BuilderCAI.h
+Log:
+really fix mantis #580 - add a set of units that reclaim features
+    
+do not recycle feature IDs when at least one is in command queue of some builder.
+
+Modified: trunk/rts/Sim/Misc/FeatureHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Misc/FeatureHandler.cpp	2008-01-05 17:56:03 UTC (rev 5274)
++++ trunk/rts/Sim/Misc/FeatureHandler.cpp	2008-01-05 18:52:58 UTC (rev 5275)
+@@ -22,6 +22,7 @@
+ #include &quot;Rendering/UnitModels/3DOParser.h&quot;
+ #include &quot;Rendering/UnitModels/UnitDrawer.h&quot;
+ #include &quot;Sim/Units/UnitHandler.h&quot;
++#include &quot;Sim/Units/CommandAI/BuilderCAI.h&quot;
+ #include &quot;System/TimeProfiler.h&quot;
+ #include &lt;GL/glu.h&gt; // after myGL.h
+ #include &quot;mmgr.h&quot;
+@@ -411,8 +412,18 @@
+ 	ASSERT_SYNCED_MODE;
+ 	SCOPED_TIMER(&quot;Feature::Update&quot;);
+ 
+-	if ((gs-&gt;frameNum &amp; 31) == 0)	// let all areareclaimers choose a target with a different id
+-		freeIDs.splice(freeIDs.end(), toBeFreedIDs, toBeFreedIDs.begin(), toBeFreedIDs.end());
++	if ((gs-&gt;frameNum &amp; 31) == 0) {	// let all areareclaimers choose a target with a different id
++		bool dontClear = false;
++		for (list&lt;int&gt;::iterator it = toBeFreedIDs.begin(); it != toBeFreedIDs.end(); ++it) {
++			if (CBuilderCAI::IsFeatureBeingReclaimed(*it)) {
++				// postpone recycling
++				dontClear = true;
++				break;
++			}
++		}
++		if (!dontClear)
++			freeIDs.splice(freeIDs.end(), toBeFreedIDs, toBeFreedIDs.begin(), toBeFreedIDs.end());
++	}
+ 
+ 	while (!toBeRemoved.empty()) {
+ 		CFeatureSet::iterator it = activeFeatures.find(toBeRemoved.back());
+
+Modified: trunk/rts/Sim/Units/CommandAI/BuilderCAI.cpp
+===================================================================
+--- trunk/rts/Sim/Units/CommandAI/BuilderCAI.cpp	2008-01-05 17:56:03 UTC (rev 5274)
++++ trunk/rts/Sim/Units/CommandAI/BuilderCAI.cpp	2008-01-05 18:52:58 UTC (rev 5275)
+@@ -54,6 +54,7 @@
+ 
+ // not adding to members, should repopulate itself
+ CUnitSet CBuilderCAI::reclaimers;
++CUnitSet CBuilderCAI::featureReclaimers;
+ 
+ 
+ CBuilderCAI::CBuilderCAI()
+@@ -176,6 +177,7 @@
+ CBuilderCAI::~CBuilderCAI()
+ {
+ 	RemoveUnitFromReclaimers(owner);
++	RemoveUnitFromFeatureReclaimers(owner);
+ 	uh-&gt;RemoveBuilderCAI(this);
+ }
+ 
+@@ -688,10 +690,14 @@
+ 				if(!ReclaimObject(feature)){
+ 					StopMove();
+ 					FinishCommand();
++					RemoveUnitFromFeatureReclaimers(owner);
++				} else {
++					AddUnitToFeatureReclaimers(owner);
+ 				}
+ 			} else {
+ 				StopMove();
+ 				FinishCommand();
++				RemoveUnitFromFeatureReclaimers(owner);
+ 			}
+ 			RemoveUnitFromReclaimers(owner);
+ 
+@@ -708,12 +714,14 @@
+ 				RemoveUnitFromReclaimers(owner);
+ 				FinishCommand();
+ 			}
++			RemoveUnitFromFeatureReclaimers(owner);
+ 		}
+ 	} else if(c.params.size()==4){//area reclaim
+ 		float3 pos(c.params[0],c.params[1],c.params[2]);
+ 		float radius=c.params[3];
+ 		const bool recAnyTeam = ((c.options &amp; CONTROL_KEY) != 0);
+ 		RemoveUnitFromReclaimers(owner);
++		RemoveUnitFromFeatureReclaimers(owner);
+ 		if (FindReclaimableFeatureAndReclaim(pos, radius, c.options, true, recAnyTeam)) {
+ 			inCommand=false;
+ 			SlowUpdate();
+@@ -724,6 +732,7 @@
+ 		}
+ 	} else {	//wrong number of parameters
+ 		RemoveUnitFromReclaimers(owner);
++		RemoveUnitFromFeatureReclaimers(owner);
+ 		FinishCommand();
+ 	}
+ 	return;
+@@ -958,6 +967,17 @@
+ }
+ 
+ 
++void CBuilderCAI::AddUnitToFeatureReclaimers(CUnit* unit)
++{
++	featureReclaimers.insert(unit);
++}
++
++void CBuilderCAI::RemoveUnitFromFeatureReclaimers(CUnit* unit)
++{
++	featureReclaimers.erase(unit);
++}
++
++
+ /** check if a unit is being reclaimed by a friendly con.
+ 
+ we assume that there won't be a lot of reclaimers because performance would suck
+@@ -998,6 +1018,37 @@
+ }
+ 
+ 
++bool CBuilderCAI::IsFeatureBeingReclaimed(int featureId)
++{
++	bool retval = false;
++	std::list&lt;CUnit*&gt; rm;
++
++	for (CUnitSet::iterator it = featureReclaimers.begin(); it != featureReclaimers.end(); ++it) {
++		// check wheter reclaimers are valid
++		assert(*it);
++		assert((*it)-&gt;commandAI);
++		if ((*it)-&gt;commandAI-&gt;commandQue.empty()) {
++			rm.push_back(*it);
++			continue;
++		}
++		const Command&amp; c = (*it)-&gt;commandAI-&gt;commandQue.front();
++		if (c.id != CMD_RECLAIM || c.params.size() != 1) {
++			rm.push_back(*it);
++			continue;
++		}
++
++		const int cmdFeatureId = (int)c.params[0];
++		if (cmdFeatureId-MAX_UNITS == featureId) {
++			retval = true;
++			break;
++		}
++	}
++	for (std::list&lt;CUnit*&gt;::iterator it = rm.begin(); it != rm.end(); ++it)
++		RemoveUnitFromFeatureReclaimers(*it);
++	return retval;
++}
++
++
+ bool CBuilderCAI::ReclaimObject(CSolidObject* object){
+ 	CBuilder* fac=(CBuilder*)owner;
+ 	if (f3Dist(object-&gt;pos, fac-&gt;pos) &lt; fac-&gt;buildDistance-1+object-&gt;radius) {
+
+Modified: trunk/rts/Sim/Units/CommandAI/BuilderCAI.h
+===================================================================
+--- trunk/rts/Sim/Units/CommandAI/BuilderCAI.h	2008-01-05 17:56:03 UTC (rev 5274)
++++ trunk/rts/Sim/Units/CommandAI/BuilderCAI.h	2008-01-05 18:52:58 UTC (rev 5275)
+@@ -75,6 +75,7 @@
+ 
+ public:
+ 	static CUnitSet reclaimers;
++	static CUnitSet featureReclaimers;
+ 
+ private:
+ 
+@@ -86,6 +87,14 @@
+ 	static void AddUnitToReclaimers(CUnit*);
+ 	static void RemoveUnitFromReclaimers(CUnit*);
+ 	static bool IsUnitBeingReclaimedByFriend(CUnit*);
++
++	// fix for cons wandering away from their target circle
++	static void AddUnitToFeatureReclaimers(CUnit*);
++	static void RemoveUnitFromFeatureReclaimers(CUnit*);
++public:
++	static bool IsFeatureBeingReclaimed(int);
++
++private:
+ };
+ 
+ #endif // __BUILDER_CAI_H__
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000082.html">[Taspring-linux-commit] r5274 - in trunk: rts/Game	tools/DedicatedServer
+</A></li>
+	<LI>Next message: <A HREF="000084.html">[Taspring-linux-commit] r5276 - in trunk:	installer/builddata/springcontent/LuaGadgets rts/Lua	rts/Sim/Units/UnitTypes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#83">[ date ]</a>
+              <a href="thread.html#83">[ thread ]</a>
+              <a href="subject.html#83">[ subject ]</a>
+              <a href="author.html#83">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

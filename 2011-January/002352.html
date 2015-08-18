@@ -1,0 +1,395 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7582 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2011-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7582%20-%20Lobby/TASClient&In-Reply-To=%3C20110125214656.A87E92ACAF%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002351.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7582 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7582%20-%20Lobby/TASClient&In-Reply-To=%3C20110125214656.A87E92ACAF%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7582 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Jan 25 22:46:56 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002351.html">[Taspring-linux-commit] r7581 - Lobby/TASClient/Python/scripts
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2352">[ date ]</a>
+              <a href="thread.html#2352">[ thread ]</a>
+              <a href="subject.html#2352">[ subject ]</a>
+              <a href="author.html#2352">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2011-01-25 22:46:55 +0100 (Tue, 25 Jan 2011)
+New Revision: 7582
+
+Modified:
+   Lobby/TASClient/BattleFormUnit.dfm
+   Lobby/TASClient/BattleFormUnit.pas
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* fixed the relay chat option having high cpu usage
+
+Modified: Lobby/TASClient/BattleFormUnit.dfm
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.dfm	2011-01-23 15:18:25 UTC (rev 7581)
++++ Lobby/TASClient/BattleFormUnit.dfm	2011-01-25 21:46:55 UTC (rev 7582)
+@@ -1,6 +1,6 @@
+ object BattleForm: TBattleForm
+-  Left = 389
+-  Top = 449
++  Left = 975
++  Top = 392
+   Width = 923
+   Height = 638
+   Caption = 'Battle window'
+
+Modified: Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.pas	2011-01-23 15:18:25 UTC (rev 7581)
++++ Lobby/TASClient/BattleFormUnit.pas	2011-01-25 21:46:55 UTC (rev 7582)
+@@ -763,7 +763,8 @@
+     IngameId: TIntegerList;
+     IngameName: TStringList;
+     SpringComAddrAcquired: Boolean;
+-    SpringComAddr: sockaddr_in;
++    SpringComAddr: string;
++    SpringComPort: integer;
+     SpringChatMsgsBeingRelayed: TWideStringList;
+     HostSupportsJoinPassword: boolean;
+     RelayChat: boolean;
+@@ -2416,21 +2417,12 @@
+ 
+   if not relayHostScript and BattleState.RelayChat then
+   begin
+-    MainForm.SpringSocket.Destroy;
+-    MainForm.SpringSocket := TWSocket.Create(MainForm);
+-    MainForm.SpringSocket.Proto := 'udp';
+-    MainForm.SpringSocket.KeepAliveInterval := 1000;
+-    MainForm.SpringSocket.FlushTimeout := 1000;
+-    MainForm.SpringSocket.OnDataAvailable := MainForm.SpringSocketDataAvailable;
+-    MainForm.SpringSocket.Addr := '127.0.0.1';
+-    MainForm.SpringSocket.MultiThreaded := False;
+-    MainForm.SpringSocket.Port := IntToStr(BattleState.Battle.Port-1);
+-    MainForm.SpringSocket.LocalPort := IntToStr(BattleState.Battle.Port-1);
+-    Script.AddOrChangeKeyValue('GAME/autohostport',MainForm.SpringSocket.Port);
++    MainForm.SpringSocket.DefaultPort := BattleState.Battle.Port-1;
++    Script.AddOrChangeKeyValue('GAME/autohostport',IntToStr(MainForm.SpringSocket.DefaultPort));
+     BattleState.IngameName.Clear;
+     BattleState.IngameId.Clear;
+     BattleState.SpringComAddrAcquired := False;
+-    MainForm.SpringSocket.Listen;
++    MainForm.SpringSocket.Active := True;
+   end;
+ 
+   if relayHostScript or ((BattleState.Status = Hosting) and (HostBattleForm.relayHoster = nil)) then
+@@ -3655,7 +3647,7 @@
+     else
+     begin
+       AddTextToChat('Back from the game', Colors.Info, 1);
+-      MainForm.SpringSocket.Close;
++      MainForm.SpringSocket.Active := False;
+       if (BattleState.Status = Hosting) and (HostBattleForm.relayHoster = nil) then
+       begin
+         JoinButton.Visible := False;
+@@ -3675,7 +3667,7 @@
+   else
+   begin
+     AddTextToChat('Back from the game', Colors.Info, 1);
+-    MainForm.SpringSocket.Close;
++    MainForm.SpringSocket.Active := False;
+     if (BattleState.Status = Hosting) and (HostBattleForm.relayHoster = nil) then
+     begin
+       JoinButton.Visible := False;
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2011-01-23 15:18:25 UTC (rev 7581)
++++ Lobby/TASClient/MainUnit.dfm	2011-01-25 21:46:55 UTC (rev 7582)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 386
+-  Top = 589
++  Left = 374
++  Top = 258
+   Width = 883
+   Height = 553
+   Caption = 'TASClient'
+@@ -8083,40 +8083,16 @@
+       FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF00000000000000000000000000000000
+       000000000000}
+   end
+-  object SpringSocket: TWSocket
+-    LineMode = False
+-    LineLimit = 65536
+-    LineEnd = #13#10
+-    LineEcho = False
+-    LineEdit = False
+-    Proto = 'udp'
+-    LocalAddr = '0.0.0.0'
+-    LocalPort = '0'
+-    MultiThreaded = True
+-    MultiCast = False
+-    MultiCastIpTTL = 1
+-    FlushTimeout = 60
+-    SendFlags = wsSendNormal
+-    LingerOnOff = wsLingerOn
+-    LingerTimeout = 0
+-    KeepAliveOnOff = wsKeepAliveOnSystem
+-    KeepAliveTime = 30000
+-    KeepAliveInterval = 10
+-    SocksLevel = '5'
+-    SocksAuthentication = socksNoAuthentication
+-    LastError = 0
+-    ReuseAddr = False
+-    ComponentOptions = []
+-    ListenBacklog = 5
+-    ReqVerLow = 1
+-    ReqVerHigh = 1
+-    OnDataAvailable = SpringSocketDataAvailable
+-    Left = 296
+-    Top = 200
+-  end
+   object tmrCumulativeDataSentHistory: TTimer
+     OnTimer = tmrCumulativeDataSentHistoryTimer
+     Left = 592
+     Top = 168
+   end
++  object SpringSocket: TIdUDPServer
++    Bindings = &lt;&gt;
++    DefaultPort = 0
++    OnUDPRead = SpringSocketUDPRead
++    Left = 296
++    Top = 197
++  end
+ end
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2011-01-23 15:18:25 UTC (rev 7581)
++++ Lobby/TASClient/MainUnit.pas	2011-01-25 21:46:55 UTC (rev 7582)
+@@ -29,7 +29,8 @@
+   JvWinampLabel, JvExControls, JvLinkLabel, ActnList, JvgHint, OpenGL1x,
+   SpTBXSkins,pngimage, SpTBXExtEditors, BotOptionsFormUnit,
+   OverbyteIcsHttpProt, OverbyteIcsWndControl, OverbyteIcsWSocket,
+-  OverbyteIcsMultipartHttpDownloader,ActiveX;
++  OverbyteIcsMultipartHttpDownloader,ActiveX, IdBaseComponent, IdComponent,
++  IdUDPBase, IdUDPClient, IdUDPServer,IdSocketHandle;
+ 
+ const
+   SpecialUrlProtocols : array[0..0] of string =
+@@ -1325,7 +1326,6 @@
+     FiltersButton: TSpTBXButton;
+     SpacerPanel1: TSpTBXPanel;
+     SpacerPanel2: TSpTBXPanel;
+-    SpringSocket: TWSocket;
+     mnuSpringWidgetDatabase: TSpTBXItem;
+     PlayerFiltersTextbox: TSpTBXButtonEdit;
+     BattlePlayersPanel: TSpTBXPanel;
+@@ -1346,6 +1346,7 @@
+     mnuCopyMapName: TSpTBXItem;
+     mnuCopyModName: TSpTBXItem;
+     SpTBXSeparatorItem30: TSpTBXSeparatorItem;
++    SpringSocket: TIdUDPServer;
+     procedure mnuOpenPrivateChatClick(Sender: TObject);
+     procedure mnuSelectBattleClick(Sender: TObject);
+     procedure mnuPlayWithClick(Sender: TObject);
+@@ -1528,12 +1529,10 @@
+     procedure SpTBXItem1Click(Sender: TObject);
+     procedure mnuJoinChannelClick(Sender: TObject);
+     procedure mnuListChannelsClick(Sender: TObject);
+-    procedure SpringSocketDataAvailable(Sender: TObject; ErrCode: Word);
+     procedure PlayersValueTextBoxSubEditButton0Click(Sender: TObject);
+     procedure Players2ValueTextBoxSubEditButton0Click(Sender: TObject);
+     procedure MaxPlayersValueTextBoxSubEditButton0Click(Sender: TObject);
+     procedure RankValueTextBoxSubEditButton0Click(Sender: TObject);
+-    procedure SpringSocketTimerTimer(Sender: TObject);
+     procedure mnuSpringWidgetDatabaseClick(Sender: TObject);
+     procedure FilterListPaintText(Sender: TBaseVirtualTree;
+       const TargetCanvas: TCanvas; Node: PVirtualNode;
+@@ -1553,6 +1552,8 @@
+     procedure mnuCopyDescriptionClick(Sender: TObject);
+     procedure mnuCopyMapNameClick(Sender: TObject);
+     procedure mnuCopyModNameClick(Sender: TObject);
++    procedure SpringSocketUDPRead(Sender: TObject; AData: TStream;
++      ABinding: TIdSocketHandle);
+   published
+     MainTitleBar: TSpTBXTitleBar;
+     ButtonImageList: TImageList;
+@@ -6952,7 +6953,7 @@
+       begin
+         tmpInt := BattleState.SpringChatMsgsBeingRelayed.IndexOf(tmp);
+         if tmpInt = -1 then
+-          MainForm.SpringSocket.SendTo(BattleState.SpringComAddr,SizeOf(sockaddr_in)<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">, at tmpStr</A>[1],Length(tmpStr))
++          MainForm.SpringSocket.SendBuffer(BattleState.SpringComAddr,BattleState.SpringComPort,tmpStr[1],Length(tmpStr))
+         else
+           BattleState.SpringChatMsgsBeingRelayed.Delete(tmpInt);
+       end;
+@@ -7435,7 +7436,7 @@
+         if (BattleState.Status = Hosting) and (HostBattleForm.relayHoster = nil) and Status.Me.InBattle and BattleState.SpringComAddrAcquired then
+         begin
+           tmpStr := '/adduser '+Client.Name+' '+Client.BattleJoinPassword;
+-          MainForm.SpringSocket.SendTo(BattleState.SpringComAddr,SizeOf(sockaddr_in)<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">, at tmpStr</A>[1],Length(tmpStr));
++          MainForm.SpringSocket.SendBuffer(BattleState.SpringComAddr,BattleState.SpringComPort,tmpStr[1],Length(tmpStr))
+         end;
+       end;
+ 
+@@ -14664,32 +14665,6 @@
+   ProcessCommand('CHANNELS',false);
+ end;
+ 
+-procedure TMainForm.SpringSocketDataAvailable(Sender: TObject;
+-  ErrCode: Word);
+-var
+-  sBuffer: array [1..1024] of Char;
+-  len: Integer;
+-  incIp: sockaddr_in;
+-  incLen: Integer;
+-  sMsg: string;
+-begin
+-  while True do
+-  begin
+-    len := SpringSocket.ReceiveFrom(@sBuffer[1], 1024,incIp,incLen);
+-    if len &lt;= 0 then Exit;
+-    if not BattleState.SpringComAddrAcquired then
+-    begin
+-      CopyMemory(@<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">BattleState.SpringComAddr, at incIp</A>,SizeOf(sockaddr_in));
+-      BattleState.SpringComAddrAcquired := True;
+-    end;
+-    if (Byte(sBuffer[1]) = 13) or (Byte(sBuffer[1]) = 10) then // chat msg or player joined
+-    begin
+-      sMsg := Copy(sBuffer,0,len);
+-      PostMessage(MainForm.Handle, WM_SPRINGSOCKETMSG, SpringSocketQueue.Enqueue(sMsg), 0);
+-    end;
+-  end;
+-end;
+-
+ procedure TMainForm.PrintUnitsyncErrors;
+ var
+   sl: TStringList;
+@@ -14728,31 +14703,6 @@
+   RankValueTextBoxChange(RankValueTextBox);
+ end;
+ 
+-procedure TMainForm.SpringSocketTimerTimer(Sender: TObject);
+-var
+-  sBuffer: array [1..1024] of Char;
+-  len: Integer;
+-  incIp: sockaddr_in;
+-  incLen: Integer;
+-  sMsg: string;
+-begin
+-  while True do
+-  begin
+-    len := SpringSocket.ReceiveFrom(@sBuffer[1], 1024,incIp,incLen);
+-    if len &lt;= 0 then Exit;
+-    if not BattleState.SpringComAddrAcquired then
+-    begin
+-      CopyMemory(@<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">BattleState.SpringComAddr, at incIp</A>,SizeOf(sockaddr_in));
+-      BattleState.SpringComAddrAcquired := True;
+-    end;
+-    if (Byte(sBuffer[1]) = 13) or (Byte(sBuffer[1]) = 10) then // chat msg or player joined
+-    begin
+-      sMsg := Copy(sBuffer,0,len);
+-      PostMessage(MainForm.Handle, WM_SPRINGSOCKETMSG, SpringSocketQueue.Enqueue(sMsg), 0);
+-    end;
+-  end;
+-end;
+-
+ procedure TMainForm.mnuSpringWidgetDatabaseClick(Sender: TObject);
+ begin
+   ShowAndSetFocus(WidgetDBForm.btRefresh);
+@@ -14991,4 +14941,24 @@
+   Clipboard.SetTextBuf(@WideStringToUTF8(SelectedBattle.ModName)[1]);
+ end;
+ 
++procedure TMainForm.SpringSocketUDPRead(Sender: TObject; AData: TStream;
++  ABinding: TIdSocketHandle);
++var
++  sMsg: string;
++begin
++  if not BattleState.SpringComAddrAcquired then
++  begin
++    BattleState.SpringComAddr := ABinding.PeerIP;
++    BattleState.SpringComPort := ABinding.PeerPort;
++    BattleState.SpringComAddrAcquired := True;
++  end;
++  if AData.Size &lt;= 0 then Exit;
++  SetLength(sMsg,AData.Size);
++  AData.ReadBuffer(sMsg[1],AData.Size);
++  if (Byte(sMsg[1]) = 13) or (Byte(sMsg[1]) = 10) then // chat msg or player joined
++  begin
++    PostMessage(MainForm.Handle, WM_SPRINGSOCKETMSG, SpringSocketQueue.Enqueue(sMsg), 0);
++  end;
++end;
++
+ end.
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2011-01-23 15:18:25 UTC (rev 7581)
++++ Lobby/TASClient/TASClient.dof	2011-01-25 21:46:55 UTC (rev 7582)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=85
+ Release=0
+-Build=1238
++Build=1239
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.85.0.1238
++FileVersion=0.85.0.1239
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002351.html">[Taspring-linux-commit] r7581 - Lobby/TASClient/Python/scripts
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2352">[ date ]</a>
+              <a href="thread.html#2352">[ thread ]</a>
+              <a href="subject.html#2352">[ subject ]</a>
+              <a href="author.html#2352">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

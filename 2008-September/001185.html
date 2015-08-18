@@ -1,0 +1,872 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6415 - in trunk:	installer/builddata/springcontent/shaders rts/Game/UI rts/Lua	rts/Map/SMF rts/Rendering/Env rts/Sim/Units
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6415%20-%20in%20trunk%3A%0A%09installer/builddata/springcontent/shaders%20rts/Game/UI%20rts/Lua%0A%09rts/Map/SMF%20rts/Rendering/Env%20rts/Sim/Units&In-Reply-To=%3C20080913182049.3BB0D4A30%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001184.html">
+   <LINK REL="Next"  HREF="001186.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6415 - in trunk:	installer/builddata/springcontent/shaders rts/Game/UI rts/Lua	rts/Map/SMF rts/Rendering/Env rts/Sim/Units</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6415%20-%20in%20trunk%3A%0A%09installer/builddata/springcontent/shaders%20rts/Game/UI%20rts/Lua%0A%09rts/Map/SMF%20rts/Rendering/Env%20rts/Sim/Units&In-Reply-To=%3C20080913182049.3BB0D4A30%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6415 - in trunk:	installer/builddata/springcontent/shaders rts/Game/UI rts/Lua	rts/Map/SMF rts/Rendering/Env rts/Sim/Units">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Sep 13 20:20:48 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001184.html">[Taspring-linux-commit] r6414 - in site/trunk/wwwroot: . templates
+</A></li>
+        <LI>Next message: <A HREF="001186.html">[Taspring-linux-commit] r6416 - in trunk/rts: Lua	Rendering/UnitModels Sim/Units Sim/Weapons
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1185">[ date ]</a>
+              <a href="thread.html#1185">[ thread ]</a>
+              <a href="subject.html#1185">[ subject ]</a>
+              <a href="author.html#1185">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: jk
+Date: 2008-09-13 20:20:48 +0200 (Sat, 13 Sep 2008)
+New Revision: 6415
+
+Modified:
+   trunk/installer/builddata/springcontent/shaders/bumpWaterFS.glsl
+   trunk/installer/builddata/springcontent/shaders/bumpWaterVS.glsl
+   trunk/rts/Game/UI/MiniMap.cpp
+   trunk/rts/Lua/LuaUnsyncedCtrl.cpp
+   trunk/rts/Lua/LuaUnsyncedCtrl.h
+   trunk/rts/Map/SMF/BFGroundDrawer.cpp
+   trunk/rts/Map/SMF/BFGroundDrawer.h
+   trunk/rts/Map/SMF/BFGroundTextures.cpp
+   trunk/rts/Map/SMF/BFGroundTextures.h
+   trunk/rts/Rendering/Env/BumpWater.cpp
+   trunk/rts/Rendering/Env/BumpWater.h
+   trunk/rts/Sim/Units/UnitDefHandler.cpp
+   trunk/rts/Sim/Units/UnitDefHandler.h
+Log:
+* updated BumpWater shaders
+* use DisplayLists for WaterPlane &amp; BumpWater
+* only add &quot;.wav&quot; extension for unitdef sounds if it is missing
+* LUA: added Spring.SetLastMsgPos(x,y,z) (unsyncedctrl)
+
+Modified: trunk/installer/builddata/springcontent/shaders/bumpWaterFS.glsl
+===================================================================
+--- trunk/installer/builddata/springcontent/shaders/bumpWaterFS.glsl	2008-09-13 11:44:18 UTC (rev 6414)
++++ trunk/installer/builddata/springcontent/shaders/bumpWaterFS.glsl	2008-09-13 18:20:48 UTC (rev 6415)
+@@ -116,10 +116,10 @@
+ }
+ 
+ 
+-float waveIntensity(const float x, const float step) {
+-  float front = 1.0-(abs(x-step))/(1.0-step);
+-  //float front = smoothstep(1.0-step,0.0,abs(x-step));
+-  if (x&lt;step)
++float waveIntensity(const float x) {
++  //float front = smoothstep(1.0-0.85,0.0,abs(x-0.85));
++  float front = 1.0-(abs(x-0.85))/(1.0-0.85);
++  if (x&lt;0.85)
+     return max(front,x*0.5);
+   else
+     return front;
+@@ -232,33 +232,34 @@
+ #ifdef use_shorewaves
+     vec3 shorewavesColor = vec3(0.0);
+     float inwaterdepth = 1.0-waterdepth;
+-    //if (waterdepth&lt;1.0) {
+-      float coastdist = texture2D(coastmap, gl_TexCoord[0].st ).r + octave3.x*0.1; //FIXME
+-      //if (coastdist&gt;0.0 &amp;&amp; coastdist&lt;0.25) {
+-        vec3 wavefoam  = texture2D(foam, gl_TexCoord[0].st*160.0+frame ).rgb;
+-        wavefoam += texture2D(foam, gl_TexCoord[0].st*90.0+frame ).rgb;
++    if (waterdepth&lt;1.0) {
++      float coastdist = texture2D(coastmap, gl_TexCoord[0].st ).r + octave3.x*0.1;
++      if (coastdist&gt;0.0) {
++
++        vec3 wavefoam  = texture2D(foam, gl_TexCoord[3].st ).rgb;
++        wavefoam += texture2D(foam, gl_TexCoord[3].pq ).rgb;
+         wavefoam *= 0.5;
+ 
+-        vec2 wrcoord = gl_TexCoord[0].st*2.0;
++        vec2 wrcoord = gl_TexCoord[4].st;
+ 
+         float fframe = fract(frame);
+         for (float i=0.0; i&lt;1.0; i+=0.25) {
+-          float wave  = i+fframe*50.0;
++          float wave  = i + fframe * 50.0;
+           float wavef = fract(wave);
+                 wave -= wavef;
+-          float frac  = wavef*1.4-0.2;
+-          float f = frac-coastdist;
++          float frac  = wavef * 1.4 - 0.2;
++          float f = frac - coastdist;
+           if (abs(f)&gt;WavesLength) continue;
+-          float rand = texture2D(waverand, wrcoord+wave*0.37+i ).r;
+-          float f2   = waveIntensity( min(1.0,(WavesLength-f)*InvWavesLength) ,0.85);
+-          shorewavesColor += wavefoam*f2*rand;
++          float rand = texture2D(waverand, wrcoord + wave * 0.37 + i ).r;
++          float f2   = waveIntensity( min(1.0, (WavesLength - f) * InvWavesLength));
++          shorewavesColor += wavefoam * f2 * rand;
+         }
+ 
+         shorewavesColor *= coastdist;
+-      //}
+-    //}
++      }
++    }
+     float iwd = smoothlimit(inwaterdepth, 0.8);
+-    gl_FragColor.rgb += shorewavesColor*iwd*1.5;
++    gl_FragColor.rgb += shorewavesColor * iwd * 1.5;
+ #endif
+ 
+ 
+
+Modified: trunk/installer/builddata/springcontent/shaders/bumpWaterVS.glsl
+===================================================================
+--- trunk/installer/builddata/springcontent/shaders/bumpWaterVS.glsl	2008-09-13 11:44:18 UTC (rev 6414)
++++ trunk/installer/builddata/springcontent/shaders/bumpWaterVS.glsl	2008-09-13 18:20:48 UTC (rev 6415)
+@@ -35,6 +35,7 @@
+ // #define PerlinStartFreq  float
+ // #define PerlinLacunarity float
+ // #define PerlinAmp        float
++// #define TexGenPlane      vec4
+ 
+ //////////////////////////////////////////////////
+ // possible flags are:
+@@ -58,17 +59,15 @@
+ 	gl_Position = ftransform();
+ 
+ 	// COMPUTE TEXCOORDS
+-	vec4 planes        = vec4(gl_ObjectPlaneS[0].x,gl_ObjectPlaneT[0].z,
+-	                          gl_ObjectPlaneR[0].x,gl_ObjectPlaneQ[0].z);
+-	gl_TexCoord[0]     = planes*gl_Vertex.xzxz;
++	gl_TexCoord[0]     = TexGenPlane*gl_Vertex.xzxz;
+ 
+ 	// COMPUTE WAVE TEXTURE COORDS
+ 	const float fstart = PerlinStartFreq;
+ 	const float f      = PerlinLacunarity;
+-	gl_TexCoord[1].st = (vec2(-1.0,-1.0)+gl_TexCoord[0].st+0.75)*fstart      +frame*Speed;
+-	gl_TexCoord[1].pq = (vec2(-1.0, 1.0)+gl_TexCoord[0].st+0.50)*fstart*f    -frame*Speed;
+-	gl_TexCoord[2].st = (vec2( 1.0,-1.0)+gl_TexCoord[0].st+0.25)*fstart*f*f  +frame*Speed*vec2(1.0,-1.0);
+-	gl_TexCoord[2].pq = (vec2( 1.0, 1.0)+gl_TexCoord[0].st+0.00)*fstart*f*f*f+frame*Speed*vec2(-1.0,1.0);
++	gl_TexCoord[1].st = (vec2(-1.0,-1.0) + gl_TexCoord[0].st + 0.75) * fstart       + frame * Speed;
++	gl_TexCoord[1].pq = (vec2(-1.0, 1.0) + gl_TexCoord[0].st + 0.50) * fstart*f     - frame * Speed;
++	gl_TexCoord[2].st = (vec2( 1.0,-1.0) + gl_TexCoord[0].st + 0.25) * fstart*f*f   + frame * Speed * vec2(1.0,-1.0);
++	gl_TexCoord[2].pq = (vec2( 1.0, 1.0) + gl_TexCoord[0].st + 0.00) * fstart*f*f*f + frame * Speed * vec2(-1.0,1.0);
+ 
+ 	// COMPUTE LIGHT VECTORS
+ 	eyeVec = eyePos - gl_Vertex.xyz;
+@@ -77,4 +76,8 @@
+ 	// FOG
+ 	gl_FogFragCoord = (gl_ModelViewMatrix*gl_Vertex).z;
+ 
++
++	gl_TexCoord[3].st = gl_TexCoord[0].st * 160.0 + frame;
++	gl_TexCoord[3].pq = gl_TexCoord[0].st * 90.0  + frame;
++	gl_TexCoord[4].st = gl_TexCoord[0].st * 2.0;
+ }
+
+Modified: trunk/rts/Game/UI/MiniMap.cpp
+===================================================================
+--- trunk/rts/Game/UI/MiniMap.cpp	2008-09-13 11:44:18 UTC (rev 6414)
++++ trunk/rts/Game/UI/MiniMap.cpp	2008-09-13 18:20:48 UTC (rev 6415)
+@@ -969,14 +969,12 @@
+ 
+ void CMiniMap::DrawSquare(const float3&amp; pos, float xsize, float zsize)
+ {
+-	glPushMatrix();
+ 	glBegin(GL_LINE_LOOP);
+ 		glVertex3f(pos.x + xsize, 0.0f, pos.z + zsize);
+ 		glVertex3f(pos.x - xsize, 0.0f, pos.z + zsize);
+ 		glVertex3f(pos.x - xsize, 0.0f, pos.z - zsize);
+ 		glVertex3f(pos.x + xsize, 0.0f, pos.z - zsize);
+ 	glEnd();
+-	glPopMatrix();
+ }
+ 
+ 
+@@ -1002,14 +1000,13 @@
+ {
+ 	SCOPED_TIMER(&quot;Draw minimap&quot;);
+ 
+-	glEnable(GL_BLEND);
+-	glDepthFunc(GL_LEQUAL);
+ 	setSurfaceCircleFunc(DrawSurfaceCircle);
+ 	setSurfaceSquareFunc(DrawSurfaceSquare);
+ 	cursorIcons.Enable(false);
+ 
+-	glEnable(GL_BLEND);
++	//glEnable(GL_BLEND);
+ 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++	glDepthFunc(GL_LEQUAL);
+ 
+ 	if (minimized) {
+ 		if (!slaveDrawMode) {
+
+Modified: trunk/rts/Lua/LuaUnsyncedCtrl.cpp
+===================================================================
+--- trunk/rts/Lua/LuaUnsyncedCtrl.cpp	2008-09-13 11:44:18 UTC (rev 6414)
++++ trunk/rts/Lua/LuaUnsyncedCtrl.cpp	2008-09-13 18:20:48 UTC (rev 6415)
+@@ -178,6 +178,8 @@
+ 	REGISTER_LUA_CFUNC(SetShareLevel);
+ 	REGISTER_LUA_CFUNC(ShareResources);
+ 
++	REGISTER_LUA_CFUNC(SetLastMsgPos);
++
+ 	REGISTER_LUA_CFUNC(MarkerAddPoint);
+ 	REGISTER_LUA_CFUNC(MarkerAddLine);
+ 	REGISTER_LUA_CFUNC(MarkerErasePosition);
+@@ -1988,6 +1990,26 @@
+ /******************************************************************************/
+ /******************************************************************************/
+ 
++
++int LuaUnsyncedCtrl::SetLastMsgPos(lua_State* L)
++{
++	const int args = lua_gettop(L); // number of arguments
++	if ((args &lt; 3) ||
++	    !lua_isnumber(L, 1) || !lua_isnumber(L, 2) || !lua_isnumber(L, 3)) {
++		luaL_error(L, &quot;Incorrect arguments to SetLastMsgPos(x, y, z)&quot;);
++	}
++	const float3 pos(lua_tofloat(L, 1),
++	                 lua_tofloat(L, 2),
++	                 lua_tofloat(L, 3));
++
++	logOutput.SetLastMsgPos(pos);
++
++	return 0;
++}
++
++/******************************************************************************/
++/******************************************************************************/
++
+ int LuaUnsyncedCtrl::MarkerAddPoint(lua_State* L)
+ {
+ 	if (!CheckModUICtrl()) {
+
+Modified: trunk/rts/Lua/LuaUnsyncedCtrl.h
+===================================================================
+--- trunk/rts/Lua/LuaUnsyncedCtrl.h	2008-09-13 11:44:18 UTC (rev 6414)
++++ trunk/rts/Lua/LuaUnsyncedCtrl.h	2008-09-13 18:20:48 UTC (rev 6415)
+@@ -115,6 +115,8 @@
+ 		static int SendLuaGaiaMsg(lua_State* L);
+ 		static int SendLuaRulesMsg(lua_State* L);
+ 
++		static int SetLastMsgPos(lua_State* L);
++
+ 		static int MarkerAddPoint(lua_State* L);
+ 		static int MarkerAddLine(lua_State* L);
+ 		static int MarkerErasePosition(lua_State* L);
+
+Modified: trunk/rts/Map/SMF/BFGroundDrawer.cpp
+===================================================================
+--- trunk/rts/Map/SMF/BFGroundDrawer.cpp	2008-09-13 11:44:18 UTC (rev 6414)
++++ trunk/rts/Map/SMF/BFGroundDrawer.cpp	2008-09-13 18:20:48 UTC (rev 6415)
+@@ -52,6 +52,21 @@
+ 	viewRadius += (viewRadius &amp; 1);
+ 
+ 	waterDrawn = false;
++
++	waterPlaneCamInDispList  = 0;
++	waterPlaneCamOutDispList = 0;
++
++	if (mapInfo-&gt;hasWaterPlane) {
++		waterPlaneCamInDispList = glGenLists(1);
++		glNewList(waterPlaneCamInDispList,GL_COMPILE);
++		CreateWaterPlanes(false);
++		glEndList();
++
++		waterPlaneCamOutDispList = glGenLists(1);
++		glNewList(waterPlaneCamOutDispList,GL_COMPILE);
++		CreateWaterPlanes(true);
++		glEndList();
++	}
+ }
+ 
+ CBFGroundDrawer::~CBFGroundDrawer(void)
+@@ -68,64 +83,75 @@
+ 	}
+ 
+ 	configHandler.SetInt(&quot;GroundDetail&quot;, viewRadius);
++
++	if (waterPlaneCamInDispList) {
++		glDeleteLists(waterPlaneCamInDispList,1);
++		glDeleteLists(waterPlaneCamOutDispList,1);
++	}
+ }
+ 
++void CBFGroundDrawer::CreateWaterPlanes(const bool &amp;camOufOfMap) {
++	glDisable(GL_TEXTURE_2D);
+ 
+-inline void CBFGroundDrawer::DrawWaterPlane(bool drawWaterReflection) {
+-	if (!drawWaterReflection) {
+-		glDisable(GL_TEXTURE_2D);
++	const float xsize = (gs-&gt;mapx * SQUARE_SIZE) &gt;&gt; 2;
++	const float ysize = (gs-&gt;mapy * SQUARE_SIZE) &gt;&gt; 2;
+ 
+-		const float xsize = (gs-&gt;mapx * SQUARE_SIZE) &gt;&gt; 2;
+-		const float ysize = (gs-&gt;mapy * SQUARE_SIZE) &gt;&gt; 2;
+-		const bool  camOutMap = (camera-&gt;pos.x &lt; 0 || camera-&gt;pos.z &lt; 0 || camera-&gt;pos.x &gt; float3::maxxpos || camera-&gt;pos.z &gt; float3::maxzpos);
++	CVertexArray *va = GetVertexArray();
++	va-&gt;Initialize();
+ 
+-		CVertexArray *va = GetVertexArray();
+-		va-&gt;Initialize();
++	unsigned char fogColor[4] = {
++	  (unsigned char)(255 * mapInfo-&gt;atmosphere.fogColor[0]),
++	  (unsigned char)(255 * mapInfo-&gt;atmosphere.fogColor[1]),
++	  (unsigned char)(255 * mapInfo-&gt;atmosphere.fogColor[2]),
++	  255
++	};
+ 
+-		unsigned char fogColor[4] = {
+-		  (unsigned char)(255 * mapInfo-&gt;atmosphere.fogColor[0]),
+-		  (unsigned char)(255 * mapInfo-&gt;atmosphere.fogColor[1]),
+-		  (unsigned char)(255 * mapInfo-&gt;atmosphere.fogColor[2]),
+-		  255
+-		};
++	unsigned char planeColor[4] = {
++	  (unsigned char)(255 * mapInfo-&gt;water.planeColor[0]),
++	  (unsigned char)(255 * mapInfo-&gt;water.planeColor[1]),
++	  (unsigned char)(255 * mapInfo-&gt;water.planeColor[2]),
++	   255
++	};
+ 
+-		unsigned char planeColor[4] = {
+-		  (unsigned char)(255 * mapInfo-&gt;water.planeColor[0]),
+-		  (unsigned char)(255 * mapInfo-&gt;water.planeColor[1]),
+-		  (unsigned char)(255 * mapInfo-&gt;water.planeColor[2]),
+-		   255
+-		};
++	const float alphainc = fastmath::PI2 / 32;
++	float alpha,r1,r2;
++	float3 p(0.0f,-200.0f,0.0f);
++	const float size = std::min(xsize,ysize);
++	for (int n = (camOufOfMap) ? 0 : 1; n &lt; 4 ; ++n) {
+ 
+-		const float alphainc = fastmath::PI2 / 32;
+-		float alpha,r1,r2;
+-		float3 p(0.0f,-200.0f,0.0f);
+-		const float size = std::min(xsize,ysize);
+-		for (int n = (camOutMap) ? 0 : 1; n &lt; 4 ; ++n) {
+-			if ((n==1) &amp;&amp; !camOutMap) {
+-				r1 = 2 * size;
+-			}else{
+-				r1 = n*n * size;
+-			}
+-			if (n==3) {
+-				r2 = (n+0.5)*(n+0.5) * size;
+-			}else{
+-				r2 = (n+1)*(n+1) * size;
+-			}
+-			for (alpha = 0.0f; (alpha - fastmath::PI2) &lt; alphainc ; alpha+=alphainc) {
+-				p.x = r1 * fastmath::sin(alpha) + 2 * xsize;
+-				p.z = r1 * fastmath::cos(alpha) + 2 * ysize;
+-				va-&gt;AddVertexC(p, planeColor );
+-				p.x = r2 * fastmath::sin(alpha) + 2 * xsize;
+-				p.z = r2 * fastmath::cos(alpha) + 2 * ysize;
+-				va-&gt;AddVertexC(p, (n==3) ? fogColor : planeColor);
+-			}
++		if ((n==1) &amp;&amp; !camOufOfMap) {
++			//! don't render vertices under the map
++			r1 = 2 * size;
++		}else{
++			r1 = n*n * size;
+ 		}
+ 
+-		va-&gt;DrawArrayC(GL_TRIANGLE_STRIP);
++		if (n==3) {
++			//! last stripe: make it thinner (looks better with fog)
++			r2 = (n+0.5)*(n+0.5) * size;
++		}else{
++			r2 = (n+1)*(n+1) * size;
++		}
++		for (alpha = 0.0f; (alpha - fastmath::PI2) &lt; alphainc ; alpha+=alphainc) {
++			p.x = r1 * fastmath::sin(alpha) + 2 * xsize;
++			p.z = r1 * fastmath::cos(alpha) + 2 * ysize;
++			va-&gt;AddVertexC(p, planeColor );
++			p.x = r2 * fastmath::sin(alpha) + 2 * xsize;
++			p.z = r2 * fastmath::cos(alpha) + 2 * ysize;
++			va-&gt;AddVertexC(p, (n==3) ? fogColor : planeColor);
++		}
+ 	}
++	va-&gt;DrawArrayC(GL_TRIANGLE_STRIP);
+ }
+ 
++inline void CBFGroundDrawer::DrawWaterPlane(bool drawWaterReflection) {
++	if (!drawWaterReflection) {
++		const bool camOutOfMap = (camera-&gt;pos.x &lt; 0 || camera-&gt;pos.z &lt; 0 || camera-&gt;pos.x &gt; float3::maxxpos || camera-&gt;pos.z &gt; float3::maxzpos);
++		glCallList(camOutOfMap ? waterPlaneCamOutDispList : waterPlaneCamInDispList);
++	}
++}
+ 
++
+ inline void CBFGroundDrawer::DrawVertexAQ(CVertexArray *ma, int x, int y)
+ {
+ 	float height = heightData[y * heightDataX + x];
+@@ -175,7 +201,7 @@
+ 
+ inline void CBFGroundDrawer::DoDrawGroundRow(int bty, unsigned int overrideVP) {
+ 	if (!BigTexSquareRowVisible(bty)) {
+-		// skip this entire row of squares if we can't see it
++		//! skip this entire row of squares if we can't see it
+ 		return;
+ 	}
+ 
+@@ -188,7 +214,7 @@
+ 	int ex = numBigTexX;
+ 	std::vector&lt;fline&gt;::iterator fli;
+ 
+-	// only process the necessary big squares in the x direction
++	//! only process the necessary big squares in the x direction
+ 	for (fli = left.begin(); fli != left.end(); fli++) {
+ 		x0 = ((fli-&gt;base / SQUARE_SIZE + fli-&gt;dir *  (bty * bigSquareSize)                 ));
+ 		x1 = ((fli-&gt;base / SQUARE_SIZE + fli-&gt;dir * ((bty * bigSquareSize) + bigSquareSize)));
+@@ -216,7 +242,7 @@
+ 
+ 
+ 	for (int btx = sx; btx &lt; ex; ++btx) {
+-		// must be in drawLos mode or shadows must be off
++		//! must be in drawLos mode or shadows must be off
+ 		if (DrawExtraTex() || !shadowHandler-&gt;drawShadows) {
+ 			textures-&gt;SetTexture(btx, bty);
+ 			SetTexGen(1.0f / 1024, 1.0f / 1024, -btx, -bty);
+@@ -299,24 +325,26 @@
+ 				}
+ 
+ 				int nloop=(xe-xs)/lod+1;
+-				ma-&gt;EnlargeArrays(52*nloop, 14*nloop+1); // includes one extra for final endstrip
++				ma-&gt;EnlargeArrays(52*nloop, 14*nloop+1); //! includes one extra for final endstrip
+ 
+ 				for (x = xs; x &lt; xe; x += lod) {
++					//! info: all triangle quads start in the top left corner
+ 					if ((lod == 1) ||
+ 						(x &gt; (cx) + viewRadius * hlod) || (x &lt; (cx) - viewRadius * hlod) ||
+ 						(y &gt; (cy) + viewRadius * hlod) || (y &lt; (cy) - viewRadius * hlod)) {
+-							// normal terrain
+-							if (!inStrip) {
+-								DrawVertexAQ(ma, x, y      );
+-								DrawVertexAQ(ma, x, y + lod);
+-								inStrip = true;
+-							}
++						//! normal terrain (all vertices in one LOD)
++						if (!inStrip) {
++							DrawVertexAQ(ma, x, y      );
++							DrawVertexAQ(ma, x, y + lod);
++							inStrip = true;
++						}
+ 
+-							DrawVertexAQ(ma, x + lod, y      );
+-							DrawVertexAQ(ma, x + lod, y + lod);
++						DrawVertexAQ(ma, x + lod, y      );
++						DrawVertexAQ(ma, x + lod, y + lod);
+ 					} else {
+-						// inre begr?sning mot f?eg?nde lod
++						//! border between 2 different LODs
+ 						if ((x &gt;= (cx) + viewRadius * hlod)) {
++							//! lower LOD to the right
+ 							int idx1 = CLAMP((y       ) * heightDataX + x), idx1LOD = CLAMP(idx1 + lod), idx1HLOD = CLAMP(idx1 + hlod);
+ 							int idx2 = CLAMP((y +  lod) * heightDataX + x), idx2LOD = CLAMP(idx2 + lod), idx2HLOD = CLAMP(idx2 + hlod);
+ 							int idx3 = CLAMP((y + hlod) * heightDataX + x),                              idx3HLOD = CLAMP(idx3 + hlod);
+@@ -346,8 +374,10 @@
+ 							DrawVertexAQ(ma, x +  lod, y           );
+ 							DrawVertexAQ(ma, x + hlod, y,        h2);
+ 							EndStripQ(ma);
+-						}
++						}else
++
+ 						if ((x &lt;= (cx) - viewRadius * hlod)) {
++							//! lower LOD to the left
+ 							int idx1 = CLAMP((y       ) * heightDataX + x), idx1LOD = CLAMP(idx1 + lod), idx1HLOD = CLAMP(idx1 + hlod);
+ 							int idx2 = CLAMP((y +  lod) * heightDataX + x), idx2LOD = CLAMP(idx2 + lod), idx2HLOD = CLAMP(idx2 + hlod);
+ 							int idx3 = CLAMP((y + hlod) * heightDataX + x), idx3LOD = CLAMP(idx3 + lod), idx3HLOD = CLAMP(idx3 + hlod);
+@@ -378,7 +408,9 @@
+ 							DrawVertexAQ(ma, x + hlod, y +  lod, h4);
+ 							EndStripQ(ma);
+ 						}
++
+ 						if ((y &gt;= (cy) + viewRadius * hlod)) {
++							//! lower LOD above
+ 							int idx1 = (y       ) * heightDataX + x, idx1LOD = CLAMP(idx1 + lod), idx1HLOD = CLAMP(idx1 + hlod);
+ 							int idx2 = (y +  lod) * heightDataX + x, idx2LOD = CLAMP(idx2 + lod);
+ 							int idx3 = (y + hlod) * heightDataX + x, idx3LOD = CLAMP(idx3 + lod), idx3HLOD = CLAMP(idx3 + hlod);
+@@ -405,8 +437,10 @@
+ 							DrawVertexAQ(ma, x +  lod, y +  lod    );
+ 							DrawVertexAQ(ma, x +  lod, y + hlod, h4);
+ 							EndStripQ(ma);
+-						}
++						}else
++
+ 						if ((y &lt;= (cy) - viewRadius * hlod)) {
++							//! lower LOD beneath
+ 							int idx1 = CLAMP((y       ) * heightDataX + x), idx1LOD = CLAMP(idx1 + lod);
+ 							int idx2 = CLAMP((y +  lod) * heightDataX + x), idx2LOD = CLAMP(idx2 + lod), idx2HLOD = CLAMP(idx2 + hlod);
+ 							int idx3 = CLAMP((y + hlod) * heightDataX + x), idx3LOD = CLAMP(idx3 + lod), idx3HLOD = CLAMP(idx3 + hlod);
+
+Modified: trunk/rts/Map/SMF/BFGroundDrawer.h
+===================================================================
+--- trunk/rts/Map/SMF/BFGroundDrawer.h	2008-09-13 11:44:18 UTC (rev 6414)
++++ trunk/rts/Map/SMF/BFGroundDrawer.h	2008-09-13 18:20:48 UTC (rev 6415)
+@@ -61,6 +61,13 @@
+ 
+ 	volatile unsigned int mt_overrideVP;
+ 
++	GLuint waterPlaneCamOutDispList;
++	GLuint waterPlaneCamInDispList;
++
++protected:
++	void CreateWaterPlanes(const bool &amp;camOufOfMap);
++	inline void DrawWaterPlane(bool);
++
+ 	void DoDrawGroundRow(int bty, unsigned int overrideVP);
+ 	static void DoDrawGroundRowMT(void *c,int bty) {((CBFGroundDrawer *)c)-&gt;DoDrawGroundRow(bty,((CBFGroundDrawer *)c)-&gt;mt_overrideVP);}
+ 	void DrawVertexAQ(CVertexArray *ma, int x, int y);
+@@ -70,7 +77,6 @@
+ 	void DoDrawGroundShadowLOD(int nlod);
+ 	static void DoDrawGroundShadowLODMT(void *c,int nlod) {((CBFGroundDrawer *)c)-&gt;DoDrawGroundShadowLOD(nlod);}
+ 
+-	inline void DrawWaterPlane(bool);
+ 	inline bool BigTexSquareRowVisible(int);
+ 	void SetupTextureUnits(bool drawReflection, unsigned int overrideVP);
+ 	void ResetTextureUnits(bool drawReflection, unsigned int overrideVP);
+
+Modified: trunk/rts/Map/SMF/BFGroundTextures.cpp
+===================================================================
+--- trunk/rts/Map/SMF/BFGroundTextures.cpp	2008-09-13 11:44:18 UTC (rev 6414)
++++ trunk/rts/Map/SMF/BFGroundTextures.cpp	2008-09-13 18:20:48 UTC (rev 6415)
+@@ -14,7 +14,10 @@
+ using std::string;
+ using std::max;
+ 
+-CBFGroundTextures::CBFGroundTextures(CSmfReadMap* rm)
++CBFGroundTextures::CBFGroundTextures(CSmfReadMap* rm) :
++	bigSquareSize(128),
++	numBigTexX(gs-&gt;mapx / bigSquareSize),
++	numBigTexY(gs-&gt;mapy / bigSquareSize)
+ {
+ 	usePBO = false;
+ 	if (GLEW_EXT_pixel_buffer_object &amp;&amp; rm-&gt;usePBO) {
+@@ -26,10 +29,6 @@
+ 	CFileHandler* ifs = rm-&gt;ifs;
+ 	map = rm;
+ 
+-	bigSquareSize = 128;
+-	numBigTexX = gs-&gt;mapx / bigSquareSize;
+-	numBigTexY = gs-&gt;mapy / bigSquareSize;
+-
+ 	SMFHeader* header = &amp;map-&gt;header;
+ 	ifs-&gt;Seek(header-&gt;tilesPtr);
+ 
+
+Modified: trunk/rts/Map/SMF/BFGroundTextures.h
+===================================================================
+--- trunk/rts/Map/SMF/BFGroundTextures.h	2008-09-13 11:44:18 UTC (rev 6414)
++++ trunk/rts/Map/SMF/BFGroundTextures.h	2008-09-13 18:20:48 UTC (rev 6415)
+@@ -21,9 +21,9 @@
+ protected:
+ 	CSmfReadMap* map;
+ 
+-	int bigSquareSize;
+-	int numBigTexX;
+-	int numBigTexY;
++	const int bigSquareSize;
++	const int numBigTexX;
++	const int numBigTexY;
+ 
+ 	int* textureOffsets;
+ 
+@@ -41,7 +41,7 @@
+ 	int tileMapXSize;
+ 	int tileMapYSize;
+ 
+-	//! use Pixel Buffer Objects for async. uploading (DMA)?
++	//! use Pixel Buffer Objects for async. uploading (DMA)
+ 	bool usePBO;
+ 	GLuint pboIDs[10];
+ 	int currentPBO;
+
+Modified: trunk/rts/Rendering/Env/BumpWater.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/BumpWater.cpp	2008-09-13 11:44:18 UTC (rev 6414)
++++ trunk/rts/Rendering/Env/BumpWater.cpp	2008-09-13 18:20:48 UTC (rev 6415)
+@@ -125,6 +125,12 @@
+ }
+ 
+ 
++static void GLSLDefineConst4f(string&amp; str, const string&amp; name, const float x, const float y, const float z, const float w)
++{
++	str += boost::str(boost::format(string(&quot;#define &quot;)+name+&quot; vec4(%1$.12f,%2$.12f,%3$.12f,%4$.12f)\n&quot;) % (x) % (y) % (z) % (w));
++}
++
++
+ static void GLSLDefineConstf4(string&amp; str, const string&amp; name, const float3&amp; v, const float&amp; alpha)
+ {
+ 	str += boost::str(boost::format(string(&quot;#define &quot;)+name+&quot; vec4(%1$.12f,%2$.12f,%3$.12f,%4$.12f)\n&quot;) % (v.x) % (v.y) % (v.z) % (alpha));
+@@ -174,6 +180,41 @@
+ 	return texID;
+ }
+ 
++
++static void DrawRadialDisc()
++{
++	//! SAME ALGORITHM AS FOR WATERPLANE IN BFGroundDrawer.cpp!
++	const float xsize = (gs-&gt;mapx * SQUARE_SIZE) &gt;&gt; 2;
++	const float ysize = (gs-&gt;mapy * SQUARE_SIZE) &gt;&gt; 2;
++
++	CVertexArray *va = GetVertexArray();
++	va-&gt;Initialize();
++
++	const float alphainc = fastmath::PI2 / 32;
++	float alpha,r1,r2;
++	float3 p(0.0f,0.0f,0.0f);
++	const float size = std::min(xsize,ysize);
++	for (int n = 0; n &lt; 4 ; ++n) {
++		r1 = n*n * size;
++		if (n==3) {
++			r2 = (n+0.5)*(n+0.5) * size;
++		}else{
++			r2 = (n+1)*(n+1) * size;
++		}
++		for (alpha = 0.0f; (alpha - fastmath::PI2) &lt; alphainc ; alpha+=alphainc) {
++			p.x = r1 * fastmath::sin(alpha) + 2 * xsize;
++			p.z = r1 * fastmath::cos(alpha) + 2 * ysize;
++			va-&gt;AddVertex0(p);
++			p.x = r2 * fastmath::sin(alpha) + 2 * xsize;
++			p.z = r2 * fastmath::cos(alpha) + 2 * ysize;
++			va-&gt;AddVertex0(p);
++		}
++	}
++
++	va-&gt;DrawArray0(GL_TRIANGLE_STRIP);
++}
++
++
+ ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+ /// (DE-)CONSTRUCTOR
+ ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+@@ -238,8 +279,10 @@
+ 		glBindTexture(GL_TEXTURE_2D, coastTexture[0]);
+ 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+ 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
++		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++		//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++		//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+ 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F_ARB, gs-&gt;mapx, gs-&gt;mapy, 0, GL_RGBA, GL_FLOAT, NULL);
+ 		glGenerateMipmapEXT(GL_TEXTURE_2D);
+ 
+@@ -453,6 +496,15 @@
+ 	GLSLDefineConstf1(definitions, &quot;PerlinLacunarity&quot;, mapInfo-&gt;water.perlinLacunarity);
+ 	GLSLDefineConstf1(definitions, &quot;PerlinAmp&quot;,        mapInfo-&gt;water.perlinAmplitude);
+ 
++	{
++		const int mapX = readmap-&gt;width  * SQUARE_SIZE;
++		const int mapZ = readmap-&gt;height * SQUARE_SIZE;
++		const float shadingX = (float)gs-&gt;mapx / gs-&gt;pwr2mapx;
++		const float shadingZ = (float)gs-&gt;mapy / gs-&gt;pwr2mapy;
++
++		GLSLDefineConst4f(definitions, &quot;TexGenPlane&quot;, 1.0f/mapX, 1.0f/mapZ, shadingX/mapX, shadingZ/mapZ);
++	}
++
+ 	/** LOAD SHADERS **/
+ 	string vsSource = LoadShaderSource(&quot;shaders/bumpWaterVS.glsl&quot;);
+ 	string fsSource = LoadShaderSource(&quot;shaders/bumpWaterFS.glsl&quot;);
+@@ -508,6 +560,24 @@
+ 		glUniform1i(depthmapLoc, 7);
+ 		glUniform1i(waverandLoc, 8);
+ 	glUseProgram(0);
++
++
++	/** CREATE DISPLAYLIST **/
++	displayList = glGenLists(1);
++	glNewList(displayList,GL_COMPILE);
++	if (endlessOcean) {
++		DrawRadialDisc();
++	}else{
++		const int mapX = readmap-&gt;width  * SQUARE_SIZE;
++		const int mapZ = readmap-&gt;height * SQUARE_SIZE;
++		glBegin(GL_QUADS);
++		glVertex3i(   0, 0, 0);
++		glVertex3i(   0, 0, mapZ);
++		glVertex3i(mapX, 0, mapZ);
++		glVertex3i(mapX, 0, 0);
++		glEnd();
++	}
++	glEndList();
+ }
+ 
+ 
+@@ -540,6 +610,8 @@
+ 	glDeleteShader(waterFP);
+ 	glDeleteProgram(waterShader);
+ 
++	glDeleteLists(displayList,1);
++
+ 	if (shoreWaves) {
+ 		glDeleteTextures(2, coastTexture);
+ 		glDeleteTextures(1, &amp;waveRandTexture);
+@@ -872,39 +944,6 @@
+ ///  DRAW FUNCTIONS
+ ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+ 
+-static void DrawRadialDisc()
+-{
+-	//! SAME ALGORITHM AS FOR WATERPLANE IN BFGroundDrawer.cpp!
+-	const float xsize = (gs-&gt;mapx * SQUARE_SIZE) &gt;&gt; 2;
+-	const float ysize = (gs-&gt;mapy * SQUARE_SIZE) &gt;&gt; 2;
+-
+-	CVertexArray *va = GetVertexArray();
+-	va-&gt;Initialize();
+-
+-	const float alphainc = fastmath::PI2 / 32;
+-	float alpha,r1,r2;
+-	float3 p(0.0f,0.0f,0.0f);
+-	const float size = std::min(xsize,ysize);
+-	for (int n = 0; n &lt; 4 ; ++n) {
+-		r1 = n*n * size;
+-		if (n==3) {
+-			r2 = (n+0.5)*(n+0.5) * size;
+-		}else{
+-			r2 = (n+1)*(n+1) * size;
+-		}
+-		for (alpha = 0.0f; (alpha - fastmath::PI2) &lt; alphainc ; alpha+=alphainc) {
+-			p.x = r1 * fastmath::sin(alpha) + 2 * xsize;
+-			p.z = r1 * fastmath::cos(alpha) + 2 * ysize;
+-			va-&gt;AddVertex0(p);
+-			p.x = r2 * fastmath::sin(alpha) + 2 * xsize;
+-			p.z = r2 * fastmath::cos(alpha) + 2 * ysize;
+-			va-&gt;AddVertex0(p);
+-		}
+-	}
+-
+-	va-&gt;DrawArray0(GL_TRIANGLE_STRIP);
+-}
+-
+ void CBumpWater::Draw()
+ {
+ 	if (readmap-&gt;currMinHeight &gt; 1.0f)
+@@ -944,36 +983,11 @@
+ 	glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, normalTexture);
+ 
+ 	glUseProgram(waterShader);
+-	glUniform1f(frameLoc, gs-&gt;frameNum / 15000.0f);
++	glUniform1f(frameLoc,  gs-&gt;frameNum / 15000.0f);
+ 	glUniformf3(eyePosLoc, camera-&gt;pos);
+ 
++	glCallList(displayList);
+ 
+-	const int mapX = readmap-&gt;width *SQUARE_SIZE;
+-	const int mapZ = readmap-&gt;height*SQUARE_SIZE;
+-	const float shadingX = (float)gs-&gt;mapx/gs-&gt;pwr2mapx;
+-	const float shadingZ = (float)gs-&gt;mapy/gs-&gt;pwr2mapy;
+-
+-	const GLfloat planeS[4] = {1.0f/mapX,0,0,0};
+-	const GLfloat planeT[4] = {0,0,1.0f/mapZ,0};
+-	const GLfloat planeR[4] = {shadingX/mapX,0,0,0};
+-	const GLfloat planeQ[4] = {0,0,shadingZ/mapZ,0};
+-	glTexGenfv(GL_S,GL_OBJECT_PLANE,planeS);
+-	glTexGenfv(GL_T,GL_OBJECT_PLANE,planeT);
+-	glTexGenfv(GL_R,GL_OBJECT_PLANE,planeR);
+-	glTexGenfv(GL_Q,GL_OBJECT_PLANE,planeQ);
+-
+-	
+-	if (endlessOcean) {
+-		DrawRadialDisc();
+-	}else{
+-		glBegin(GL_QUADS);
+-		glVertex3i(   0, 0, 0);
+-		glVertex3i(   0, 0, mapZ);
+-		glVertex3i(mapX, 0, mapZ);
+-		glVertex3i(mapX, 0, 0);
+-		glEnd();
+-	}
+-
+ 	glUseProgram(0);
+ 
+ 	if (refraction&lt;2)
+
+Modified: trunk/rts/Rendering/Env/BumpWater.h
+===================================================================
+--- trunk/rts/Rendering/Env/BumpWater.h	2008-09-13 11:44:18 UTC (rev 6414)
++++ trunk/rts/Rendering/Env/BumpWater.h	2008-09-13 18:20:48 UTC (rev 6415)
+@@ -53,6 +53,8 @@
+ 	GLuint coastFBO;
+ 	GLuint dynWavesFBO;
+ 
++	GLuint displayList;
++
+ 	//! coastmap
+ 	bool coastmapNeedUpload;
+ 	bool coastmapNeedUpdate;
+
+Modified: trunk/rts/Sim/Units/UnitDefHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-09-13 11:44:18 UTC (rev 6414)
++++ trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-09-13 18:20:48 UTC (rev 6415)
+@@ -854,9 +854,15 @@
+ 
+ 
+ void CUnitDefHandler::LoadSound(GuiSoundSet&amp; gsound,
+-                                const string&amp; fileName, float volume)
++                                const string&amp; fileName, const float volume)
+ {
+-	const string soundFile = &quot;sounds/&quot; + fileName + &quot;.wav&quot;;
++	string soundFile = &quot;sounds/&quot; + fileName;
++
++	if (soundFile.find(&quot;.wav&quot;) == -1) {
++	 	// .wav extension missing, add it
++		soundFile += &quot;.wav&quot;;
++	}
++
+ 	CFileHandler fh(soundFile);
+ 
+ 	if (fh.FileExists()) {
+
+Modified: trunk/rts/Sim/Units/UnitDefHandler.h
+===================================================================
+--- trunk/rts/Sim/Units/UnitDefHandler.h	2008-09-13 11:44:18 UTC (rev 6414)
++++ trunk/rts/Sim/Units/UnitDefHandler.h	2008-09-13 18:20:48 UTC (rev 6415)
+@@ -47,7 +47,7 @@
+ 	void ParseTAUnit(const LuaTable&amp;, const std::string&amp; name, int id);
+ 
+ 	void LoadSounds(const LuaTable&amp;, GuiSoundSet&amp;, const std::string&amp; soundName);
+-	void LoadSound(GuiSoundSet&amp;, const std::string&amp; fileName, float volume);
++	void LoadSound(GuiSoundSet&amp;, const std::string&amp; fileName, const float volume);
+ 
+ 	void CleanBuildOptions();
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001184.html">[Taspring-linux-commit] r6414 - in site/trunk/wwwroot: . templates
+</A></li>
+	<LI>Next message: <A HREF="001186.html">[Taspring-linux-commit] r6416 - in trunk/rts: Lua	Rendering/UnitModels Sim/Units Sim/Weapons
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1185">[ date ]</a>
+              <a href="thread.html#1185">[ thread ]</a>
+              <a href="subject.html#1185">[ subject ]</a>
+              <a href="author.html#1185">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

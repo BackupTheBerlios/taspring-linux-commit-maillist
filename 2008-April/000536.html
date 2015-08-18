@@ -1,0 +1,201 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5756 - in trunk/rts: Game/StartScripts	System System/Script
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5756%20-%20in%20trunk/rts%3A%20Game/StartScripts%0A%09System%20System/Script&In-Reply-To=%3C20080418211527.2DFED46AF%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000535.html">
+   <LINK REL="Next"  HREF="000538.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5756 - in trunk/rts: Game/StartScripts	System System/Script</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5756%20-%20in%20trunk/rts%3A%20Game/StartScripts%0A%09System%20System/Script&In-Reply-To=%3C20080418211527.2DFED46AF%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5756 - in trunk/rts: Game/StartScripts	System System/Script">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Apr 18 23:15:25 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000535.html">[Taspring-linux-commit] r5755 - trunk/Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="000538.html">[Taspring-linux-commit] r5757 - in trunk: AI/Global/AAI game/AI/AAI	game/AI/AAI/cfg/map
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#536">[ date ]</a>
+              <a href="thread.html#536">[ thread ]</a>
+              <a href="subject.html#536">[ subject ]</a>
+              <a href="author.html#536">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-04-18 23:15:23 +0200 (Fri, 18 Apr 2008)
+New Revision: 5756
+
+Modified:
+   trunk/rts/Game/StartScripts/ScriptHandler.cpp
+   trunk/rts/Game/StartScripts/ScriptHandler.h
+   trunk/rts/System/Script/LuaBinder.cpp
+   trunk/rts/System/Script/LuaBinder.h
+   trunk/rts/System/SpringApp.cpp
+Log:
+* export synced random integers to startscripts
+* ScriptHandler automatically parses lua startscripts on creation (it doesn't need to be called explicitly)
+* ScriptHandler uses VFS to locate and load startscripts
+
+Modified: trunk/rts/Game/StartScripts/ScriptHandler.cpp
+===================================================================
+--- trunk/rts/Game/StartScripts/ScriptHandler.cpp	2008-04-18 15:19:29 UTC (rev 5755)
++++ trunk/rts/Game/StartScripts/ScriptHandler.cpp	2008-04-18 21:15:23 UTC (rev 5756)
+@@ -6,6 +6,7 @@
+ #include &quot;ScriptHandler.h&quot;
+ #include &quot;Game/Game.h&quot;
+ #include &quot;FileSystem/FileHandler.h&quot;
++#include &quot;FileSystem/VFSHandler.h&quot;
+ #include &quot;LoadScript.h&quot;
+ #include &quot;CommanderScript.h&quot;
+ #include &quot;CommanderScript2.h&quot;
+@@ -58,10 +59,12 @@
+ void CScriptHandler::StartLua()
+ {
+ #ifndef NO_LUA
+-	std::vector&lt;string&gt; files = CFileHandler::FindFiles(&quot;startscripts/&quot;, &quot;*.lua&quot;);
++	std::vector&lt;string&gt; files = hpiHandler-&gt;GetFilesInDir(&quot;startscripts&quot;);
+ 	for (std::vector&lt;string&gt;::iterator i = files.begin(); i != files.end(); ++i) {
++		char buffer[16000];
++		const int returned = hpiHandler-&gt;LoadFile(std::string(&quot;startscripts/&quot;+*i), buffer);
+ 		CLuaBinder* lua = SAFE_NEW CLuaBinder();
+-		if (!lua-&gt;LoadScript(*i))
++		if (!lua-&gt;LoadScript(*i, buffer, returned))
+ 			handleerror(NULL, lua-&gt;lastError.c_str(), &quot;Lua&quot;, MBF_OK|MBF_EXCL);
+ 		lua_binders.push_back(lua);
+ 	}
+@@ -75,6 +78,7 @@
+ 	static CScriptHandler instance;
+ 	if( !created ) {
+ 		created = true;
++		instance.StartLua();
+ 		instance.LoadScripts();
+ 	}
+ 	return instance;
+
+Modified: trunk/rts/Game/StartScripts/ScriptHandler.h
+===================================================================
+--- trunk/rts/Game/StartScripts/ScriptHandler.h	2008-04-18 15:19:29 UTC (rev 5755)
++++ trunk/rts/Game/StartScripts/ScriptHandler.h	2008-04-18 21:15:23 UTC (rev 5756)
+@@ -21,7 +21,6 @@
+ 	CglList* GenList(ListSelectCallback callb);
+ 
+ 	void AddScript(std::string name,CScript* s);
+-	void StartLua();
+ 
+ 	static CScriptHandler&amp; Instance();
+ 
+@@ -31,6 +30,7 @@
+ #ifndef NO_LUA
+ 	std::list&lt;CLuaBinder*&gt; lua_binders;
+ #endif
++	void StartLua();
+ 	std::map&lt;std::string,CScript*&gt; scripts; ///&lt; Maps script names to CScript pointers.
+ 	std::list&lt;CScript*&gt; loaded_scripts;     ///&lt; Scripts loaded and owned by CScriptHandler
+ 	static ListSelectCallback callback;
+
+Modified: trunk/rts/System/Script/LuaBinder.cpp
+===================================================================
+--- trunk/rts/System/Script/LuaBinder.cpp	2008-04-18 15:19:29 UTC (rev 5755)
++++ trunk/rts/System/Script/LuaBinder.cpp	2008-04-18 21:15:23 UTC (rev 5756)
+@@ -190,7 +190,8 @@
+ 			.def_readonly(&quot;frameNum&quot;, &amp;CGlobalSyncedStuff::frameNum)
+ 			.def_readonly(&quot;mapx&quot;, &amp;CGlobalSyncedStuff::mapx)
+ 			.def_readonly(&quot;activeTeams&quot;, &amp;CGlobalSyncedStuff::activeTeams)
+-			.def_readonly(&quot;mapy&quot;, &amp;CGlobalSyncedStuff::mapy),
++			.def_readonly(&quot;mapy&quot;, &amp;CGlobalSyncedStuff::mapy)
++			.def(&quot;randInt&quot;, &amp;CGlobalSyncedStuff::randInt),
+ 			
+ 		class_&lt;SFloat3&gt;(&quot;sfloat3&quot;)
+ 			.def(constructor&lt;const float, const float, const float&gt;())
+@@ -337,6 +338,16 @@
+ 	return true;
+ }
+ 
++bool CLuaBinder::LoadScript(const string&amp; name, char* buffer, int size)
++{
++	if (luaL_loadbuffer(luaState, buffer, size, name.c_str()) || lua_pcall(luaState, 0, 0, 0)) {
++		lastError = lua_tostring(luaState, -1);
++		return false;
++	}
++
++	return true;
++}
++
+ CLuaBinder::~CLuaBinder(void)
+ {
+ 	lua_close(luaState);
+
+Modified: trunk/rts/System/Script/LuaBinder.h
+===================================================================
+--- trunk/rts/System/Script/LuaBinder.h	2008-04-18 15:19:29 UTC (rev 5755)
++++ trunk/rts/System/Script/LuaBinder.h	2008-04-18 21:15:23 UTC (rev 5756)
+@@ -13,6 +13,7 @@
+ 	std::string lastError;
+ 	CLuaBinder(void);
+ 	bool LoadScript(const std::string&amp; name);
++	bool LoadScript(const std::string&amp; name, char* buffer, int size);
+ 	~CLuaBinder(void);
+ };
+ 
+
+Modified: trunk/rts/System/SpringApp.cpp
+===================================================================
+--- trunk/rts/System/SpringApp.cpp	2008-04-18 15:19:29 UTC (rev 5755)
++++ trunk/rts/System/SpringApp.cpp	2008-04-18 21:15:23 UTC (rev 5756)
+@@ -12,7 +12,6 @@
+ #include &quot;Game/Game.h&quot;
+ #include &quot;Game/Team.h&quot;
+ #include &quot;Game/UI/KeyBindings.h&quot;
+-#include &quot;Game/StartScripts/ScriptHandler.h&quot;
+ #include &quot;Lua/LuaGaia.h&quot;
+ #include &quot;Lua/LuaRules.h&quot;
+ #include &quot;Lua/LuaOpenGL.h&quot;
+@@ -231,9 +230,6 @@
+ 	// Initialize Lua GL
+ 	LuaOpenGL::Init();
+ 
+-	// Initialize ScriptHandler / LUA
+-	CScriptHandler::Instance().StartLua();
+-
+ 	// Create CGameSetup and CPreGame objects
+ 	CreateGameSetup ();
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000535.html">[Taspring-linux-commit] r5755 - trunk/Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="000538.html">[Taspring-linux-commit] r5757 - in trunk: AI/Global/AAI game/AI/AAI	game/AI/AAI/cfg/map
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#536">[ date ]</a>
+              <a href="thread.html#536">[ thread ]</a>
+              <a href="subject.html#536">[ subject ]</a>
+              <a href="author.html#536">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

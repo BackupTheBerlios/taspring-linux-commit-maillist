@@ -1,0 +1,236 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7588 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7588%20-%20Lobby/TASClient&In-Reply-To=%3C20110220152120.361FD2EC45%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002357.html">
+   <LINK REL="Next"  HREF="002359.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7588 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7588%20-%20Lobby/TASClient&In-Reply-To=%3C20110220152120.361FD2EC45%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7588 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Feb 20 16:21:20 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002357.html">[Taspring-linux-commit] r7587 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002359.html">[Taspring-linux-commit] r7589 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2358">[ date ]</a>
+              <a href="thread.html#2358">[ thread ]</a>
+              <a href="subject.html#2358">[ subject ]</a>
+              <a href="author.html#2358">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2011-02-20 16:21:19 +0100 (Sun, 20 Feb 2011)
+New Revision: 7588
+
+Modified:
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/SpringDownloaderFormUnit.dfm
+   Lobby/TASClient/SpringDownloaderFormUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* rapid stream saved to md5.bin instead of a fixed name to allow multiple download at the same time
+* rapid download dependencies not using rapid bug fixed
+* rapid download url added to TASClient.ini
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2011-02-19 23:31:38 UTC (rev 7587)
++++ Lobby/TASClient/MainUnit.pas	2011-02-20 15:21:19 UTC (rev 7588)
+@@ -1830,6 +1830,7 @@
+   SCROLLING_NEWS_DIR:string = SCROLLING_NEWS_DIR_DEFAULT;
+   WIDGETDB_MANAGER_URL: string = '<A HREF="http://spring.vsync.de/luaManager/lua_manager.php">http://spring.vsync.de/luaManager/lua_manager.php</A>';
+   SPRINGDOWNLOADER_SERVICE_URL: string = '<A HREF="http://zero-k.info/ContentService.asmx">http://zero-k.info/ContentService.asmx</A>';
++  RAPID_DOWNLOADER_URL: string = '<A HREF="http://packages.springrts.com">http://packages.springrts.com</A>';
+ 
+   MainForm: TMainForm;
+ 
+@@ -13705,6 +13706,7 @@
+       tmpStr := Ini.ReadString('SplashScreen','Image','');
+       WIDGETDB_MANAGER_URL := Ini.ReadString('WidgetDB','ManagerURL',WIDGETDB_MANAGER_URL);
+       SPRINGDOWNLOADER_SERVICE_URL := Ini.ReadString('SpringDownloader','ServiceURL',SPRINGDOWNLOADER_SERVICE_URL);
++      RAPID_DOWNLOADER_URL := Ini.ReadString('SpringDownloader','RapidURL',RAPID_DOWNLOADER_URL);
+       if tmpStr &lt;&gt; '' then
+       begin
+         if MidStr(tmpStr,2,2) &lt;&gt; ':\' then
+
+Modified: Lobby/TASClient/SpringDownloaderFormUnit.dfm
+===================================================================
+--- Lobby/TASClient/SpringDownloaderFormUnit.dfm	2011-02-19 23:31:38 UTC (rev 7587)
++++ Lobby/TASClient/SpringDownloaderFormUnit.dfm	2011-02-20 15:21:19 UTC (rev 7588)
+@@ -95,6 +95,7 @@
+         Height = 21
+         Caption = 'Pause'
+         Anchors = [akRight, akBottom]
++        Enabled = False
+         TabOrder = 6
+         OnClick = PauseResumeButtonClick
+       end
+
+Modified: Lobby/TASClient/SpringDownloaderFormUnit.pas
+===================================================================
+--- Lobby/TASClient/SpringDownloaderFormUnit.pas	2011-02-19 23:31:38 UTC (rev 7587)
++++ Lobby/TASClient/SpringDownloaderFormUnit.pas	2011-02-20 15:21:19 UTC (rev 7588)
+@@ -515,6 +515,7 @@
+   dependenciesDlForm := TList.Create;
+   parentDownloadForm := nil;
+   downloadCanceled := False;
++  PauseResumeButton.Enabled := False;
+ 
+   FOnProgress := nil;
+ end;
+@@ -639,7 +640,7 @@
+       dlForm.parentDownloadForm := Self;
+     end;
+ 
+-
++  PauseResumeButton.Enabled := True;
+   tmrProgress.Enabled := True;
+ 
+   TryNextLink;
+@@ -806,7 +807,7 @@
+ var
+   dlForm: TSpringDownloaderForm;
+ begin
+-  dlForm := DownloadRapid(FDep);
++  dlForm := DownloadMod(0,FDep);
+   if FDlerForm &lt;&gt; nil then
+   begin
+     FDlerForm.dependenciesDlForm.Add(dlForm);
+@@ -850,7 +851,7 @@
+ 
+     rcvdStream := TMemoryStream.Create;
+     FhttpGet.RcvdStream := rcvdStream;
+-    FhttpGet.URL := '<A HREF="http://packages.springrts.com/versions.gz">http://packages.springrts.com/versions.gz</A>';
++    FhttpGet.URL := RAPID_DOWNLOADER_URL+'/versions.gz';
+     FhttpGet.Get;
+     if FAbord then
+       Raise Exception.Create('Download aborted');
+@@ -903,7 +904,7 @@
+ 
+       sdpMemoryStream := TMemoryStream.Create;
+       FhttpGet.RcvdStream := sdpMemoryStream;
+-      FhttpGet.URL := '<A HREF="http://packages.springrts.com/packages/">http://packages.springrts.com/packages/</A>'+tagValues[1]+'.sdp';
++      FhttpGet.URL := RAPID_DOWNLOADER_URL+'/packages/'+tagValues[1]+'.sdp';
+       FhttpGet.Get;
+       if FAbord then
+         Raise Exception.Create('Download aborted');
+@@ -963,10 +964,10 @@
+       compressedBitArray.Seek(0,soFromBeginning);
+ 
+       FhttpPost := THttpCli.Create(MainForm);
+-      filesStream := TFileStream.Create('TASClient_Rapid_Files_Temp.bin',fmOpenWrite or fmCreate);
++      filesStream := TFileStream.Create(tagValues[1]+'.bin',fmOpenWrite or fmCreate);
+       FhttpPost.RcvdStream := filesStream;
+       FhttpPost.SendStream := compressedBitArray;
+-      FhttpPost.URL := '<A HREF="http://packages.springrts.com/streamer.cgi?">http://packages.springrts.com/streamer.cgi?</A>'+tagValues[1];
++      FhttpPost.URL := RAPID_DOWNLOADER_URL+'/streamer.cgi?'+tagValues[1];
+       FhttpPost.OnDocData := DownloadDocData;
+       Synchronize(DownloadStart);
+       FhttpPost.Post;
+@@ -1015,7 +1016,7 @@
+       FreeAndNil(filesStream);
+       FreeAndNil(compressedBitArray);
+       FreeAndNil(FhttpPost);
+-      DeleteFile('TASClient_Rapid_Files_Temp.bin');
++      DeleteFile(tagValues[1]+'.bin');
+     end
+     else
+       unknownModName := True;
+@@ -1034,12 +1035,17 @@
+   except
+     on E:Exception do
+     begin
++      FreeAndNil(filesStream);
++      if tagValues &lt;&gt; nil then
++        if tagValues.Count = 4 then
++          if FileExists(tagValues[1]+'.bin') then
++            DeleteFile(tagValues[1]+'.bin');
++
+       FreeAndNil(rcvdStream);
+       if filesList &lt;&gt; nil then
+         for i:=0 to filesList.Count-1 do
+           FreeMem(PRapidFileInfo(filesList[i]));
+       FreeAndNil(filesList);
+-      FreeAndNil(filesStream);
+       FreeAndNil(compressedBitArray);
+       FreeAndNil(decompressedStream);
+       FreeAndNil(FhttpPost);
+@@ -1050,8 +1056,6 @@
+       FreeAndNil(fileStream);
+       FreeAndNil(bitArrayStream);
+       FreeAndNil(filesBitArray);
+-      if FileExists('TASClient_Rapid_Files_Temp.bin') then
+-        DeleteFile('TASClient_Rapid_Files_Temp.bin');
+ 
+       ExceptionRaised(E.Message);
+     end;
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2011-02-19 23:31:38 UTC (rev 7587)
++++ Lobby/TASClient/TASClient.dof	2011-02-20 15:21:19 UTC (rev 7588)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=87
+ Release=0
+-Build=1249
++Build=1250
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.87.0.1249
++FileVersion=0.87.0.1250
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002357.html">[Taspring-linux-commit] r7587 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002359.html">[Taspring-linux-commit] r7589 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2358">[ date ]</a>
+              <a href="thread.html#2358">[ thread ]</a>
+              <a href="subject.html#2358">[ subject ]</a>
+              <a href="author.html#2358">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

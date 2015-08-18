@@ -1,0 +1,267 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6835 - in trunk/rts: Rendering System
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6835%20-%20in%20trunk/rts%3A%20Rendering%20System&In-Reply-To=%3C20081021124030.E994946EC%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001603.html">
+   <LINK REL="Next"  HREF="001605.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6835 - in trunk/rts: Rendering System</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6835%20-%20in%20trunk/rts%3A%20Rendering%20System&In-Reply-To=%3C20081021124030.E994946EC%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6835 - in trunk/rts: Rendering System">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Oct 21 14:40:30 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001603.html">[Taspring-linux-commit] r6834 - Lobby/TASServer/ChanServ
+</A></li>
+        <LI>Next message: <A HREF="001605.html">[Taspring-linux-commit] r6836 -	trunk/installer/builddata/springcontent
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1604">[ date ]</a>
+              <a href="thread.html#1604">[ thread ]</a>
+              <a href="subject.html#1604">[ subject ]</a>
+              <a href="author.html#1604">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-10-21 14:40:30 +0200 (Tue, 21 Oct 2008)
+New Revision: 6835
+
+Modified:
+   trunk/rts/Rendering/glFont.cpp
+   trunk/rts/Rendering/glFont.h
+   trunk/rts/System/SpringApp.cpp
+Log:
+fix a SEGV in the font renderer on view resize
+
+Modified: trunk/rts/Rendering/glFont.cpp
+===================================================================
+--- trunk/rts/Rendering/glFont.cpp	2008-10-21 10:25:58 UTC (rev 6834)
++++ trunk/rts/Rendering/glFont.cpp	2008-10-21 12:40:30 UTC (rev 6835)
+@@ -115,6 +115,7 @@
+ 	glBindTexture(GL_TEXTURE_2D, tex);
+ 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+ 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
++
+ 	if (GLEW_EXT_texture_edge_clamp) {
+ 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+ 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+@@ -122,12 +123,17 @@
+ 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+ 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+ 	}
++
+ 	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE_ALPHA,
+ 		width, height, 0, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, buffer);
++
+ 	delete [] buffer;
+ 	buffer = 0;
+-	if (glGetError() != GL_NO_ERROR)
++
++	int glError = glGetError();
++	if (glError != GL_NO_ERROR &amp;&amp; glError != GL_INVALID_ENUM) {
+ 		throw std::runtime_error(&quot;Could not allocate font texture.&quot;);
++	}
+ 	return tex;
+ }
+ 
+@@ -234,18 +240,25 @@
+ 
+ 	outline = false;
+ 	color = outlineColor = 0;
++
++	defaultColor[0] = 1.0f;
++	defaultColor[1] = 1.0f;
++	defaultColor[2] = 1.0f;
++	defaultColor[3] = 1.0f;
+ }
+ 
+ 
+-CglFont *CglFont::TryConstructFont(std::string fontFile, int start, int end, float size)
++CglFont* CglFont::TryConstructFont(std::string fontFile, int start, int end, float size)
+ {
+-	CglFont *newFont = 0;
++	CglFont* newFont = 0;
+ 	int texWidth = 128, texHeight = 128;
++
+ 	while (true) {
+ 		try {
++			// warning: this resets color* and outlineColor* to 0
+ 			newFont = SAFE_NEW CglFont(start, end, fontFile.c_str(), size, texWidth, texHeight);
+ 			return newFont;
+-		} catch(texture_size_exception&amp;) {
++		} catch (texture_size_exception&amp;) {
+ 			// texture size too small; make higher or wider
+ 			if (texHeight &lt;= texWidth)
+ 				texHeight *= 2;
+@@ -318,22 +331,23 @@
+ }
+ 
+ 
+-void CglFont::Outline(bool enable, const float *color, const float *outlineColor)
++void CglFont::Outline(bool enable, const float* col, const float* outlineCol)
+ {
+ 	this-&gt;outline = enable;
+ 	if (enable) {
+-		if (color) {		// if color is null, we keep the old settings (which should better not be null)
+-			this-&gt;color = color;
+-			this-&gt;outlineColor = outlineColor ? outlineColor : ChooseOutlineColor(color);
++		if (col) {
++			// if color is null, we keep the old settings (which should better not be null)
++			this-&gt;color = col;
++			this-&gt;outlineColor = outlineCol? outlineCol: ChooseOutlineColor(col);
+ 		}
+ 	}
+ }
+ 
+-void CglFont::OutlineS(bool enable, const float *outlineColor)
++void CglFont::OutlineS(bool enable, const float* outlineCol)
+ {
+ 	this-&gt;outline = enable;
+ 	if (enable) {;
+-		this-&gt;outlineColor = outlineColor ? outlineColor : ChooseOutlineColor(color);
++		this-&gt;outlineColor = outlineCol? outlineCol: ChooseOutlineColor(color);
+ 	}
+ }
+ 
+@@ -395,6 +409,9 @@
+ 	glEnable(GL_BLEND);
+ 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+ 
++	if (       color == 0x0) {        color = &amp;defaultColor[0]; }
++	if (outlineColor == 0x0) { outlineColor = &amp;defaultColor[0]; }
++
+ 	glBegin(GL_QUADS);
+ 	for (int i = 0; i &lt; strlen((const char*)text); i++) {
+ 		const unsigned int ch = (unsigned char)text[i];
+@@ -560,33 +577,39 @@
+ 
+ void CglFont::glPrintColorAt(GLfloat x, GLfloat y, float s, const char *str)
+ {
+-	//TODO both glColor and float* color is set, make RenderString respect the float *color
+-	const float *oldcolor = color;
+-	float newcolor[4] = {1.0, 1.0, 1.0, 1.0};
+-	color = const_cast&lt;const float*&gt;(newcolor);
++	// TODO both glColor and float* color set, make RenderString respect the float *color
++	const float* oldColor = color;
++	float newColor[4] = {1.0f, 1.0f, 1.0f, 1.0f};
++
++	color = const_cast&lt;const float*&gt;(newColor);
+ 	glColor4fv(color);
++
+ 	size_t lf;
+-	string temp=str;
+-	while((lf=temp.find(&quot;\xff&quot;))!=string::npos) {
+-		if (outline)
+-		{
+-			x = RenderStringOutlined(x, y, s, (const unsigned char*)temp.substr(0, lf).c_str());
++	string temp = str;
++
++	while ((lf = temp.find(&quot;\xff&quot;)) != string::npos) {
++		if (outline) {
++			x = RenderStringOutlined(x, y, s, (const unsigned char*) temp.substr(0, lf).c_str());
+ 			outline = true; //HACK RenderStringOutlined resets outline
++		} else {
++			x = RenderString(x, y, s, (const unsigned char*) temp.substr(0, lf).c_str());
+ 		}
+-		else
+-			x = RenderString(x, y, s, (const unsigned char*)temp.substr(0, lf).c_str());
+-		temp=temp.substr(lf, string::npos);
+-		newcolor[0] = ((unsigned char)temp[1])/255.0f;
+-		newcolor[1] = ((unsigned char)temp[2])/255.0f;
+-		newcolor[2] = ((unsigned char)temp[3])/255.0f;
++
++		temp = temp.substr(lf, string::npos);
++		newColor[0] = ((unsigned char) temp[1]) / 255.0f;
++		newColor[1] = ((unsigned char) temp[2]) / 255.0f;
++		newColor[2] = ((unsigned char) temp[3]) / 255.0f;
+ 		glColor4fv(color);
+-		temp=temp.substr(4, string::npos);
++		temp = temp.substr(4, string::npos);
+ 	}
+-	if (outline)
+-		RenderStringOutlined(x, y, s, (const unsigned char*)temp.c_str());
+-	else
+-		RenderString(x, y, s, (const unsigned char*)temp.c_str());
+-	color = oldcolor;
++
++	if (outline) {
++		RenderStringOutlined(x, y, s, (const unsigned char*) temp.c_str());
++	} else {
++		RenderString(x, y, s, (const unsigned char*) temp.c_str());
++	}
++
++	color = oldColor;
+ }
+ 
+ void CglFont::glFormatAt(GLfloat x, GLfloat y, float s, const char *fmt, ...)
+
+Modified: trunk/rts/Rendering/glFont.h
+===================================================================
+--- trunk/rts/Rendering/glFont.h	2008-10-21 10:25:58 UTC (rev 6834)
++++ trunk/rts/Rendering/glFont.h	2008-10-21 12:40:30 UTC (rev 6835)
+@@ -58,6 +58,7 @@
+ 	float fontHeight;
+ 	bool outline;
+ 	const float *color, *outlineColor;
++	float defaultColor[4];
+ 	GlyphInfo *glyphs;
+ 
+ 	static const float* ChooseOutlineColor(const float *textColor);
+
+Modified: trunk/rts/System/SpringApp.cpp
+===================================================================
+--- trunk/rts/System/SpringApp.cpp	2008-10-21 10:25:58 UTC (rev 6834)
++++ trunk/rts/System/SpringApp.cpp	2008-10-21 12:40:30 UTC (rev 6835)
+@@ -618,12 +618,13 @@
+ 	try {
+ 		font = CglFont::TryConstructFont(fontFile, charFirst, charLast, fontSize);
+ 		smallFont = CglFont::TryConstructFont(fontFile, charFirst, charLast, smallFontSize);
+-	} catch(content_error&amp;) {
++	} catch (content_error&amp;) {
+ 		// If the standard location fails, retry in fonts directory or vice versa.
+ 		if (fontFile.substr(0, 6) == &quot;fonts/&quot;)
+ 			fontFile = fontFile.substr(6);
+ 		else
+ 			fontFile = &quot;fonts/&quot; + fontFile;
++
+ 		font = CglFont::TryConstructFont(fontFile, charFirst, charLast, fontSize);
+ 		smallFont = CglFont::TryConstructFont(fontFile, charFirst, charLast, smallFontSize);
+ 	}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001603.html">[Taspring-linux-commit] r6834 - Lobby/TASServer/ChanServ
+</A></li>
+	<LI>Next message: <A HREF="001605.html">[Taspring-linux-commit] r6836 -	trunk/installer/builddata/springcontent
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1604">[ date ]</a>
+              <a href="thread.html#1604">[ thread ]</a>
+              <a href="subject.html#1604">[ subject ]</a>
+              <a href="author.html#1604">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,295 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7616 - in Lobby/TASClient: . Python/scripts
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2011-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7616%20-%20in%20Lobby/TASClient%3A%20.%20Python/scripts&In-Reply-To=%3C20110710125110.417E03139B%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002387.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7616 - in Lobby/TASClient: . Python/scripts</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7616%20-%20in%20Lobby/TASClient%3A%20.%20Python/scripts&In-Reply-To=%3C20110710125110.417E03139B%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7616 - in Lobby/TASClient: . Python/scripts">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Jul 10 14:51:08 CEST 2011</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002387.html">[Taspring-linux-commit] r7617 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2386">[ date ]</a>
+              <a href="thread.html#2386">[ thread ]</a>
+              <a href="subject.html#2386">[ subject ]</a>
+              <a href="author.html#2386">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2011-07-10 14:51:05 +0200 (Sun, 10 Jul 2011)
+New Revision: 7616
+
+Modified:
+   Lobby/TASClient/BattleFormUnit.pas
+   Lobby/TASClient/HostBattleFormUnit.pas
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/Python/scripts/z_autoUnspec.py
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* PYTHON : auto unspec : unspecing when disabled bug fixed
+* Fixed server flood limit behavior
+
+Modified: Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.pas	2011-06-22 21:06:04 UTC (rev 7615)
++++ Lobby/TASClient/BattleFormUnit.pas	2011-07-10 12:51:05 UTC (rev 7616)
+@@ -1018,7 +1018,6 @@
+ var
+   i: Integer;
+   scriptLines: TStringList;
+-  cumulativeDataSent10sBeforeStartTime: Int64;
+   startTime : TDateTime;
+   nextScriptLine : string;
+   sendSpeed: Extended;
+@@ -1035,13 +1034,9 @@
+   StartButton.Visible := False;
+   StartProgressBar.Visible := True;
+ 
+-  if HostBattleForm.relayHoster &lt;&gt; nil then
+-  begin
+-    startTime := Now;
+-    cumulativeDataSent10sBeforeStartTime := Status.CumulativeDataSentHistory.Items[0];
+-  end;
++  startTime := Now;
+ 
+-  AddTextToChat(_('Sending replay script to relay host ...'),Colors.Info,0);
++  AddTextToChat(_('Sending replay script ...'),Colors.Info,0);
+ 
+   MainForm.TryToSendCommand('SCRIPTSTART');
+   for i := 0 to scriptLines.Count-1 do
+@@ -1050,7 +1045,7 @@
+     StartProgressBar.Refresh;
+ 
+     nextScriptLine := 'SCRIPT '+scriptLines[i];
+-    while (Status.CumulativeDataSent+Length(nextScriptLine)-cumulativeDataSent10sBeforeStartTime)/(10+(Now-startTime)*86400) &gt; 500 do // 5kB/10s max
++    while Status.CumulativeDataSent+Length(nextScriptLine)-Status.CumulativeDataSentHistory.Items[0] &gt; FLOODLIMIT_BYTESPERSECOND*FLOODLIMIT_SECONDS do
+     begin
+       Application.ProcessMessages;
+       Sleep(10);
+@@ -1063,7 +1058,7 @@
+   StartButton.Visible := True;
+   StartProgressBar.Visible := False;
+ 
+-  AddTextToChat(_('Sending replay script to relay host ... done'),Colors.Info,0);
++  AddTextToChat(_('Sending replay script ... done'),Colors.Info,0);
+ end;
+ 
+ procedure TBattleForm.SendBattleDetailsToServer; // call it each time you update some of the battle's inside parameters
+@@ -2115,8 +2110,6 @@
+     Exit;
+   end;
+ 
+-  SendReplayScriptToServer;
+-
+   UpdateClientsListBox;
+ 
+   Result := True;
+@@ -2969,7 +2962,6 @@
+   i: integer;
+   scriptGenerationResult: TScript;
+   sl:TStringList;
+-  cumulativeDataSent10sBeforeStartTime: Int64;
+   startTime : TDateTime;
+   nextScriptLine : string;
+   sendSpeed: Extended;
+@@ -3048,13 +3040,12 @@
+     StartProgressBar.Visible := True;
+ 
+     startTime := Now;
+-    cumulativeDataSent10sBeforeStartTime := Status.CumulativeDataSentHistory.Items[0];
+     for i:=0 to sl.Count-1 do
+     begin
+       StartProgressBar.Position := i;
+       StartProgressBar.Refresh;
+       nextScriptLine := 'SAYPRIVATE '+HostBattleForm.relayHoster.Name+' !appendscriptline '+sl[i];
+-      while (Status.CumulativeDataSent+Length(nextScriptLine)-cumulativeDataSent10sBeforeStartTime)/(10+(Now-startTime)*86400) &gt; 500 do // 5kB/10s max
++      while Status.CumulativeDataSent+Length(nextScriptLine)-Status.CumulativeDataSentHistory.Items[0] &gt; FLOODLIMIT_BYTESPERSECOND*FLOODLIMIT_SECONDS do
+       begin
+         Application.ProcessMessages;
+         Sleep(10);
+
+Modified: Lobby/TASClient/HostBattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/HostBattleFormUnit.pas	2011-06-22 21:06:04 UTC (rev 7615)
++++ Lobby/TASClient/HostBattleFormUnit.pas	2011-07-10 12:51:05 UTC (rev 7616)
+@@ -578,6 +578,8 @@
+     TryToHostBattle
+   else
+     TryToHostReplay;
++
++  Close;
+ end;
+ 
+ procedure THostBattleForm.RankComboBoxDrawItem(Sender: TObject;
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2011-06-22 21:06:04 UTC (rev 7615)
++++ Lobby/TASClient/MainUnit.pas	2011-07-10 12:51:05 UTC (rev 7616)
+@@ -477,9 +477,11 @@
+   MAX_PLAYERS = 200; // max. players supported by Spring in a game
+   MAX_TEAMS = 100; // max. teams supported by Spring in a game (MAX_ALLIES would be same as MAX_TEAMS, so no need for it)
+   MAX_POPUP = 8; // max popup notification displaying at the same time
+-
+   MAX_AUTOSENDMSG = 2; // limit the auto sent msg when auto specing or kicking players
+ 
++  FLOODLIMIT_BYTESPERSECOND = 1024;
++  FLOODLIMIT_SECONDS = 10;
++
+   DOWNLOADER_SEGMENTS = 4;
+ 
+   // custom messages:
+@@ -3852,21 +3854,13 @@
+ end;
+ 
+ procedure TScript.ChangeHostIP(NewIP: string);
+-var
+-  i: Integer;
+ begin
+-  i := CompleteKeyList.IndexOf(LowerCase('GAME/HOSTIP'));
+-  if i = -1 then raise Exception.Create(_('Corrupted script file!'));
+-  KeyValueList[i] := NewIP;
++  AddOrChangeKeyValue('GAME/HOSTIP',NewIP);
+ end;
+ 
+ procedure TScript.ChangeHostPort(NewPort: string);
+-var
+-  i: Integer;
+ begin
+-  i := CompleteKeyList.IndexOf(LowerCase('GAME/HOSTPORT'));
+-  if i = -1 then raise Exception.Create(_('Corrupted script file!'));
+-  KeyValueList[i] := NewPort;
++  AddOrChangeKeyValue('GAME/HOSTPORT',NewPort);
+ end;
+ 
+ procedure TScript.ChangeMyPlayerNum(NewNum: Integer);
+@@ -7444,10 +7438,17 @@
+ 
+       Status.Synced := True; // host is always synced with himself!
+       WaitForAckForm.ModalResult := mrOK;
++      WaitForAckForm.Close;
+       BattleForm.RefreshLadderRanks;
+       BattleForm.SortClientList(Preferences.BattleClientSortStyle,Preferences.BattleClientSortDirection,True);
+       BattleForm.SortBotList(Preferences.BattleClientSortStyle,Preferences.BattleClientSortDirection,True);
+ 
++      if Battle.BattleType = 1 then
++      begin
++        Misc.ShowAndSetFocus(BattleForm.InputEdit);
++        BattleForm.SendReplayScriptToServer;
++      end;
++
+       BattleState.JoiningComplete := True;
+       BattleForm.SendBattleDetailsToServer;
+       BattleForm.SendLuaOptionsDetailsToServer;
+@@ -9130,7 +9131,7 @@
+   try
+     sUTF8 := UTF8Encode(s+EOL);
+     Socket.Send(PChar(sUTF8),length(sUTF8));
+-    Inc(Status.CumulativeDataSent, Length(s));
++    Inc(Status.CumulativeDataSent, length(sUTF8));
+     if Debug.Enabled and ((not Debug.FilterPingPong) or (Command &lt;&gt; 'PING')) then
+       if ((Pos('USERID ',s) = 0) and ((Misc.GetLobbyUserID = 0) or (Pos(IntToHex(Misc.GetLobbyUserID, 1),s) = 0))) or ((Status.Me &lt;&gt; nil) and Status.Me.GetAccess) then
+         AddMainLog('Client: &quot;' + s + '&quot;', Colors.Data);
+@@ -9448,6 +9449,8 @@
+   Status.TimeOfLastDataSent := GetTickCount;
+   Status.CumulativeDataSent := 0;
+   Status.CumulativeDataRecv := 0;
++  Status.CumulativeDataSentHistory.Clear;
++  Status.CumulativeDataSentHistory.Add(0);
+ 
+   AcquireMainThread;
+   try if not Preferences.ScriptsDisabled then handlers.onConnected(); except end;
+@@ -14890,7 +14893,7 @@
+ procedure TMainForm.tmrCumulativeDataSentHistoryTimer(Sender: TObject);
+ begin
+   Status.CumulativeDataSentHistory.Add(Status.CumulativeDataSent);
+-  if Status.CumulativeDataSentHistory.Count &gt; 11 then
++  if Status.CumulativeDataSentHistory.Count &gt; FLOODLIMIT_SECONDS+2 then // +2 to be sure it won't reach the limit
+     Status.CumulativeDataSentHistory.Delete(0);
+ end;
+ 
+
+Modified: Lobby/TASClient/Python/scripts/z_autoUnspec.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/z_autoUnspec.py	2011-06-22 21:06:04 UTC (rev 7615)
++++ Lobby/TASClient/Python/scripts/z_autoUnspec.py	2011-07-10 12:51:05 UTC (rev 7616)
+@@ -15,7 +15,7 @@
+ def onChkAutoSpecClick(sender):
+ 	global autoUnspecEnabled
+ 	global lastUnspecSent
+-	autoUnspecEnabled = gui.GetControlProperties('BattleForm.MyOptionsGroupBox.chkAutoUnspec','')['Checked']
++	autoUnspecEnabled = gui.GetControlProperties('BattleForm.MyOptionsGroupBox.chkAutoUnspec','')['Checked'] == 'True'
+ 	if autoUnspecEnabled:
+ 		api.SetMyBattleStatus(False) # in case there is already a slot available
+ 		lastUnspecSent = datetime.datetime.now()
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2011-06-22 21:06:04 UTC (rev 7615)
++++ Lobby/TASClient/TASClient.dof	2011-07-10 12:51:05 UTC (rev 7616)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=91
+ Release=0
+-Build=1317
++Build=1318
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.91.0.1317
++FileVersion=0.91.0.1318
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002387.html">[Taspring-linux-commit] r7617 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2386">[ date ]</a>
+              <a href="thread.html#2386">[ thread ]</a>
+              <a href="subject.html#2386">[ subject ]</a>
+              <a href="author.html#2386">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

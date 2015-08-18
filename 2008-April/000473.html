@@ -1,0 +1,193 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5692 - trunk/rts/Sim/Path
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5692%20-%20trunk/rts/Sim/Path&In-Reply-To=%3C20080410141038.6D31546C0%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000472.html">
+   <LINK REL="Next"  HREF="000474.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5692 - trunk/rts/Sim/Path</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5692%20-%20trunk/rts/Sim/Path&In-Reply-To=%3C20080410141038.6D31546C0%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5692 - trunk/rts/Sim/Path">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Apr 10 16:10:38 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000472.html">[Taspring-linux-commit] r5691 - trunk/rts/ExternalAI
+</A></li>
+        <LI>Next message: <A HREF="000474.html">[Taspring-linux-commit] r5693 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#473">[ date ]</a>
+              <a href="thread.html#473">[ thread ]</a>
+              <a href="subject.html#473">[ subject ]</a>
+              <a href="author.html#473">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-04-10 16:10:37 +0200 (Thu, 10 Apr 2008)
+New Revision: 5692
+
+Modified:
+   trunk/rts/Sim/Path/PathEstimator.cpp
+   trunk/rts/Sim/Path/PathEstimator.h
+Log:
+fix a small thread-safety bug in CPathEstimator (and set the default thread count to 2)
+
+Modified: trunk/rts/Sim/Path/PathEstimator.cpp
+===================================================================
+--- trunk/rts/Sim/Path/PathEstimator.cpp	2008-04-09 22:26:14 UTC (rev 5691)
++++ trunk/rts/Sim/Path/PathEstimator.cpp	2008-04-10 14:10:37 UTC (rev 5692)
+@@ -118,7 +118,7 @@
+ 
+ 
+ 
+-void CPathEstimator::SpawnThreads(int numThreads, bool init) {
++void CPathEstimator::SpawnThreads(int numThreads, int stage) {
+ 	if (threads.size() != numThreads) {
+ 		threads.resize(numThreads);
+ 		pathFinders.resize(numThreads);
+@@ -140,26 +140,31 @@
+ 		const int minBlock = threadIdx * blocksPerThread;
+ 		const int maxBlock = minBlock + blocksPerThread + blocksRem;
+ 
+-		if (init) {
++		if (stage == 0) {
+ 			threads[threadIdx] = SAFE_NEW
+ 				boost::thread(boost::bind(&amp;CPathEstimator::InitVerticesAndBlocks, this, minVertex, maxVertex, minBlock, maxBlock));
+-		} else {
++		}
++		if (stage == 1) {
++			threads[threadIdx] = SAFE_NEW
++				boost::thread(boost::bind(&amp;CPathEstimator::CalculateBlockOffsets, this, minBlock, maxBlock, threadIdx));
++		}
++		if (stage == 2) {
+ 			// allocate one private CPathFinder object per thread
+ 			pathFinders[threadIdx] = SAFE_NEW CPathFinder();
+ 
+ 			threads[threadIdx] = SAFE_NEW
+-				boost::thread(boost::bind(&amp;CPathEstimator::CalcOffsetsAndPathCosts, this, minBlock, maxBlock, threadIdx));
++				boost::thread(boost::bind(&amp;CPathEstimator::EstimatePathCosts, this, minBlock, maxBlock, threadIdx));
+ 		}
+ 	}
+ }
+ 
+-void CPathEstimator::JoinThreads(int numThreads, bool init) {
++void CPathEstimator::JoinThreads(int numThreads, int stage) {
+ 	for (int threadIdx = 0; threadIdx &lt; numThreads; threadIdx++) {
+ 		threads[threadIdx]-&gt;join();
+ 		delete threads[threadIdx];
+ 		threads[threadIdx] = 0x0;
+ 
+-		if (!init) {
++		if (stage == 2) {
+ 			delete pathFinders[threadIdx];
+ 			pathFinders[threadIdx] = 0x0;
+ 		}
+@@ -167,11 +172,11 @@
+ }
+ 
+ void CPathEstimator::InitEstimator(const std::string&amp; name) {
+-	int numThreads = configHandler.GetInt(&quot;HardwareThreadCount&quot;, 1);
++	int numThreads = configHandler.GetInt(&quot;HardwareThreadCount&quot;, 2);
+ 
+ 	if (numThreads &gt; 1) {
+-		SpawnThreads(numThreads, true);
+-		JoinThreads(numThreads, true);
++		SpawnThreads(numThreads, 0);
++		JoinThreads(numThreads, 0);
+ 
+ 		char loadMsg[512];
+ 		sprintf(loadMsg, &quot;Reading estimate path costs (using %d threads)&quot;, numThreads);
+@@ -182,10 +187,12 @@
+ 			sprintf(calcMsg, &quot;Analyzing map accessibility (block-size %d)&quot;, BLOCK_SIZE);
+ 			PrintLoadMsg(calcMsg);
+ 
+-			// re-spawn the threads for the wrapper which calls
+-			// CalculateBlockOffsets() and EstimatePathCosts()
+-			SpawnThreads(numThreads, false);
+-			JoinThreads(numThreads, false);
++			// re-spawn the threads for CalculateBlockOffsets()
++			SpawnThreads(numThreads, 1);
++			JoinThreads(numThreads, 1);
++			// re-spawn the threads for EstimatePathCosts()
++			SpawnThreads(numThreads, 2);
++			JoinThreads(numThreads, 2);
+ 
+ 			WriteFile(name);
+ 		}
+@@ -209,6 +216,7 @@
+ }
+ 
+ 
++
+ // wrapper
+ void CPathEstimator::InitVerticesAndBlocks(int minVertex, int maxVertex, int minBlock, int maxBlock) {
+ 	InitVertices(minVertex, maxVertex);
+@@ -239,8 +247,14 @@
+ }
+ 
+ 
++
+ // wrapper
+ void CPathEstimator::CalcOffsetsAndPathCosts(int minBlock, int maxBlock, int threadID) {
++	// NOTE: EstimatePathCosts() [B] is temporally dependent on CalculateBlockOffsets() [A],
++	// A must be completely finished before B_i can be safely called. This means we cannot
++	// let thread i execute (A_i, B_i), but instead have to split the work such that every
++	// thread finishes its part of A before any starts B_i. Hence this wrapper function is
++	// no longer called when more than one thread is spawned in InitEstimator().
+ 	CalculateBlockOffsets(minBlock, maxBlock, threadID);
+ 	EstimatePathCosts(minBlock, maxBlock, threadID);
+ }
+
+Modified: trunk/rts/Sim/Path/PathEstimator.h
+===================================================================
+--- trunk/rts/Sim/Path/PathEstimator.h	2008-04-09 22:26:14 UTC (rev 5691)
++++ trunk/rts/Sim/Path/PathEstimator.h	2008-04-10 14:10:37 UTC (rev 5692)
+@@ -99,8 +99,8 @@
+ 		void CalculateBlockOffsets(int, int, int);
+ 		void EstimatePathCosts(int, int, int);
+ 	
+-		void SpawnThreads(int, bool);
+-		void JoinThreads(int, bool);
++		void SpawnThreads(int, int);
++		void JoinThreads(int, int);
+ 
+ 		boost::mutex loadMsgMutex;
+ 		std::vector&lt;CPathFinder*&gt; pathFinders;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000472.html">[Taspring-linux-commit] r5691 - trunk/rts/ExternalAI
+</A></li>
+	<LI>Next message: <A HREF="000474.html">[Taspring-linux-commit] r5693 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#473">[ date ]</a>
+              <a href="thread.html#473">[ thread ]</a>
+              <a href="subject.html#473">[ subject ]</a>
+              <a href="author.html#473">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

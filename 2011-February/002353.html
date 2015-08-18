@@ -1,0 +1,1396 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7583 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2011-February/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7583%20-%20Lobby/TASClient&In-Reply-To=%3C20110203202240.C39B12FBBE%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002354.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7583 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7583%20-%20Lobby/TASClient&In-Reply-To=%3C20110203202240.C39B12FBBE%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7583 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Feb  3 21:22:40 CET 2011</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002354.html">[Taspring-linux-commit] r7584 - in Lobby/TASClient: . Python/scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2353">[ date ]</a>
+              <a href="thread.html#2353">[ thread ]</a>
+              <a href="subject.html#2353">[ subject ]</a>
+              <a href="author.html#2353">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2011-02-03 21:22:40 +0100 (Thu, 03 Feb 2011)
+New Revision: 7583
+
+Modified:
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/PerformFormUnit.pas
+   Lobby/TASClient/PreferencesFormUnit.dfm
+   Lobby/TASClient/PreferencesFormUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* &quot;Automatically join the channels from the previous session&quot; option added
+* auto join code refactored
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2011-01-25 21:46:55 UTC (rev 7582)
++++ Lobby/TASClient/MainUnit.dfm	2011-02-03 20:22:40 UTC (rev 7583)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 374
+-  Top = 258
++  Left = 420
++  Top = 234
+   Width = 883
+   Height = 553
+   Caption = 'TASClient'
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2011-01-25 21:46:55 UTC (rev 7582)
++++ Lobby/TASClient/MainUnit.pas	2011-02-03 20:22:40 UTC (rev 7583)
+@@ -422,7 +422,7 @@
+   );
+ 
+ const
+-  VERSION_NUMBER = '0.85'; // Must be float value! (with a period as a decimal seperator)
++  VERSION_NUMBER = '0.86'; // Must be float value! (with a period as a decimal seperator)
+   AUTOUPDATE_URL = '<A HREF="http://tasclient.no-ip.org/TASClient_update_v5.txt">http://tasclient.no-ip.org/TASClient_update_v5.txt</A>';
+   PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER;
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+@@ -1968,7 +1968,7 @@
+   BattleSortingDirection: Boolean;
+ 
+   SwitchToNewChatRoom : Boolean = false;
+-  LastAutoJoin: string = '';
++  NbAutoJoinChannels: integer = 0;
+ 
+   MenuModName: string = '';
+ 
+@@ -6483,14 +6483,17 @@
+         begin
+           IgnoreTASClientChanMsgs := False;
+         end;
++        if Preferences.AutoSaveChanSession then
++          PerformForm.addAutoJoinChannel(sl[1]);
++        if PerformForm.isChannelAutoJoined(sl[1]) then
++          Dec(NbAutoJoinChannels);
+         i := GetTabWindowPageIndex('#' + sl[1]);
+         if i = -1 then
+         begin
+           ChatTabs.Add(AddTabWindow('#' + sl[1], SwitchToNewChatRoom));
+           i := ChatTabs.Count-1;
+-          if (LowerCase(sl[1]) = LowerCase(LastAutoJoin)) and mnuReloadViewLogin.Checked then
++          if (NbAutoJoinChannels = 0) and mnuReloadViewLogin.Checked then
+           begin
+-            LastAutoJoin := '';
+             DockHandler.LoadDesktop(TASCLIENT_REGISTRY_KEY+'\Layout',PreferencesForm.LayoutDefault.Text);
+             MainForm.MainPCH.PageControl.Style := TTabStyle(Preferences.TabStyle);
+             for j:=1 to ChatTabs.Count-1 do
+@@ -8366,7 +8369,12 @@
+     pc := TPageControl(TTabSheet(TabSheet.Parent).PageControl);
+ 
+   if TabSheet.Caption[1] = '#' then
+-    if Status.ConnectionState = Connected then TryToSendCommand('LEAVE', Copy(TabSheet.Caption, 2, Length(TabSheet.Caption)-1));
++    if Status.ConnectionState = Connected then
++    begin
++      TryToSendCommand('LEAVE', MidStr(TabSheet.Caption, 2, 999));
++      if Preferences.AutoSaveChanSession then
++        PerformForm.removeAutoJoinChannel(MidStr(TabSheet.Caption, 2, 999));
++    end;
+ 
+   if TabSheet.Parent is TTabSheet then
+   begin
+@@ -10911,12 +10919,7 @@
+     AutoScroll1.Visible := (richContextMenu &lt;&gt; BattleForm.ChatRichEdit) and RunningUnderWine;
+     AutoScroll1.Checked := lastActiveTab.AutoScroll;
+     AutoJoin1.Visible := (richContextMenu &lt;&gt; BattleForm.ChatRichEdit) and (lastActiveTab.Caption &lt;&gt; LOCAL_TAB) and (lastActiveTab.Caption &lt;&gt; '#main') and (LeftStr(lastActiveTab.Caption,1) = '#');
+-    AutoJoin1.Checked := True;
+-    if (richContextMenu &lt;&gt; BattleForm.ChatRichEdit) then
+-      for i:=0 to PerformForm.CommandsListBox.Count-1 do
+-        if (AnsiUpperCase(PerformForm.CommandsListBox.Items[i]) = '/J '+AnsiUpperCase(lastActiveTab.Caption)) or (AnsiUpperCase(PerformForm.CommandsListBox.Items[i]) = '/JOIN '+AnsiUpperCase(lastActiveTab.Caption)) then
+-          Exit;
+-    AutoJoin1.Checked := False;
++    AutoJoin1.Checked := PerformForm.isChannelAutoJoined(MidStr(lastActiveTab.Caption,2,999));
+   end;
+ end;
+ 
+@@ -11647,19 +11650,11 @@
+ end;
+ 
+ procedure TMainForm.AutoJoin1Click(Sender: TObject);
+-var
+-  i : integer;
+ begin
+-  if (Sender as TSpTBXItem).Checked = False then
+-    PerformForm.CommandsListBox.Items.Add('/j '+lastActiveTab.Caption)
++  if (Sender as TSpTBXItem).Checked then
++    PerformForm.removeAutoJoinChannel(MidStr(lastActiveTab.Caption,2,999))
+   else
+-  begin
+-    for i:=0 to PerformForm.CommandsListBox.Items.Count -1 do
+-      if (AnsiUpperCase(PerformForm.CommandsListBox.Items[i]) = '/J '+AnsiUpperCase(lastActiveTab.Caption)) or (AnsiUpperCase(PerformForm.CommandsListBox.Items[i]) = '/JOIN '+AnsiUpperCase(lastActiveTab.Caption)) then begin
+-        PerformForm.CommandsListBox.Items.Delete(i);
+-        Exit;
+-      end;
+-  end;
++    PerformForm.addAutoJoinChannel(MidStr(lastActiveTab.Caption,2,999));
+ end;
+ 
+ procedure TMainForm.mnuAwayClick(Sender: TObject);
+
+Modified: Lobby/TASClient/PerformFormUnit.pas
+===================================================================
+--- Lobby/TASClient/PerformFormUnit.pas	2011-01-25 21:46:55 UTC (rev 7582)
++++ Lobby/TASClient/PerformFormUnit.pas	2011-02-03 20:22:40 UTC (rev 7583)
+@@ -38,7 +38,9 @@
+   private
+     { Private declarations }
+   public
+-    { Public declarations }
++    function isChannelAutoJoined(channelName: string):Boolean;
++    procedure addAutoJoinChannel(channelName: string);
++    procedure removeAutoJoinChannel(channelName: string);
+   end;
+ 
+ var
+@@ -149,13 +151,14 @@
+ var
+   i: Integer;
+ begin
++  NbAutoJoinChannels := 0;
+   for i := 0 to CommandsListBox.Count-1 do
+   begin
+     MainForm.ProcessCommand(Copy(CommandsListBox.Items[i], 2, Length(CommandsListBox.Items[i])-1), False);
+     if LowerCase(LeftStr(CommandsListBox.Items[i],4)) = '/j #' then
+-      LastAutoJoin := MidStr(CommandsListBox.Items[i],5,99999);
++      Inc(NbAutoJoinChannels);
+     if LowerCase(LeftStr(CommandsListBox.Items[i],7)) = '/join #' then
+-      LastAutoJoin := MidStr(CommandsListBox.Items[i],8,99999);
++      Inc(NbAutoJoinChannels);
+   end;
+ end;
+ 
+@@ -195,4 +198,40 @@
+   PerformForm.SaveCommandListToFile(ExtractFilePath(Application.ExeName) + VAR_FOLDER + '\perform.dat');
+ end;
+ 
++function TPerformForm.isChannelAutoJoined(channelName: string):Boolean;
++var
++  i: integer;
++begin
++  Result := False;
++  if AnsiUpperCase(channelName) = 'MAIN' then
++    Exit;
++  for i:=0 to PerformForm.CommandsListBox.Count-1 do
++    if (AnsiUpperCase(PerformForm.CommandsListBox.Items[i]) = '/J #'+AnsiUpperCase(channelName)) or (AnsiUpperCase(PerformForm.CommandsListBox.Items[i]) = '/JOIN #'+AnsiUpperCase(channelName)) then
++    begin
++      Result := True;
++      Exit;
++    end;
++end;
++
++procedure TPerformForm.addAutoJoinChannel(channelName: string);
++begin
++  if AnsiUpperCase(channelName) = 'MAIN' then
++    Exit;
++  if not isChannelAutoJoined(channelName) then
++    PerformForm.CommandsListBox.Items.Add('/j #'+channelName)
++end;
++
++procedure TPerformForm.removeAutoJoinChannel(channelName: string);
++var
++  i: integer;
++begin
++  if AnsiUpperCase(channelName) = 'MAIN' then
++    Exit;
++  for i:=PerformForm.CommandsListBox.Count-1 downto 0 do
++    if (AnsiUpperCase(PerformForm.CommandsListBox.Items[i]) = '/J #'+AnsiUpperCase(channelName)) or (AnsiUpperCase(PerformForm.CommandsListBox.Items[i]) = '/JOIN #'+AnsiUpperCase(channelName)) then
++    begin
++      PerformForm.CommandsListBox.Items.Delete(i);
++    end;
++end;
++
+ end.
+
+Modified: Lobby/TASClient/PreferencesFormUnit.dfm
+===================================================================
+--- Lobby/TASClient/PreferencesFormUnit.dfm	2011-01-25 21:46:55 UTC (rev 7582)
++++ Lobby/TASClient/PreferencesFormUnit.dfm	2011-02-03 20:22:40 UTC (rev 7583)
+@@ -1,8 +1,8 @@
+ object PreferencesForm: TPreferencesForm
+-  Left = 1149
+-  Top = 435
+-  Width = 578
+-  Height = 548
++  Left = 769
++  Top = 89
++  Width = 593
++  Height = 552
+   Caption = 'Preferences'
+   Color = clBtnFace
+   Font.Charset = DEFAULT_CHARSET
+@@ -21,13 +21,16 @@
+   object SpTBXTitleBar1: TSpTBXTitleBar
+     Left = 0
+     Top = 0
+-    Width = 570
+-    Height = 521
++    Width = 585
++    Height = 525
+     Caption = 'Preferences'
+     Active = False
+     FixedSize = True
+     Options.Minimize = False
+     Options.Maximize = False
++    DesignSize = (
++      585
++      525)
+     object LayoutDefault: TTntEdit
+       Left = 568
+       Top = 720
+@@ -68,203 +71,93 @@
+         '7450616E656CFFFFFFFF&quot;&quot;&quot;,Version=1'
+     end
+     object LanguageCombobox: TSpTBXComboBox
+-      Left = 424
++      Left = 440
+       Top = 32
+       Width = 137
+       Height = 21
+       Style = csDropDownList
++      Anchors = [akTop, akRight]
+       ItemHeight = 13
+       TabOrder = 2
+     end
+     object SpTBXLabel2: TSpTBXLabel
+       Left = 216
+       Top = 34
+-      Width = 198
++      Width = 214
+       Height = 13
+       Caption = 'Language :'
++      Anchors = [akLeft, akTop, akRight]
+       AutoSize = False
+       Alignment = taRightJustify
+     end
+     object SpTBXTabControl1: TSpTBXTabControl
+       Left = 8
+       Top = 56
+-      Width = 553
+-      Height = 417
+-      ActiveTabIndex = 2
++      Width = 568
++      Height = 421
++      Anchors = [akLeft, akTop, akRight, akBottom]
++      ActiveTabIndex = 0
+       TabAutofit = True
+       HiddenItems = &lt;&gt;
+       object SpTBXTabItem6: TSpTBXTabItem
+         Caption = 'Server'
+         Wrapping = twWrap
+-        CustomWidth = 78
++        Checked = True
++        CustomWidth = 80
+         CustomHeight = 40
+       end
+       object SpTBXTabItem5: TSpTBXTabItem
+         Caption = 'Account'
+         Wrapping = twWrap
+-        CustomWidth = 78
++        CustomWidth = 80
+       end
+       object SpTBXTabItem4: TSpTBXTabItem
+         Caption = 'Program'
+         Wrapping = twWrap
+-        Checked = True
+-        CustomWidth = 78
++        CustomWidth = 80
+       end
+       object SpTBXTabItem3: TSpTBXTabItem
+         Caption = 'Interface'
+         Wrapping = twWrap
+-        CustomWidth = 78
++        CustomWidth = 80
+       end
+       object SpTBXTabItem2: TSpTBXTabItem
+         Caption = 'Proxy'
+         Wrapping = twWrap
+-        CustomWidth = 78
++        CustomWidth = 80
+       end
+       object SpTBXTabItem1: TSpTBXTabItem
+         Caption = 'Skins'
+         Wrapping = twWrap
+-        CustomWidth = 78
++        CustomWidth = 80
+       end
+       object SpTBXTabItem7: TSpTBXTabItem
+         Caption = 'Scripts'
+         Wrapping = twWrap
+-        CustomWidth = 78
++        CustomWidth = 80
+       end
+-      object SpTBXTabSheet7: TSpTBXTabSheet
+-        Left = 0
+-        Top = 44
+-        Width = 553
+-        Height = 373
+-        Caption = 'Scripts'
+-        ImageIndex = -1
+-        TabItem = 'SpTBXTabItem7'
+-        object ScriptsDebugWindowBt: TSpTBXButton
+-          Left = 160
+-          Top = 56
+-          Width = 233
+-          Height = 25
+-          Caption = 'Debug Window'
+-          TabOrder = 0
+-          OnClick = ScriptsDebugWindowBtClick
+-        end
+-        object ScriptsReloadBt: TSpTBXButton
+-          Left = 160
+-          Top = 88
+-          Width = 233
+-          Height = 25
+-          Caption = 'Reload scripts'
+-          TabOrder = 1
+-          OnClick = ScriptsReloadBtClick
+-        end
+-        object ScriptsLoadNewBt: TSpTBXButton
+-          Left = 160
+-          Top = 120
+-          Width = 233
+-          Height = 25
+-          Caption = 'Load new scripts'
+-          TabOrder = 2
+-          OnClick = ScriptsLoadNewBtClick
+-        end
+-        object ScriptsAdvancedOptionsBt: TSpTBXButton
+-          Left = 160
+-          Top = 152
+-          Width = 233
+-          Height = 25
+-          Caption = 'Advanced options'
+-          TabOrder = 3
+-          Visible = False
+-          OnClick = ScriptsAdvancedOptionsBtClick
+-        end
+-        object EnableScriptsCheckBox: TSpTBXCheckBox
+-          Left = 180
+-          Top = 24
+-          Width = 193
+-          Height = 15
+-          Caption = 'Enable scripts BETA (requires restart)'
+-          TabOrder = 4
+-        end
+-      end
+-      object SpTBXTabSheet5: TSpTBXTabSheet
+-        Left = 0
+-        Top = 44
+-        Width = 553
+-        Height = 373
+-        Caption = 'Account'
+-        ImageIndex = -1
+-        TabItem = 'SpTBXTabItem5'
+-        object GroupBox2: TSpTBXGroupBox
+-          Left = 16
+-          Top = 8
+-          Width = 529
+-          Height = 345
+-          Caption = 'Account details'
+-          TabOrder = 0
+-          object RegisterAccountButton: TSpTBXSpeedButton
+-            Left = 156
+-            Top = 136
+-            Width = 217
+-            Height = 25
+-            Caption = 'Create new account'
+-            OnClick = RegisterAccountButtonClick
+-          end
+-          object Label4: TSpTBXLabel
+-            Left = 24
+-            Top = 40
+-            Width = 51
+-            Height = 13
+-            Caption = 'Username:'
+-          end
+-          object Label5: TSpTBXLabel
+-            Left = 24
+-            Top = 72
+-            Width = 49
+-            Height = 13
+-            Caption = 'Password:'
+-          end
+-          object UsernameEdit: TSpTBXEdit
+-            Left = 160
+-            Top = 40
+-            Width = 185
+-            Height = 21
+-            TabOrder = 0
+-          end
+-          object PasswordEdit: TSpTBXEdit
+-            Left = 160
+-            Top = 72
+-            Width = 185
+-            Height = 21
+-            TabOrder = 1
+-            OnChange = PasswordEditChange
+-            PasswordCharW = '*'
+-          end
+-          object RememberPasswordsCheckBox: TSpTBXCheckBox
+-            Left = 160
+-            Top = 104
+-            Width = 117
+-            Height = 15
+-            Caption = 'remember passwords'
+-            TabOrder = 5
+-          end
+-        end
+-      end
+       object SpTBXTabSheet1: TSpTBXTabSheet
+         Left = 0
+         Top = 44
+-        Width = 553
+-        Height = 373
++        Width = 568
++        Height = 377
+         Caption = 'Skins'
+         ImageIndex = -1
++        DesignSize = (
++          568
++          377)
+         TabItem = 'SpTBXTabItem1'
+         object GroupBox5: TSpTBXGroupBox
+           Left = 8
+           Top = 16
+-          Width = 529
+-          Height = 345
++          Width = 544
++          Height = 349
+           Caption = 'Skin manager'
++          Anchors = [akLeft, akTop, akRight, akBottom]
+           TabOrder = 0
+           DesignSize = (
+-            529
+-            345)
++            544
++            349)
+           object ThemesComboBox: TSpTBXComboBox
+             Left = 48
+             Top = 144
+@@ -336,8 +229,8 @@
+             TabOrder = 7
+           end
+           object SkinEditorButton: TSpTBXButton
+-            Left = 176
+-            Top = 312
++            Left = 191
++            Top = 316
+             Width = 345
+             Height = 25
+             Caption = 'SkinEditor'
+@@ -346,8 +239,8 @@
+             OnClick = SkinEditorButtonClick
+           end
+           object SpTBXWebsiteButton: TSpTBXButton
+-            Left = 176
+-            Top = 280
++            Left = 191
++            Top = 284
+             Width = 345
+             Height = 25
+             Caption = 'SpTBX website : <A HREF="http://www.silverpointdevelopment.com/">http://www.silverpointdevelopment.com/</A>'
+@@ -365,20 +258,86 @@
+           end
+         end
+       end
++      object SpTBXTabSheet7: TSpTBXTabSheet
++        Left = 0
++        Top = 44
++        Width = 568
++        Height = 377
++        Caption = 'Scripts'
++        ImageIndex = -1
++        DesignSize = (
++          568
++          377)
++        TabItem = 'SpTBXTabItem7'
++        object ScriptsDebugWindowBt: TSpTBXButton
++          Left = 160
++          Top = 56
++          Width = 245
++          Height = 25
++          Caption = 'Debug Window'
++          Anchors = [akLeft, akTop, akRight]
++          TabOrder = 0
++          OnClick = ScriptsDebugWindowBtClick
++        end
++        object ScriptsReloadBt: TSpTBXButton
++          Left = 160
++          Top = 88
++          Width = 245
++          Height = 25
++          Caption = 'Reload scripts'
++          Anchors = [akLeft, akTop, akRight]
++          TabOrder = 1
++          OnClick = ScriptsReloadBtClick
++        end
++        object ScriptsLoadNewBt: TSpTBXButton
++          Left = 160
++          Top = 120
++          Width = 245
++          Height = 25
++          Caption = 'Load new scripts'
++          Anchors = [akLeft, akTop, akRight]
++          TabOrder = 2
++          OnClick = ScriptsLoadNewBtClick
++        end
++        object ScriptsAdvancedOptionsBt: TSpTBXButton
++          Left = 160
++          Top = 152
++          Width = 245
++          Height = 25
++          Caption = 'Advanced options'
++          Anchors = [akLeft, akTop, akRight]
++          TabOrder = 3
++          Visible = False
++          OnClick = ScriptsAdvancedOptionsBtClick
++        end
++        object EnableScriptsCheckBox: TSpTBXCheckBox
++          Left = 180
++          Top = 24
++          Width = 193
++          Height = 15
++          Caption = 'Enable scripts BETA (requires restart)'
++          Anchors = [akLeft, akTop, akRight]
++          TabOrder = 4
++        end
++      end
+       object SpTBXTabSheet2: TSpTBXTabSheet
+         Left = 0
+         Top = 44
+-        Width = 553
+-        Height = 373
++        Width = 568
++        Height = 377
+         Caption = 'Proxy'
+         ImageIndex = -1
++        DesignSize = (
++          568
++          377)
+         TabItem = 'SpTBXTabItem2'
+         object GroupBox6: TSpTBXGroupBox
+           Left = 16
+           Top = 8
+-          Width = 529
+-          Height = 345
++          Width = 544
++          Height = 349
+           Caption = 'Proxy settings'
++          Anchors = [akLeft, akTop, akRight, akBottom]
+           TabOrder = 0
+           object UseProxyCheckBox: TSpTBXCheckBox
+             Left = 24
+@@ -462,109 +421,281 @@
+           end
+         end
+       end
+-      object SpTBXTabSheet6: TSpTBXTabSheet
++      object SpTBXTabSheet5: TSpTBXTabSheet
+         Left = 0
+         Top = 44
+-        Width = 553
+-        Height = 373
+-        Caption = 'Server'
++        Width = 568
++        Height = 377
++        Caption = 'Account'
+         ImageIndex = -1
+-        TabItem = 'SpTBXTabItem6'
+-        object GroupBox1: TSpTBXGroupBox
++        DesignSize = (
++          568
++          377)
++        TabItem = 'SpTBXTabItem5'
++        object GroupBox2: TSpTBXGroupBox
+           Left = 16
+           Top = 8
+-          Width = 529
+-          Height = 345
+-          Caption = 'Server settings'
++          Width = 544
++          Height = 349
++          Caption = 'Account details'
++          Anchors = [akLeft, akTop, akRight, akBottom]
+           TabOrder = 0
+-          object Label1: TSpTBXLabel
++          object RegisterAccountButton: TSpTBXSpeedButton
++            Left = 156
++            Top = 136
++            Width = 217
++            Height = 25
++            Caption = 'Create new account'
++            OnClick = RegisterAccountButtonClick
++          end
++          object Label4: TSpTBXLabel
++            Left = 24
++            Top = 40
++            Width = 51
++            Height = 13
++            Caption = 'Username:'
++          end
++          object Label5: TSpTBXLabel
++            Left = 24
++            Top = 72
++            Width = 49
++            Height = 13
++            Caption = 'Password:'
++          end
++          object UsernameEdit: TSpTBXEdit
++            Left = 160
++            Top = 40
++            Width = 185
++            Height = 21
++            TabOrder = 0
++          end
++          object PasswordEdit: TSpTBXEdit
++            Left = 160
++            Top = 72
++            Width = 185
++            Height = 21
++            TabOrder = 1
++            OnChange = PasswordEditChange
++            PasswordCharW = '*'
++          end
++          object RememberPasswordsCheckBox: TSpTBXCheckBox
++            Left = 160
++            Top = 104
++            Width = 117
++            Height = 15
++            Caption = 'remember passwords'
++            TabOrder = 5
++          end
++        end
++      end
++      object SpTBXTabSheet4: TSpTBXTabSheet
++        Left = 0
++        Top = 44
++        Width = 568
++        Height = 377
++        Caption = 'Program'
++        ImageIndex = -1
++        DesignSize = (
++          568
++          377)
++        TabItem = 'SpTBXTabItem4'
++        object GroupBox3: TSpTBXGroupBox
++          Left = 16
++          Top = 8
++          Width = 544
++          Height = 349
++          Caption = 'Program settings'
++          Anchors = [akLeft, akTop, akRight, akBottom]
++          TabOrder = 0
++          DesignSize = (
++            544
++            349)
++          object ResetRegistryButton: TSpTBXSpeedButton
++            Left = 296
++            Top = 313
++            Width = 237
++            Height = 22
++            Caption = 'Reset registry data'
++            Anchors = [akLeft, akRight, akBottom]
++            OnClick = ResetRegistryButtonClick
++          end
++          object NotificationsButton: TSpTBXSpeedButton
++            Left = 296
++            Top = 40
++            Width = 237
++            Height = 22
++            Caption = 'Notifications ...'
++            Anchors = [akLeft, akTop, akRight]
++            OnClick = NotificationsButtonClick
++          end
++          object HighlightingButton: TSpTBXSpeedButton
++            Left = 296
++            Top = 16
++            Width = 237
++            Height = 22
++            Caption = 'Highlighting ...'
++            Anchors = [akLeft, akTop, akRight]
++            OnClick = HighlightingButtonClick
++          end
++          object IgnoreListButton: TSpTBXSpeedButton
++            Left = 296
++            Top = 64
++            Width = 237
++            Height = 22
++            Caption = 'Ignore list ...'
++            Anchors = [akLeft, akTop, akRight]
++            OnClick = IgnoreListButtonClick
++          end
++          object Label6: TSpTBXLabel
+             Left = 16
+             Top = 32
+-            Width = 74
++            Width = 46
+             Height = 13
+-            Caption = 'Server address:'
++            Caption = 'Tab style:'
+           end
+-          object Label2: TSpTBXLabel
++          object RadioButton4: TSpTBXRadioButton
+             Left = 16
+             Top = 56
+-            Width = 55
+-            Height = 13
+-            Caption = 'Server port:'
++            Width = 38
++            Height = 15
++            Caption = 'tabs'
++            TabOrder = 0
++            TabStop = True
++            Checked = True
+           end
+-          object ServerPortEdit: TSpTBXEdit
+-            Left = 128
+-            Top = 56
+-            Width = 41
+-            Height = 21
++          object RadioButton5: TSpTBXRadioButton
++            Left = 16
++            Top = 72
++            Width = 53
++            Height = 15
++            Caption = 'buttons'
+             TabOrder = 1
+-            Text = '8200'
+           end
+-          object CheckBox10: TSpTBXCheckBox
++          object RadioButton6: TSpTBXRadioButton
+             Left = 16
+-            Top = 128
+-            Width = 197
++            Top = 88
++            Width = 70
+             Height = 15
+-            Caption = 'Connect to backup host if primary fails'
++            Caption = 'flat buttons'
+             TabOrder = 2
+-            Checked = True
+-            State = cbChecked
+           end
+-          object CheckBox2: TSpTBXCheckBox
++          object CheckBox8: TSpTBXCheckBox
+             Left = 16
+-            Top = 144
+-            Width = 108
++            Top = 319
++            Width = 88
+             Height = 15
+-            Caption = 'Connect on startup'
++            Caption = 'Enable logging'
++            Anchors = [akLeft, akBottom]
+             TabOrder = 3
++            Checked = True
++            State = cbChecked
+           end
+-          object CheckBox7: TSpTBXCheckBox
++          object CheckBox9: TSpTBXCheckBox
+             Left = 16
+-            Top = 160
+-            Width = 226
++            Top = 303
++            Width = 128
+             Height = 15
+-            Caption = 'Join #main once connected (recommended)'
++            Caption = 'Use sound notifications'
++            Anchors = [akLeft, akBottom]
+             TabOrder = 4
++            Checked = True
++            State = cbChecked
+           end
+-          object ServerAddressEdit: TSpTBXButtonEdit
+-            Left = 128
+-            Top = 32
+-            Width = 385
+-            Height = 21
+-            TabOrder = 0
+-            EditButton.Left = 361
+-            EditButton.Top = 0
+-            EditButton.Width = 20
+-            EditButton.Height = 17
+-            EditButton.Caption = '...'
+-            EditButton.Align = alRight
+-            EditButton.DropDownArrow = False
+-            EditButton.DropDownMenu = AddressPopupMenu
++          object CheckForNewVersionCheckBox: TSpTBXCheckBox
++            Left = 16
++            Top = 287
++            Width = 168
++            Height = 15
++            Caption = 'Auto update lobby to latest beta'
++            Anchors = [akLeft, akBottom]
++            TabOrder = 10
+           end
+-          object PerformButton: TSpTBXSpeedButton
+-            Left = 400
+-            Top = 56
+-            Width = 113
+-            Height = 21
+-            Caption = 'Perform ...'
+-            OnClick = PerformButtonClick
++          object ColorsButton: TSpTBXButton
++            Left = 296
++            Top = 88
++            Width = 237
++            Height = 22
++            Caption = 'Colors and font ...'
++            Anchors = [akLeft, akTop, akRight]
++            TabOrder = 11
++            OnClick = ColorsButtonClick
+           end
++          object ManageGroupsButton: TSpTBXButton
++            Left = 296
++            Top = 112
++            Width = 237
++            Height = 22
++            Caption = 'Manage groups ...'
++            Anchors = [akLeft, akTop, akRight]
++            TabOrder = 12
++            OnClick = ManageGroupsButtonClick
++          end
++          object EnableSpringDownloaderCheckBox: TSpTBXCheckBox
++            Left = 16
++            Top = 271
++            Width = 162
++            Height = 15
++            Caption = 'Enable Integrated Downloader'
++            Anchors = [akLeft, akBottom]
++            TabOrder = 13
++            Checked = True
++            State = cbChecked
++          end
++          object UseLogonFormCheckBox: TSpTBXCheckBox
++            Left = 16
++            Top = 255
++            Width = 89
++            Height = 15
++            Caption = 'Use logon form'
++            Anchors = [akLeft, akBottom]
++            TabOrder = 14
++            Checked = True
++            State = cbChecked
++          end
++          object TipsButton: TSpTBXButton
++            Left = 296
++            Top = 136
++            Width = 237
++            Height = 22
++            Caption = 'Tips ...'
++            Anchors = [akLeft, akTop, akRight]
++            TabOrder = 15
++            OnClick = TipsButtonClick
++          end
++          object SpringSettingsProfilesButton: TSpTBXButton
++            Left = 296
++            Top = 160
++            Width = 237
++            Height = 22
++            Caption = 'Spring Settings profiles'
++            Anchors = [akLeft, akTop, akRight]
++            TabOrder = 16
++            OnClick = SpringSettingsProfilesButtonClick
++          end
+         end
+       end
+       object SpTBXTabSheet3: TSpTBXTabSheet
+         Left = 0
+         Top = 44
+-        Width = 553
+-        Height = 373
++        Width = 568
++        Height = 377
+         Caption = 'Interface'
+         ImageIndex = -1
++        DesignSize = (
++          568
++          377)
+         TabItem = 'SpTBXTabItem3'
+         object GroupBox4: TSpTBXGroupBox
+           Left = 8
+           Top = 8
+-          Width = 529
+-          Height = 345
++          Width = 544
++          Height = 349
+           Caption = 'Interface preferences'
++          Anchors = [akLeft, akTop, akRight, akBottom]
+           TabOrder = 0
++          DesignSize = (
++            544
++            349)
+           object CheckBox1: TSpTBXCheckBox
+             Left = 24
+             Top = 16
+@@ -690,8 +821,9 @@
+           object ChatLogsLimitTracker: TSpTBXTrackBar
+             Left = 400
+             Top = 208
+-            Width = 121
++            Width = 133
+             Height = 17
++            Anchors = [akLeft, akTop, akRight]
+             Max = 3000
+             Min = 50
+             Frequency = 100
+@@ -743,8 +875,9 @@
+           object ChatLogLoadingTracker: TSpTBXTrackBar
+             Left = 400
+             Top = 320
+-            Width = 121
++            Width = 133
+             Height = 17
++            Anchors = [akLeft, akTop, akRight]
+             Max = 1000
+             Min = 2
+             Frequency = 50
+@@ -763,197 +896,139 @@
+           end
+         end
+       end
+-      object SpTBXTabSheet4: TSpTBXTabSheet
++      object SpTBXTabSheet6: TSpTBXTabSheet
+         Left = 0
+         Top = 44
+-        Width = 553
+-        Height = 373
+-        Caption = 'Program'
++        Width = 568
++        Height = 377
++        Caption = 'Server'
+         ImageIndex = -1
+-        TabItem = 'SpTBXTabItem4'
+-        object GroupBox3: TSpTBXGroupBox
++        DesignSize = (
++          568
++          377)
++        TabItem = 'SpTBXTabItem6'
++        object GroupBox1: TSpTBXGroupBox
+           Left = 16
+           Top = 8
+-          Width = 529
+-          Height = 345
+-          Caption = 'Program settings'
++          Width = 544
++          Height = 349
++          Caption = 'Server settings'
++          Anchors = [akLeft, akTop, akRight, akBottom]
+           TabOrder = 0
+-          object ResetRegistryButton: TSpTBXSpeedButton
+-            Left = 296
+-            Top = 312
+-            Width = 225
+-            Height = 22
+-            Caption = 'Reset registry data'
+-            OnClick = ResetRegistryButtonClick
+-          end
+-          object NotificationsButton: TSpTBXSpeedButton
+-            Left = 296
+-            Top = 40
+-            Width = 225
+-            Height = 22
+-            Caption = 'Notifications ...'
+-            OnClick = NotificationsButtonClick
+-          end
+-          object HighlightingButton: TSpTBXSpeedButton
+-            Left = 296
+-            Top = 16
+-            Width = 225
+-            Height = 22
+-            Caption = 'Highlighting ...'
+-            OnClick = HighlightingButtonClick
+-          end
+-          object IgnoreListButton: TSpTBXSpeedButton
+-            Left = 296
+-            Top = 64
+-            Width = 225
+-            Height = 22
+-            Caption = 'Ignore list ...'
+-            OnClick = IgnoreListButtonClick
+-          end
+-          object Label6: TSpTBXLabel
++          DesignSize = (
++            544
++            349)
++          object Label1: TSpTBXLabel
+             Left = 16
+             Top = 32
+-            Width = 46
++            Width = 74
+             Height = 13
+-            Caption = 'Tab style:'
++            Caption = 'Server address:'
+           end
+-          object RadioButton4: TSpTBXRadioButton
++          object Label2: TSpTBXLabel
+             Left = 16
+             Top = 56
+-            Width = 38
+-            Height = 15
+-            Caption = 'tabs'
+-            TabOrder = 0
+-            TabStop = True
+-            Checked = True
++            Width = 55
++            Height = 13
++            Caption = 'Server port:'
+           end
+-          object RadioButton5: TSpTBXRadioButton
+-            Left = 16
+-            Top = 72
+-            Width = 53
+-            Height = 15
+-            Caption = 'buttons'
++          object ServerPortEdit: TSpTBXEdit
++            Left = 128
++            Top = 56
++            Width = 41
++            Height = 21
+             TabOrder = 1
++            Text = '8200'
+           end
+-          object RadioButton6: TSpTBXRadioButton
++          object CheckBox10: TSpTBXCheckBox
+             Left = 16
+-            Top = 88
+-            Width = 70
++            Top = 128
++            Width = 197
+             Height = 15
+-            Caption = 'flat buttons'
++            Caption = 'Connect to backup host if primary fails'
+             TabOrder = 2
++            Checked = True
++            State = cbChecked
+           end
+-          object CheckBox8: TSpTBXCheckBox
++          object CheckBox2: TSpTBXCheckBox
+             Left = 16
+-            Top = 312
+-            Width = 88
++            Top = 144
++            Width = 108
+             Height = 15
+-            Caption = 'Enable logging'
++            Caption = 'Connect on startup'
+             TabOrder = 3
+-            Checked = True
+-            State = cbChecked
+           end
+-          object CheckBox9: TSpTBXCheckBox
++          object CheckBox7: TSpTBXCheckBox
+             Left = 16
+-            Top = 296
+-            Width = 128
++            Top = 160
++            Width = 226
+             Height = 15
+-            Caption = 'Use sound notifications'
++            Caption = 'Join #main once connected (recommended)'
+             TabOrder = 4
+-            Checked = True
+-            State = cbChecked
+           end
+-          object CheckForNewVersionCheckBox: TSpTBXCheckBox
+-            Left = 16
+-            Top = 280
+-            Width = 168
+-            Height = 15
+-            Caption = 'Auto update lobby to latest beta'
+-            TabOrder = 10
++          object ServerAddressEdit: TSpTBXButtonEdit
++            Left = 128
++            Top = 32
++            Width = 397
++            Height = 21
++            Anchors = [akLeft, akTop, akRight]
++            TabOrder = 0
++            EditButton.Left = 373
++            EditButton.Top = 0
++            EditButton.Width = 20
++            EditButton.Height = 17
++            EditButton.Caption = '...'
++            EditButton.Align = alRight
++            EditButton.DropDownArrow = False
++            EditButton.DropDownMenu = AddressPopupMenu
+           end
+-          object ColorsButton: TSpTBXButton
+-            Left = 296
+-            Top = 88
+-            Width = 225
+-            Height = 22
+-            Caption = 'Colors and font ...'
+-            TabOrder = 11
+-            OnClick = ColorsButtonClick
++          object PerformButton: TSpTBXSpeedButton
++            Left = 412
++            Top = 56
++            Width = 113
++            Height = 21
++            Caption = 'Perform ...'
++            Anchors = [akTop, akRight]
++            OnClick = PerformButtonClick
+           end
+-          object ManageGroupsButton: TSpTBXButton
+-            Left = 296
+-            Top = 112
+-            Width = 225
+-            Height = 22
+-            Caption = 'Manage groups ...'
+-            TabOrder = 12
+-            OnClick = ManageGroupsButtonClick
+-          end
+-          object EnableSpringDownloaderCheckBox: TSpTBXCheckBox
++          object AutoSaveChansSessionCheckbox: TSpTBXCheckBox
+             Left = 16
+-            Top = 264
+-            Width = 162
++            Top = 176
++            Width = 285
+             Height = 15
+-            Caption = 'Enable Integrated Downloader'
+-            TabOrder = 13
+-            Checked = True
+-            State = cbChecked
++            Caption = 'Automatically join the channels from the previous session'
++            TabOrder = 8
+           end
+-          object UseLogonFormCheckBox: TSpTBXCheckBox
+-            Left = 16
+-            Top = 248
+-            Width = 89
+-            Height = 15
+-            Caption = 'Use logon form'
+-            TabOrder = 14
+-            Checked = True
+-            State = cbChecked
+-          end
+-          object TipsButton: TSpTBXButton
+-            Left = 296
+-            Top = 136
+-            Width = 225
+-            Height = 22
+-            Caption = 'Tips ...'
+-            TabOrder = 15
+-            OnClick = TipsButtonClick
+-          end
+-          object SpringSettingsProfilesButton: TSpTBXButton
+-            Left = 296
+-            Top = 160
+-            Width = 225
+-            Height = 22
+-            Caption = 'Spring Settings profiles'
+-            TabOrder = 16
+-            OnClick = SpringSettingsProfilesButtonClick
+-          end
+         end
+       end
+     end
+     object ApplyAndCloseButton: TSpTBXButton
+-      Left = 119
+-      Top = 480
+-      Width = 145
++      Left = 7
++      Top = 484
++      Width = 275
+       Height = 25
+       Caption = 'Apply and close'
++      Anchors = [akLeft, akBottom]
+       TabOrder = 5
+       OnClick = ApplyAndCloseButtonClick
+     end
+     object CancelAndCloseButton: TSpTBXButton
+-      Left = 303
+-      Top = 480
+-      Width = 145
++      Left = 300
++      Top = 484
++      Width = 275
+       Height = 25
+       Caption = 'Cancel and close'
++      Anchors = [akRight, akBottom]
+       TabOrder = 6
+       OnClick = CancelAndCloseButtonClick
+       Cancel = True
+     end
+     object memoTASClientSkin: TTntMemo
+-      Left = 664
++      Left = 680
+       Top = 32
+       Width = 401
+       Height = 153
++      Anchors = [akTop, akRight]
+       Lines.Strings = (
+         '[Skin]'
+         'Name=TASClient Skin'
+@@ -1529,10 +1604,11 @@
+       Visible = False
+     end
+     object memoTASClientLightSkin: TTntMemo
+-      Left = 664
++      Left = 680
+       Top = 192
+       Width = 401
+       Height = 153
++      Anchors = [akTop, akRight]
+       Lines.Strings = (
+         '[Skin]'
+         'Name=TASCLient Light Skin'
+@@ -2131,7 +2207,7 @@
+     Top = 691
+   end
+   object OpenDialog1: TOpenDialog
+-    Left = 256
+-    Top = 292
++    Left = 336
++    Top = 324
+   end
+ end
+
+Modified: Lobby/TASClient/PreferencesFormUnit.pas
+===================================================================
+--- Lobby/TASClient/PreferencesFormUnit.pas	2011-01-25 21:46:55 UTC (rev 7582)
++++ Lobby/TASClient/PreferencesFormUnit.pas	2011-02-03 20:22:40 UTC (rev 7583)
+@@ -67,6 +67,7 @@
+     AutoUpdateToBeta: Boolean;
+     DisplayUnitsIconsAndNames: Boolean;
+     DisplayAutohostInterface: Boolean;
++    AutoSaveChanSession: Boolean;
+ 
+     UseProxy: Boolean;
+     ProxyAddress: string;
+@@ -225,6 +226,7 @@
+     SkinnedTitlebarsCheckBox: TSpTBXCheckBox;
+     memoTASClientLightSkin: TTntMemo;
+     JvProxyPortEdit: TSpTBXSpinEdit;
++    AutoSaveChansSessionCheckbox: TSpTBXCheckBox;
+ 
+     function BattleSortStyleToColumn(SortStyle: Integer): Integer;
+     function ColumnToBattleSortStyle(Column: Integer): Integer;
+@@ -306,7 +308,7 @@
+                                         BattleClientSortStyle: 2;FilterJoinLeftMessages: False;FilterBattleJoinLeftMessages: False; ShowFlags: True;
+                                         MarkUnknownMaps: False; TaskbarButtons: True; JoinMainChannel: True; ReconnectToBackup: True; SaveLogs: True;
+                                         UseSoundNotifications: True;AutoCompletionFromCurrentChannel: False; AutoUpdateToBeta: False;DisplayUnitsIconsAndNames: False;
+-                                        DisplayAutohostInterface: True; UseProxy: False; HighlightColor: clGreen; UseNotificationsForHighlights: True; UseIgnoreList: False;
++                                        DisplayAutohostInterface: True;AutoSaveChanSession: True; UseProxy: False; HighlightColor: clGreen; UseNotificationsForHighlights: True; UseIgnoreList: False;
+                                         WarnIfUsingNATTraversing: True; AutoFocusOnPM: True; MapSortStyle: 1; ThemeType: sknSkin; Theme: 'TASClient';AdvancedSkinning : True;
+                                         SkinnedTitlebars: True ;DisableAllSounds: False; SortLocal: False; DisplayQuickJoinPanel : True; LimitChatLogs: False; ChatLogsLimit: 800;
+                                         ChatLogLoadLoading: True; ChatLogLoadLines: 30; SPSkin: 'default.ssk'; ScriptsDisabled : False; EnableScripts : True;
+@@ -351,6 +353,7 @@
+     try Preferences.Username := Misc.GetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Preferences', 'Username'); except end;
+     try Preferences.Password := Misc.GetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Preferences', 'Password'); except end;
+     try Preferences.UseLogonForm := Misc.GetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Preferences', 'UseLogonForm'); except end;
++    try Preferences.AutoSaveChanSession := Misc.GetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Preferences', 'AutoSaveChanSession'); except end;
+     if (Length(Preferences.Password) &lt;&gt; 24)  and (Length(Preferences.Password) &gt; 0) then // not md5 password = old system
+       Preferences.Password := Misc.GetMD5Hash(Preferences.Password);
+     try
+@@ -835,6 +838,7 @@
+     Misc.SetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Preferences', 'DisableMapDetailsLoading', rdInteger, Preferences.DisableMapDetailsLoading);
+     Misc.SetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Preferences', 'LoadMetalHeightMinimaps2', rdInteger, Preferences.LoadMetalHeightMinimaps);
+     Misc.SetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Preferences', 'DisplayAutohostInterface', rdInteger, Preferences.DisplayAutohostInterface);
++    Misc.SetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Preferences', 'AutoSaveChanSession', rdInteger, Misc.BoolToInt(Preferences.AutoSaveChanSession));
+ 
+     Misc.SetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Preferences\ChatColors2', 'MyText', rdInteger, Colors.MyText);
+     Misc.SetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Preferences\ChatColors2', 'AdminText2', rdInteger, Colors.AdminText);
+@@ -1289,6 +1293,7 @@
+   p.Password := PasswordEdit.Text;
+   p.RememberPasswords := RememberPasswordsCheckBox.Checked;
+   p.UseLogonForm := UseLogonFormCheckBox.Checked;
++  p.AutoSaveChanSession := AutoSaveChansSessionCheckbox.Checked;
+ 
+   p.ConnectOnStartup := CheckBox2.Checked;
+ 
+@@ -1381,6 +1386,7 @@
+   PasswordEdit.Text := p.Password;
+   RememberPasswordsCheckBox.Checked := p.RememberPasswords;
+   UseLogonFormCheckBox.Checked := p.UseLogonForm;
++  AutoSaveChansSessionCheckbox.Checked := p.AutoSaveChanSession;
+ 
+   LogonForm.txtLogin.Text := p.Username;
+   LogonForm.txtPort.Text := p.ServerPort;
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2011-01-25 21:46:55 UTC (rev 7582)
++++ Lobby/TASClient/TASClient.dof	2011-02-03 20:22:40 UTC (rev 7583)
+@@ -113,9 +113,9 @@
+ IncludeVerInfo=1
+ AutoIncBuild=1
+ MajorVer=0
+-MinorVer=85
++MinorVer=86
+ Release=0
+-Build=1239
++Build=1241
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.85.0.1239
++FileVersion=0.86.0.1241
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002354.html">[Taspring-linux-commit] r7584 - in Lobby/TASClient: . Python/scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2353">[ date ]</a>
+              <a href="thread.html#2353">[ thread ]</a>
+              <a href="subject.html#2353">[ subject ]</a>
+              <a href="author.html#2353">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

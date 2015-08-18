@@ -1,0 +1,234 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7547 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7547%20-%20Lobby/TASClient&In-Reply-To=%3C20101205211311.525E92207D%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002316.html">
+   <LINK REL="Next"  HREF="002318.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7547 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7547%20-%20Lobby/TASClient&In-Reply-To=%3C20101205211311.525E92207D%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7547 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Dec  5 22:13:11 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002316.html">[Taspring-linux-commit] r7546 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002318.html">[Taspring-linux-commit] r7548 - in Lobby/TASClient: . Python/scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2317">[ date ]</a>
+              <a href="thread.html#2317">[ thread ]</a>
+              <a href="subject.html#2317">[ subject ]</a>
+              <a href="author.html#2317">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2010-12-05 22:13:09 +0100 (Sun, 05 Dec 2010)
+New Revision: 7547
+
+Modified:
+   Lobby/TASClient/BattleFormUnit.pas
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+0.81 Final
+* relay host upload script limit added : 5kB/10s max
+
+Modified: Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.pas	2010-12-05 16:17:22 UTC (rev 7546)
++++ Lobby/TASClient/BattleFormUnit.pas	2010-12-05 21:13:09 UTC (rev 7547)
+@@ -2922,6 +2922,10 @@
+   i: integer;
+   scriptGenerationResult: TScript;
+   sl:TStringList;
++  cumulativeDataSent10sBeforeStartTime: Int64;
++  startTime : TDateTime;
++  nextScriptLine : string;
++  sendSpeed: Extended;
+ begin
+   if not isBattleReadyToStart then
+   begin
+@@ -2995,12 +2999,21 @@
+     StartProgressBar.Max := sl.Count-1;
+     StartButton.Visible := False;
+     StartProgressBar.Visible := True;
++
++    startTime := Now;
++    cumulativeDataSent10sBeforeStartTime := Status.CumulativeDataSentHistory.Items[0];
+     for i:=0 to sl.Count-1 do
+     begin
+       StartProgressBar.Position := i;
+       StartProgressBar.Refresh;
++      nextScriptLine := 'SAYPRIVATE '+HostBattleForm.relayHoster.Name+' !appendscriptline '+sl[i];
++      while (Status.CumulativeDataSent+Length(nextScriptLine)-cumulativeDataSent10sBeforeStartTime)/(10+(Now-startTime)*86400) &gt; 500 do // 5kB/10s max
++      begin
++        Application.ProcessMessages;
++        Sleep(10);
++      end;
++      Application.ProcessMessages;
+       MainForm.TryToSendCommand('SAYPRIVATE',HostBattleForm.relayHoster.Name+' !appendscriptline '+sl[i]);
+-      Sleep(20);
+     end;
+     StartButton.Visible := True;
+     StartProgressBar.Visible := False;
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2010-12-05 16:17:22 UTC (rev 7546)
++++ Lobby/TASClient/MainUnit.dfm	2010-12-05 21:13:09 UTC (rev 7547)
+@@ -8057,4 +8057,9 @@
+     Left = 296
+     Top = 200
+   end
++  object tmrCumulativeDataSentHistory: TTimer
++    OnTimer = tmrCumulativeDataSentHistoryTimer
++    Left = 592
++    Top = 168
++  end
+ end
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2010-12-05 16:17:22 UTC (rev 7546)
++++ Lobby/TASClient/MainUnit.pas	2010-12-05 21:13:09 UTC (rev 7547)
+@@ -415,7 +415,7 @@
+ const
+   VERSION_NUMBER = '0.81'; // Must be float value! (with a period as a decimal seperator)
+   AUTOUPDATE_URL = '<A HREF="http://tasclient.no-ip.org/TASClient_update_v5.txt">http://tasclient.no-ip.org/TASClient_update_v5.txt</A>';
+-  PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER+' beta';
++  PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER;
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+   ASSUME_TIMEOUT_INTERVAL = 30000; // in milliseconds. Must be greater than KEEP_ALIVE_INTERVAL! If server hasn't send any data to us within this interval, then we assume timeout occured. It's us who must make sure we get constant replies from server by pinging it.
+   LOCAL_TAB = '$Local'; // caption of main (command) tab window. Must be special so that is different from channel names or user names, that is why there is a &quot;$&quot; in front of it.
+@@ -1290,6 +1290,7 @@
+     BattlePlayersListBox: TTntListBox;
+     SpTBXItem7: TSpTBXItem;
+     TBControlItem1: TTBControlItem;
++    tmrCumulativeDataSentHistory: TTimer;
+     procedure mnuOpenPrivateChatClick(Sender: TObject);
+     procedure mnuSelectBattleClick(Sender: TObject);
+     procedure mnuPlayWithClick(Sender: TObject);
+@@ -1487,6 +1488,7 @@
+       Node: PVirtualNode; Column: TColumnIndex);
+     procedure SpTBXItem7Click(Sender: TObject);
+     procedure Button1Click(Sender: TObject);
++    procedure tmrCumulativeDataSentHistoryTimer(Sender: TObject);
+   published
+     MainTitleBar: TSpTBXTitleBar;
+     ButtonImageList: TImageList;
+@@ -1807,6 +1809,7 @@
+     LastCommandReceived: string; // here we keep only the first part of the command that is last received, that is the command identifier without the actual parameters. Note that we keep it in upper-case for easier comparision!
+     LastCommandReceivedFull: string; // here we keep the full command we last received from the server (together with the param list and message ID, if any)
+     CumulativeDataSent: Int64; // number of bytes sent since connection has been established. Note that this counter gets reset when you reconnect
++    CumulativeDataSentHistory: TIntegerList;
+     CumulativeDataRecv: Int64; // number of bytes received since connection has been established. Note that this counter gets reset when you reconnect
+     CurrentMsgID: Integer; // when sending commands to the server some are assigned an unique ID. This value represents last assigned ID. Currently we assign IDs consecutively (note that you may assign IDs any way you want, random, consecutive, or even not at all. IDs have only one function: to track server responses to commands sent by the client. See server's protocol description for more info)
+   end;
+@@ -1914,6 +1917,7 @@
+   function ClientSortCompare(Item1, Item2: Pointer): Integer;
+   function BattleSortCompare(Item1, Item2: Pointer): Integer;
+   procedure LoadTASClientIni(FileName: string);
++  function GetDataSentSpeed: Extended;
+ 
+ implementation
+ 
+@@ -1986,6 +1990,11 @@
+   CommandQueueTail := (CommandQueueTail + 1) mod QUEUE_LENGTH;
+ end;
+ 
++function GetDataSentSpeed: Extended;
++begin
++
++end;
++
+ constructor TFastQueue.Create;
+ begin
+   Self.Head := 0;
+@@ -4132,6 +4141,7 @@
+ 
+   Status.ConnectionState := Disconnected;
+   Status.Registering := False;
++  Status.CumulativeDataSentHistory := TIntegerList.Create;
+ 
+   mainLogBuffer := TWideStringList.Create;
+   mainLogBufferColor := TIntegerList.Create;
+@@ -14652,4 +14662,11 @@
+     Screen.Forms[i].ScaleBy(MainForm.PixelsPerInch,96);
+ end;
+ 
++procedure TMainForm.tmrCumulativeDataSentHistoryTimer(Sender: TObject);
++begin
++  Status.CumulativeDataSentHistory.Add(Status.CumulativeDataSent);
++  if Status.CumulativeDataSentHistory.Count &gt; 11 then
++    Status.CumulativeDataSentHistory.Delete(0);
++end;
++
+ end.
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2010-12-05 16:17:22 UTC (rev 7546)
++++ Lobby/TASClient/TASClient.dof	2010-12-05 21:13:09 UTC (rev 7547)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=81
+ Release=0
+-Build=1136
++Build=1141
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.81.0.1136
++FileVersion=0.81.0.1141
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002316.html">[Taspring-linux-commit] r7546 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002318.html">[Taspring-linux-commit] r7548 - in Lobby/TASClient: . Python/scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2317">[ date ]</a>
+              <a href="thread.html#2317">[ thread ]</a>
+              <a href="subject.html#2317">[ subject ]</a>
+              <a href="author.html#2317">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

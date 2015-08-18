@@ -1,0 +1,1580 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5561 - in trunk: Documentation rts/Game	rts/Game/StartScripts rts/System rts/System/Net	tools/DedicatedServer
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-March/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5561%20-%20in%20trunk%3A%20Documentation%20rts/Game%0A%09rts/Game/StartScripts%20rts/System%20rts/System/Net%0A%09tools/DedicatedServer&In-Reply-To=%3C20080305134016.A5B28467B%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000341.html">
+   <LINK REL="Next"  HREF="000343.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5561 - in trunk: Documentation rts/Game	rts/Game/StartScripts rts/System rts/System/Net	tools/DedicatedServer</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5561%20-%20in%20trunk%3A%20Documentation%20rts/Game%0A%09rts/Game/StartScripts%20rts/System%20rts/System/Net%0A%09tools/DedicatedServer&In-Reply-To=%3C20080305134016.A5B28467B%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5561 - in trunk: Documentation rts/Game	rts/Game/StartScripts rts/System rts/System/Net	tools/DedicatedServer">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Mar  5 14:40:16 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000341.html">[Taspring-linux-commit] r5560 - trunk/rts/System
+</A></li>
+        <LI>Next message: <A HREF="000343.html">[Taspring-linux-commit] r5562 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#342">[ date ]</a>
+              <a href="thread.html#342">[ thread ]</a>
+              <a href="subject.html#342">[ subject ]</a>
+              <a href="author.html#342">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-03-05 14:40:15 +0100 (Wed, 05 Mar 2008)
+New Revision: 5561
+
+Added:
+   trunk/rts/Game/GameData.cpp
+   trunk/rts/Game/GameData.h
+   trunk/rts/System/Net/PackPacket.cpp
+   trunk/rts/System/Net/PackPacket.h
+   trunk/rts/System/Net/UnpackPacket.cpp
+   trunk/rts/System/Net/UnpackPacket.h
+Modified:
+   trunk/Documentation/Spring start.txt
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameServer.h
+   trunk/rts/Game/GameSetup.cpp
+   trunk/rts/Game/GameSetup.h
+   trunk/rts/Game/PreGame.cpp
+   trunk/rts/Game/PreGame.h
+   trunk/rts/Game/StartScripts/ScriptHandler.cpp
+   trunk/rts/Game/StartScripts/ScriptHandler.h
+   trunk/rts/System/BaseNetProtocol.cpp
+   trunk/rts/System/BaseNetProtocol.h
+   trunk/rts/System/Net/Connection.h
+   trunk/rts/System/Net/LocalConnection.cpp
+   trunk/rts/System/Net/LocalConnection.h
+   trunk/rts/System/Net/Net.cpp
+   trunk/rts/System/Net/Net.h
+   trunk/rts/System/Net/RawPacket.cpp
+   trunk/rts/System/Net/RawPacket.h
+   trunk/rts/System/Net/UDPConnection.cpp
+   trunk/rts/System/Net/UDPConnection.h
+   trunk/tools/DedicatedServer/CMakeLists.txt
+Log:
+* measuring of outgoing traffic for local connections, its not doubled any more
+* removed the LoadMap()-function from CGameSetup, the map and mod are now always loaded by CPreGame
+* the network can now send RawPackets and not only pairs of data and length
+* added UnpackPacket and PackPacket, two helper classes for easy network message serialisation
+* added new network message: NETMSG_GAMEDATA which replaces the NETMSG_MAP, _MOD and _SCRIPT
+  - its sent from the server to each client while connecting
+  - client will only start the game after he recieves this message
+  - map, mod and script-tags in the setupscript will be ignored by clients
+
+
+Modified: trunk/Documentation/Spring start.txt
+===================================================================
+--- trunk/Documentation/Spring start.txt	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/Documentation/Spring start.txt	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -18,6 +18,9 @@
+ // At the time of this writing this is: 32/17/17 for players/teams/allyteams
+ // respectively.
+ 
++// From now on, the Gametype, Mapname and the Scriptname-tags are only needed for the gamehost
++// a client will ignore these tags because he recieves everything from the server
++
+ [GAME]
+ {
+ 	Mapname=;           //with .smf extension
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/rts/Game/Game.cpp	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -3219,11 +3219,7 @@
+ 						//TODO is this enought?
+ 						int newTeam = int(inbuf[3]);
+ 						gs-&gt;players[player]-&gt;team = newTeam;
+-						gs-&gt;players[player]-&gt;spectator = net-&gt;localDemoPlayback;
+ 						if (player == gu-&gt;myPlayerNum) {
+-							gu-&gt;spectating           = net-&gt;localDemoPlayback;
+-							gu-&gt;spectatingFullView   = net-&gt;localDemoPlayback;
+-							gu-&gt;spectatingFullSelect = net-&gt;localDemoPlayback;
+ 							gu-&gt;myTeam = newTeam;
+ 							gu-&gt;myAllyTeam = gs-&gt;AllyTeam(gu-&gt;myTeam);
+ 							selectedUnits.ClearSelected();
+@@ -3323,29 +3319,8 @@
+ 			}
+ #endif // DIRECT_CONTROL_ALLOWED
+ 
+-			//TODO CGame should not recieve this (handle in CPreGame)
+-			case NETMSG_MAPNAME: {
+-				const std::string mapname = std::string((char*) (inbuf + 6));
+-				if (mapname != stupidGlobalMapname)
+-				{
+-					logOutput.Print(&quot;Warning: mapname differs from host's&quot;);
+-				}
+-				archiveScanner-&gt;CheckMap(mapname, *(unsigned*)(&amp;inbuf[2]));
+-				AddTraffic(-1, packetCode, dataLength);
+-				break;
+-			}
+-
+-			//TODO same here
+-			case NETMSG_MODNAME: {
+-				std::string modArchive = archiveScanner-&gt;ModNameToModArchive(modInfo.filename);
+-				archiveScanner-&gt;CheckMod(modArchive, *(unsigned*)(&amp;inbuf[2]));
+-				AddTraffic(-1, packetCode, dataLength);
+-				break;
+-			}
+-
+ 			case NETMSG_SETPLAYERNUM:
+-			case NETMSG_ATTEMPTCONNECT:
+-			case NETMSG_SCRIPT: {
++			case NETMSG_ATTEMPTCONNECT: {
+ 				AddTraffic(-1, packetCode, dataLength);
+ 				break;
+ 			}
+
+Added: trunk/rts/Game/GameData.cpp
+===================================================================
+--- trunk/rts/Game/GameData.cpp	                        (rev 0)
++++ trunk/rts/Game/GameData.cpp	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -0,0 +1,61 @@
++#include &quot;GameData.h&quot;
++
++#include &lt;assert.h&gt;
++
++#include &quot;BaseNetProtocol.h&quot;
++#include &quot;Net/RawPacket.h&quot;
++#include &quot;Net/PackPacket.h&quot;
++
++using namespace netcode;
++
++GameData::GameData()
++{
++	mapChecksum = 0;
++	modChecksum = 0;
++}
++
++GameData::GameData(UnpackPacket* packet)
++{
++	packet-&gt;Reset();
++	unsigned char ID;
++	unsigned short length;
++	*packet &gt;&gt; ID;
++	assert(ID == NETMSG_GAMEDATA);
++	*packet &gt;&gt; length;
++	*packet &gt;&gt; script;
++	*packet &gt;&gt; map;
++	*packet &gt;&gt; mapChecksum;
++	*packet &gt;&gt; mod;
++	*packet &gt;&gt; modChecksum;
++}
++
++const netcode::RawPacket* GameData::Pack() const
++{
++	unsigned short size = 3 + 2*sizeof(unsigned) + map.size() + mod.size() + script.size() + 3;
++	PackPacket* buffer = new PackPacket(size);
++	*buffer &lt;&lt; (unsigned char)NETMSG_GAMEDATA;
++	*buffer &lt;&lt; size;
++	*buffer &lt;&lt; script;
++	*buffer &lt;&lt; map;
++	*buffer &lt;&lt; mapChecksum;
++	*buffer &lt;&lt; mod;
++	*buffer &lt;&lt; modChecksum;
++	return buffer;
++}
++
++void GameData::SetScript(const std::string&amp; newScript)
++{
++	script = newScript;
++}
++
++void GameData::SetMap(const std::string&amp; newMap, const unsigned checksum)
++{
++	map = newMap;
++	mapChecksum = checksum;
++}
++
++void GameData::SetMod(const std::string&amp; newMod, const unsigned checksum)
++{
++	mod = newMod;
++	modChecksum = checksum;
++}
+
+Added: trunk/rts/Game/GameData.h
+===================================================================
+--- trunk/rts/Game/GameData.h	                        (rev 0)
++++ trunk/rts/Game/GameData.h	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -0,0 +1,37 @@
++#ifndef GAMEDATA_H
++#define GAMEDATA_H
++
++#include &lt;string&gt;
++
++#include &quot;Net/UnpackPacket.h&quot;
++namespace netcode {
++	class RawPacket;
++}
++
++class GameData
++{
++public:
++	GameData();
++	GameData(netcode::UnpackPacket* packet);
++	
++	const netcode::RawPacket* Pack() const;
++	
++	void SetScript(const std::string&amp; newScript);
++	void SetMap(const std::string&amp; newMap, const unsigned checksum);
++	void SetMod(const std::string&amp; newMod, const unsigned checksum);
++	
++	const std::string&amp; GetScript() const {return script;};
++	const std::string&amp; GetMap() const {return map;};
++	unsigned GetMapChecksum() const {return mapChecksum;};
++	const std::string&amp; GetMod() const {return mod;};
++	unsigned GetModChecksum() const {return modChecksum;};
++
++private:
++	std::string script;
++	std::string map;
++	unsigned mapChecksum;
++	std::string mod;
++	unsigned modChecksum;
++};
++
++#endif
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/rts/Game/GameServer.cpp	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -6,8 +6,6 @@
+ #include &lt;boost/format.hpp&gt;
+ #include &lt;SDL_timer.h&gt;
+ 
+-#include &quot;FileSystem/ArchiveScanner.h&quot;
+-
+ #ifndef NO_AVI
+ #include &quot;Game.h&quot;
+ #endif
+@@ -59,7 +57,7 @@
+ 
+ CGameServer* gameServer=0;
+ 
+-CGameServer::CGameServer(int port, const std::string&amp; newMapName, const std::string&amp; newModName, const std::string&amp; newScriptName, const CGameSetupData* const mysetup = 0, const std::string&amp; demoName)
++CGameServer::CGameServer(int port, const GameData* const newGameData, const CGameSetupData* const mysetup = 0, const std::string&amp; demoName)
+ : setup(mysetup)
+ {
+ 	serverStartTime = SDL_GetTicks();
+@@ -92,15 +90,7 @@
+ 	rng.Seed(SDL_GetTicks());
+ 	log.Subscribe(this);
+ 	log.Message(format(ServerStart) %port);
+-	mapName = newMapName;
+-	mapChecksum = archiveScanner-&gt;GetMapChecksum(mapName);
+ 
+-	modName = newModName;
+-	const std::string modArchive = archiveScanner-&gt;ModNameToModArchive(modName);
+-	modChecksum = archiveScanner-&gt;GetModChecksum(modArchive);
+-
+-	scriptName = newScriptName;
+-
+ 	lastTick = SDL_GetTicks();
+ 
+ 	if (setup) {
+@@ -114,6 +104,7 @@
+ 		minUserSpeed=0.3f;
+ 	}
+ 
++	gameData.reset(newGameData);
+ 	if (!demoName.empty())
+ 	{
+ 		log.Message(format(PlayingDemo) %demoName);
+@@ -342,7 +333,7 @@
+ 				outstandingSyncFrames.push_back(serverframenum);
+ #endif
+ 			}
+-			else if (
++			else if ( demobuffer[0] != NETMSG_GAMEDATA &amp;&amp;
+ 			          demobuffer[0] != NETMSG_SETPLAYERNUM &amp;&amp;
+ 			          demobuffer[0] != NETMSG_USER_SPEED &amp;&amp;
+ 			          demobuffer[0] != NETMSG_INTERNAL_SPEED &amp;&amp;
+@@ -729,7 +720,7 @@
+ 								case TEAMMSG_TEAM_DIED: {
+ 									// don't send to clients, they don't need it
+ 									unsigned char team = inbuf[3];
+-									if (teams[team])
++									if (teams[team] &amp;&amp; players[player]-&gt;hasRights) // currently only host is allowed
+ 									{
+ 										teams[fromTeam].reset();
+ 										for (unsigned i = 0; i &lt; MAX_PLAYERS; ++i)
+@@ -754,7 +745,7 @@
+ 					case NETMSG_GAMEID:
+ 					case NETMSG_INTERNAL_SPEED:
+ 					case NETMSG_ATTEMPTCONNECT:
+-					case NETMSG_MAPNAME:
++					case NETMSG_GAMEDATA:
+ 						break;
+ 					default:
+ 						{
+@@ -1081,12 +1072,8 @@
+ 	hisNewNumber = serverNet-&gt;AcceptIncomingConnection(hisNewNumber);
+ 
+ 	serverNet-&gt;SendSetPlayerNum((unsigned char)hisNewNumber, (unsigned char)hisNewNumber);
++	serverNet-&gt;SendData(gameData-&gt;Pack(), hisNewNumber);
+ 
+-	// send game data (in case he didn't know or for checksumming)
+-	serverNet-&gt;SendScript(scriptName);
+-	serverNet-&gt;SendMapName(mapChecksum, mapName);
+-	serverNet-&gt;SendModName(modChecksum, modName);
+-
+ 	for (unsigned a = 0; a &lt; MAX_PLAYERS; ++a) {
+ 		if(players[a] &amp;&amp; players[a]-&gt;readyToStart)
+ 			serverNet-&gt;SendPlayerName(a, players[a]-&gt;name);
+
+Modified: trunk/rts/Game/GameServer.h
+===================================================================
+--- trunk/rts/Game/GameServer.h	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/rts/Game/GameServer.h	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -8,6 +8,7 @@
+ #include &lt;map&gt;
+ #include &lt;deque&gt;
+ 
++#include &quot;GameData.h&quot;
+ #include &quot;System/GlobalStuff.h&quot;
+ #include &quot;System/UnsyncedRNG.h&quot;
+ #include &quot;SFloat3.h&quot;
+@@ -55,7 +56,7 @@
+ {
+ 	friend class CLoadSaveHandler;     //For initialize server state after load
+ public:
+-	CGameServer(int port, const std::string&amp; mapName, const std::string&amp; modName, const std::string&amp; scriptName, const CGameSetupData* const setup, const std::string&amp; demoName = &quot;&quot;);
++	CGameServer(int port, const GameData* const gameData, const CGameSetupData* const setup, const std::string&amp; demoName = &quot;&quot;);
+ 	~CGameServer();
+ 
+ 	void AddLocalClient();
+@@ -148,6 +149,7 @@
+ 
+ 	/////////////////// game settings ///////////////////
+ 	const CGameSetupData* const setup;
++	boost::scoped_ptr&lt;const GameData&gt; gameData;
+ 	/// Wheter the game is pausable for others than the host
+ 	bool gamePausable;
+ 
+@@ -158,11 +160,6 @@
+ 	float minUserSpeed;
+ 
+ 	bool noHelperAIs;
+-	std::string scriptName;
+-	unsigned int mapChecksum;
+-	std::string mapName;
+-	unsigned int modChecksum;
+-	std::string modName;
+ 
+ 	/////////////////// sync stuff ///////////////////
+ #ifdef SYNCCHECK
+
+Modified: trunk/rts/Game/GameSetup.cpp
+===================================================================
+--- trunk/rts/Game/GameSetup.cpp	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/rts/Game/GameSetup.cpp	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -1,6 +1,7 @@
+ #include &quot;StdAfx.h&quot;
+ #include &lt;algorithm&gt;
+ #include &lt;cctype&gt;
++#include &lt;SDL_timer.h&gt;
+ #include &quot;GameSetup.h&quot;
+ #include &quot;Player.h&quot;
+ #include &quot;TdfParser.h&quot;
+@@ -19,9 +20,7 @@
+ 
+ using namespace std;
+ 
+-extern string stupidGlobalMapname;
+ 
+-
+ CGameSetup* gameSetup = NULL;
+ 
+ 
+@@ -51,26 +50,6 @@
+ }
+ 
+ /**
+<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">- at brief</A> Determine if the map is inside an archive, and possibly map needed archives
+<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">- at pre</A> mapName initialized
+<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">- at post</A> map archives (if any) have been mapped into the VFS
+- */
+-void CGameSetup::LoadMap()
+-{
+-	CFileHandler* f = SAFE_NEW CFileHandler(&quot;maps/&quot; + mapName);
+-	if (!f-&gt;FileExists()) {
+-		vector&lt;string&gt; ars = archiveScanner-&gt;GetArchivesForMap(mapName);
+-		if (ars.empty())
+-			throw content_error(&quot;Couldn't find any map archives for map '&quot; + mapName + &quot;'.&quot;);
+-		for (vector&lt;string&gt;::iterator i = ars.begin(); i != ars.end(); ++i) {
+-			if (!hpiHandler-&gt;AddArchive(*i, false))
+-				throw content_error(&quot;Couldn't load archive '&quot; + *i + &quot;' for map '&quot; + mapName + &quot;'.&quot;);
+-		}
+-	}
+-	delete f;
+-}
+-
+-/**
+ @brief Load unit restrictions
+ @post restrictedUnits initialized
+  */
+@@ -103,7 +82,7 @@
+ 
+ 	for(int a=0;a&lt;numTeams;++a){
+ 		float x,z;
+-		char teamName[50];
++		char teamName[20];
+ 		sprintf(teamName, &quot;TEAM%i&quot;, teamStartNum[a]);
+ 		p2.GetDef(x, &quot;1000&quot;, string(&quot;MAP\\&quot;) + teamName + &quot;\\StartPosX&quot;);
+ 		p2.GetDef(z, &quot;1000&quot;, string(&quot;MAP\\&quot;) + teamName + &quot;\\StartPosZ&quot;);
+@@ -117,9 +96,13 @@
+ @pre numTeams and startPosType initialized
+ @post readyTeams, teamStartNum and team start positions initialized
+ @todo don't store in global variables directly
++
++Unlike the other functions, this is not called on Init() , instead we wait for CPreGame to call this. The reason is that the map is not known before CPreGame recieves the gamedata from the server.
+  */
+-void CGameSetup::LoadStartPositions(const TdfParser&amp; file)
++void CGameSetup::LoadStartPositions()
+ {
++	TdfParser file;
++	file.LoadBuffer(gameSetupText, gameSetupTextLength-1);
+ 	for (int a = 0; a &lt; numTeams; ++a) {
+ 		// Ready up automatically unless startPosType is choose in game
+ 		readyTeams[a] = (startPosType != StartPos_ChooseInGame);
+@@ -129,6 +112,7 @@
+ 	if (startPosType == StartPos_Random) {
+ 		// Server syncs these later, so we can use unsynced rng
+ 		UnsyncedRNG rng;
++		rng.Seed(gameSetupTextLength ^ SDL_GetTicks());
+ 		std::random_shuffle(&amp;teamStartNum[0], &amp;teamStartNum[numTeams], rng);
+ 	}
+ 
+@@ -430,9 +414,6 @@
+ 
+ 	LoadUnitRestrictions(file);
+ 
+-	LoadMap();
+-	LoadStartPositions(file);
+-
+ 	// Postprocessing
+ 	baseMod = archiveScanner-&gt;ModArchiveToModName(baseMod);
+ 
+
+Modified: trunk/rts/Game/GameSetup.h
+===================================================================
+--- trunk/rts/Game/GameSetup.h	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/rts/Game/GameSetup.h	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -16,11 +16,10 @@
+ 
+ 	bool Init(const char* buf, int size);
+ 
++	void LoadStartPositions();
++
+ private:
+-	void LoadMap();
+ 	void LoadStartPositionsFromMap();
+-
+-	void LoadStartPositions(const TdfParser&amp; file);
+ 	void LoadUnitRestrictions(const TdfParser&amp; file);
+ 	void LoadPlayers(const TdfParser&amp; file);
+ 	void LoadTeams(const TdfParser&amp; file);
+
+Modified: trunk/rts/Game/PreGame.cpp
+===================================================================
+--- trunk/rts/Game/PreGame.cpp	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/rts/Game/PreGame.cpp	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -11,6 +11,7 @@
+ #include &quot;GameServer.h&quot;
+ #include &quot;GameSetup.h&quot;
+ #include &quot;NetProtocol.h&quot;
++#include &quot;Net/UnpackPacket.h&quot;
+ #include &quot;DemoRecorder.h&quot;
+ #include &quot;DemoReader.h&quot;
+ #include &quot;LoadSaveHandler.h&quot;
+@@ -38,13 +39,16 @@
+ extern bool globalQuit;
+ std::string stupidGlobalMapname;
+ 
++CglList* CPreGame::showList = 0;
++
+ CPreGame::CPreGame(bool server, const string&amp; demo, const std::string&amp; save)
+-: showList(0),
+-  server(server),
++: server(server),
+   state(UNKNOWN),
+   hasDemo(!demo.empty()),
+   hasSave(!save.empty()),
+-  savefile(NULL)
++  savefile(NULL),
++  gameData(0),
++  serverStartupData(0)
+ {
+ 	demoFile = gameSetup? gameSetup-&gt;demoName : demo;
+ 
+@@ -67,6 +71,7 @@
+ 
+ 	if(server){
+ 		net-&gt;InitLocalClient(gameSetup ? gameSetup-&gt;myPlayerNum : 0);
++		serverStartupData = new GameData();
+ 		if(gameSetup){
+ 			CScriptHandler::SelectScript(gameSetup-&gt;scriptName);
+ 			SelectScript(gameSetup-&gt;scriptName);
+@@ -82,27 +87,23 @@
+ 			savefile-&gt;LoadGameStartInfo(savefile-&gt;FindSaveFile(save.c_str()));
+ 			CScriptHandler::SelectScript(&quot;Commanders&quot;);
+ 			SelectScript(&quot;Commanders&quot;);
+-			SelectMap(savefile-&gt;mapName);
+-			SelectMod(savefile-&gt;modName);
++			SelectMap(gameSetup-&gt;mapName);
++			SelectMod(gameSetup-&gt;baseMod);
+ 			state = WAIT_CONNECTING;
+ 		} else {
+ 			ShowScriptList();
+-			state = WAIT_ON_SCRIPT;
++			state = WAIT_ON_USERINPUT;
+ 		}
+ 	} else {
+ 		if(gameSetup){
+ 			PrintLoadMsg(&quot;Connecting to server&quot;);
+ 			net-&gt;InitClient(gameSetup-&gt;hostip.c_str(),gameSetup-&gt;hostport,gameSetup-&gt;sourceport, gameSetup-&gt;myPlayerNum);
+-			CScriptHandler::SelectScript(gameSetup-&gt;scriptName);
+-			SelectScript(gameSetup-&gt;scriptName);
+-			SelectMap(gameSetup-&gt;mapName);
+-			SelectMod(gameSetup-&gt;baseMod);
+ 			state = WAIT_CONNECTING;
+ 		} else {
+ 			if (hasDemo) {
+ 				net-&gt;localDemoPlayback = true;
+ 				state = WAIT_CONNECTING;
+-				ReadDataFromDemo(demoFile); // scan for map, mod etc.
++				ReadDataFromDemo(demoFile); // scan for GameData
+ 				net-&gt;InitLocalClient(0);
+ 				if (gameSetup) {	// we read a gameSetup from the demofiles
+ 					logOutput.Print(&quot;Read GameSetup from Demofile&quot;);
+@@ -130,8 +131,6 @@
+ 						gs-&gt;SetAllyTeam(gs-&gt;gaiaTeamID, gs-&gt;gaiaAllyTeamID);
+ 					}
+ 				}
+-
+-				gs-&gt;players[gu-&gt;myPlayerNum]-&gt;StartSpectating();
+ 			}
+ 			else {
+ 				userInput=configHandler.GetString(&quot;address&quot;,&quot;&quot;);
+@@ -147,6 +146,7 @@
+ 
+ CPreGame::~CPreGame()
+ {
++	delete gameData;
+ 	delete infoConsole;
+ 	infoConsole = 0;
+ }
+@@ -218,15 +218,9 @@
+ 
+ 	if (!showList) {
+ 		switch (state) {
+-			case WAIT_ON_SCRIPT:
+-				PrintLoadMsg(&quot;Waiting on script&quot;, false);
++			case WAIT_ON_GAMEDATA:
++				PrintLoadMsg(&quot;Waiting on game data&quot;, false);
+ 				break;
+-			case WAIT_ON_MAP:
+-				PrintLoadMsg(&quot;Waiting on map&quot;, false);
+-				break;
+-			case WAIT_ON_MOD:
+-				PrintLoadMsg(&quot;Waiting on mod&quot;, false);
+-				break;
+ 			case WAIT_CONNECTING:
+ 				if ( ((SDL_GetTicks()/1000) % 2) == 0 )
+ 					PrintLoadMsg(&quot;Connecting to server .&quot;);
+@@ -235,6 +229,7 @@
+ 				break;
+ 			case UNKNOWN:
+ 			case WAIT_ON_ADDRESS:
++			case WAIT_ON_USERINPUT:
+ 			case ALL_READY:
+ 			default:
+ 				PrintLoadMsg(&quot;&quot;, false); // just clear screen and set up matrices etc.
+@@ -283,7 +278,6 @@
+ 	return true;
+ }
+ 
+-
+ bool CPreGame::Update()
+ {
+ 	good_fpu_control_registers(&quot;CPreGame::Update&quot;);
+@@ -300,46 +294,19 @@
+ 
+ 			configHandler.SetString(&quot;address&quot;,userInput);
+ 			net-&gt;InitClient(userInput.c_str(),8452,0, 0);
+-			state = WAIT_ON_SCRIPT;
++			state = WAIT_CONNECTING;
+ 			// fall trough
+ 		}
+ 
+-		case WAIT_ON_SCRIPT:
+-			if (showList || !server)
+-				break;
++		case WAIT_ON_USERINPUT: {
++			break;
++		}
+ 
+-			mapName = CScriptHandler::Instance().chosenScript-&gt;GetMapName();
+-			if (mapName == &quot;&quot;)
+-				ShowMapList();
+-			else
+-				SelectMap(mapName);
+-			state = WAIT_ON_MAP;
+-			// fall through
+-
+-		case WAIT_ON_MAP:
+-			if (showList || !server)
+-				break;
+-
+-			modName = CScriptHandler::Instance().chosenScript-&gt;GetModName();
+-			if (modName == &quot;&quot;)
+-				ShowModList();
+-			else
+-				SelectMod(modName);
+-			state = WAIT_ON_MOD;
+-			// fall through
+-
+-		case WAIT_ON_MOD:
+-			if (showList || !server)
+-				break;
+-
+-			state = WAIT_CONNECTING;
+-			// fall through
+-
+ 		case WAIT_CONNECTING:
+ 			if ((server || hasDemo) &amp;&amp; !gameServer) {
+ 				good_fpu_control_registers(&quot;before CGameServer creation&quot;);
+ 				int myPort = gameSetup? gameSetup-&gt;hostport : 8452;
+-				gameServer = new CGameServer(myPort, mapName, modName, scriptName, gameSetup, demoFile);
++				gameServer = new CGameServer(myPort, serverStartupData, gameSetup, demoFile);
+ 				if (gameSetup &amp;&amp; gameSetup-&gt;autohostport &gt; 0)
+ 					gameServer-&gt;AddAutohostInterface(gameSetup-&gt;autohostport);
+ 				gameServer-&gt;AddLocalClient();
+@@ -347,20 +314,27 @@
+ 			}
+ 
+ 			if (net-&gt;Connected())
+-				state = ALL_READY; // fall through
++				state = WAIT_ON_GAMEDATA; // fall through
+ 			else
+ 				break; // abort
+ 
++		case WAIT_ON_GAMEDATA: {
++			if (gameData) // we recieved tha gameData
++				state = ALL_READY;
++			else
++				break;
++		}
++
+ 		case ALL_READY: {
+ 			ENTER_MIXED;
+-
+ 			const int teamID = gs-&gt;players[gu-&gt;myPlayerNum]-&gt;team;
+ 			const CTeam* team = gs-&gt;Team(teamID);
++			assert(team);
+ 			if (net-&gt;localDemoPlayback)
+-				gs-&gt;players[gu-&gt;myPlayerNum]-&gt;spectator = true;
++				gs-&gt;players[gu-&gt;myPlayerNum]-&gt;StartSpectating();
+ 			LoadStartPicture(team-&gt;side);
+ 
+-			game = SAFE_NEW CGame(mapName, modArchive, infoConsole);
++			game = SAFE_NEW CGame(gameData-&gt;GetMap(), modArchive, infoConsole);
+ 
+ 			if (savefile) {
+ 				savefile-&gt;LoadGame();
+@@ -386,8 +360,6 @@
+ 	return true;
+ }
+ 
+-
+-
+ void CPreGame::UpdateClientNet()
+ {
+ 	if (!net-&gt;IsActiveConnection())
+@@ -402,51 +374,12 @@
+ 	{
+ 		const unsigned char* inbuf = packet-&gt;data;
+ 		switch (inbuf[0]) {
+-			case NETMSG_SCRIPT: {
+-				if (!gameSetup) {
+-					CScriptHandler::SelectScript((char*) (inbuf+2));
+-					SelectScript((char*) (inbuf+2));
+-				}
+ 
+-				if (mapName.empty()) {
+-					state = WAIT_ON_MAP;
+-				} else if (modName.empty()) {
+-					state = WAIT_ON_MOD;
+-				} else {
+-					state = WAIT_CONNECTING;
+-				}
+-			} break;
++			case NETMSG_GAMEDATA: {
++				GameDataRecieved(packet);
++				break;
++			}
+ 
+-			case NETMSG_MAPNAME: {
+-				if (!gameSetup) {
+-					SelectMap((char*) (inbuf + 6));
+-				}
+-				archiveScanner-&gt;CheckMap(mapName, *(unsigned*) (inbuf + 2));
+-
+-				if (!CScriptHandler::Instance().chosenScript) {
+-					state = WAIT_ON_SCRIPT;
+-				} else if (modName.empty()) {
+-					state = WAIT_ON_MOD;
+-				} else {
+-					state = WAIT_CONNECTING;
+-				}
+-			} break;
+-
+-			case NETMSG_MODNAME: {
+-				if (!gameSetup) {
+-					SelectMod((char*) (inbuf + 6));
+-				}
+-				archiveScanner-&gt;CheckMod(modArchive, *(unsigned*) (inbuf + 2));
+-
+-				if (!CScriptHandler::Instance().chosenScript) {
+-					state = WAIT_ON_SCRIPT;
+-				} else if (mapName.empty()) {
+-					state = WAIT_ON_MAP;
+-				} else {
+-					state = WAIT_CONNECTING;
+-				}
+-			} break;
+-
+ 			case NETMSG_MAPDRAW: {
+ 			} break;
+ 
+@@ -556,44 +489,22 @@
+ 
+ 	unsigned char demobuffer[netcode::NETWORK_BUFFER_SIZE];
+ 	unsigned length = 0;
+-	mapName = &quot;&quot;;
+-	modName = &quot;&quot;;
+-	scriptName = &quot;&quot;;
+ 	gu-&gt;myPlayerNum = scanner.GetFileHeader().maxPlayerNum + 1;
+ 
+-	while ( (length = scanner.GetData(demobuffer, netcode::NETWORK_BUFFER_SIZE, INT_MAX)) &gt; 0 &amp;&amp; (mapName.empty() || modName.empty() || scriptName.empty())) {
+-		if (demobuffer[0] == NETMSG_MAPNAME)
++	while ( (length = scanner.GetData(demobuffer, netcode::NETWORK_BUFFER_SIZE, INT_MAX)) &gt; 0) {
++		if (demobuffer[0] == NETMSG_GAMEDATA)
+ 		{
+-			SelectMap((char*) (demobuffer + 6));
+-			archiveScanner-&gt;CheckMap(mapName, *(unsigned*) (demobuffer + 2));
++			const RawPacket packet(demobuffer, length);
++			serverStartupData = new GameData((netcode::UnpackPacket*)(&amp;packet));
++			break;
+ 		}
+-		else if (demobuffer[0] == NETMSG_MODNAME)
+-		{
+-			SelectMod((char*) (demobuffer + 6));
+-			archiveScanner-&gt;CheckMod(modArchive, *(unsigned*) (demobuffer + 2));
+-		}
+-		else if (demobuffer[0] == NETMSG_SCRIPT)
+-		{
+-			CScriptHandler::SelectScript((char*) (demobuffer+2));
+-			SelectScript((char*) (demobuffer+2));
+-		}
+-
+ 		if (scanner.ReachedEnd())
+ 		{
+-			logOutput.Print(&quot;End of demo reached and no data found&quot;);
++			throw content_error(&quot;End of demo reached and no game data found&quot;);
+ 		}
+ 	}
+ }
+ 
+-/** Called by the script-selecting CglList. */
+-void CPreGame::SelectScript(std::string s)
+-{
+-	delete pregame-&gt;showList;
+-	pregame-&gt;showList = 0;
+-	logOutput &lt;&lt; &quot;Using script &quot; &lt;&lt; s.c_str() &lt;&lt; &quot;\n&quot;;
+-	pregame-&gt;scriptName = s;
+-}
+-
+ /** Create a CglList for selecting the script. */
+ void CPreGame::ShowScriptList()
+ {
+@@ -601,34 +512,6 @@
+ 	showList = list;
+ }
+ 
+-/** Called by the map-selecting CglList. */
+-void CPreGame::SelectMap(std::string s)
+-{
+-	if (s == &quot;Random map&quot;) {
+-		s = pregame-&gt;showList-&gt;items[1 + gu-&gt;usRandInt() % (pregame-&gt;showList-&gt;items.size() - 1)];
+-	}
+-	stupidGlobalMapname = pregame-&gt;mapName = s;
+-	delete pregame-&gt;showList;
+-	pregame-&gt;showList = 0;
+-	logOutput &lt;&lt; &quot;Map: &quot; &lt;&lt; s.c_str() &lt;&lt; &quot;\n&quot;;
+-
+-	// Determine if the map is inside an archive, and possibly map needed archives
+-	CFileHandler* f = SAFE_NEW CFileHandler(&quot;maps/&quot; + s);
+-	if (!f-&gt;FileExists()) {
+-		vector&lt;string&gt; ars = archiveScanner-&gt;GetArchivesForMap(s);
+-		if (ars.empty())
+-			throw content_error(&quot;Couldn't find any archives for map '&quot; + s + &quot;'.&quot;);
+-		for (vector&lt;string&gt;::iterator i = ars.begin(); i != ars.end(); ++i) {
+-			if (!hpiHandler-&gt;AddArchive(*i, false))
+-				throw content_error(&quot;Couldn't load archive '&quot; + *i + &quot;' for map '&quot; + s + &quot;'.&quot;);
+-		}
+-	}
+-	delete f;
+-
+-	if (net &amp;&amp; net-&gt;GetDemoRecorder())
+-		net-&gt;GetDemoRecorder()-&gt;SetName(s);
+-}
+-
+ /** Create a CglList for selecting the map. */
+ void CPreGame::ShowMapList()
+ {
+@@ -656,35 +539,6 @@
+ 	showList = list;
+ }
+ 
+-/** Called by the mod-selecting CglList. */
+-void CPreGame::SelectMod(std::string s)
+-{
+-	// make sure s is a modname (because the same mod can be in different archives on different computers)
+-	s = archiveScanner-&gt;ModArchiveToModName(s);
+-	if (s == &quot;Random mod&quot;) {
+-		const int index = 1 + (gu-&gt;usRandInt() % (pregame-&gt;showList-&gt;items.size() - 1));
+-		const string&amp; modName = pregame-&gt;showList-&gt;items[index];
+-		pregame-&gt;modArchive = archiveScanner-&gt;ModNameToModArchive(modName);
+-	} else {
+-		pregame-&gt;modArchive = archiveScanner-&gt;ModNameToModArchive(s);
+-	}
+-	delete pregame-&gt;showList;
+-	pregame-&gt;showList = 0;
+-	logOutput &lt;&lt; &quot;Mod: \&quot;&quot; &lt;&lt; s.c_str() &lt;&lt; &quot;\&quot; from &quot; &lt;&lt; pregame-&gt;modArchive.c_str() &lt;&lt; &quot;\n&quot;;
+-	pregame-&gt;modName = s;
+-
+-	// Map all required archives depending on selected mod(s)
+-	vector&lt;string&gt; ars = archiveScanner-&gt;GetArchives(pregame-&gt;modArchive);
+-	if (ars.empty())
+-		throw content_error(&quot;Couldn't find any archives for mod '&quot; + pregame-&gt;modArchive + &quot;'&quot;);
+-	for (vector&lt;string&gt;::iterator i = ars.begin(); i != ars.end(); ++i)
+-		if (!hpiHandler-&gt;AddArchive(*i, false))
+-			throw content_error(&quot;Couldn't load archive '&quot; + *i + &quot;' for mod '&quot; + pregame-&gt;modArchive + &quot;'.&quot;);
+-
+-	// always load springcontent.sdz
+-	hpiHandler-&gt;AddArchive(&quot;base/springcontent.sdz&quot;, false);
+-}
+-
+ /** Create a CglList for selecting the mod. */
+ void CPreGame::ShowModList()
+ {
+@@ -707,3 +561,122 @@
+ 	}
+ 	showList = list;
+ }
++
++void CPreGame::SelectScript(std::string s)
++{
++	delete showList;
++	showList = 0;
++	assert(pregame-&gt;serverStartupData);
++	pregame-&gt;serverStartupData-&gt;SetScript(s);
++	
++	// if the script specify a map, use this and don't ask the user
++	std::string map = CScriptHandler::Instance().chosenScript-&gt;GetMapName();
++	if (map == &quot;&quot;)
++		pregame-&gt;ShowMapList();
++	else
++		SelectMap(map);
++}
++
++void CPreGame::SelectMap(std::string s)
++{
++	if (s == &quot;Random map&quot;) {
++		s = pregame-&gt;showList-&gt;items[1 + gu-&gt;usRandInt() % (showList-&gt;items.size() - 1)];
++	}
++	delete showList;
++	showList = 0;
++	LoadMap(s);
++	if (gameSetup)
++		gameSetup-&gt;LoadStartPositions(); // only host needs to do this, because client will recieve startpos msg from server
++	pregame-&gt;serverStartupData-&gt;SetMap(s, archiveScanner-&gt;GetMapChecksum(s));
++	
++	std::string mod = CScriptHandler::Instance().chosenScript-&gt;GetModName();
++	if (mod == &quot;&quot;)
++		pregame-&gt;ShowModList();
++	else
++		SelectMod(mod);
++}
++
++void CPreGame::SelectMod(std::string s)
++{
++	if (s == &quot;Random mod&quot;) {
++		const int index = 1 + (gu-&gt;usRandInt() % (showList-&gt;items.size() - 1));
++		s = showList-&gt;items[index];
++	}
++	delete showList;
++	showList = 0;
++	LoadMod(s);
++	// make sure s is a modname (because the same mod can be in different archives on different computers)
++	s = archiveScanner-&gt;ModArchiveToModName(s);
++	std::string modArchive = archiveScanner-&gt;ModNameToModArchive(s);
++	pregame-&gt;serverStartupData-&gt;SetMod(s, archiveScanner-&gt;GetModChecksum(modArchive));
++	pregame-&gt;state = WAIT_CONNECTING; // last thing to set, so start server now
++}
++
++void CPreGame::LoadMap(const std::string&amp; mapName)
++{
++	static bool alreadyLoaded = false;
++	
++	if (!alreadyLoaded)
++	{
++		CFileHandler* f = SAFE_NEW CFileHandler(&quot;maps/&quot; + mapName);
++		if (!f-&gt;FileExists()) {
++			vector&lt;string&gt; ars = archiveScanner-&gt;GetArchivesForMap(mapName);
++			if (ars.empty())
++				throw content_error(&quot;Couldn't find any archives for map '&quot; + mapName + &quot;'.&quot;);
++			for (vector&lt;string&gt;::iterator i = ars.begin(); i != ars.end(); ++i) {
++				if (!hpiHandler-&gt;AddArchive(*i, false))
++					throw content_error(&quot;Couldn't load archive '&quot; + *i + &quot;' for map '&quot; + mapName + &quot;'.&quot;);
++			}
++		}
++		delete f;
++		alreadyLoaded = true;
++	}
++}
++
++void CPreGame::LoadMod(const std::string&amp; modName)
++{
++	static bool alreadyLoaded = false;
++	
++	if (!alreadyLoaded)
++	{
++		std::string modArchive = archiveScanner-&gt;ModNameToModArchive(modName);
++		// Map all required archives depending on selected mod(s)
++		vector&lt;string&gt; ars = archiveScanner-&gt;GetArchives(modArchive);
++		if (ars.empty())
++			throw content_error(&quot;Couldn't find any archives for mod '&quot; + modName + &quot;'&quot;);
++		for (vector&lt;string&gt;::iterator i = ars.begin(); i != ars.end(); ++i)
++			if (!hpiHandler-&gt;AddArchive(*i, false))
++				throw content_error(&quot;Couldn't load archive '&quot; + *i + &quot;' for mod '&quot; + modName + &quot;'.&quot;);
++	
++		// always load springcontent.sdz
++		hpiHandler-&gt;AddArchive(&quot;base/springcontent.sdz&quot;, false);
++		alreadyLoaded = true;
++	}
++}
++
++void CPreGame::GameDataRecieved(RawPacket* packet)
++{
++	gameData = new GameData((netcode::UnpackPacket*)packet);
++	logOutput &lt;&lt; &quot;Using script &quot; &lt;&lt; gameData-&gt;GetScript() &lt;&lt; &quot;\n&quot;;
++	CScriptHandler::SelectScript(gameData-&gt;GetScript());
++	
++	logOutput &lt;&lt; &quot;Using map &quot; &lt;&lt; gameData-&gt;GetMap() &lt;&lt; &quot;\n&quot;;
++	stupidGlobalMapname = gameData-&gt;GetMap();
++	
++	if (net &amp;&amp; net-&gt;GetDemoRecorder())
++		net-&gt;GetDemoRecorder()-&gt;SetName(gameData-&gt;GetMap());
++	LoadMap(gameData-&gt;GetMap());
++	archiveScanner-&gt;CheckMap(gameData-&gt;GetMap(), gameData-&gt;GetMapChecksum());
++	
++	logOutput &lt;&lt; &quot;Using mod &quot; &lt;&lt; gameData-&gt;GetMod() &lt;&lt; &quot;\n&quot;;
++	LoadMod(gameData-&gt;GetMod());
++	modArchive = archiveScanner-&gt;ModNameToModArchive(gameData-&gt;GetMod());
++	archiveScanner-&gt;CheckMod(modArchive, gameData-&gt;GetModChecksum());
++	
++	if (gameSetup)
++	{
++		gameSetup-&gt;scriptName = gameData-&gt;GetScript();
++		gameSetup-&gt;mapName = gameData-&gt;GetMap();
++		gameSetup-&gt;baseMod = gameData-&gt;GetMod();
++	}
++}
+
+Modified: trunk/rts/Game/PreGame.h
+===================================================================
+--- trunk/rts/Game/PreGame.h	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/rts/Game/PreGame.h	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -1,13 +1,19 @@
+ #ifndef PREGAME_H
+ #define PREGAME_H
+ 
+-#include &quot;GameController.h&quot;
+ #include &lt;string&gt;
+ 
++#include &quot;GameController.h&quot;
++#include &quot;GameData.h&quot;
++
+ class CglList;
+ class CInfoConsole;
+ class CLoadSaveHandler;
+ 
++namespace netcode{
++	class RawPacket;
++}
++
+ class CPreGame : public CGameController
+ {
+ public:
+@@ -30,29 +36,44 @@
+ 	void ShowScriptList();
+ 	void ShowMapList();
+ 	void ShowModList();
+-	CglList* showList;
++	static CglList* showList;
++	
++	/// Choose the script we will tell the server to start with
+ 	static void SelectScript(std::string s);
+ 	static void SelectMap(std::string s);
+ 	static void SelectMod(std::string s);
+ 	
++	/// Load map and dependend archives into archive scanner
++	static void LoadMap(const std::string&amp; mapName);
++	
++	/// Map all required archives depending on selected mod(s)
++	static void LoadMod(const std::string&amp; modName);
++
++	void GameDataRecieved(netcode::RawPacket* packet);
++	
+ 	const bool server;
+ 	enum State {
+ 		UNKNOWN,
+-		WAIT_ON_ADDRESS,
+-		WAIT_ON_SCRIPT,
+-		WAIT_ON_MAP,
+-		WAIT_ON_MOD,
+-		WAIT_CONNECTING,
+-		ALL_READY,
++		WAIT_ON_ADDRESS, // wait for user to write server address
++		WAIT_ON_USERINPUT, // wait for user to set script, map, mod
++		WAIT_CONNECTING, // connecting to server
++		WAIT_ON_GAMEDATA, // wait for the server to send us the GameData
++		ALL_READY, // ready to start
+ 	};
+ 	State state;
+ 
+ 	const bool hasDemo,hasSave;
+ 
+-	std::string mapName;
+-	std::string modName;
++	/**
++	@brief GameData we recieved from server
++	
++	We won't start until we recieved this
++	*/
++	const GameData* gameData;
++	
++	/// all the GameData (script, map, mod and checksums) needed to start the server
++	GameData* serverStartupData;
+ 	std::string modArchive;
+-	std::string scriptName;
+ 	std::string demoFile;
+ 	CLoadSaveHandler *savefile;
+ };
+
+Modified: trunk/rts/Game/StartScripts/ScriptHandler.cpp
+===================================================================
+--- trunk/rts/Game/StartScripts/ScriptHandler.cpp	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/rts/Game/StartScripts/ScriptHandler.cpp	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -24,7 +24,9 @@
+ // Construction/Destruction
+ //////////////////////////////////////////////////////////////////////
+ 
+-CScriptHandler::CScriptHandler() : chosenScript(0), callback(0)
++ListSelectCallback CScriptHandler::callback = 0;
++
++CScriptHandler::CScriptHandler() : chosenScript(0)
+ {
+ }
+ 
+@@ -110,6 +112,7 @@
+ 	CScriptHandler::Instance().chosenScript-&gt;ScriptSelected();
+ 	if (CScriptHandler::Instance().callback)
+ 		CScriptHandler::Instance().callback(s);
++	callback = 0; // invalidate after selection
+ }
+ 
+ /** Generate a CglList with all available scripts. */
+
+Modified: trunk/rts/Game/StartScripts/ScriptHandler.h
+===================================================================
+--- trunk/rts/Game/StartScripts/ScriptHandler.h	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/rts/Game/StartScripts/ScriptHandler.h	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -33,7 +33,7 @@
+ #endif
+ 	std::map&lt;std::string,CScript*&gt; scripts; ///&lt; Maps script names to CScript pointers.
+ 	std::list&lt;CScript*&gt; loaded_scripts;     ///&lt; Scripts loaded and owned by CScriptHandler
+-	ListSelectCallback callback;
++	static ListSelectCallback callback;
+ 	CScriptHandler();
+ 	CScriptHandler(CScriptHandler const&amp;);
+ 	CScriptHandler&amp; operator=(CScriptHandler const&amp;);
+
+Modified: trunk/rts/System/BaseNetProtocol.cpp
+===================================================================
+--- trunk/rts/System/BaseNetProtocol.cpp	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/rts/System/BaseNetProtocol.cpp	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -23,8 +23,6 @@
+ 	RegisterMessage(NETMSG_PAUSE, 3);
+ 	RegisterMessage(NETMSG_AICOMMAND, -2);
+ 	RegisterMessage(NETMSG_AICOMMANDS, -2);
+-	RegisterMessage(NETMSG_SCRIPT, -1);
+-	RegisterMessage(NETMSG_MAPNAME, -1);
+ 	RegisterMessage(NETMSG_USER_SPEED, 6);
+ 	RegisterMessage(NETMSG_INTERNAL_SPEED, 5);
+ 	RegisterMessage(NETMSG_CPU_USAGE, 5);
+@@ -43,9 +41,9 @@
+ 	RegisterMessage(NETMSG_STARTPOS, 16);
+ 	RegisterMessage(NETMSG_PLAYERINFO, 10);
+ 	RegisterMessage(NETMSG_PLAYERLEFT, 3);
+-	RegisterMessage(NETMSG_MODNAME, -1);
+ 	RegisterMessage(NETMSG_LUAMSG, -2);
+ 	RegisterMessage(NETMSG_TEAM, 4);
++	RegisterMessage(NETMSG_GAMEDATA, -2);
+ }
+ 
+ CBaseNetProtocol::~CBaseNetProtocol()
+@@ -171,20 +169,6 @@
+ 	//FIXME: needs special care; sits in CSelectedUnits::SendCommandsToUnits().
+ }
+ 
+-//  NETMSG_SCRIPT           = 16, // std::string scriptName;
+-
+-void CBaseNetProtocol::SendScript(const std::string&amp; newScriptName)
+-{
+-	SendSTLData&lt;std::string&gt; (NETMSG_SCRIPT, newScriptName);
+-}
+-
+-//  NETMSG_MAPNAME          = 18, // uint checksum; std::string mapName;   (e.g. `SmallDivide.smf')
+-
+-void CBaseNetProtocol::SendMapName(const uint checksum, const std::string&amp; newMapName)
+-{
+-	return SendSTLData&lt;uint, std::string&gt;(NETMSG_MAPNAME, checksum, newMapName);
+-}
+-
+ //  NETMSG_USER_SPEED       = 19, // uchar myPlayerNum, float userSpeed;
+ void CBaseNetProtocol::SendUserSpeed(uchar myPlayerNum, float userSpeed)
+ {
+@@ -321,13 +305,6 @@
+ 	SendData&lt;uchar, uchar&gt;(NETMSG_PLAYERLEFT, myPlayerNum, bIntended);
+ }
+ 
+-//  NETMSG_MODNAME          = 40, // uint checksum; std::string modName;   (e.g. `XTA v8.1')
+-
+-void CBaseNetProtocol::SendModName(const uint checksum, const std::string&amp; newModName)
+-{
+-	return SendSTLData&lt;uint, std::string&gt; (NETMSG_MODNAME, checksum, newModName);
+-}
+-
+ //  NETMSG_LUAMSG          = 50, // uchar myPlayerNum; std::string modName;   (e.g. `custom msg')
+ 
+ void CBaseNetProtocol::SendLuaMsg(uchar myPlayerNum, uchar script, uchar mode,
+
+Modified: trunk/rts/System/BaseNetProtocol.h
+===================================================================
+--- trunk/rts/System/BaseNetProtocol.h	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/rts/System/BaseNetProtocol.h	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -38,9 +38,7 @@
+ 	NETMSG_AICOMMANDS       = 15, // uchar myPlayerNum;
+ 	                              // short unitIDCount;  unitIDCount X short(unitID)
+ 	                              // short commandCount; commandCount X { int id; uchar options; std::vector&lt;float&gt; params }
+-	NETMSG_SCRIPT           = 16, // std::string scriptName;
+ 	NETMSG_MEMDUMP          = 17, // (NEVER SENT)
+-	NETMSG_MAPNAME          = 18, // uint checksum; std::string mapName;   (e.g. `SmallDivide.smf')
+ 	NETMSG_USER_SPEED       = 19, // uchar myPlayerNum, float userSpeed;
+ 	NETMSG_INTERNAL_SPEED   = 20, // float internalSpeed;
+ 	NETMSG_CPU_USAGE        = 21, // float cpuUsage;
+@@ -61,7 +59,6 @@
+ 	NETMSG_STARTPOS         = 36, // uchar myPlayerNum, uchar myTeam, ready /*0: not ready, 1: ready, 2: don't update readiness*/; float x, y, z;
+ 	NETMSG_PLAYERINFO       = 38, // uchar myPlayerNum; float cpuUsage; int ping /*in frames*/;
+ 	NETMSG_PLAYERLEFT       = 39, // uchar myPlayerNum, bIntended /*0: lost connection, 1: left, 2: forced (kicked) */;
+-	NETMSG_MODNAME          = 40, // uint checksum; std::string modName;   (e.g. `XTA v8.1')
+ 
+ #ifdef SYNCDEBUG
+ 	NETMSG_SD_CHKREQUEST    = 41,
+@@ -73,6 +70,7 @@
+ 
+ 	NETMSG_LUAMSG           = 50, // uchar myPlayerNum, std::string msg
+ 	NETMSG_TEAM             = 51, // uchar myPlayerNum, uchar action, uchar parameter1
++	NETMSG_GAMEDATA			= 52, // custom
+ };
+ 
+ // action to do with NETMSG_TEAM 
+@@ -121,8 +119,6 @@
+ 	void SendPause(uchar myPlayerNum, uchar bPaused);
+ 	void SendAICommand(uchar myPlayerNum, short unitID, int id, uchar options, const std::vector&lt;float&gt;&amp; params);
+ 	void SendAICommands(uchar myPlayerNum, short unitIDCount, ...);
+-	void SendScript(const std::string&amp; scriptName);
+-	void SendMapName(const uint checksum, const std::string&amp; mapName);
+ 	void SendUserSpeed(uchar myPlayerNum, float userSpeed);
+ 	void SendInternalSpeed(float internalSpeed);
+ 	void SendCPUUsage(float cpuUsage);
+@@ -143,7 +139,6 @@
+ 	void SendStartPos(uchar myPlayerNum, uchar teamNum, uchar ready, float x, float y, float z);
+ 	void SendPlayerInfo(uchar myPlayerNum, float cpuUsage, int ping);
+ 	void SendPlayerLeft(uchar myPlayerNum, uchar bIntended);
+-	void SendModName(const uint checksum, const std::string&amp; modName);
+ 	void SendLuaMsg(uchar myPlayerNum, uchar script, uchar mode, const std::string&amp; msg);
+ 	
+ 	void SendSelfD(uchar myPlayerNum);
+
+Modified: trunk/rts/System/Net/Connection.h
+===================================================================
+--- trunk/rts/System/Net/Connection.h	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/rts/System/Net/Connection.h	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -3,6 +3,8 @@
+ 
+ #include &lt;string&gt;
+ 
++#include &quot;RawPacket.h&quot;
++
+ namespace netcode
+ {
+ class RawPacket;
+@@ -17,6 +19,7 @@
+ 	virtual ~CConnection();
+ 	
+ 	virtual void SendData(const unsigned char *data, const unsigned length)=0;
++	virtual void SendData(const RawPacket* data)=0;
+ 
+ 	/**
+ 	@brief Take a look at the messages that will be returned by GetData().
+
+Modified: trunk/rts/System/Net/LocalConnection.cpp
+===================================================================
+--- trunk/rts/System/Net/LocalConnection.cpp	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/rts/System/Net/LocalConnection.cpp	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -34,11 +34,14 @@
+ 
+ void CLocalConnection::SendData(const unsigned char *data, const unsigned length)
+ {
++	SendData(new RawPacket(data, length));
++}
++
++void CLocalConnection::SendData(const RawPacket* data)
++{
++	dataSent += data-&gt;length;
+ 	boost::mutex::scoped_lock scoped_lock(Mutex[OtherInstance()]);
+-
+-	dataSent += length;
+-	Data[OtherInstance()].push_back(new RawPacket(data, length));
+-	dataSent += length;
++	Data[OtherInstance()].push_back(data);
+ }
+ 
+ const RawPacket* CLocalConnection::Peek(unsigned ahead) const
+@@ -57,10 +60,10 @@
+ 	
+ 	if (!Data[instance].empty())
+ 	{
+-		RawPacket* next = Data[instance].front();
++		const RawPacket* next = Data[instance].front();
+ 		Data[instance].pop_front();
+ 		dataRecv += next-&gt;length;
+-		return next;
++		return const_cast&lt;RawPacket*&gt;(next);
+ 	}
+ 	else
+ 		return NULL;
+
+Modified: trunk/rts/System/Net/LocalConnection.h
+===================================================================
+--- trunk/rts/System/Net/LocalConnection.h	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/rts/System/Net/LocalConnection.h	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -28,6 +28,13 @@
+ 	@brief Send data to other instance
+ 	*/
+ 	virtual void SendData(const unsigned char *data, const unsigned length);
++	
++	/**
++	@brief Send packet to other instance
++	
++	Use this, since it doesn't need memcpy'ing
++	 */
++	virtual void SendData(const RawPacket* data);
+ 
+ 	virtual const RawPacket* Peek(unsigned ahead) const;
+ 
+@@ -45,7 +52,7 @@
+ 	virtual std::string Statistics() const;
+ 
+ private:
+-	typedef std::deque&lt;RawPacket*&gt; MsgQueue;
++	typedef std::deque&lt;const RawPacket*&gt; MsgQueue;
+ 
+ 	static MsgQueue Data[2];
+ 	static boost::mutex Mutex[2];
+
+Modified: trunk/rts/System/Net/Net.cpp
+===================================================================
+--- trunk/rts/System/Net/Net.cpp	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/rts/System/Net/Net.cpp	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -200,6 +200,18 @@
+ 	}
+ }
+ 
++void CNet::SendData(const RawPacket* data, const unsigned playerNum)
++{
++	if (int(playerNum) &lt;= MaxConnectionID() &amp;&amp; connections[playerNum])
++	{
++		connections[playerNum]-&gt;SendData(data);
++	}
++	else
++	{
++		throw network_error(&quot;Cant send data (wrong connection number)&quot;);
++	}
++}
++
+ void CNet::FlushNet()
+ {
+ 	for (connVec::const_iterator  i = connections.begin(); i &lt; connections.end(); ++i)
+
+Modified: trunk/rts/System/Net/Net.h
+===================================================================
+--- trunk/rts/System/Net/Net.h	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/rts/System/Net/Net.h	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -177,6 +177,14 @@
+ 	void SendData(const unsigned char* data,const unsigned length, const unsigned playerNum);
+ 	
+ 	/**
++	@brief Send data to one client in particular
++	@param data the RawPacket I will take care of, DO NOT DELETE IT
++	@throw network_error When playerNum is no valid connection ID
++	@todo there are too much SendData functions here
++	 */
++	void SendData(const RawPacket* data, const unsigned playerNum);
++	
++	/**
+ 	@brief send all waiting data
+ 	*/
+ 	void FlushNet();
+
+Added: trunk/rts/System/Net/PackPacket.cpp
+===================================================================
+--- trunk/rts/System/Net/PackPacket.cpp	                        (rev 0)
++++ trunk/rts/System/Net/PackPacket.cpp	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -0,0 +1,11 @@
++#include &quot;PackPacket.h&quot;
++
++namespace netcode
++{
++
++PackPacket::PackPacket(const unsigned length) : RawPacket(length), pos(0)
++{
++}
++
++}
++
+
+Added: trunk/rts/System/Net/PackPacket.h
+===================================================================
+--- trunk/rts/System/Net/PackPacket.h	                        (rev 0)
++++ trunk/rts/System/Net/PackPacket.h	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -0,0 +1,26 @@
++#ifndef PACK_PACKET_H
++#define PACK_PACKET_H
++
++#include &lt;string&gt;
++
++#include &quot;RawPacket.h&quot;
++
++namespace netcode
++{
++
++class PackPacket : public RawPacket
++{
++public:
++	PackPacket(const unsigned length);
++	
++	template &lt;typename T&gt;
++	void operator&lt;&lt;(const T&amp; t) {*(T*)(data+pos) = t; pos += sizeof(T);};
++	void operator&lt;&lt;(const std::string&amp; text) {strcpy((char*)(data+pos), text.c_str()); pos += text.size()+1;};
++	
++private:
++	unsigned pos;
++};
++
++};
++
++#endif
+
+Modified: trunk/rts/System/Net/RawPacket.cpp
+===================================================================
+--- trunk/rts/System/Net/RawPacket.cpp	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/rts/System/Net/RawPacket.cpp	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -18,6 +18,12 @@
+ 	}
+ }
+ 
++RawPacket::RawPacket(const unsigned newLength) : length(newLength)
++{
++	if (length &gt; 0)
++		data = new unsigned char[length];
++}
++
+ RawPacket::~RawPacket()
+ {
+ 	if (length &gt; 0)
+
+Modified: trunk/rts/System/Net/RawPacket.h
+===================================================================
+--- trunk/rts/System/Net/RawPacket.h	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/rts/System/Net/RawPacket.h	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -20,6 +20,12 @@
+ 	RawPacket(const unsigned char* const data, const unsigned length);
+ 	
+ 	/**
++	@brief create a new packet without data
++	@param length the estimated length of the data (is save even if its 0)
++	 */
++	RawPacket(const unsigned length);
++	
++	/**
+ 	@brief Free the memory
+ 	*/
+ 	~RawPacket();
+
+Modified: trunk/rts/System/Net/UDPConnection.cpp
+===================================================================
+--- trunk/rts/System/Net/UDPConnection.cpp	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/rts/System/Net/UDPConnection.cpp	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -60,6 +60,12 @@
+ 	outgoingLength+=length;
+ }
+ 
++void UDPConnection::SendData(const RawPacket* data)
++{
++	//TODO make UDPConnection completely packet-based
++	SendData(data-&gt;data, data-&gt;length);
++}
++
+ const RawPacket* UDPConnection::Peek(unsigned ahead) const
+ {
+ 	if (ahead &lt; msgQueue.size())
+
+Modified: trunk/rts/System/Net/UDPConnection.h
+===================================================================
+--- trunk/rts/System/Net/UDPConnection.h	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/rts/System/Net/UDPConnection.h	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -33,6 +33,11 @@
+ 
+ 	/// use this if you want data to be sent
+ 	virtual void SendData(const unsigned char *data, const unsigned length);
++	
++	/**
++	@brief Send packet to other instance
++	*/
++	virtual void SendData(const RawPacket* data);
+ 
+ 	virtual const RawPacket* Peek(unsigned ahead) const;
+ 
+
+Added: trunk/rts/System/Net/UnpackPacket.cpp
+===================================================================
+--- trunk/rts/System/Net/UnpackPacket.cpp	                        (rev 0)
++++ trunk/rts/System/Net/UnpackPacket.cpp	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -0,0 +1,11 @@
++#include &quot;UnpackPacket.h&quot;
++
++namespace netcode
++{
++
++UnpackPacket::UnpackPacket(const unsigned char* const data, const unsigned length) : RawPacket(data, length), pos(0)
++{
++}
++
++}
++
+
+Added: trunk/rts/System/Net/UnpackPacket.h
+===================================================================
+--- trunk/rts/System/Net/UnpackPacket.h	                        (rev 0)
++++ trunk/rts/System/Net/UnpackPacket.h	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -0,0 +1,27 @@
++#ifndef UNPACK_PACKET_H
++#define UNPACK_PACKET_H
++
++#include &lt;string&gt;
++
++#include &quot;RawPacket.h&quot;
++
++namespace netcode
++{
++
++class UnpackPacket : public RawPacket
++{
++public:
++	UnpackPacket(const unsigned char* const data, const unsigned length);
++	void Reset() {pos = 0;};
++	
++	template &lt;typename T&gt;
++	void operator&gt;&gt;(T&amp; t) {t = *(T*)(data+pos); pos += sizeof(T);};
++	void operator&gt;&gt;(std::string&amp; text) {text = std::string((char*)(data + pos)); pos += text.size()+1;};
++	
++private:
++	unsigned pos;
++};
++
++};
++
++#endif
+
+Modified: trunk/tools/DedicatedServer/CMakeLists.txt
+===================================================================
+--- trunk/tools/DedicatedServer/CMakeLists.txt	2008-03-05 12:29:45 UTC (rev 5560)
++++ trunk/tools/DedicatedServer/CMakeLists.txt	2008-03-05 13:40:15 UTC (rev 5561)
+@@ -56,7 +56,7 @@
+ SET(filesystem_files ${fsfiles} ${platformfiles} ../../rts/System/TdfParser ../../rts/System/Platform/FileSystem ../../rts/System/Platform/ConfigHandler ../../rts/System/LogOutput)
+ 
+ AUX_SOURCE_DIRECTORY(../../rts/Game/Server serverfiles)
+-ADD_LIBRARY(server SHARED ${filesystem_files} ${serverfiles} ../../rts/Game/GameServer GameSetup ../../rts/Game/GameSetupData ../../rts/Game/GameVersion ../../rts/System/DemoReader ../../rts/System/Demo ../../rts/System/AutohostInterface  ../../rts/System/BaseNetProtocol ../../rts/System/UnsyncedRNG)
++ADD_LIBRARY(server SHARED ${filesystem_files} ${serverfiles} ../../rts/Game/GameServer GameSetup ../../rts/Game/GameSetupData ../../rts/Game/GameData ../../rts/Game/GameVersion ../../rts/System/DemoReader ../../rts/System/Demo ../../rts/System/AutohostInterface  ../../rts/System/BaseNetProtocol ../../rts/System/UnsyncedRNG)
+ TARGET_LINK_LIBRARIES(server SDL boost_thread-mt net hpiutil2 7zip minizip boost_regex-mt)
+ 
+ ADD_EXECUTABLE(dedicated main EventPrinter)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000341.html">[Taspring-linux-commit] r5560 - trunk/rts/System
+</A></li>
+	<LI>Next message: <A HREF="000343.html">[Taspring-linux-commit] r5562 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#342">[ date ]</a>
+              <a href="thread.html#342">[ thread ]</a>
+              <a href="subject.html#342">[ subject ]</a>
+              <a href="author.html#342">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

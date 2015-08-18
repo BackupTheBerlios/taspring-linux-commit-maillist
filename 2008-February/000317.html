@@ -1,0 +1,246 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5510 - in trunk/rts: Game	System/Platform/Win
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5510%20-%20in%20trunk/rts%3A%20Game%0A%09System/Platform/Win&In-Reply-To=%3CE1JQS9E-0002DV-MH%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000316.html">
+   <LINK REL="Next"  HREF="000318.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5510 - in trunk/rts: Game	System/Platform/Win</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5510%20-%20in%20trunk/rts%3A%20Game%0A%09System/Platform/Win&In-Reply-To=%3CE1JQS9E-0002DV-MH%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5510 - in trunk/rts: Game	System/Platform/Win">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Feb 16 19:52:28 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000316.html">[Taspring-linux-commit] r5509 - trunk/rts/System
+</A></li>
+        <LI>Next message: <A HREF="000318.html">[Taspring-linux-commit] r5511 - in trunk/Lobby/AFLobby: .	src/aflobby
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#317">[ date ]</a>
+              <a href="thread.html#317">[ thread ]</a>
+              <a href="subject.html#317">[ subject ]</a>
+              <a href="author.html#317">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-02-16 19:52:28 +0100 (Sat, 16 Feb 2008)
+New Revision: 5510
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/System/Platform/Win/AVIGenerator.cpp
+   trunk/rts/System/Platform/Win/AVIGenerator.h
+Log:
+* vorrect avi generator (by zizu)
+
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-02-16 17:49:52 UTC (rev 5509)
++++ trunk/rts/Game/Game.cpp	2008-02-16 18:52:28 UTC (rev 5510)
+@@ -2358,7 +2358,11 @@
+ #ifndef NO_AVI
+ 	if(creatingVideo){
+ 		gu-&gt;lastFrameTime=1.0f/GAME_SPEED;
+-		aviGenerator-&gt;readOpenglPixelDataThreaded();
++		if(!aviGenerator-&gt;readOpenglPixelDataThreaded()){
++			creatingVideo = false;
++			delete aviGenerator;
++			aviGenerator = 0;
++		}
+ //		logOutput.Print(&quot;Saved avi frame size %i %i&quot;,ih-&gt;biWidth,ih-&gt;biHeight);
+ 	}
+ #endif
+
+Modified: trunk/rts/System/Platform/Win/AVIGenerator.cpp
+===================================================================
+--- trunk/rts/System/Platform/Win/AVIGenerator.cpp	2008-02-16 17:49:52 UTC (rev 5509)
++++ trunk/rts/System/Platform/Win/AVIGenerator.cpp	2008-02-16 18:52:28 UTC (rev 5510)
+@@ -123,14 +123,14 @@
+ 		AVIThread = 0;
+ 	}
+ 
+-	while(!freeDataPointers.empty()){
+-		unsigned char* tmp = freeDataPointers.front();
+-		freeDataPointers.pop_front();
++	while(!freeImageBuffers.empty()){
++		unsigned char* tmp = freeImageBuffers.front();
++		freeImageBuffers.pop_front();
+ 		delete [] tmp;
+ 	}
+-	while(!dataPointers.empty()){
+-		unsigned char* tmp = dataPointers.front();
+-		dataPointers.pop_front();
++	while(!imageBuffers.empty()){
++		unsigned char* tmp = imageBuffers.front();
++		imageBuffers.pop_front();
+ 		delete [] tmp;
+ 	}
+ 
+@@ -146,8 +146,8 @@
+ 	assert(m_pAVIFile == NULL);
+ 	assert(m_pStream == NULL);
+ 	assert(m_pStreamCompressed == NULL);
+-	assert(freeDataPointers.empty());
+-	assert(dataPointers.empty());
++	assert(freeImageBuffers.empty());
++	assert(imageBuffers.empty());
+ 	assert(readBuf == NULL);
+ }
+ 
+@@ -342,7 +342,7 @@
+ 
+ 	for(int i=0; i&lt;10; i++){
+ 		unsigned char* tmpBuf = SAFE_NEW unsigned char[bitmapInfo.biSizeImage];
+-		freeDataPointers.push_back(tmpBuf);
++		freeImageBuffers.push_back(tmpBuf);
+ 	}
+ 
+ 	HWND mainWindow = FindWindow(NULL, (&quot;Spring &quot; + std::string(VERSION_STRING)).c_str());
+@@ -378,28 +378,29 @@
+ }
+ 
+ 
+-void CAVIGenerator::readOpenglPixelDataThreaded(){
++bool CAVIGenerator::readOpenglPixelDataThreaded(){
+ 
+ 	for(;;){
+ 		boost::mutex::scoped_lock lock(AVIMutex);
+ 		if(quitAVIgen){
+-			return;
++			return false;
+ 		}
+ 		if(readBuf != 0){
+-			dataPointers.push_back(readBuf);
++			imageBuffers.push_back(readBuf);
+ 			readBuf = 0;
+ 			AVICondition.notify_all();
+ 		}
+-		if(freeDataPointers.empty()){
++		if(freeImageBuffers.empty()){
+ 			AVICondition.wait(lock);
+ 			continue;
+ 		}
+-		readBuf = freeDataPointers.front();
+-		freeDataPointers.pop_front();
++		readBuf = freeImageBuffers.front();
++		freeImageBuffers.pop_front();
+ 		break;
+ 	}
+ 
+ 	glReadPixels(0, 0, bitmapInfo.biWidth, bitmapInfo.biHeight, GL_BGR_EXT, GL_UNSIGNED_BYTE, readBuf);
++	return true;
+ }
+ 
+ 
+@@ -412,33 +413,41 @@
+ 	AVICondition.notify_all();
+ 	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+ 	unsigned char* localWriteBuf = 0;
++	bool encoderError = false;
+ 
+ 	for(;;){
+ 		{
+ 			boost::mutex::scoped_lock lock(AVIMutex);
++			if(encoderError){
++				logOutput.Print(&quot;The avi generator terminated unexpectedly!&quot;);
++				quitAVIgen = true;
++				//Do not let the main thread wait, as the encoder will not
++				//process and free the remaining content in imageBuffers.
++				AVICondition.notify_all();
++			}
+ 			if(quitAVIgen){
+ 				break;
+ 			}
+ 			if(localWriteBuf != 0){
+-				freeDataPointers.push_back(localWriteBuf);
++				freeImageBuffers.push_back(localWriteBuf);
+ 				localWriteBuf = 0;
+ 				AVICondition.notify_all();
+ 			}
+-			if(dataPointers.empty()){
++			if(imageBuffers.empty()){
+ 				AVICondition.wait(lock);
+ 				continue;
+ 			}
+-			localWriteBuf = dataPointers.front();
+-			dataPointers.pop_front();
++			localWriteBuf = imageBuffers.front();
++			imageBuffers.pop_front();
+ 		}
+ 		if(AddFrame(localWriteBuf)){
+-			quitAVIgen = true;
++			encoderError = true;
+ 		}
+ 		MSG msg;
+ 		//Handle all messages the codec sends.
+ 		while(PeekMessage(&amp;msg, NULL, 0, 0, PM_NOREMOVE)){
+ 			if(GetMessage(&amp;msg, NULL, 0, 0) &lt; 0){
+-				quitAVIgen = true;
++				encoderError = true;
+ 				break;
+ 			}
+ 			TranslateMessage(&amp;msg);
+
+Modified: trunk/rts/System/Platform/Win/AVIGenerator.h
+===================================================================
+--- trunk/rts/System/Platform/Win/AVIGenerator.h	2008-02-16 17:49:52 UTC (rev 5509)
++++ trunk/rts/System/Platform/Win/AVIGenerator.h	2008-02-16 18:52:28 UTC (rev 5510)
+@@ -25,7 +25,7 @@
+ 	//Returns last error message
+ 	std::string GetLastErrorMessage() const	{return errorMsg;}
+ 
+-	void readOpenglPixelDataThreaded();
++	bool readOpenglPixelDataThreaded();
+ 
+ 
+ private:
+@@ -48,8 +48,8 @@
+ 	boost::condition AVICondition;
+ 
+ 
+-	std::list&lt;unsigned char*&gt; freeDataPointers;
+-	std::list&lt;unsigned char*&gt; dataPointers;
++	std::list&lt;unsigned char*&gt; freeImageBuffers;
++	std::list&lt;unsigned char*&gt; imageBuffers;
+ 
+ 	unsigned char* readBuf;
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000316.html">[Taspring-linux-commit] r5509 - trunk/rts/System
+</A></li>
+	<LI>Next message: <A HREF="000318.html">[Taspring-linux-commit] r5511 - in trunk/Lobby/AFLobby: .	src/aflobby
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#317">[ date ]</a>
+              <a href="thread.html#317">[ thread ]</a>
+              <a href="subject.html#317">[ subject ]</a>
+              <a href="author.html#317">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

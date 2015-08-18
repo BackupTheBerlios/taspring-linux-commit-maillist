@@ -1,0 +1,328 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5381 - in trunk/rts: Game Lua System	System/Platform System/Platform/Linux
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5381%20-%20in%20trunk/rts%3A%20Game%20Lua%20System%0A%09System/Platform%20System/Platform/Linux&In-Reply-To=%3CE1JIG8H-0006RH-WD%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000187.html">
+   <LINK REL="Next"  HREF="000189.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5381 - in trunk/rts: Game Lua System	System/Platform System/Platform/Linux</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5381%20-%20in%20trunk/rts%3A%20Game%20Lua%20System%0A%09System/Platform%20System/Platform/Linux&In-Reply-To=%3CE1JIG8H-0006RH-WD%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5381 - in trunk/rts: Game Lua System	System/Platform System/Platform/Linux">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Jan 25 05:25:37 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000187.html">[Taspring-linux-commit] r5380 - trunk/game/LuaUI
+</A></li>
+        <LI>Next message: <A HREF="000189.html">[Taspring-linux-commit] r5382 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#188">[ date ]</a>
+              <a href="thread.html#188">[ thread ]</a>
+              <a href="subject.html#188">[ subject ]</a>
+              <a href="author.html#188">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: trepan
+Date: 2008-01-25 05:25:36 +0100 (Fri, 25 Jan 2008)
+New Revision: 5381
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Lua/LuaConstGame.cpp
+   trunk/rts/System/Main.cpp
+   trunk/rts/System/Platform/ConfigHandler.cpp
+   trunk/rts/System/Platform/Linux/DotfileHandler.cpp
+   trunk/rts/System/Platform/Linux/DotfileHandler.h
+Log:
+* If a ~/.springrc-&lt;version&gt; config file exists where &lt;version&gt; is the exec's
+  version string, use that file instead of ~/.springrc.
+* Added some water color and fog color constants to the lua Game{} table.
+* If Spring.SetDrawSky(false) is set, do not draw the sun.
+
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-01-25 00:19:49 UTC (rev 5380)
++++ trunk/rts/Game/Game.cpp	2008-01-25 04:25:36 UTC (rev 5381)
+@@ -1,4 +1,4 @@
+-// // Game.cpp: implementation of the CGame class.
++// Game.cpp: implementation of the CGame class.
+ //
+ //////////////////////////////////////////////////////////////////////
+ 
+@@ -1836,6 +1836,7 @@
+ 	return 0;
+ }
+ 
++
+ bool CGame::Update()
+ {
+ 	good_fpu_control_registers(&quot;CGame::Update&quot;);
+@@ -1935,6 +1936,7 @@
+ 	return true;
+ }
+ 
++
+ bool CGame::DrawWorld()
+ {
+ 	SCOPED_TIMER(&quot;Draw world&quot;);
+@@ -1978,8 +1980,11 @@
+ 	}
+ 	unitDrawer-&gt;DrawCloakedUnits();
+ 	ph-&gt;Draw(false);
+-	sky-&gt;DrawSun();
+ 
++	if (drawSky) {
++		sky-&gt;DrawSun();
++	}
++
+ 	luaCallIns.DrawWorld();
+ 
+ 	LuaUnsyncedCtrl::DrawUnitCommandQueues();
+@@ -2053,6 +2058,7 @@
+ 	return true;
+ }
+ 
++
+ bool CGame::Draw()
+ {
+ 	ASSERT_UNSYNCED_MODE;
+
+Modified: trunk/rts/Lua/LuaConstGame.cpp
+===================================================================
+--- trunk/rts/Lua/LuaConstGame.cpp	2008-01-25 00:19:49 UTC (rev 5380)
++++ trunk/rts/Lua/LuaConstGame.cpp	2008-01-25 04:25:36 UTC (rev 5381)
+@@ -22,9 +22,24 @@
+ #include &quot;System/FileSystem/ArchiveScanner.h&quot;
+ 
+ 
++extern GLfloat FogLand[];
++
++
+ /******************************************************************************/
+ /******************************************************************************/
+ 
++static void LuaPushNamedColor(lua_State* L,
++                              const string&amp; name, const float3&amp; color)
++{
++	lua_pushlstring(L, name.c_str(), name.size());
++	lua_newtable(L);
++	lua_pushnumber(L, color.x); lua_rawseti(L, -2, 1);
++	lua_pushnumber(L, color.y); lua_rawseti(L, -2, 2);
++	lua_pushnumber(L, color.z); lua_rawseti(L, -2, 3);
++	lua_rawset(L, -3);
++}
++
++
+ bool LuaConstGame::PushEntries(lua_State* L)
+ {
+ 	const float gravity = -(gs-&gt;gravity * GAME_SPEED * GAME_SPEED);
+@@ -32,6 +47,7 @@
+ 	const bool diminishingMMs   = gameSetup ? gameSetup-&gt;diminishingMMs   : false;
+ 	const bool ghostedBuildings = gameSetup ? gameSetup-&gt;ghostedBuildings : false;
+ 	const int  startPosType     = gameSetup ? gameSetup-&gt;startPosType     : 0;
++	const float3 fogColor(FogLand[0], FogLand[1], FogLand[2]);
+ 
+ 	LuaPushNamedString(L, &quot;version&quot;,       VERSION_STRING);
+ 
+@@ -49,20 +65,27 @@
+ 	LuaPushNamedBool(L,   &quot;diminishingMetal&quot;, diminishingMMs);
+ 	LuaPushNamedBool(L,   &quot;ghostedBuildings&quot;, ghostedBuildings);
+ 
+-	LuaPushNamedString(L, &quot;mapName&quot;,         readmap-&gt;mapName);
+-	LuaPushNamedString(L, &quot;mapHumanName&quot;,    readmap-&gt;mapHumanName);
+-	LuaPushNamedNumber(L, &quot;mapX&quot;,            readmap-&gt;width  / 64);
+-	LuaPushNamedNumber(L, &quot;mapY&quot;,            readmap-&gt;height / 64);
+-	LuaPushNamedNumber(L, &quot;mapSizeX&quot;,        readmap-&gt;width  * SQUARE_SIZE);
+-	LuaPushNamedNumber(L, &quot;mapSizeZ&quot;,        readmap-&gt;height * SQUARE_SIZE);
+-	LuaPushNamedBool(L,   &quot;mapDamage&quot;,       !mapDamage-&gt;disabled);
+-	LuaPushNamedBool(L,   &quot;mapWaterVoid&quot;,    readmap-&gt;voidWater);
+-	LuaPushNamedBool(L,   &quot;mapWaterPlane&quot;,   readmap-&gt;hasWaterPlane);
+-	LuaPushNamedNumber(L, &quot;extractorRadius&quot;, readmap-&gt;extractorRadius);
+-	LuaPushNamedNumber(L, &quot;gravity&quot;,         gravity);
+-	LuaPushNamedNumber(L, &quot;tidal&quot;,           readmap-&gt;tidalStrength);
+-	LuaPushNamedNumber(L, &quot;windMin&quot;,         wind.GetMinWind());
+-	LuaPushNamedNumber(L, &quot;windMax&quot;,         wind.GetMaxWind());
++	LuaPushNamedBool(L,   &quot;mapDamage&quot;,         !mapDamage-&gt;disabled);
++	LuaPushNamedNumber(L, &quot;gravity&quot;,           gravity);
++	LuaPushNamedNumber(L, &quot;windMin&quot;,           wind.GetMinWind());
++	LuaPushNamedNumber(L, &quot;windMax&quot;,           wind.GetMaxWind());
++	LuaPushNamedString(L, &quot;mapName&quot;,           readmap-&gt;mapName);
++	LuaPushNamedString(L, &quot;mapHumanName&quot;,      readmap-&gt;mapHumanName);
++	LuaPushNamedNumber(L, &quot;mapX&quot;,              readmap-&gt;width  / 64);
++	LuaPushNamedNumber(L, &quot;mapY&quot;,              readmap-&gt;height / 64);
++	LuaPushNamedNumber(L, &quot;mapSizeX&quot;,          readmap-&gt;width  * SQUARE_SIZE);
++	LuaPushNamedNumber(L, &quot;mapSizeZ&quot;,          readmap-&gt;height * SQUARE_SIZE);
++	LuaPushNamedNumber(L, &quot;extractorRadius&quot;,   readmap-&gt;extractorRadius);
++	LuaPushNamedNumber(L, &quot;tidal&quot;,             readmap-&gt;tidalStrength);
++	LuaPushNamedString(L, &quot;waterTexture&quot;,      readmap-&gt;waterTexture);
++	LuaPushNamedBool(L,   &quot;waterVoid&quot;,         readmap-&gt;voidWater);
++	LuaPushNamedBool(L,   &quot;waterPlane&quot;,        readmap-&gt;hasWaterPlane);
++	LuaPushNamedColor(L,  &quot;waterAbsorb&quot;,       readmap-&gt;waterAbsorb);
++	LuaPushNamedColor(L,  &quot;waterBaseColor&quot;,    readmap-&gt;waterBaseColor);
++	LuaPushNamedColor(L,  &quot;waterMinColor&quot;,     readmap-&gt;waterMinColor);
++	LuaPushNamedColor(L,  &quot;waterSurfaceColor&quot;, readmap-&gt;waterSurfaceColor);
++	LuaPushNamedColor(L,  &quot;waterPlaneColor&quot;,   readmap-&gt;waterPlaneColor);
++	LuaPushNamedColor(L,  &quot;fogColor&quot;,          fogColor);
+ 
+ 	LuaPushNamedString(L, &quot;modName&quot;,         modInfo.humanName);
+ 	LuaPushNamedString(L, &quot;modShortName&quot;,    modInfo.shortName);
+
+Modified: trunk/rts/System/Main.cpp
+===================================================================
+--- trunk/rts/System/Main.cpp	2008-01-25 00:19:49 UTC (rev 5380)
++++ trunk/rts/System/Main.cpp	2008-01-25 04:25:36 UTC (rev 5381)
+@@ -666,7 +666,7 @@
+ 	cmdline-&gt;addoption('t', &quot;textureatlas&quot;,   OPTPARM_NONE,   &quot;&quot;,  &quot;Dump each finalized textureatlas in textureatlasN.tga&quot;);
+ 	cmdline-&gt;addoption('q', &quot;quit&quot;,           OPTPARM_INT,    &quot;T&quot;, &quot;Quit immediately on game over or after T seconds&quot;);
+ 	cmdline-&gt;addoption('n', &quot;name&quot;,           OPTPARM_STRING, &quot;&quot;,  &quot;Set your player name&quot;);
+-	cmdline-&gt;addoption('a', &quot;autohost&quot;,           OPTPARM_INT,    &quot;A&quot;, &quot;Connect to autohost on localhost:A (UDP)&quot;);
++	cmdline-&gt;addoption('a', &quot;autohost&quot;,       OPTPARM_INT,    &quot;A&quot;, &quot;Connect to autohost on localhost:A (UDP)&quot;);
+ 	cmdline-&gt;parse();
+ 
+ #ifdef _DEBUG
+
+Modified: trunk/rts/System/Platform/ConfigHandler.cpp
+===================================================================
+--- trunk/rts/System/Platform/ConfigHandler.cpp	2008-01-25 00:19:49 UTC (rev 5380)
++++ trunk/rts/System/Platform/ConfigHandler.cpp	2008-01-25 04:25:36 UTC (rev 5381)
+@@ -26,8 +26,9 @@
+  * Default instantiation of ConfigHandler instance
+  * is NULL.
+  */
+-ConfigHandler* ConfigHandler::instance=0;
++ConfigHandler* ConfigHandler::instance = NULL;
+ 
++
+ /**
+  * Returns reference to the current platform's config class.
+  * If none exists, create one.
+@@ -41,7 +42,7 @@
+ 		PreInitMac();
+ 		instance = SAFE_NEW UserDefsHandler(); // Config path is based on bundle id
+ #else
+-		instance = SAFE_NEW DotfileHandler(DOTCONFIGPATH);
++		instance = SAFE_NEW DotfileHandler(DotfileHandler::GetDefaultConfig());
+ #endif
+ 	}
+ 	return *instance;
+
+Modified: trunk/rts/System/Platform/Linux/DotfileHandler.cpp
+===================================================================
+--- trunk/rts/System/Platform/Linux/DotfileHandler.cpp	2008-01-25 00:19:49 UTC (rev 5380)
++++ trunk/rts/System/Platform/Linux/DotfileHandler.cpp	2008-01-25 04:25:36 UTC (rev 5381)
+@@ -15,7 +15,9 @@
+ #include &lt;fcntl.h&gt;
+ #include &lt;math.h&gt;
+ #include &lt;stdlib.h&gt;
++#include &quot;Game/GameVersion.h&quot;
+ 
++
+ /**
+  * @brief POSIX file locking class
+  */
+@@ -214,3 +216,28 @@
+ 	ss &lt;&lt; value;
+ 	SetString(name, ss.str());
+ }
++
++
++/**
++ * @brief Get the name of the default configuration file
++ */
++string DotfileHandler::GetDefaultConfig()
++{
++	const string base = &quot;.springrc&quot;;
++	const string home = getenv(&quot;HOME&quot;);
++
++	const string defCfg = home + &quot;/&quot; + base;
++	const string verCfg = defCfg + &quot;-&quot; + string(VERSION_STRING);
++
++	string cfg;
++
++	struct stat st;
++	if (stat(verCfg.c_str(), &amp;st) == 0) {
++		cfg = verCfg; // use the versionned config file
++	} else {
++		cfg = defCfg; // use the default config file
++	}
++
++	return cfg;
++}
++
+
+Modified: trunk/rts/System/Platform/Linux/DotfileHandler.h
+===================================================================
+--- trunk/rts/System/Platform/Linux/DotfileHandler.h	2008-01-25 00:19:49 UTC (rev 5380)
++++ trunk/rts/System/Platform/Linux/DotfileHandler.h	2008-01-25 04:25:36 UTC (rev 5381)
+@@ -21,20 +21,6 @@
+ using std::string;
+ 
+ /**
+- * @brief dotconfig file
+- *
+- * Defines the name of the configuration file to use
+- */
+-#define DOTCONFIGFILE &quot;.springrc&quot;
+-
+-/**
+- * @brief dotconfig path
+- *
+- * Defines the full path to the config file (including dotconfig filename)
+- */
+-#define DOTCONFIGPATH (string(getenv(&quot;HOME&quot;)).append(&quot;/&quot;).append(DOTCONFIGFILE))
+-
+-/**
+  * @brief DotfileHandler
+  *
+  * Linux dotfile handler config class, derived
+@@ -51,6 +37,11 @@
+ 	DotfileHandler(const std::string&amp; fname);
+ 
+ 	/**
++	 * @brief Get the name of the default configuration file
++	 */
++	static string GetDefaultConfig();
++
++	/**
+ 	 * @brief Destructor
+ 	 */
+ 	virtual ~DotfileHandler();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000187.html">[Taspring-linux-commit] r5380 - trunk/game/LuaUI
+</A></li>
+	<LI>Next message: <A HREF="000189.html">[Taspring-linux-commit] r5382 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#188">[ date ]</a>
+              <a href="thread.html#188">[ thread ]</a>
+              <a href="subject.html#188">[ subject ]</a>
+              <a href="author.html#188">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,272 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6332 - in trunk/tools: . ArchiveMoverLinux
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6332%20-%20in%20trunk/tools%3A%20.%20ArchiveMoverLinux&In-Reply-To=%3C20080829113854.08295498E%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001101.html">
+   <LINK REL="Next"  HREF="001103.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6332 - in trunk/tools: . ArchiveMoverLinux</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6332%20-%20in%20trunk/tools%3A%20.%20ArchiveMoverLinux&In-Reply-To=%3C20080829113854.08295498E%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6332 - in trunk/tools: . ArchiveMoverLinux">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Aug 29 13:38:53 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001101.html">[Taspring-linux-commit] r6331 - branches
+</A></li>
+        <LI>Next message: <A HREF="001103.html">[Taspring-linux-commit] r6333 - trunk/tools/ArchiveMoverLinux
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1102">[ date ]</a>
+              <a href="thread.html#1102">[ thread ]</a>
+              <a href="subject.html#1102">[ subject ]</a>
+              <a href="author.html#1102">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: det
+Date: 2008-08-29 13:38:53 +0200 (Fri, 29 Aug 2008)
+New Revision: 6332
+
+Added:
+   trunk/tools/ArchiveMoverLinux/
+   trunk/tools/ArchiveMoverLinux/Makefile
+   trunk/tools/ArchiveMoverLinux/mover.ml
+Log:
+Added a first version of an ArchiveMover for Linux
+ * Auto-detection currently only works for .sdz
+ * Needs some more error checking
+ * Needs more flexible directory detection
+
+
+
+Added: trunk/tools/ArchiveMoverLinux/Makefile
+===================================================================
+--- trunk/tools/ArchiveMoverLinux/Makefile	                        (rev 0)
++++ trunk/tools/ArchiveMoverLinux/Makefile	2008-08-29 11:38:53 UTC (rev 6332)
+@@ -0,0 +1,14 @@
++ML_SOURCES = mover.ml
++ML_SEARCH = -I +lablgtk2  -I +zip -I +extlib
++ML_LIBS = lablgtk.cmxa gtkInit.cmx unix.cmxa zip.cmxa extLib.cmxa
++
++all: mover
++
++mover: $(ML_SOURCES)
++	ocamlopt -o mover $(ML_SEARCH) $(ML_LIBS) $(ML_SOURCES)
++
++clean:
++	rm -f *.cmi  *.cmo  *.cmx  *.o mover
++
++
++.PHONY: all clean
+
+Added: trunk/tools/ArchiveMoverLinux/mover.ml
+===================================================================
+--- trunk/tools/ArchiveMoverLinux/mover.ml	                        (rev 0)
++++ trunk/tools/ArchiveMoverLinux/mover.ml	2008-08-29 11:38:53 UTC (rev 6332)
+@@ -0,0 +1,169 @@
++open ExtString
++
++module Config = struct
++  let spring_dir = Filename.concat (Unix.getenv &quot;HOME&quot;) &quot;.spring&quot;
++  let map_dir = Filename.concat spring_dir &quot;maps&quot;
++  let mod_dir = Filename.concat spring_dir &quot;mods&quot;
++end
++
++module Archive = struct
++  type t = Mod | Map | Unknown
++
++  let from_int int =
++    match int with
++        0 -&gt; Map
++      | 1 -&gt; Mod
++      | _ -&gt; Unknown
++
++  let to_int t =
++    match t with
++        Map -&gt; 0
++      | Mod -&gt; 1
++      | Unknown -&gt; -1
++
++  let to_help_text t = 
++    match t with
++        Map -&gt; &quot;Detected map archive&quot;
++      | Mod -&gt; &quot;Detected mod archive&quot;
++      | Unknown -&gt; &quot;Unable to detect archive type\nSelect from the menu&quot;
++
++  let from_zip path =
++    let in_zip = Zip.open_in path in
++    let entries = Zip.entries in_zip in
++    let has_file filename =
++      let lower = String.lowercase filename in
++        List.exists (fun entry -&gt; entry.Zip.filename = lower) entries
++    in
++      Zip.close_in in_zip;
++      if has_file &quot;maps&quot; then Map
++      else if has_file &quot;modinfo.tdf&quot; then Mod
++      else if has_file &quot;modinfo.lua&quot; then Mod
++      else Unknown
++
++  let from_path path  =
++    if String.ends_with path &quot;.sdz&quot; then
++      from_zip path
++    else if String.ends_with path &quot;.sd7&quot; then
++      Unknown
++    else
++      Unknown
++end
++
++module FileSystem = struct
++  let copy src dst =
++    let string = String.create 4096 in
++    let in_chan = open_in_bin src in
++    let out_chan = open_out_bin dst in
++      
++    let rec f () =
++      let n = input in_chan string 0 (String.length string) in
++        if n = 0 then
++          ()
++        else
++          begin
++            output out_chan string 0 n;
++            f ()
++          end in
++      
++      f ();
++      close_in in_chan;
++      close_out out_chan
++        
++  let move src dst =
++    try
++      Unix.rename src dst
++    with Unix.Unix_error (Unix.EXDEV, _, _) -&gt;
++      copy src dst;
++      Unix.unlink src
++end
++
++
++module GUI = struct
++  let install path dir =
++    let basename = Filename.basename path in
++    let dest = Filename.concat dir basename in
++    let message = Printf.sprintf &quot;%s was successfully installed&quot; basename in
++      FileSystem.move path dest;
++      GToolbox.message_box ~title:&quot;Success&quot; ~ok:&quot;Exit&quot; message;
++      exit 0
++        
++  let install_archive path combo_box =
++    let int = combo_box#active in
++    let archive = Archive.from_int int in
++      match archive with
++          Archive.Mod -&gt; install path Config.mod_dir
++        | Archive.Map -&gt; install path Config.map_dir
++        | Archive.Unknown -&gt;
++            GToolbox.message_box
++              ~title:&quot;Error&quot;
++              &quot;Please select an archive type from the drop down list&quot;
++              
++  let detect_archive_type path insert combo_box =
++    let archive = Archive.from_path path in
++    let basename = Filename.basename path in
++    let help_text = Archive.to_help_text archive in
++    let text = Printf.sprintf &quot;Archive: %s\n%s\nClick 'Install' to move to your Spring dir&quot; basename help_text in
++      combo_box#set_active (Archive.to_int archive);
++      insert text
++        
++  let main path =
++    let window = GWindow.window
++      ~title:&quot;ArchiveMover&quot;
++      ~width:512
++      ~height:240
++      () in
++      
++    let vbox = GPack.vbox
++      ~packing:window#add
++      () in
++      
++    let out_text = GText.view
++      ~wrap_mode:`WORD
++      ~packing:(vbox#pack ~fill:true ~expand:true)
++      ~editable:false
++      () in
++      
++    let hbox = GPack.hbox
++      ~packing:(vbox#pack ~fill:true ~expand:false)
++      () in
++      
++    let (combo_box, _) = GEdit.combo_box_text
++      ~strings:[&quot;Map&quot;; &quot;Mod&quot;]
++      ~packing:(hbox#pack ~fill:true ~expand:true)
++      () in
++      
++    let button_box = GPack.button_box `HORIZONTAL
++      ~packing:(hbox#pack ~fill:false ~expand:false)
++      () in
++      
++    let install_button = GButton.button
++      ~label:&quot;Install&quot;
++      ~packing:button_box#pack
++      () in
++      
++    let exit_button = GButton.button
++      ~label:&quot;Exit&quot;
++      ~packing:button_box#pack
++      () in
++      
++    let destroy () = GMain.Main.quit () in
++    let install () = install_archive path combo_box in
++    let _ = window#connect#destroy ~callback:destroy in
++    let _ = install_button#connect#clicked ~callback:install in
++    let _ = exit_button#connect#clicked ~callback:destroy in
++      window#show ();
++      detect_archive_type path (out_text#buffer#insert) combo_box;
++      GtkMain.Main.main ()
++end
++
++let usage () =
++  ()
++
++let main () =
++  if Array.length (Sys.argv) != 2 then
++    (usage ();
++     exit 1)
++  else
++    GUI.main Sys.argv.(1)
++      
++let _ = main ()
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001101.html">[Taspring-linux-commit] r6331 - branches
+</A></li>
+	<LI>Next message: <A HREF="001103.html">[Taspring-linux-commit] r6333 - trunk/tools/ArchiveMoverLinux
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1102">[ date ]</a>
+              <a href="thread.html#1102">[ thread ]</a>
+              <a href="subject.html#1102">[ subject ]</a>
+              <a href="author.html#1102">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

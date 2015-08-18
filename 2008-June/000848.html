@@ -1,0 +1,163 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6068 - in trunk: . rts/Game	rts/System/Platform/Linux tools/DedicatedServer
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-June/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6068%20-%20in%20trunk%3A%20.%20rts/Game%0A%09rts/System/Platform/Linux%20tools/DedicatedServer&In-Reply-To=%3C20080624160549.971884571%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000847.html">
+   <LINK REL="Next"  HREF="000849.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6068 - in trunk: . rts/Game	rts/System/Platform/Linux tools/DedicatedServer</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6068%20-%20in%20trunk%3A%20.%20rts/Game%0A%09rts/System/Platform/Linux%20tools/DedicatedServer&In-Reply-To=%3C20080624160549.971884571%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6068 - in trunk: . rts/Game	rts/System/Platform/Linux tools/DedicatedServer">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Jun 24 18:05:49 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000847.html">[Taspring-linux-commit] r6067 - trunk/game
+</A></li>
+        <LI>Next message: <A HREF="000849.html">[Taspring-linux-commit] r6069 - in trunk/rts: Rendering/UnitModels	lib/gml
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#848">[ date ]</a>
+              <a href="thread.html#848">[ thread ]</a>
+              <a href="subject.html#848">[ subject ]</a>
+              <a href="author.html#848">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-06-24 18:05:48 +0200 (Tue, 24 Jun 2008)
+New Revision: 6068
+
+Modified:
+   trunk/CMakeLists.txt
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/System/Platform/Linux/DataDirLocater.cpp
+   trunk/tools/DedicatedServer/CMakeLists.txt
+   trunk/tools/DedicatedServer/main.cpp
+Log:
+* server send a quitmessage to udp interface again
+* cmake uses make_gamedata_arch.sh if cross-compiling with linux for win32
+
+
+Modified: trunk/CMakeLists.txt
+===================================================================
+--- trunk/CMakeLists.txt	2008-06-24 07:43:17 UTC (rev 6067)
++++ trunk/CMakeLists.txt	2008-06-24 16:05:48 UTC (rev 6068)
+@@ -9,11 +9,11 @@
+ Add_Subdirectory(tools/DedicatedServer)
+ Add_Subdirectory(tools/unitsync)
+ 
+-if (UNIX)
++if (UNIX OR CMAKE_CROSSCOMPILING)
+ 	add_custom_target(gamedata ALL COMMAND sh make_gamedata_arch.sh WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/installer)
+-else (UNIX)
++else (UNIX OR CMAKE_CROSSCOMPILING)
+ 	add_custom_target(gamedata ALL COMMAND call make_gamedata_arch.bat WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/installer)
+-endif(UNIX)
++endif(UNIX OR CMAKE_CROSSCOMPILING)
+ 
+-install (DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/game DESTINATION /opt/spring/ PATTERN &quot;.svn&quot; EXCLUDE)
++install (DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/game/ DESTINATION /opt/spring PATTERN &quot;.svn&quot; EXCLUDE)
+ 
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-06-24 07:43:17 UTC (rev 6067)
++++ trunk/rts/Game/GameServer.cpp	2008-06-24 16:05:48 UTC (rev 6068)
+@@ -1319,6 +1319,8 @@
+ 			ServerReadNet(); // new data arrived, we may have new packets
+ 		Update();
+ 	}
++	if (hostif)
++		hostif-&gt;SendQuit();
+ }
+ 
+ bool CGameServer::WaitsOnCon() const
+
+Modified: trunk/rts/System/Platform/Linux/DataDirLocater.cpp
+===================================================================
+--- trunk/rts/System/Platform/Linux/DataDirLocater.cpp	2008-06-24 07:43:17 UTC (rev 6067)
++++ trunk/rts/System/Platform/Linux/DataDirLocater.cpp	2008-06-24 16:05:48 UTC (rev 6068)
+@@ -106,6 +106,9 @@
+ 	while ((colon = in.find(';', prev_colon)) != std::string::npos) {
+ #endif
+ 		datadirs.push_back(in.substr(prev_colon, colon - prev_colon));
++#ifdef DEBUG
++		logOutput.Print(&quot;Adding %s to directories&quot; , in.substr(prev_colon, colon - prev_colon).c_str());
++#endif
+ 		prev_colon = colon + 1;
+ 	}
+ #ifdef DEBUG
+@@ -269,7 +272,7 @@
+ 			char* newl = strchr(buf, '\n');
+ 			if (newl)
+ 				*newl = 0;
+-			datadirs.push_back(SubstEnvVars(buf));
++			AddDirs(SubstEnvVars(buf));
+ 		}
+ 		fclose(f);
+ 	}
+
+Modified: trunk/tools/DedicatedServer/CMakeLists.txt
+===================================================================
+--- trunk/tools/DedicatedServer/CMakeLists.txt	2008-06-24 07:43:17 UTC (rev 6067)
++++ trunk/tools/DedicatedServer/CMakeLists.txt	2008-06-24 16:05:48 UTC (rev 6068)
+@@ -37,7 +37,7 @@
+ IF (UNIX)
+ 	SET(platformfiles ../../rts/System/Platform/Linux/UnixFileSystemHandler ../../rts/System/Platform/Linux/DataDirLocater ../../rts/System/Platform/Linux/DotfileHandler)
+ ELSE (UNIX)
+-	SET(platformfiles ../../rts/System/Platform/Win/WinFileSystemHandler ../../rts/System/Platform/Win/RegHandler)
++	SET(platformfiles ../../rts/System/Platform/Win/WinFileSystemHandler ../../rts/System/Platform/Win/DataDirLocater ../../rts/System/Platform/Win/RegHandler)
+ ENDIF (UNIX)
+ 
+ AUX_SOURCE_DIRECTORY(../../rts/System/FileSystem/ fsfiles)
+
+Modified: trunk/tools/DedicatedServer/main.cpp
+===================================================================
+--- trunk/tools/DedicatedServer/main.cpp	2008-06-24 07:43:17 UTC (rev 6067)
++++ trunk/tools/DedicatedServer/main.cpp	2008-06-24 16:05:48 UTC (rev 6068)
+@@ -8,7 +8,7 @@
+ #include &lt;iostream&gt;
+ 
+ #ifdef _WIN32
+-#include &lt;Windows.h&gt;
++#include &lt;windows.h&gt;
+ #endif
+ 
+ int main(int argc, char *argv[])
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000847.html">[Taspring-linux-commit] r6067 - trunk/game
+</A></li>
+	<LI>Next message: <A HREF="000849.html">[Taspring-linux-commit] r6069 - in trunk/rts: Rendering/UnitModels	lib/gml
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#848">[ date ]</a>
+              <a href="thread.html#848">[ thread ]</a>
+              <a href="subject.html#848">[ subject ]</a>
+              <a href="author.html#848">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

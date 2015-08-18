@@ -1,0 +1,596 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7631 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2011-December/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7631%20-%20Lobby/TASClient&In-Reply-To=%3C20111220215424.D0A2AA8242D%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002400.html">
+   <LINK REL="Next"  HREF="002402.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7631 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7631%20-%20Lobby/TASClient&In-Reply-To=%3C20111220215424.D0A2AA8242D%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7631 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Dec 20 22:54:24 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002400.html">[Taspring-linux-commit] r7630 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002402.html">[Taspring-linux-commit] r7632 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2401">[ date ]</a>
+              <a href="thread.html#2401">[ thread ]</a>
+              <a href="subject.html#2401">[ subject ]</a>
+              <a href="author.html#2401">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2011-12-20 22:54:23 +0100 (Tue, 20 Dec 2011)
+New Revision: 7631
+
+Modified:
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/ReplaysUnit.pas
+   Lobby/TASClient/TASClient.cfg
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* new replay format handled
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2011-12-13 18:53:28 UTC (rev 7630)
++++ Lobby/TASClient/MainUnit.pas	2011-12-20 21:54:23 UTC (rev 7631)
+@@ -576,6 +576,27 @@
+     winningAllyTeam: integer;
+   end;
+ 
++  TDemoHeaderV5 = record
++    magic: array[0..15] of Char;
++    version: integer;
++    headerSize: integer;
++    versionString: array[0..255] of Char;
++    gameID: array[0..15] of Char;
++    unixTime: UInt64;
++    scriptSize: integer;
++    demoStreamSize: integer;
++    gameTime: integer;
++    wallclockTime: integer;
++    numPlayers: integer;
++    playerStatSize: integer;
++    playerStatElemSize: integer;
++    numTeams: integer;
++    teamStatSize: integer;
++    teamStatElemSize: integer;
++    teamStatPeriod: integer;
++    winningAllyTeamsSize: integer;
++  end;
++
+   TDemoHeaderGeneric = class
+   protected
+     function getMagic: string;
+@@ -596,10 +617,12 @@
+     function getTeamStatElemSize: integer;
+     function getTeamStatPeriod: integer;
+     function getWinningAllyTeam: integer;
++    function getWinningAllyTeamsSize: integer;
+   public
+     version: integer;
+     demoHeaderV3: TDemoHeaderV3;
+     demoHeaderV4: TDemoHeaderV4;
++    demoHeaderV5: TDemoHeaderV5;
+ 
+     constructor Create;
+     property magic: string read getMagic;
+@@ -620,6 +643,7 @@
+     property teamStatElemSize: integer read getTeamStatElemSize;
+     property teamStatPeriod: integer read getTeamStatPeriod;
+     property winningAllyTeam: integer read getWinningAllyTeam;
++    property winninAllyTeamsSize: integer read getWinningAllyTeamsSize;
+   end;
+ 
+   TFilterText =
+@@ -1036,6 +1060,7 @@
+     Date: TDateTime;
+     PlayerList: TList;
+     demoHeader: TDemoHeaderGeneric;
++    winningTeams: TIntegerList;
+     Script: TScript;
+     Node: PVirtualNode;
+ 
+@@ -1043,6 +1068,7 @@
+     function GetSpectatorCount: integer;
+     function GetLength: integer;
+     function GetTeamCount: integer;
++    function isWinningTeam(teamId: integer): Boolean;
+     destructor Destroy; override;
+   end;
+ 
+@@ -11220,6 +11246,7 @@
+ begin
+   PlayerList := TList.Create;
+   demoHeader := TDemoHeaderGeneric.Create;
++  winningTeams := TIntegerList.Create;
+ end;
+ 
+ destructor TReplay.Destroy;
+@@ -11270,6 +11297,11 @@
+   result := count;
+ end;
+ 
++function TReplay.isWinningTeam(teamId: integer): Boolean;
++begin
++  Result := winningTeams.IndexOf(teamId) &gt; -1;
++end;
++
+ constructor TClientGroup.Create(Name: string; Color: Integer);
+ begin
+   Self.Clients := TStringList.Create;
+@@ -13710,6 +13742,8 @@
+     Result := demoHeaderV3.magic
+   else if version = 4 then
+     Result := demoHeaderV4.magic
++  else if version = 5 then
++    Result := demoHeaderV5.magic
+   else
+     Result := '';
+ end;
+@@ -13721,6 +13755,8 @@
+     Result := demoHeaderV3.headerSize
+   else if version = 4 then
+     Result := demoHeaderV4.headerSize
++  else if version = 5 then
++    Result := demoHeaderV5.headerSize
+   else
+     Result := 0;
+ end;
+@@ -13732,6 +13768,8 @@
+     Result := demoHeaderV3.versionString
+   else if version = 4 then
+     Result := demoHeaderV4.versionString
++  else if version = 5 then
++    Result := demoHeaderV5.versionString
+   else
+     Result := '';
+ end;
+@@ -13743,6 +13781,8 @@
+     Result := demoHeaderV3.gameID
+   else if version = 4 then
+     Result := demoHeaderV4.gameID
++  else if version = 5 then
++    Result := demoHeaderV5.gameID
+   else
+     Result := '';
+ end;
+@@ -13754,6 +13794,8 @@
+     Result := demoHeaderV3.unixTime
+   else if version = 4 then
+     Result := demoHeaderV4.unixTime
++  else if version = 5 then
++    Result := demoHeaderV5.unixTime
+   else
+     Result := 0;
+ end;
+@@ -13765,6 +13807,8 @@
+     Result := demoHeaderV3.scriptSize
+   else if version = 4 then
+     Result := demoHeaderV4.scriptSize
++  else if version = 5 then
++    Result := demoHeaderV5.scriptSize
+   else
+     Result := 0;
+ end;
+@@ -13776,6 +13820,8 @@
+     Result := demoHeaderV3.demoStreamSize
+   else if version = 4 then
+     Result := demoHeaderV4.demoStreamSize
++  else if version = 5 then
++    Result := demoHeaderV5.demoStreamSize
+   else
+     Result := 0;
+ end;
+@@ -13787,6 +13833,8 @@
+     Result := demoHeaderV3.gameTime
+   else if version = 4 then
+     Result := demoHeaderV4.gameTime
++  else if version = 5 then
++    Result := demoHeaderV5.gameTime
+   else
+     Result := 0;
+ end;
+@@ -13798,6 +13846,8 @@
+     Result := demoHeaderV3.wallclockTime
+   else if version = 4 then
+     Result := demoHeaderV4.wallclockTime
++  else if version = 5 then
++    Result := demoHeaderV5.wallclockTime
+   else
+     Result := 0;
+ end;
+@@ -13809,6 +13859,8 @@
+     Result := demoHeaderV3.maxPlayerNum
+   else if version = 4 then
+     Result := 0
++  else if version = 5 then
++    Result := 0
+   else
+     Result := 0;
+ end;
+@@ -13820,6 +13872,8 @@
+     Result := demoHeaderV3.numPlayers
+   else if version = 4 then
+     Result := demoHeaderV4.numPlayers
++  else if version = 5 then
++    Result := demoHeaderV5.numPlayers
+   else
+     Result := 0;
+ end;
+@@ -13831,6 +13885,8 @@
+     Result := demoHeaderV3.playerStatSize
+   else if version = 4 then
+     Result := demoHeaderV4.playerStatSize
++  else if version = 5 then
++    Result := demoHeaderV5.playerStatSize
+   else
+     Result := 0;
+ end;
+@@ -13842,6 +13898,8 @@
+     Result := demoHeaderV3.playerStatElemSize
+   else if version = 4 then
+     Result := demoHeaderV4.playerStatElemSize
++  else if version = 5 then
++    Result := demoHeaderV5.playerStatElemSize
+   else
+     Result := 0;
+ end;
+@@ -13853,6 +13911,8 @@
+     Result := demoHeaderV3.numTeams
+   else if version = 4 then
+     Result := demoHeaderV4.numTeams
++  else if version = 5 then
++    Result := demoHeaderV5.numTeams
+   else
+     Result := 0;
+ end;
+@@ -13864,6 +13924,8 @@
+     Result := demoHeaderV3.teamStatSize
+   else if version = 4 then
+     Result := demoHeaderV4.teamStatSize
++  else if version = 5 then
++    Result := demoHeaderV5.teamStatSize
+   else
+     Result := 0;
+ end;
+@@ -13875,6 +13937,8 @@
+     Result := demoHeaderV3.teamStatElemSize
+   else if version = 4 then
+     Result := demoHeaderV4.teamStatElemSize
++  else if version = 5 then
++    Result := demoHeaderV5.teamStatElemSize
+   else
+     Result := 0;
+ end;
+@@ -13886,6 +13950,8 @@
+     Result := demoHeaderV3.teamStatPeriod
+   else if version = 4 then
+     Result := demoHeaderV4.teamStatPeriod
++  else if version = 5 then
++    Result := demoHeaderV5.teamStatPeriod
+   else
+     Result := 0;
+ end;
+@@ -13897,10 +13963,20 @@
+     Result := demoHeaderV3.winningAllyTeam
+   else if version = 4 then
+     Result := demoHeaderV4.winningAllyTeam
++  else if version = 5 then
++    Result := -1
+   else
+-    Result := 0;
++    Result := -1;
+ end;
+ 
++function TDemoHeaderGeneric.getWinningAllyTeamsSize: integer;
++begin
++  if version &lt;&gt; 5 then
++    Result := -1
++  else if version = 5 then
++    Result := demoHeaderV5.winningAllyTeamsSize;
++end;
++
+ procedure TMainForm.mnuSaveNewLayoutClick(Sender: TObject);
+ var
+   FileName: String;
+
+Modified: Lobby/TASClient/ReplaysUnit.pas
+===================================================================
+--- Lobby/TASClient/ReplaysUnit.pas	2011-12-13 18:53:28 UTC (rev 7630)
++++ Lobby/TASClient/ReplaysUnit.pas	2011-12-20 21:54:23 UTC (rev 7631)
+@@ -145,7 +145,8 @@
+ 
+     function ReadReplay(fileName: string): TReplay;
+     function ReadScriptFromDemo(DemoFileName: string; var Script: string): Boolean;
+-    function ReadScriptFromDemo2(DemoFileName: string; var Script: string): Boolean;
++    function ReadScriptFromDemo2(var replay: TReplay; var Script: string): Boolean;
++    procedure ReadWinningTeamsFromDemo(var replay: TReplay);
+     function FillPlayersInReplay(var replay: TReplay):boolean;
+     function ReadHeaderFromDemo2(var replay: TReplay): Boolean;
+     function LoadReplay(Replay: TReplay): Boolean;
+@@ -392,20 +393,8 @@
+   rep.FullFileName := fileName;
+   rep.Version := 0;
+ 
+-  if not ReplaysForm.ReadScriptFromDemo(fileName, st) then
++  if ReplaysForm.ReadScriptFromDemo(fileName, st) then // super old replay format
+   begin
+-    if not ReplaysForm.ReadScriptFromDemo2(rep.FullFileName, st) then
+-    begin
+-      rep.Free;
+-      Exit;
+-    end;
+-    rep.Version := 1;
+-  end;
+-  s := TScript.Create(st);
+-  rep.Script := s;
+-  rep.Grade := ReplaysForm.ReadGradeFromScript(st);
+-  if rep.Version = 0 then
+-  begin
+     rep.SpringVersion := s.ReadKeyValue('VERSION/GameVersion');
+     tmp := s.ReadKeyValue('VERSION/unixtime');
+     if tmp &lt;&gt; '' then
+@@ -413,12 +402,27 @@
+     else
+       rep.Date := StrToDateTime(s.ReadKeyValue('VERSION/DateTime'),dateFormat);
+   end
+-  else
++  else // new replay format
+   begin
+     ReadHeaderFromDemo2(rep);
+     rep.Date := UnixToDateTime(rep.demoHeader.unixTime);
+     rep.SpringVersion := StringReplace(rep.demoHeader.versionString,'spring','',[rfReplaceAll,rfIgnoreCase]);
++
++    if not ReplaysForm.ReadScriptFromDemo2(rep, st) then
++    begin
++      rep.Free;
++      Exit;
++    end;
++
++    ReadWinningTeamsFromDemo( rep );
++
++    rep.Version := 1;
+   end;
++
++  s := TScript.Create(st);
++  rep.Script := s;
++  rep.Grade := ReplaysForm.ReadGradeFromScript(st);
++
+   if ((rep.Version = 0) or ((rep.Version = 1) and (rep.demoHeader.magic = 'spring demofile'))) and FillPlayersInReplay(rep) then
+   begin
+     Result := rep;
+@@ -713,35 +717,78 @@
+   Result := True;
+ end;
+ 
++procedure TReplaysForm.ReadWinningTeamsFromDemo(var replay: TReplay);
++var
++  f: file of Byte;
++  winninAllyTeams: array of byte;
++  i:integer;
++begin
++  if replay.demoHeader.version &lt; 5 then
++  begin
++    replay.winningTeams.Add(replay.demoHeader.winningAllyTeam);
++  end
++  else
++  begin
++    AssignFile(f, replay.FullFileName);
++    {$I+}
++    try
++      Reset(f);
++
++      if FileSize(f) &lt; replay.demoHeader.headerSize + replay.demoHeader.scriptSize + replay.demoHeader.demoStreamSize then
++      begin
++        CloseFile(f);
++        Exit;
++      end;
++
++      Seek(f,replay.demoHeader.headerSize + replay.demoHeader.scriptSize + replay.demoHeader.demoStreamSize);
++
++      SetLength(winninAllyTeams, replay.demoHeader.winninAllyTeamsSize);
++
++      for i:=0 to replay.demoHeader.winninAllyTeamsSize-1 do
++        winninAllyTeams[i] := 234;
++
++      BlockRead(f, winninAllyTeams[0], replay.demoHeader.winninAllyTeamsSize);
++
++      for i:=0 to replay.demoHeader.winninAllyTeamsSize-1 do
++      begin
++        if winninAllyTeams[i] &gt; replay.demoHeader.numTeams then
++        begin
++          CloseFile(f);
++          Exit;
++        end;
++        replay.winningTeams.Add(winninAllyTeams[i]);
++      end;
++
++      CloseFile(f);
++    except
++      try
++        CloseFile(f);
++      except
++      end;
++
++      Exit;
++    end;
++  end;
++end;
++
+ // returns True if successful and writes result to Script , read the new demofiles
+-function TReplaysForm.ReadScriptFromDemo2(DemoFileName: string; var Script: string): Boolean;
++function TReplaysForm.ReadScriptFromDemo2(var replay: TReplay; var Script: string): Boolean;
+ var
+   f: file of Byte;
+   s: string;
+-  scriptPos: integer;
+-  scriptLength: integer;
+-  headerSize: integer;
+ begin
+   Result := False;
+ 
+-  AssignFile(f, DemoFileName);
++  AssignFile(f, replay.FullFileName);
+ 
+   {$I+}
+   try
+     Reset(f);
+ 
+-    Seek(f,20);
+-    BlockRead(f, headerSize, 4);
++    Seek(f,replay.demoHeader.headerSize);
+ 
+-    Seek(f,64);
+-    BlockRead(f, scriptLength, 4);
+-
+-    scriptPos := headerSize;
+-
+-    Seek(f,scriptPos);
+-
+-    SetLength(s, scriptLength);
+-    BlockRead(f, s[1], scriptLength);
++    SetLength(s, replay.demoHeader.scriptSize);
++    BlockRead(f, s[1], replay.demoHeader.scriptSize);
+     Script := s;
+ 
+     CloseFile(f);
+@@ -788,18 +835,30 @@
+     //Seek(f,0);
+     if replay.demoHeader.version &lt;= 3 then
+       BlockRead(f, replay.demoHeader.demoHeaderV3, sizeof(replay.demoHeader.demoHeaderV3))
++    else if replay.demoHeader.version = 4 then
++      BlockRead(f, replay.demoHeader.demoHeaderV4, sizeof(replay.demoHeader.demoHeaderV4))
++    else if replay.demoHeader.version = 5 then
++      BlockRead(f, replay.demoHeader.demoHeaderV5, sizeof(replay.demoHeader.demoHeaderV5))
+     else
+-      BlockRead(f, replay.demoHeader.demoHeaderV4, sizeof(replay.demoHeader.demoHeaderV4));
++      raise Exception.Create('Error: Replay file version not supported : '+IntToStr( replay.demoHeader.version ));
+ 
+     CloseFile(f);
+ 
+   except
+-    try
+-      CloseFile(f);
+-    except
++    on E:Exception do
++    begin
++      if Debug.Enabled then
++      begin
++        MainForm.AddMainLog(E.Message,Colors.Error);
++      end;
++
++      try
++        CloseFile(f);
++      except
++      end;
++
++      Exit;
+     end;
+-
+-    Exit;
+   end;
+ 
+   Result := True;
+@@ -1604,7 +1663,7 @@
+ 
+     R := ContentRect;
+ 
+-    if not hot and ((Node &lt;&gt; FocusedNode) or not focused) and (Replay.Version = 1) and (ReplayPlayer.Team = Replay.demoHeader.winningAllyTeam+1) and (Replay.demoHeader.winningAllyTeam &gt; -1) and not ReplayPlayer.Spectator then
++    if not hot and ((Node &lt;&gt; FocusedNode) or not focused) and (Replay.Version = 1) and Replay.isWinningTeam(ReplayPlayer.Team-1) and not ReplayPlayer.Spectator then
+     begin
+       Canvas.Brush.Color := MainUnit.Colors.ReplayWinningTeam;
+       Canvas.FillRect(CellRect);
+
+Modified: Lobby/TASClient/TASClient.cfg
+===================================================================
+--- Lobby/TASClient/TASClient.cfg	2011-12-13 18:53:28 UTC (rev 7630)
++++ Lobby/TASClient/TASClient.cfg	2011-12-20 21:54:23 UTC (rev 7631)
+@@ -12,7 +12,7 @@
+ -$L+
+ -$M-
+ -$N+
+--$O+
++-$O-
+ -$P+
+ -$Q-
+ -$R-
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2011-12-13 18:53:28 UTC (rev 7630)
++++ Lobby/TASClient/TASClient.dof	2011-12-20 21:54:23 UTC (rev 7631)
+@@ -15,7 +15,7 @@
+ L=1
+ M=0
+ N=1
+-O=1
++O=0
+ P=1
+ Q=0
+ R=0
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=94
+ Release=0
+-Build=1338
++Build=1340
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.94.0.1338
++FileVersion=0.94.0.1340
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002400.html">[Taspring-linux-commit] r7630 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002402.html">[Taspring-linux-commit] r7632 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2401">[ date ]</a>
+              <a href="thread.html#2401">[ thread ]</a>
+              <a href="subject.html#2401">[ subject ]</a>
+              <a href="author.html#2401">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

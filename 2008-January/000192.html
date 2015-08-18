@@ -1,0 +1,194 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5385 - trunk/Lobby/TASServer
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5385%20-%20trunk/Lobby/TASServer&In-Reply-To=%3CE1JIPUE-00076G-7S%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000191.html">
+   <LINK REL="Next"  HREF="000193.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5385 - trunk/Lobby/TASServer</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5385%20-%20trunk/Lobby/TASServer&In-Reply-To=%3CE1JIPUE-00076G-7S%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5385 - trunk/Lobby/TASServer">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Jan 25 15:24:54 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000191.html">[Taspring-linux-commit] r5384 - trunk/rts/Lua
+</A></li>
+        <LI>Next message: <A HREF="000193.html">[Taspring-linux-commit] r5386 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#192">[ date ]</a>
+              <a href="thread.html#192">[ thread ]</a>
+              <a href="subject.html#192">[ subject ]</a>
+              <a href="author.html#192">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: betalord
+Date: 2008-01-25 15:24:53 +0100 (Fri, 25 Jan 2008)
+New Revision: 5385
+
+Modified:
+   trunk/Lobby/TASServer/BanSystem.java
+   trunk/Lobby/TASServer/DBInterface.java
+Log:
+some workaround for DB connection problem
+
+Modified: trunk/Lobby/TASServer/BanSystem.java
+===================================================================
+--- trunk/Lobby/TASServer/BanSystem.java	2008-01-25 08:52:38 UTC (rev 5384)
++++ trunk/Lobby/TASServer/BanSystem.java	2008-01-25 14:24:53 UTC (rev 5385)
+@@ -27,6 +27,11 @@
+ 		
+ 		ResultSet rs = TASServer.database.execQuery(&quot;SELECT ExpirationDate, Username, IP_start, IP_end, userID, PublicReason FROM BanEntries WHERE (Enabled=1 AND (ExpirationDate IS NULL OR ExpirationDate &gt; CURRENT_TIMESTAMP))&quot;);
+ 		
++		if (rs == null) {
++			System.out.println(&quot;Fetching of ban list failed (result set is null). Check your connection with the database!&quot;);
++			return ;
++		}
++		
+ 		try {
+ 			while (rs.next()) {
+ 				BanEntry ban = new BanEntry();
+@@ -42,7 +47,7 @@
+ 				banEntries.add(ban);
+ 			}
+ 		} catch (SQLException e) {
+-			System.out.println(&quot;Error reading ResultSet when reading ban entries!&quot;);
++			System.out.println(&quot;Error reading ResultSet while reading ban entries!&quot;);
+ 			TASServer.database.printSQLException(e);
+ 			System.out.println(&quot;Error while trying to update ban list!&quot;);
+ 			return ;
+
+Modified: trunk/Lobby/TASServer/DBInterface.java
+===================================================================
+--- trunk/Lobby/TASServer/DBInterface.java	2008-01-25 08:52:38 UTC (rev 5384)
++++ trunk/Lobby/TASServer/DBInterface.java	2008-01-25 14:24:53 UTC (rev 5385)
+@@ -9,10 +9,16 @@
+  */
+ 
+ import java.sql.*;
++import java.io.*;
+ 
+ public class DBInterface {
+ 	private Connection conn;
+ 	private Statement stmt;
++
++	// database information:
++	private String url;
++	private String username;
++	private String password;
+ 	
+ 	public DBInterface() {
+ 		// TODO
+@@ -33,6 +39,10 @@
+ 	}
+ 
+ 	public boolean connectToDatabase(String url, String username, String password) {
++		this.url = url;
++		this.username = username;
++		this.password = password;
++		
+ 		System.out.println(&quot;Trying to connect to database ...&quot;);
+ 		try {
+ 			conn = DriverManager.getConnection(url, username, password);
+@@ -53,8 +63,63 @@
+ 			ResultSet rs = stmt.executeQuery(query);
+ 			return rs;
+ 		} catch (SQLException e) {
++			if (e.getMessage().equals(&quot;No operations allowed after statement closed.&quot;))
++				try {
++					stmt = conn.createStatement(); 
++				} catch (SQLException e2) {
++					System.out.println(&quot;Unable to recreate stmt object: &quot; + e2.getMessage());
++				}
+ 			printSQLException(e);
++			System.out.println(&quot;SQLException getMessage() string: &quot; + e.getMessage());
++			
+ 			return null;
++		} catch (Exception e) {
++			Clients.sendToAllAdministrators(&quot;SERVERMSG [broadcast to all admins]: Serious problem detected: connection to mysql has been broken. Will now attempt to reconnect ...&quot;);
++			
++			// add server notification:
++			ServerNotification sn = new ServerNotification(&quot;Connection to mysql broken&quot;);
++			sn.addLine(&quot;Serious problem detected: connection to mysql has been broken.&quot;);
++			sn.addLine(&quot;Exception description:&quot;);
++			sn.addLine(e.toString());
++			ServerNotifications.addNotification(sn);
++
++			e.printStackTrace(); //*** DEBUG
++			
++			try {
++				long time = System.currentTimeMillis();
++				conn = DriverManager.getConnection(url, username, password);
++				stmt = conn.createStatement();
++				time = System.currentTimeMillis() - time;
++				
++				// add server notification:
++				ServerNotification sn2 = new ServerNotification(&quot;Connection to mysql reestablished&quot;);
++				sn2.addLine(&quot;Connection to mysql database has been successfully reestablished.&quot;);
++				sn2.addLine(&quot;Time taken: &quot; + time + &quot; milliseconds.&quot;);
++				ServerNotifications.addNotification(sn2);
++
++				// now try to execute given query again:
++				try {
++					ResultSet rs = stmt.executeQuery(query);
++					return rs;
++				} catch (Exception ex) {
++					ex.printStackTrace();
++					Clients.sendToAllAdministrators(&quot;SERVERMSG [broadcast to all admins]: Serious problem: unable to execute query (1st retry failed). Query is: '&quot; + query + &quot;'. Exception: &quot; + ex.toString());
++				}
++				
++			} catch (Exception ex) {
++				Clients.sendToAllAdministrators(&quot;SERVERMSG [broadcast to all admins]: Serious problem detected: connection to mysql could not be reestablished. Check the notification log for details.&quot;);				
++
++				// add server notification:
++				ServerNotification sn2 = new ServerNotification(&quot;Connection to mysql cannot be reestablished&quot;);
++				sn2.addLine(&quot;Serious problem detected: connection to mysql cannot be reestablished.&quot;);
++				sn2.addLine(&quot;Exception description:&quot;);
++				sn2.addLine(ex.toString());
++				ServerNotifications.addNotification(sn2);
++
++				ex.printStackTrace(); //*** DEBUG
++			}
++			
++			return null;
+ 		}
+ 	}
+ 	
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000191.html">[Taspring-linux-commit] r5384 - trunk/rts/Lua
+</A></li>
+	<LI>Next message: <A HREF="000193.html">[Taspring-linux-commit] r5386 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#192">[ date ]</a>
+              <a href="thread.html#192">[ thread ]</a>
+              <a href="subject.html#192">[ subject ]</a>
+              <a href="author.html#192">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

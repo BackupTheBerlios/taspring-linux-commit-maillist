@@ -1,0 +1,229 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6267 - trunk/Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6267%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080817125602.8CF08488D%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001034.html">
+   <LINK REL="Next"  HREF="001038.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6267 - trunk/Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6267%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080817125602.8CF08488D%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6267 - trunk/Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Aug 17 14:56:02 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001034.html">[Taspring-linux-commit] r6266 - trunk/rts/Sim/Units/UnitTypes
+</A></li>
+        <LI>Next message: <A HREF="001038.html">[Taspring-linux-commit] r6268 - in trunk/rts: Sim/Features Sim/Misc	Sim/MoveTypes Sim/MoveTypes/MoveMath Sim/Objects	Sim/Projectiles Sim/Units System/Script
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1039">[ date ]</a>
+              <a href="thread.html#1039">[ thread ]</a>
+              <a href="subject.html#1039">[ subject ]</a>
+              <a href="author.html#1039">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2008-08-17 14:56:01 +0200 (Sun, 17 Aug 2008)
+New Revision: 6267
+
+Modified:
+   trunk/Lobby/TASClient/MenuFormUnit.pas
+   trunk/Lobby/TASClient/Misc.pas
+   trunk/Lobby/TASClient/TASClient.dof
+   trunk/Lobby/TASClient/TASClient.res
+Log:
+* LuaAI should now work correctly in Single Player Skirmish mode
+
+Modified: trunk/Lobby/TASClient/MenuFormUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/MenuFormUnit.pas	2008-08-16 22:13:33 UTC (rev 6266)
++++ trunk/Lobby/TASClient/MenuFormUnit.pas	2008-08-17 12:56:01 UTC (rev 6267)
+@@ -535,6 +535,7 @@
+   end;
+   if (pageType = Skirmish) then // [AILIST]
+   begin
++
+     varHtmlCode := '';
+     templateStr := ReadFile2(CurrentPath+'aiItem.html');
+     for i := 0 to AddBotForm.AIComboBox.Items.Count-1 do
+@@ -1012,7 +1013,10 @@
+       end;
+ 
+       TeamAllyCounter.Items[TAIItem(AIPlayerList[i]^).Team] := TeamAllyCounter.Items[TAIItem(AIPlayerList[i]^).Team]+1;
+-      script.AddOrChangeKeyValue('GAME/TEAM'+IntToStr(i+1)+'/AIDLL',AIDLL_FOLDER + '/'+ TAIItem(AIPlayerList[i]^).AIType);
++      if (Length(TAIItem(AIPlayerList[i]^).AIType) &gt; 6) and (LeftStr(TAIItem(AIPlayerList[i]^).AIType,6) = 'LuaAI:') then
++        script.AddOrChangeKeyValue('GAME/TEAM'+IntToStr(i+1)+'/AIDLL',TAIItem(AIPlayerList[i]^).AIType)
++      else
++        script.AddOrChangeKeyValue('GAME/TEAM'+IntToStr(i+1)+'/AIDLL',AIDLL_FOLDER + '/'+ TAIItem(AIPlayerList[i]^).AIType);
+     end
+     else
+       script.AddOrChangeKeyValue('GAME/TEAM0/AIDLL',AIDLL_FOLDER + '/'+ TAIItem(AIPlayerList[i]^).AIType);
+@@ -1106,6 +1110,8 @@
+   // disable the click sound
+   Misc.SetRegistryData(HKEY_CURRENT_USER,'AppEvents\Schemes\Apps\Explorer\Navigating\.Current','',rdExpandString,'');
+ 
++  URL := URLDecode(URL);
++
+   if Pos('lobby:',URL) &lt;&gt; 0 then
+     command := MidStr(URL,Pos('lobby:',URL)+6,99999);
+   if command &lt;&gt; '' then
+
+Modified: trunk/Lobby/TASClient/Misc.pas
+===================================================================
+--- trunk/Lobby/TASClient/Misc.pas	2008-08-16 22:13:33 UTC (rev 6266)
++++ trunk/Lobby/TASClient/Misc.pas	2008-08-17 12:56:01 UTC (rev 6267)
+@@ -137,6 +137,8 @@
+ function ExtractFileNameFromUrl(url: string): string;
+ function GetLobbyRevision: integer;
+ procedure MakePath(Path: string);
++function URLDecode(const S: string): string;
++function URLEncode(const S: string; const InQueryString: Boolean): string;
+ 
+ implementation
+ 
+@@ -2166,4 +2168,71 @@
+   end;
+ end;
+ 
++function URLDecode(const S: string): string;
++var
++  Idx: Integer;   // loops thru chars in string
++  Hex: string;    // string of hex characters
++  Code: Integer;  // hex character code (-1 on error)
++begin
++  // Intialise result and string index
++  Result := '';
++  Idx := 1;
++  // Loop thru string decoding each character
++  while Idx &lt;= Length(S) do
++  begin
++    case S[Idx] of
++      '%':
++      begin
++        // % should be followed by two hex digits - exception otherwise
++        if Idx &lt;= Length(S) - 2 then
++        begin
++          // there are sufficient digits - try to decode hex digits
++          Hex := S[Idx+1] + S[Idx+2];
++          Code := SysUtils.StrToIntDef('$' + Hex, -1);
++          Inc(Idx, 2);
++        end
++        else
++          // insufficient digits - error
++          Code := -1;
++        // check for error and raise exception if found
++        if Code = -1 then
++          raise SysUtils.EConvertError.Create(
++            'Invalid hex digit in URL'
++          );
++        // decoded OK - add character to result
++        Result := Result + Chr(Code);
++      end;
++      '+':
++        // + is decoded as a space
++        Result := Result + ' '
++      else
++        // All other characters pass thru unchanged
++        Result := Result + S[Idx];
++    end;
++    Inc(Idx);
++  end;
++end;
++
++
++function URLEncode(const S: string; const InQueryString: Boolean): string;
++var
++  Idx: Integer; // loops thru characters in string
++begin
++  Result := '';
++  for Idx := 1 to Length(S) do
++  begin
++    case S[Idx] of
++      'A'..'Z', 'a'..'z', '0'..'9', '-', '_', '.':
++        Result := Result + S[Idx];
++      ' ':
++        if InQueryString then
++          Result := Result + '+'
++        else
++          Result := Result + '%20';
++      else
++        Result := Result + '%' + SysUtils.IntToHex(Ord(S[Idx]), 2);
++    end;
++  end;
++end;
++
+ end.
+
+Modified: trunk/Lobby/TASClient/TASClient.dof
+===================================================================
+--- trunk/Lobby/TASClient/TASClient.dof	2008-08-16 22:13:33 UTC (rev 6266)
++++ trunk/Lobby/TASClient/TASClient.dof	2008-08-17 12:56:01 UTC (rev 6267)
+@@ -100,7 +100,7 @@
+ DebugSourceDirs=
+ UsePackages=0
+ [Parameters]
+-RunParams=
++RunParams=-menu
+ HostApplication=C:\Program Files\Spring\TASClient.exe
+ Launcher=
+ UseLauncher=0
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=3
+ Release=0
+-Build=403
++Build=404
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TA Spring lobby client
+-FileVersion=0.3.0.403
++FileVersion=0.3.0.404
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: trunk/Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001034.html">[Taspring-linux-commit] r6266 - trunk/rts/Sim/Units/UnitTypes
+</A></li>
+	<LI>Next message: <A HREF="001038.html">[Taspring-linux-commit] r6268 - in trunk/rts: Sim/Features Sim/Misc	Sim/MoveTypes Sim/MoveTypes/MoveMath Sim/Objects	Sim/Projectiles Sim/Units System/Script
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1039">[ date ]</a>
+              <a href="thread.html#1039">[ thread ]</a>
+              <a href="subject.html#1039">[ subject ]</a>
+              <a href="author.html#1039">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

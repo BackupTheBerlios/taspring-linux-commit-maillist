@@ -1,0 +1,408 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6228 - trunk/Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6228%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080802231806.B98F04950%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001007.html">
+   <LINK REL="Next"  HREF="001009.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6228 - trunk/Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6228%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080802231806.B98F04950%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6228 - trunk/Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Aug  3 01:18:06 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001007.html">[Taspring-linux-commit] r6227 - in trunk/Lobby/TASClient: . Python	Python/scripts
+</A></li>
+        <LI>Next message: <A HREF="001009.html">[Taspring-linux-commit] r6229 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1008">[ date ]</a>
+              <a href="thread.html#1008">[ thread ]</a>
+              <a href="subject.html#1008">[ subject ]</a>
+              <a href="author.html#1008">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2008-08-03 01:18:05 +0200 (Sun, 03 Aug 2008)
+New Revision: 6228
+
+Modified:
+   trunk/Lobby/TASClient/HttpGetUnit.pas
+   trunk/Lobby/TASClient/MainUnit.pas
+   trunk/Lobby/TASClient/Misc.pas
+   trunk/Lobby/TASClient/PreferencesFormUnit.pas
+   trunk/Lobby/TASClient/TASClient.dof
+   trunk/Lobby/TASClient/TASClient.res
+Log:
+* autoupdate improved to no stop when it can't replace one file, plus there are two kind of updates now, beta updates and official lobby updates. The later one autoupdate the lobby even if you didn't check the autoupdate option and will be used to replace old version by new stable ones
+
+Modified: trunk/Lobby/TASClient/HttpGetUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/HttpGetUnit.pas	2008-08-02 13:14:50 UTC (rev 6227)
++++ trunk/Lobby/TASClient/HttpGetUnit.pas	2008-08-02 23:18:05 UTC (rev 6228)
+@@ -167,20 +167,40 @@
+         StatusLabel.Caption := 'Download complete, extracting new files ...';
+         ReceivedLabel.Visible := False;
+         appExePath := Application.ExeName;
+-        if not RenameFile(Application.ExeName,Application.ExeName+'.old') then
+-        begin
+-          MessageDlg('Error : cannot rename '+Application.ExeName, mtError, [mbOK], 0);
+-          Exit;
+-        end;
++
+         SevenZip1.SZFileName := DownloadFile.FileName;
+-        SevenZip1.ExtrBaseDir := ExtractFilePath(appExePath);
++        DelTree(ExtractFilePath(appExePath)+'TASClientUpdateTemp\');
++        SevenZip1.ExtrBaseDir := ExtractFilePath(appExePath)+'TASClientUpdateTemp\';
+         e := SevenZip1.Extract(false);
++
+         DeleteFile(DownloadFile.FileName);
+-        if (e=0) or (e=1) and FileExists(appExePath) then
++        if e=0 then
+         begin
++          // renames tasclient.exe
++          if not RenameFile(Application.ExeName,Application.ExeName+'.old') then
++          begin
++            MessageDlg('Error : cannot rename '+Application.ExeName, mtError, [mbOK], 0);
++            Exit;
++          end;
++
++          // unloads the 7z dll
++          SevenZip1.SZFileName := '';
++          SevenZip1.Destroy;
++
++          // closes springdownloader
++          GetExitCodeProcess(SpringDownloaderProcess.proc_info.hProcess, SpringDownloaderProcess.ExitCode);
++          if SpringDownloaderProcess.ExitCode = STILL_ACTIVE then
++            try TerminateProcess(SpringDownloaderProcess.proc_info.hProcess, 0); except end;
++
++          // updates files
++          MoveTree(ExtractFilePath(appExePath)+'TASClientUpdateTemp\',ExtractFilePath(appExePath));
++
++          // reconstructs the parameters string
+           paramList := TStringList.Create;
+           for i:=1 to ParamCount do
+             paramList.Add(ParamStr(i));
++
++          // executes the new tasclient.exe
+           ShellExecute(0,'open',PChar(appExePath),PChar(JoinStringList(paramList,' ')),PChar(ExtractFilePath(appExePath)), SW_SHOWNORMAL);
+           MainForm.Close;
+         end
+@@ -190,8 +210,6 @@
+             MessageDlg('Error '+IntToStr(e) + ','+IntToStr(SevenZip1.LastError)+' : '+c7zipResMsg[SevenZip1.LastError], mtError, [mbOK], 0)
+           else
+             MessageDlg('Error '+IntToStr(e) + ','+IntToStr(SevenZip1.LastError), mtError, [mbOK], 0);
+-          if not RenameFile(Application.ExeName,appExePath) then
+-            MessageDlg('Error : cannot rename '+Application.ExeName, mtError, [mbOK], 0);
+         end;
+     end
+     else if (DownloadFile.ServerOptions and 8) = 8 then
+
+Modified: trunk/Lobby/TASClient/MainUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.pas	2008-08-02 13:14:50 UTC (rev 6227)
++++ trunk/Lobby/TASClient/MainUnit.pas	2008-08-02 23:18:05 UTC (rev 6228)
+@@ -521,7 +521,7 @@
+ 
+ const
+   VERSION_NUMBER = '0.38'; // Must be float value! (with a period as a decimal seperator)
+-  CHECK_BETA_LOBBY_URL = '<A HREF="http://tasclient.no-ip.org/TASClient.txt">http://tasclient.no-ip.org/TASClient.txt</A>';
++  CHECK_BETA_LOBBY_URL = '<A HREF="http://tasclient.no-ip.org/TASClient_update_v2.txt">http://tasclient.no-ip.org/TASClient_update_v2.txt</A>';
+   PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER + ' beta';
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+   ASSUME_TIMEOUT_INTERVAL = 30000; // in milliseconds. Must be greater than KEEP_ALIVE_INTERVAL! If server hasn't send any data to us within this interval, then we assume timeout occured. It's us who must make sure we get constant replies from server by pinging it.
+@@ -3361,7 +3361,10 @@
+ 
+   try
+     if FileExists(Application.ExeName + '.old') then
++    begin
+       DeleteFile(Application.ExeName + '.old');
++      DelTree(ExtractFilePath(Application.ExeName)+'TASClientUpdateTemp\');
++    end;
+   except
+     // nothing
+   end;
+@@ -3662,8 +3665,7 @@
+     end;
+ 
+     // check new version
+-    if Preferences.CheckForNewVersion then
+-      CheckNewVersion;
++    CheckNewVersion;
+ 
+     FillChar(SpringDownloaderProcess.proc_info, sizeof(TProcessInformation), 0);
+     FillChar(SpringDownloaderProcess.startinfo, sizeof(TStartupInfo), 0);
+@@ -10221,7 +10223,7 @@
+ procedure TCheckNewBetaLobbyThread.Execute;
+ var
+   html : string;
+-  parsedHtml: TStrings;
++  parsedHtml: TStringList;
+ begin
+   if FileExists(Application.ExeName + '.old') then
+     DeleteFile(Application.ExeName + '.old');
+@@ -10242,7 +10244,7 @@
+     try
+       HttpCli1.Get;
+     except
+-      MainForm.AddMainLog('Warning: Beta lobby version server unavailable.', Colors.Normal);
++      MainForm.AddMainLog('Warning: Lobby auto update server unavailable.', Colors.Normal);
+       Exit;
+     end;
+     try
+@@ -10250,10 +10252,19 @@
+       SetLength(html, HttpCli1.RcvdStream.Size);
+       HttpCli1.RcvdStream.ReadBuffer(Pointer(html)^, HttpCli1.RcvdStream.Size);
+ 
+-      Misc.ParseDelimited(parsedHtml,html,' ','');
++      Misc.ParseDelimited(parsedHtml,html,EOL,#$A);
++
++      if parsedHtml.Count &lt;&gt; 2 then
++        RaiseException(0,0,0,0);
++
++      if Preferences.AutoUpdateToBeta or confirmation  then
++        Misc.ParseDelimited(parsedHtml,parsedHtml[0],' ','')
++      else
++        Misc.ParseDelimited(parsedHtml,parsedHtml[1],' ','');
++
+       if StrToInt(parsedHtml[0]) &gt; Misc.GetLobbyRevision then
+       begin
+-        if not confirmation or (MessageDlgThread('A new beta version of the lobby is available, do you want to download it ?',mtInformation,[mbYes,mbNo],0) = mrYes) then
++        if not confirmation or (MessageDlgThread(StringReplace(MakeSentence(parsedHtml,2),'\n',EOL,[rfReplaceAll]),mtInformation,[mbYes,mbNo],0) = mrYes) then
+         begin
+           //Misc.OpenURLInDefaultBrowser(parsedHtml[1]);
+             DownloadFile.URL := parsedHtml[1];
+@@ -10266,6 +10277,7 @@
+         if confirmation then
+           MessageDlgThread('Your lobby version is up to date.',mtInformation,[mbOk],0);
+     except
++      MainForm.AddMainLog('Warning: Auto-update file broken.', Colors.Normal);
+       Exit;
+     end;
+   end;
+
+Modified: trunk/Lobby/TASClient/Misc.pas
+===================================================================
+--- trunk/Lobby/TASClient/Misc.pas	2008-08-02 13:14:50 UTC (rev 6227)
++++ trunk/Lobby/TASClient/Misc.pas	2008-08-02 23:18:05 UTC (rev 6228)
+@@ -131,6 +131,8 @@
+ function GetLongPathNameA(lpFileName:LPCTSTR;lpBuffer:LPTSTR;nBufferLength:DWORD): integer;stdcall; external 'Kernel32.dll';
+ function  GetLongPathName(FileName: string): string;
+ Function DelTree(DirName : string): Boolean;
++Function CopyTree(DirFrom : string; DirTo : string): LongInt;
++Function MoveTree(DirFrom : string; DirTo : string): LongInt;
+ Function BitmapFlip(Const Vertical : Boolean;Const Horizontal : Boolean;var BitmapIn : TBitmap;out BitmapOut : TBitmap): Boolean;
+ function ExtractFileNameFromUrl(url: string): string;
+ function GetLobbyRevision: integer;
+@@ -1963,17 +1965,14 @@
+ Function DelTree(DirName : string): Boolean;
+ var
+   SHFileOpStruct : TSHFileOpStruct;
+-  DirBuf : array [0..255] of char;
+ begin
+   if RightStr(DirName,1) = '\' then
+     DirName := LeftStr(DirName,Length(DirName)-1);
+   try
+    Fillchar(SHFileOpStruct,Sizeof(SHFileOpStruct),0) ;
+-   FillChar(DirBuf, Sizeof(DirBuf), 0 ) ;
+-   StrPCopy(DirBuf, DirName) ;
+    with SHFileOpStruct do begin
+     Wnd := 0;
+-    pFrom := @DirBuf;
++    pFrom := PChar(DirName);
+     wFunc := FO_DELETE;
+     //fFlags := FOF_ALLOWUNDO;  // add to the recycle bin instead of deleting
+     fFlags := FOF_NOCONFIRMATION;
+@@ -1985,6 +1984,68 @@
+   end;
+ end;
+ 
++Function CopyTree(DirFrom : string; DirTo : string): LongInt;
++var
++  SearchRec :TSearchRec;
++begin
++    if RightStr(DirFrom,1) = '\' then
++      DirFrom := LeftStr(DirFrom,Length(DirFrom)-1);
++    if RightStr(DirTo,1) = '\' then
++      DirTo := LeftStr(DirTo,Length(DirTo)-1);
++    Result := FindFirst(DirFrom+'\*.*', faAnyFile , SearchRec);
++    while Result = 0 do
++    begin
++      if not(SearchRec.name[1]='.') then
++      begin
++       if (SearchRec.attr and faDirectory) &lt;&gt; 0 then
++        begin
++            CopyTree(DirFrom +'\' + SearchRec.name,DirTo +'\' + SearchRec.name);
++        end
++        else
++        begin
++          try
++            if FileExists(DirTo+'\'+SearchRec.name) then
++              DeleteFile(DirTo+'\'+SearchRec.name);
++            CopyFile(PChar(DirFrom+'\'+SearchRec.name),PChar(DirTo+'\'+SearchRec.name),False);
++          except
++          end;
++        end;
++      end; //if . ..
++      Result := FindNext(SearchRec);
++    end;
++end;
++
++Function MoveTree(DirFrom : string; DirTo : string): LongInt;
++var
++  SearchRec :TSearchRec;
++begin
++    if RightStr(DirFrom,1) = '\' then
++      DirFrom := LeftStr(DirFrom,Length(DirFrom)-1);
++    if RightStr(DirTo,1) = '\' then
++      DirTo := LeftStr(DirTo,Length(DirTo)-1);
++    Result := FindFirst(DirFrom+'\*.*', faAnyFile , SearchRec);
++    while Result = 0 do
++    begin
++      if not(SearchRec.name[1]='.') then
++      begin
++       if (SearchRec.attr and faDirectory) &lt;&gt; 0 then
++        begin
++            MoveTree(DirFrom +'\' + SearchRec.name,DirTo +'\' + SearchRec.name);
++        end
++        else
++        begin
++          try
++            if FileExists(DirTo+'\'+SearchRec.name) then
++              DeleteFile(DirTo+'\'+SearchRec.name);
++            MoveFile(PChar(DirFrom+'\'+SearchRec.name),PChar(DirTo+'\'+SearchRec.name));
++          except
++          end;
++        end;
++      end; //if . ..
++      Result := FindNext(SearchRec);
++    end;
++end;
++
+ Function BitmapFlip(Const Vertical : Boolean;Const Horizontal : Boolean;var BitmapIn : TBitmap;out BitmapOut : TBitmap): Boolean;
+ Var
+    DataIn : pColorData;
+
+Modified: trunk/Lobby/TASClient/PreferencesFormUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/PreferencesFormUnit.pas	2008-08-02 13:14:50 UTC (rev 6227)
++++ trunk/Lobby/TASClient/PreferencesFormUnit.pas	2008-08-02 23:18:05 UTC (rev 6228)
+@@ -49,7 +49,7 @@
+     SaveLogs: Boolean; // if true, program will automatically save all channel, private chat and battle logs.
+     UseSoundNotifications: Boolean;
+     AutoCompletionFromCurrentChannel: Boolean;
+-    CheckForNewVersion: Boolean;
++    AutoUpdateToBeta: Boolean;
+ 
+     UseProxy: Boolean;
+     ProxyAddress: string;
+@@ -271,7 +271,7 @@
+   end;
+ 
+ const
+-  DEFAULT_PREFERENCES: TPreferences = (ServerIP:'taspringmaster.clan-sy.com'; ServerPort:'8200'; TabStyle:0; TimeStamps: True; Username:''; Password:''; ConnectOnStartup: False; SortStyle: 1; BattleSortStyle: 1; BattleSortDirection: 0; BattleClientSortStyle: 2;FilterJoinLeftMessages: False;FilterBattleJoinLeftMessages: False; ShowFlags: True; MarkUnknownMaps: False; TaskbarButtons: True; JoinMainChannel: True; ReconnectToBackup: True; SaveLogs: True; UseSoundNotifications: True;AutoCompletionFromCurrentChannel: False; CheckForNewVersion: False; UseProxy: False; HighlightColor: 'Green'; UseNotificationsForHighlights: True; UseIgnoreList: False; WarnIfUsingNATTraversing: True; AutoFocusOnPM: True; MapSortStyle: 1; ThemeType: thtTBX; Theme: 'Miranda'; DisableAllSounds: False; SortLocal: False; DisplayQuickJoinPanel : True; LimitChatLogs: False; ChatLogsLimit: 800; SPSkin: 'default.ssk'; DisableScripts : False);
++  DEFAULT_PREFERENCES: TPreferences = (ServerIP:'taspringmaster.clan-sy.com'; ServerPort:'8200'; TabStyle:0; TimeStamps: True; Username:''; Password:''; ConnectOnStartup: False; SortStyle: 1; BattleSortStyle: 1; BattleSortDirection: 0; BattleClientSortStyle: 2;FilterJoinLeftMessages: False;FilterBattleJoinLeftMessages: False; ShowFlags: True; MarkUnknownMaps: False; TaskbarButtons: True; JoinMainChannel: True; ReconnectToBackup: True; SaveLogs: True; UseSoundNotifications: True;AutoCompletionFromCurrentChannel: False; AutoUpdateToBeta: False; UseProxy: False; HighlightColor: 'Green'; UseNotificationsForHighlights: True; UseIgnoreList: False; WarnIfUsingNATTraversing: True; AutoFocusOnPM: True; MapSortStyle: 1; ThemeType: thtTBX; Theme: 'Miranda'; DisableAllSounds: False; SortLocal: False; DisplayQuickJoinPanel : True; LimitChatLogs: False; ChatLogsLimit: 800; SPSkin: 'default.ssk'; DisableScripts : False);
+ 
+ var
+   PreferencesForm: TPreferencesForm;
+@@ -345,7 +345,7 @@
+     try Preferences.ProxyPassword:= Misc.GetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'ProxyPassword'); except end;
+     try Preferences.HighlightColor:= Misc.GetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'HighlightColor'); except end;
+     try Preferences.UseNotificationsForHighlights := Misc.GetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'UseNotificationsForHighlights'); except end;
+-    try Preferences.CheckForNewVersion := Misc.GetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'CheckForNewVersion'); except end;
++    try Preferences.AutoUpdateToBeta := Misc.GetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'CheckForNewVersion'); except end;
+     try Preferences.UseIgnoreList := Misc.GetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'UseIgnoreList'); except end;
+     try Preferences.WarnIfUsingNATTraversing := Misc.GetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'WarnIfUsingNATTraversing'); except end;
+     try Preferences.AutoFocusOnPM := Misc.GetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'AutoFocusOnPM'); except end;
+@@ -615,7 +615,7 @@
+     Misc.SetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'ProxyPassword', rdString, Preferences.ProxyPassword);
+     Misc.SetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'HighlightColor', rdString, Preferences.HighlightColor);
+     Misc.SetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'UseNotificationsForHighlights', rdInteger, Preferences.UseNotificationsForHighlights);
+-    Misc.SetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'CheckForNewVersion', rdInteger, Misc.BoolToInt(Preferences.CheckForNewVersion));
++    Misc.SetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'CheckForNewVersion', rdInteger, Misc.BoolToInt(Preferences.AutoUpdateToBeta));
+     Misc.SetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'UseIgnoreList', rdInteger, Preferences.UseIgnoreList);
+     Misc.SetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'WarnIfUsingNATTraversing', rdInteger, Preferences.WarnIfUsingNATTraversing);
+     Misc.SetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'AutoFocusOnPM', rdInteger, Preferences.AutoFocusOnPM);
+@@ -796,7 +796,7 @@
+   p.SaveLogs := CheckBox8.Checked;
+   p.UseSoundNotifications := CheckBox9.Checked;
+   p.AutoCompletionFromCurrentChannel := AutoCompletionCurrentChannelCheckBox.Checked;
+-  p.CheckForNewVersion := CheckForNewVersionCheckBox.Checked;
++  p.AutoUpdateToBeta := CheckForNewVersionCheckBox.Checked;
+ 
+   p.UseProxy := UseProxyCheckBox.Checked;
+   p.ProxyAddress := ProxyEdit.Text;
+@@ -865,7 +865,7 @@
+   CheckBox8.Checked := p.SaveLogs;
+   CheckBox9.Checked := p.UseSoundNotifications;
+   AutoCompletionCurrentChannelCheckBox.Checked := p.AutoCompletionFromCurrentChannel;
+-  CheckForNewVersionCheckBox.Checked := p.CheckForNewVersion;
++  CheckForNewVersionCheckBox.Checked := p.AutoUpdateToBeta;
+ 
+   UseProxyCheckBox.Checked := p.UseProxy;
+   ProxyEdit.Text := p.ProxyAddress;
+
+Modified: trunk/Lobby/TASClient/TASClient.dof
+===================================================================
+--- trunk/Lobby/TASClient/TASClient.dof	2008-08-02 13:14:50 UTC (rev 6227)
++++ trunk/Lobby/TASClient/TASClient.dof	2008-08-02 23:18:05 UTC (rev 6228)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=3
+ Release=0
+-Build=387
++Build=390
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TA Spring lobby client
+-FileVersion=0.3.0.387
++FileVersion=0.3.0.390
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: trunk/Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001007.html">[Taspring-linux-commit] r6227 - in trunk/Lobby/TASClient: . Python	Python/scripts
+</A></li>
+	<LI>Next message: <A HREF="001009.html">[Taspring-linux-commit] r6229 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1008">[ date ]</a>
+              <a href="thread.html#1008">[ thread ]</a>
+              <a href="subject.html#1008">[ subject ]</a>
+              <a href="author.html#1008">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

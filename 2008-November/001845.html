@@ -1,0 +1,184 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7076 - in trunk: rts/System tools/unitsync
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-November/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7076%20-%20in%20trunk%3A%20rts/System%20tools/unitsync&In-Reply-To=%3C20081120015017.7CE55476B%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001844.html">
+   <LINK REL="Next"  HREF="001846.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7076 - in trunk: rts/System tools/unitsync</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7076%20-%20in%20trunk%3A%20rts/System%20tools/unitsync&In-Reply-To=%3C20081120015017.7CE55476B%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r7076 - in trunk: rts/System tools/unitsync">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Nov 20 02:50:17 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001844.html">[Taspring-linux-commit] r7075 - in trunk/rts: Game Game/UI System	build/vstudio8 lib/gml
+</A></li>
+        <LI>Next message: <A HREF="001846.html">[Taspring-linux-commit] r7077 - in Lobby/TASClient: . Python/engine
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1845">[ date ]</a>
+              <a href="thread.html#1845">[ thread ]</a>
+              <a href="subject.html#1845">[ subject ]</a>
+              <a href="author.html#1845">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: imbaczek
+Date: 2008-11-20 02:50:16 +0100 (Thu, 20 Nov 2008)
+New Revision: 7076
+
+Modified:
+   trunk/rts/System/LogOutput.cpp
+   trunk/tools/unitsync/unitsync.cpp
+Log:
+fix LogOutput-unitsync issues
+
+Modified: trunk/rts/System/LogOutput.cpp
+===================================================================
+--- trunk/rts/System/LogOutput.cpp	2008-11-20 00:04:18 UTC (rev 7075)
++++ trunk/rts/System/LogOutput.cpp	2008-11-20 01:50:16 UTC (rev 7076)
+@@ -164,12 +164,23 @@
+ 
+ 	// enabled subsystems is superset of the ones specified in environment
+ 	// and the ones specified in the configuration file.
++	// configHandler cannot be accessed here in unitsync since it may not exist.
++#ifndef UNITSYNC
+ 	string subsystems = &quot;,&quot; + StringToLower(configHandler.GetString(&quot;LogSubsystems&quot;, &quot;&quot;)) + &quot;,&quot;;
++#else
++#  ifdef DEBUG
++	// unitsync logging in debug mode always on
++	string subsystems = &quot;,unitsync,&quot;;
++#  else
++	string subsystems = &quot;,&quot;;
++#  endif
++#endif
+ 
+ 	const char* const env = getenv(&quot;SPRING_LOG_SUBSYSTEMS&quot;);
+ 	if (env)
+ 		subsystems += StringToLower(env) + &quot;,&quot;;
+ 
++
+ 	(*this) &lt;&lt; &quot;Enabled log subsystems: &quot;;
+ 	for (CLogSubsystem* sys = CLogSubsystem::GetList(); sys; sys = sys-&gt;next) {
+ 		if (sys-&gt;name &amp;&amp; *sys-&gt;name) {
+
+Modified: trunk/tools/unitsync/unitsync.cpp
+===================================================================
+--- trunk/tools/unitsync/unitsync.cpp	2008-11-20 00:04:18 UTC (rev 7075)
++++ trunk/tools/unitsync/unitsync.cpp	2008-11-20 01:50:16 UTC (rev 7076)
+@@ -59,6 +59,7 @@
+ 		COneTimeInit()
+ 		{
+ 			logOutput.SetFilename(&quot;unitsync.log&quot;);
++			logOutput.Initialize();
+ 			logOutput.Print(LOG_UNITSYNC, &quot;loaded, %s\n&quot;, SpringVersion::GetFull().c_str());
+ 		}
+ 	};
+@@ -284,7 +285,7 @@
+  * files which are mapped into it.  In other words, after using AddArchive() or
+  * AddAllArchives() you have to call Init when you want to remove the archives
+  * from the VFS and start with a clean state.
+- * 
++ *
+  * The config handler won't be reset, it will however be initialised if it wasn't before (with SetSpringConfigFile())
+  */
+ EXPORT(int) Init(bool isServer, int id)
+@@ -2772,6 +2773,13 @@
+ 	return GetStr(configHandler.GetConfigFile());
+ }
+ 
++static void CheckConfigHandler()
++{
++	if (!_configHandler)
++		throw std::logic_error(&quot;Unitsync config handler not initialized, check config source.&quot;);
++}
++
++
+ /**
+  * @brief get string from Spring configuration
+  * @param name name of key to get
+@@ -2781,6 +2789,7 @@
+ EXPORT(const char*) GetSpringConfigString( const char* name, const char* defvalue )
+ {
+ 	try {
++		CheckConfigHandler();
+ 		string res = configHandler.GetString( name, defvalue );
+ 		return GetStr(res);
+ 	}
+@@ -2797,6 +2806,7 @@
+ EXPORT(int) GetSpringConfigInt( const char* name, const int defvalue )
+ {
+ 	try {
++		CheckConfigHandler();
+ 		return configHandler.Get( name, defvalue );
+ 	}
+ 	UNITSYNC_CATCH_BLOCKS;
+@@ -2812,6 +2822,7 @@
+ EXPORT(float) GetSpringConfigFloat( const char* name, const float defvalue )
+ {
+ 	try {
++		CheckConfigHandler();
+ 		return configHandler.Get( name, defvalue );
+ 	}
+ 	UNITSYNC_CATCH_BLOCKS;
+@@ -2826,6 +2837,7 @@
+ EXPORT(void) SetSpringConfigString(const char* name, const char* value)
+ {
+ 	try {
++		CheckConfigHandler();
+ 		configHandler.SetString( name, value );
+ 	}
+ 	UNITSYNC_CATCH_BLOCKS;
+@@ -2839,6 +2851,7 @@
+ EXPORT(void) SetSpringConfigInt(const char* name, const int value)
+ {
+ 	try {
++		CheckConfigHandler();
+ 		configHandler.Set( name, value );
+ 	}
+ 	UNITSYNC_CATCH_BLOCKS;
+@@ -2852,6 +2865,7 @@
+ EXPORT(void) SetSpringConfigFloat(const char* name, const float value)
+ {
+ 	try {
++		CheckConfigHandler();
+ 		configHandler.Set( name, value );
+ 	}
+ 	UNITSYNC_CATCH_BLOCKS;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001844.html">[Taspring-linux-commit] r7075 - in trunk/rts: Game Game/UI System	build/vstudio8 lib/gml
+</A></li>
+	<LI>Next message: <A HREF="001846.html">[Taspring-linux-commit] r7077 - in Lobby/TASClient: . Python/engine
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1845">[ date ]</a>
+              <a href="thread.html#1845">[ thread ]</a>
+              <a href="subject.html#1845">[ subject ]</a>
+              <a href="author.html#1845">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

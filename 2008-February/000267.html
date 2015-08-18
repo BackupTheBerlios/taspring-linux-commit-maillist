@@ -1,0 +1,158 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5460 - trunk/Lobby/TASServer/ChanServ
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5460%20-%20trunk/Lobby/TASServer/ChanServ&In-Reply-To=%3CE1JMktQ-0007ue-2A%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000266.html">
+   <LINK REL="Next"  HREF="000268.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5460 - trunk/Lobby/TASServer/ChanServ</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5460%20-%20trunk/Lobby/TASServer/ChanServ&In-Reply-To=%3CE1JMktQ-0007ue-2A%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5460 - trunk/Lobby/TASServer/ChanServ">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Feb  6 15:04:52 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000266.html">[Taspring-linux-commit] r5459 - trunk/Lobby/TASServer
+</A></li>
+        <LI>Next message: <A HREF="000268.html">[Taspring-linux-commit] r5461 - trunk/Lobby/TASServer/ChanServ
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#267">[ date ]</a>
+              <a href="thread.html#267">[ thread ]</a>
+              <a href="subject.html#267">[ subject ]</a>
+              <a href="author.html#267">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: betalord
+Date: 2008-02-06 15:04:51 +0100 (Wed, 06 Feb 2008)
+New Revision: 5460
+
+Modified:
+   trunk/Lobby/TASServer/ChanServ/ChanServ.java
+   trunk/Lobby/TASServer/ChanServ/ChanServCommands.html
+   trunk/Lobby/TASServer/ChanServ/RemoteAccessServer.java
+Log:
+added &quot;CHANGEFOUNDER&quot; command. Also fixed crash on RETRIEVELATESTBANLIST command being issued via ChanServ.
+
+Modified: trunk/Lobby/TASServer/ChanServ/ChanServ.java
+===================================================================
+--- trunk/Lobby/TASServer/ChanServ/ChanServ.java	2008-02-06 12:02:26 UTC (rev 5459)
++++ trunk/Lobby/TASServer/ChanServ/ChanServ.java	2008-02-06 14:04:51 UTC (rev 5460)
+@@ -750,6 +750,45 @@
+ 			chan.antispamSettings = SpamSettings.spamSettingsToString(SpamSettings.DEFAULT_SETTINGS);
+ 			sendLine(&quot;JOIN &quot; + chan.name);
+ 			sendMessage(client, channel, &quot;Channel #&quot; + chanName + &quot; successfully registered to &quot; + params[2]);
++		} else if (params[0].equals(&quot;CHANGEFOUNDER&quot;)) {
++			// if the command was issued from a channel:
++			if (channel != null) { // insert &lt;channame&gt; parameter so we don't have to handle two different situations for each command
++				params = (String[])Misc.insertIntoObjectArray(&quot;#&quot; + channel.name, 1, params);
++			}
++			
++			if (params.length != 3) {
++				sendMessage(client, channel, &quot;Error: Invalid params!&quot;);
++				return ;
++			}
++			
++			if (params[1].charAt(0) != '#') {
++				sendMessage(client, channel, &quot;Error: Bad channel name (forgot #?)&quot;);
++				return ;
++			}
++			
++			String chanName = params[1].substring(1, params[1].length());
++			Channel chan = getChannel(chanName);
++			if ((chan == null) || (chan.isStatic)) {
++				sendMessage(client, channel, &quot;Channel #&quot; + chanName + &quot; is not registered!&quot;);
++				return ;
++			}
++			
++			if (!(client.isModerator() || client.name.equals(chan.founder))) {
++				sendMessage(client, channel, &quot;Insufficient access to execute &quot; + params[0] + &quot; command!&quot;);
++				return ;
++			}
++			
++			// just to protect from flooding the bot with long usernames:
++			if (params[2].length() &gt; 30) {
++				sendMessage(client, channel, &quot;Error: Too long username!&quot;);
++				return ;
++			}
++			
++			// set founder:
++			chan.founder = params[2];
++			
++			sendMessage(client, channel, &quot;You've successfully set founder of #&quot; + chanName + &quot; to &lt;&quot; + params[2] + &quot;&gt;&quot;);
++			sendLine(&quot;CHANNELMESSAGE &quot; + chan.name + &quot; &lt;&quot; + params[2] + &quot;&gt; has just been set as this channel's founder&quot;);
+ 		} else if (params[0].equals(&quot;UNREGISTER&quot;)) {
+ 			if (params.length != 2) {
+ 				sendMessage(client, channel, &quot;Error: Invalid params!&quot;);
+
+Modified: trunk/Lobby/TASServer/ChanServ/ChanServCommands.html
+===================================================================
+--- trunk/Lobby/TASServer/ChanServ/ChanServCommands.html	2008-02-06 12:02:26 UTC (rev 5459)
++++ trunk/Lobby/TASServer/ChanServ/ChanServCommands.html	2008-02-06 14:04:51 UTC (rev 5460)
+@@ -35,6 +35,11 @@
+         &lt;td&gt;Will unregister the channel (ChanServ will no longer monitor this channel)&lt;/td&gt;
+       &lt;/tr&gt;
+       &lt;tr&gt;
++        &lt;td&gt;CHANGEFOUNDER /&lt;channame&gt;/ &lt;newfounder&gt;&lt;/td&gt;
++        &lt;td&gt;Channel founder&lt;/td&gt;
++        &lt;td&gt;Will set channel's founder to the specified user&lt;/td&gt;
++      &lt;/tr&gt;
++      &lt;tr&gt;
+         &lt;td&gt;ADDSTATIC &lt;channame&gt;&lt;/td&gt;
+         &lt;td&gt;Server moderator&lt;/td&gt;
+         &lt;td&gt;Will add channel &lt;channame&gt; to static channel list&lt;/td&gt;
+
+Modified: trunk/Lobby/TASServer/ChanServ/RemoteAccessServer.java
+===================================================================
+--- trunk/Lobby/TASServer/ChanServ/RemoteAccessServer.java	2008-02-06 12:02:26 UTC (rev 5459)
++++ trunk/Lobby/TASServer/ChanServ/RemoteAccessServer.java	2008-02-06 14:04:51 UTC (rev 5460)
+@@ -316,6 +316,12 @@
+ 			queryTASServer(Misc.makeSentence(params, 1));
+ 			String reply = waitForReply();
+ 			sendLine(reply);
++
++			// quick fix for ChanServ crash on adding ban entry in the web interface:
++			if (Misc.makeSentence(params, 1).equalsIgnoreCase(&quot;RETRIEVELATESTBANLIST&quot;)) {
++				reply = waitForReply(); // wait for the second line of reply	
++			}
++			
+ 		} else {
+ 			// unknown command!
+ 		}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000266.html">[Taspring-linux-commit] r5459 - trunk/Lobby/TASServer
+</A></li>
+	<LI>Next message: <A HREF="000268.html">[Taspring-linux-commit] r5461 - trunk/Lobby/TASServer/ChanServ
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#267">[ date ]</a>
+              <a href="thread.html#267">[ thread ]</a>
+              <a href="subject.html#267">[ subject ]</a>
+              <a href="author.html#267">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

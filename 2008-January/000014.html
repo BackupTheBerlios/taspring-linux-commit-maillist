@@ -1,0 +1,146 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5206 - in trunk/rts: Game System System/Net
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5206%20-%20in%20trunk/rts%3A%20Game%20System%20System/Net&In-Reply-To=%3CE1JA1c2-0000lL-Ca%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000013.html">
+   <LINK REL="Next"  HREF="000015.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5206 - in trunk/rts: Game System System/Net</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5206%20-%20in%20trunk/rts%3A%20Game%20System%20System/Net&In-Reply-To=%3CE1JA1c2-0000lL-Ca%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5206 - in trunk/rts: Game System System/Net">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Jan  2 12:18:18 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000013.html">[Taspring-linux-commit] r5205 - trunk/installer/sections
+</A></li>
+        <LI>Next message: <A HREF="000015.html">[Taspring-linux-commit] r5207 - in trunk/rts/System: . Net
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14">[ date ]</a>
+              <a href="thread.html#14">[ thread ]</a>
+              <a href="subject.html#14">[ subject ]</a>
+              <a href="author.html#14">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-01-02 12:18:17 +0100 (Wed, 02 Jan 2008)
+New Revision: 5206
+
+Modified:
+   trunk/rts/Game/PreGame.cpp
+   trunk/rts/System/Net/UDPListener.cpp
+   trunk/rts/System/NetProtocol.h
+Log:
+* Made CNetProtocol::loading volatile to be 100% sure compiler doesn't optimize
+  the CNetProtocol::UpdateLoop() method to something like:
+  while (true) { Update(); SDL_Delay(1000); }
+  (in relation to mantis #757)
+* Fixed double connecting to server message in CPreGame.
+* Fixed a std::list iterator being decremented, MSVC hits an assert then.
+
+
+Modified: trunk/rts/Game/PreGame.cpp
+===================================================================
+--- trunk/rts/Game/PreGame.cpp	2008-01-02 02:57:12 UTC (rev 5205)
++++ trunk/rts/Game/PreGame.cpp	2008-01-02 11:18:17 UTC (rev 5206)
+@@ -242,19 +242,10 @@
+ 				PrintLoadMsg(&quot;Waiting on mod&quot;, false);
+ 				break;
+ 			case WAIT_CONNECTING:
+-			{
+-				char text[400];
+ 				if ( ((SDL_GetTicks()/1000) % 2) == 0 )
+-					sprintf(text,&quot;Connecting to server .&quot;);
++					PrintLoadMsg(&quot;Connecting to server .&quot;);
+ 				else
+-					sprintf(text,&quot;Connecting to server  &quot;);
+-
+-				glColor4f(1,1,1,1);
+-				glTranslatef(0.5f-0.01f*strlen(text),0.48f,0.0f);
+-				glScalef(0.03f,0.04f,0.1f);
+-				font-&gt;glPrintRaw(text);
+-				glLoadIdentity();
+-			}
++					PrintLoadMsg(&quot;Connecting to server  &quot;);
+ 				break;
+ 			case UNKNOWN:
+ 			case WAIT_ON_ADDRESS:
+
+Modified: trunk/rts/System/Net/UDPListener.cpp
+===================================================================
+--- trunk/rts/System/Net/UDPListener.cpp	2008-01-02 02:57:12 UTC (rev 5205)
++++ trunk/rts/System/Net/UDPListener.cpp	2008-01-02 11:18:17 UTC (rev 5206)
+@@ -21,16 +21,15 @@
+ 
+ void UDPListener::Update(std::queue&lt; boost::shared_ptr&lt;CConnection&gt; &gt;&amp; waitingQueue)
+ {
+-	for (std::list&lt; boost::weak_ptr&lt; UDPConnection&gt; &gt;::iterator i = conn.begin(); i != conn.end(); ++i)
++	for (std::list&lt; boost::weak_ptr&lt; UDPConnection&gt; &gt;::iterator i = conn.begin(); i != conn.end(); )
+ 	{
+ 		if (i-&gt;expired())
+-		{
+ 			i = conn.erase(i);
+-			--i;
+-		}
++		else
++			++i;
+ 	}
+-	
+-	do 
++
++	do
+ 	{
+ 		unsigned char buffer[4096];
+ 		sockaddr_in fromAddr;
+
+Modified: trunk/rts/System/NetProtocol.h
+===================================================================
+--- trunk/rts/System/NetProtocol.h	2008-01-02 02:57:12 UTC (rev 5205)
++++ trunk/rts/System/NetProtocol.h	2008-01-02 11:18:17 UTC (rev 5206)
+@@ -48,7 +48,7 @@
+ 	
+ 	CDemoRecorder* GetDemoRecorder() const { return record; }
+ 	
+-	bool loading;
++	volatile bool loading;
+ 	void UpdateLoop();
+ 
+ private:
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000013.html">[Taspring-linux-commit] r5205 - trunk/installer/sections
+</A></li>
+	<LI>Next message: <A HREF="000015.html">[Taspring-linux-commit] r5207 - in trunk/rts/System: . Net
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#14">[ date ]</a>
+              <a href="thread.html#14">[ thread ]</a>
+              <a href="subject.html#14">[ subject ]</a>
+              <a href="author.html#14">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,683 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6420 - in trunk/Lobby/TASClient: . Python
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6420%20-%20in%20trunk/Lobby/TASClient%3A%20.%20Python&In-Reply-To=%3C20080914164318.505E4497F%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001189.html">
+   <LINK REL="Next"  HREF="001191.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6420 - in trunk/Lobby/TASClient: . Python</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6420%20-%20in%20trunk/Lobby/TASClient%3A%20.%20Python&In-Reply-To=%3C20080914164318.505E4497F%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6420 - in trunk/Lobby/TASClient: . Python">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Sep 14 18:43:18 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001189.html">[Taspring-linux-commit] r6419 - in trunk/rts: Game System/Sync
+</A></li>
+        <LI>Next message: <A HREF="001191.html">[Taspring-linux-commit] r6421 - trunk/rts/System/Sync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1190">[ date ]</a>
+              <a href="thread.html#1190">[ thread ]</a>
+              <a href="subject.html#1190">[ subject ]</a>
+              <a href="author.html#1190">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2008-09-14 18:43:17 +0200 (Sun, 14 Sep 2008)
+New Revision: 6420
+
+Modified:
+   trunk/Lobby/TASClient/LobbyScriptUnit.pas
+   trunk/Lobby/TASClient/LogonFormUnit.pas
+   trunk/Lobby/TASClient/MainUnit.dfm
+   trunk/Lobby/TASClient/MainUnit.pas
+   trunk/Lobby/TASClient/PreferencesFormUnit.dfm
+   trunk/Lobby/TASClient/PreferencesFormUnit.pas
+   trunk/Lobby/TASClient/Python/api.txt
+   trunk/Lobby/TASClient/TASClient.dof
+   trunk/Lobby/TASClient/TASClient.res
+Log:
+* python : changemap(mapname) added
+* python : hostbattle and hostreplay now use sendmessage like joinbattle (postmessage replaced by sendmessage)
+* python : GetCurrentBattle now also return the modoptions and mapoptions
+* checking the
+* registering a ladder account doesn't require to be logged in anymore
+* ladder password check on the logonform not working the first time bug fixed
+* player list hint is back
+
+Modified: trunk/Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/LobbyScriptUnit.pas	2008-09-14 11:32:55 UTC (rev 6419)
++++ trunk/Lobby/TASClient/LobbyScriptUnit.pas	2008-09-14 16:43:17 UTC (rev 6420)
+@@ -149,6 +149,7 @@
+       function GetColors: Variant;
+       function GetServers: Variant;
+       procedure SetServers(sV : Variant);
++      function ChangeMap(mapName: string): Boolean;
+ 
+       constructor Create;
+       destructor Destroy;
+@@ -198,7 +199,9 @@
+   procedure PyDict_SetItemIncRef(dp: PPyObject; Key: PPyObject; o : PPyObject);
+   procedure SafeDecRef(o : PPyObject);
+   procedure PostMsgs;
++  procedure HostBattle;
+   procedure JoinBattle;
++  procedure ChangeMap;
+   function GetComponentFromString(component: string): TComponent;
+   function GetStringFromComponent(component : TComponent): string;
+ 
+@@ -218,6 +221,7 @@
+   JoinBattlePassword: string;
+   NotificationTempList: TList;
+   ScriptsInitialized: Boolean = False;
++  ChangeMapIndex: integer;
+ 
+ implementation
+ 
+@@ -528,6 +532,7 @@
+ var
+   i: integer;
+   pyO: PPyObject;
++
+ begin
+   LockCallback;
+   with GetPythonEngine do
+@@ -557,6 +562,18 @@
+     PyDict_SetItemString(pyCurrentBattle,'DisabledUnits',pyO);
+     Py_XDECREF(pyO);
+ 
++    pyO := PyDict_New();
++    for i:=0 to BattleForm.ModOptionsList.Count-1 do
++      PyDict_SetItemStringDecRef(pyO,PChar(TLuaOption(BattleForm.ModOptionsList[i]).Key),TLuaOption(BattleForm.ModOptionsList[i]).toString);
++    PyDict_SetItemString(pyCurrentBattle,'ModOptions',pyO);
++    Py_XDECREF(pyO);
++
++    pyO := PyDict_New();
++    for i:=0 to BattleForm.MapOptionsList.Count-1 do
++      PyDict_SetItemStringDecRef(pyO,PChar(TLuaOption(BattleForm.MapOptionsList[i]).Key),TLuaOption(BattleForm.MapOptionsList[i]).toString);
++    PyDict_SetItemString(pyCurrentBattle,'MapOptions',pyO);
++    Py_XDECREF(pyO);
++
+     Result := PyObjectAsVariant(pyCurrentBattle);
+   end;
+   UnlockCallback;
+@@ -1037,6 +1054,21 @@
+   ScriptJoining := False;
+ end;
+ 
++procedure HostBattle;
++begin
++  HostBattleForm.HostButtonClick(HostBattleForm.HostButton);
++  BattleForm.Show;
++  ScriptHostingRunning := False;
++  ScriptHostingReplayRunning := False;
++end;
++
++procedure ChangeMap;
++begin
++  BattleForm.ChangeMap(ChangeMapIndex);
++  if BattleState.Status = Hosting then
++    BattleForm.SendBattleInfoToServer;
++end;
++
+ function TCallback.JoinBattle(battleId: integer; Password: String) : Boolean;
+ var
+   b : TBattle;
+@@ -1058,7 +1090,7 @@
+   begin
+     JoinBattleId := battleId;
+     JoinBattlePassword := Password;
+-    PostMessage(MainForm.Handle,WM_SCRIPT,2,0);
++    SendMessage(MainForm.Handle,WM_SCRIPT,2,0);
+     Result := True;
+   end
+   else
+@@ -1104,13 +1136,8 @@
+       PortEdit.Text := IntToStr(UDPHostPort);
+       NATRadioGroup.ItemIndex := NatTraversal;
+ 
+-      HostButtonClick(HostButton);
+-
+-      BattleForm.Show;
+-
+-      Result := BattleState.Status = Hosting;
+-      ScriptHostingRunning := False;
+-      ScriptHostingReplayRunning := False;
++      Result := True;
++      SendMessage(MainForm.Handle,WM_SCRIPT,4,0);
+     except
+       Result := false;
+     end;
+@@ -1144,12 +1171,8 @@
+       PortEdit.Text := IntToStr(UDPHostPort);
+       NATRadioGroup.ItemIndex := NatTraversal;
+ 
+-      HostButtonClick(HostButton);
+-
+-      BattleForm.Show;
+-
+-      Result := BattleState.Status = Hosting;
+-      ScriptHostingRunning := False;
++      Result := True;
++      SendMessage(MainForm.Handle,WM_SCRIPT,4,0);
+     except
+       Result := false;
+     end;
+@@ -1164,6 +1187,21 @@
+     PostMessage(MainForm.Handle,WM_SCRIPT,1,0);
+   end;
+ end;
++
++function TCallback.ChangeMap(mapName: string): Boolean;
++begin
++  if BattleState.Status &lt;&gt; Joined then
++  begin
++    ChangeMapIndex := MapList.IndexOf(mapName);
++    Result := ChangeMapIndex &gt; -1;
++    if Result then
++      SendMessage(MainForm.Handle,WM_SCRIPT,3,0);
++  end
++  else
++    Result := False;
++end;
++
++
+ function TCallback.StartBattle: Boolean;
+ begin
+   Result := False;
+
+Modified: trunk/Lobby/TASClient/LogonFormUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/LogonFormUnit.pas	2008-09-14 11:32:55 UTC (rev 6419)
++++ trunk/Lobby/TASClient/LogonFormUnit.pas	2008-09-14 16:43:17 UTC (rev 6420)
+@@ -114,6 +114,7 @@
+ 
+ procedure TLogonForm.beLadderPasswordSubEditButton0Click(Sender: TObject);
+ begin
++  PreferencesForm.UsernameEdit.Text := txtLogin.Text;
+   PreferencesForm.ChangeLadderPasswordButtonClick(nil);
+ end;
+ 
+@@ -143,6 +144,7 @@
+ 
+ procedure TLogonForm.btRegisterLadderClick(Sender: TObject);
+ begin
++  PreferencesForm.UsernameEdit.Text := txtLogin.Text;
+   PreferencesForm.RegisterLadderAccountButtonClick(nil);
+ end;
+ 
+
+Modified: trunk/Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.dfm	2008-09-14 11:32:55 UTC (rev 6419)
++++ trunk/Lobby/TASClient/MainUnit.dfm	2008-09-14 16:43:17 UTC (rev 6420)
+@@ -117,7 +117,7 @@
+         ItemHeight = 16
+         ParentFont = False
+         ParentShowHint = False
+-        ShowHint = False
++        ShowHint = True
+         TabOrder = 2
+         OnClick = ClientsListBoxClick
+         OnDblClick = ClientsListBoxDblClick
+
+Modified: trunk/Lobby/TASClient/MainUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.pas	2008-09-14 11:32:55 UTC (rev 6419)
++++ trunk/Lobby/TASClient/MainUnit.pas	2008-09-14 16:43:17 UTC (rev 6420)
+@@ -524,7 +524,7 @@
+ const
+   VERSION_NUMBER = '0.38'; // Must be float value! (with a period as a decimal seperator)
+   CHECK_BETA_LOBBY_URL = '<A HREF="http://tasclient.no-ip.org/TASClient_update_v2.txt">http://tasclient.no-ip.org/TASClient_update_v2.txt</A>';
+-  PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER + ' RC23';
++  PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER + ' RC24';
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+   ASSUME_TIMEOUT_INTERVAL = 30000; // in milliseconds. Must be greater than KEEP_ALIVE_INTERVAL! If server hasn't send any data to us within this interval, then we assume timeout occured. It's us who must make sure we get constant replies from server by pinging it.
+   LOCAL_TAB = '$Local'; // caption of main (command) tab window. Must be special so that is different from channel names or user names, that is why there is a &quot;$&quot; in front of it.
+@@ -7100,6 +7100,14 @@
+     begin
+       LobbyScriptUnit.JoinBattle;
+     end;
++    3: // ChangeMap
++    begin
++      LobbyScriptUnit.ChangeMap;
++    end;
++    4: // HostBattle
++    begin
++      LobbyScriptUnit.HostBattle;
++    end;
+   end;
+ end;
+ 
+@@ -8614,6 +8622,7 @@
+     end;
+   except
+   end;
++  (Sender as TTntListBox).Refresh;
+ end;
+ 
+ procedure TMainForm.RichEditPopupMenuPopup(Sender: TObject);
+@@ -10756,7 +10765,7 @@
+   PythonScriptDebugFormUnit.printList.BeginUpdate;
+   PythonScriptDebugFormUnit.printList.Add(Data);
+   PythonScriptDebugFormUnit.printList.EndUpdate;
+-  PostMessage(PythonScriptDebugForm.Handle, WM_REFRESHOUTPUT, 0, 0);
++  SendMessage(PythonScriptDebugForm.Handle, WM_REFRESHOUTPUT, 0, 0);
+ end;
+ 
+ procedure TMainForm.SpTBXItem5Click(Sender: TObject);
+
+Modified: trunk/Lobby/TASClient/PreferencesFormUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/PreferencesFormUnit.dfm	2008-09-14 11:32:55 UTC (rev 6419)
++++ trunk/Lobby/TASClient/PreferencesFormUnit.dfm	2008-09-14 16:43:17 UTC (rev 6420)
+@@ -1,6 +1,6 @@
+ object PreferencesForm: TPreferencesForm
+-  Left = 569
+-  Top = 124
++  Left = 861
++  Top = 106
+   BorderStyle = bsDialog
+   Caption = 'Preferences'
+   ClientHeight = 413
+@@ -37,7 +37,7 @@
+       Width = 401
+       Height = 329
+       Color = clBtnFace
+-      ActiveTabIndex = 3
++      ActiveTabIndex = 1
+       TabAutofit = True
+       HiddenItems = &lt;&gt;
+       object SpTBXTabItem6: TSpTBXTabItem
+@@ -46,6 +46,7 @@
+       end
+       object SpTBXTabItem5: TSpTBXTabItem
+         Caption = 'Account'
++        Checked = True
+         CustomWidth = 56
+       end
+       object SpTBXTabItem4: TSpTBXTabItem
+@@ -54,7 +55,6 @@
+       end
+       object SpTBXTabItem3: TSpTBXTabItem
+         Caption = 'Interface'
+-        Checked = True
+         CustomWidth = 56
+       end
+       object SpTBXTabItem2: TSpTBXTabItem
+@@ -189,136 +189,6 @@
+           end
+         end
+       end
+-      object SpTBXTabSheet5: TSpTBXTabSheet
+-        Left = 0
+-        Top = 23
+-        Width = 401
+-        Height = 306
+-        Caption = 'Account'
+-        ImageIndex = -1
+-        TabItem = 'SpTBXTabItem5'
+-        object GroupBox2: TSpTBXGroupBox
+-          Left = 16
+-          Top = 8
+-          Width = 369
+-          Height = 281
+-          Caption = 'Account details'
+-          Color = clNone
+-          ParentColor = False
+-          TabOrder = 0
+-          object RegisterAccountButton: TSpTBXSpeedButton
+-            Left = 56
+-            Top = 160
+-            Width = 185
+-            Height = 25
+-            Caption = 'Create new account'
+-            OnClick = RegisterAccountButtonClick
+-            LinkFont.Charset = DEFAULT_CHARSET
+-            LinkFont.Color = clBlue
+-            LinkFont.Height = -11
+-            LinkFont.Name = 'MS Sans Serif'
+-            LinkFont.Style = [fsUnderline]
+-          end
+-          object Label4: TSpTBXLabel
+-            Left = 24
+-            Top = 40
+-            Width = 51
+-            Height = 13
+-            Caption = 'Username:'
+-            LinkFont.Charset = DEFAULT_CHARSET
+-            LinkFont.Color = clBlue
+-            LinkFont.Height = -11
+-            LinkFont.Name = 'MS Sans Serif'
+-            LinkFont.Style = [fsUnderline]
+-          end
+-          object Label5: TSpTBXLabel
+-            Left = 24
+-            Top = 72
+-            Width = 49
+-            Height = 13
+-            Caption = 'Password:'
+-            LinkFont.Charset = DEFAULT_CHARSET
+-            LinkFont.Color = clBlue
+-            LinkFont.Height = -11
+-            LinkFont.Name = 'MS Sans Serif'
+-            LinkFont.Style = [fsUnderline]
+-          end
+-          object UsernameEdit: TSpTBXEdit
+-            Left = 120
+-            Top = 40
+-            Width = 121
+-            Height = 21
+-            TabOrder = 0
+-            OnChange = UsernameEditChange
+-          end
+-          object PasswordEdit: TSpTBXEdit
+-            Left = 120
+-            Top = 72
+-            Width = 121
+-            Height = 21
+-            TabOrder = 1
+-            OnChange = PasswordEditChange
+-            PasswordCharW = '*'
+-          end
+-          object LadderPasswordEdit: TSpTBXEdit
+-            Left = 120
+-            Top = 104
+-            Width = 121
+-            Height = 21
+-            Enabled = False
+-            TabOrder = 5
+-            PasswordCharW = '*'
+-          end
+-          object SpTBXLabel1: TSpTBXLabel
+-            Left = 24
+-            Top = 104
+-            Width = 87
+-            Height = 13
+-            Caption = 'Ladder password :'
+-            LinkFont.Charset = DEFAULT_CHARSET
+-            LinkFont.Color = clBlue
+-            LinkFont.Height = -11
+-            LinkFont.Name = 'MS Sans Serif'
+-            LinkFont.Style = [fsUnderline]
+-          end
+-          object ChangeLadderPasswordButton: TSpTBXButton
+-            Left = 248
+-            Top = 104
+-            Width = 41
+-            Height = 21
+-            Caption = 'Edit'
+-            TabOrder = 7
+-            OnClick = ChangeLadderPasswordButtonClick
+-            LinkFont.Charset = DEFAULT_CHARSET
+-            LinkFont.Color = clBlue
+-            LinkFont.Height = -11
+-            LinkFont.Name = 'MS Sans Serif'
+-            LinkFont.Style = [fsUnderline]
+-          end
+-          object RegisterLadderAccountButton: TSpTBXButton
+-            Left = 56
+-            Top = 192
+-            Width = 185
+-            Height = 25
+-            Caption = 'Create new ladder account'
+-            TabOrder = 8
+-            OnClick = RegisterLadderAccountButtonClick
+-            LinkFont.Charset = DEFAULT_CHARSET
+-            LinkFont.Color = clBlue
+-            LinkFont.Height = -11
+-            LinkFont.Name = 'MS Sans Serif'
+-            LinkFont.Style = [fsUnderline]
+-          end
+-          object RememberPasswordsCheckBox: TSpTBXCheckBox
+-            Left = 120
+-            Top = 128
+-            Width = 117
+-            Height = 15
+-            Caption = 'remember passwords'
+-            TabOrder = 9
+-          end
+-        end
+-      end
+       object SpTBXTabSheet6: TSpTBXTabSheet
+         Left = 0
+         Top = 23
+@@ -973,6 +843,136 @@
+           end
+         end
+       end
++      object SpTBXTabSheet5: TSpTBXTabSheet
++        Left = 0
++        Top = 23
++        Width = 401
++        Height = 306
++        Caption = 'Account'
++        ImageIndex = -1
++        TabItem = 'SpTBXTabItem5'
++        object GroupBox2: TSpTBXGroupBox
++          Left = 16
++          Top = 8
++          Width = 369
++          Height = 281
++          Caption = 'Account details'
++          Color = clNone
++          ParentColor = False
++          TabOrder = 0
++          object RegisterAccountButton: TSpTBXSpeedButton
++            Left = 56
++            Top = 160
++            Width = 185
++            Height = 25
++            Caption = 'Create new account'
++            OnClick = RegisterAccountButtonClick
++            LinkFont.Charset = DEFAULT_CHARSET
++            LinkFont.Color = clBlue
++            LinkFont.Height = -11
++            LinkFont.Name = 'MS Sans Serif'
++            LinkFont.Style = [fsUnderline]
++          end
++          object Label4: TSpTBXLabel
++            Left = 24
++            Top = 40
++            Width = 51
++            Height = 13
++            Caption = 'Username:'
++            LinkFont.Charset = DEFAULT_CHARSET
++            LinkFont.Color = clBlue
++            LinkFont.Height = -11
++            LinkFont.Name = 'MS Sans Serif'
++            LinkFont.Style = [fsUnderline]
++          end
++          object Label5: TSpTBXLabel
++            Left = 24
++            Top = 72
++            Width = 49
++            Height = 13
++            Caption = 'Password:'
++            LinkFont.Charset = DEFAULT_CHARSET
++            LinkFont.Color = clBlue
++            LinkFont.Height = -11
++            LinkFont.Name = 'MS Sans Serif'
++            LinkFont.Style = [fsUnderline]
++          end
++          object UsernameEdit: TSpTBXEdit
++            Left = 120
++            Top = 40
++            Width = 121
++            Height = 21
++            TabOrder = 0
++            OnChange = UsernameEditChange
++          end
++          object PasswordEdit: TSpTBXEdit
++            Left = 120
++            Top = 72
++            Width = 121
++            Height = 21
++            TabOrder = 1
++            OnChange = PasswordEditChange
++            PasswordCharW = '*'
++          end
++          object LadderPasswordEdit: TSpTBXEdit
++            Left = 120
++            Top = 104
++            Width = 121
++            Height = 21
++            Enabled = False
++            TabOrder = 5
++            PasswordCharW = '*'
++          end
++          object SpTBXLabel1: TSpTBXLabel
++            Left = 24
++            Top = 104
++            Width = 87
++            Height = 13
++            Caption = 'Ladder password :'
++            LinkFont.Charset = DEFAULT_CHARSET
++            LinkFont.Color = clBlue
++            LinkFont.Height = -11
++            LinkFont.Name = 'MS Sans Serif'
++            LinkFont.Style = [fsUnderline]
++          end
++          object ChangeLadderPasswordButton: TSpTBXButton
++            Left = 248
++            Top = 104
++            Width = 41
++            Height = 21
++            Caption = 'Edit'
++            TabOrder = 7
++            OnClick = ChangeLadderPasswordButtonClick
++            LinkFont.Charset = DEFAULT_CHARSET
++            LinkFont.Color = clBlue
++            LinkFont.Height = -11
++            LinkFont.Name = 'MS Sans Serif'
++            LinkFont.Style = [fsUnderline]
++          end
++          object RegisterLadderAccountButton: TSpTBXButton
++            Left = 56
++            Top = 192
++            Width = 185
++            Height = 25
++            Caption = 'Create new ladder account'
++            TabOrder = 8
++            OnClick = RegisterLadderAccountButtonClick
++            LinkFont.Charset = DEFAULT_CHARSET
++            LinkFont.Color = clBlue
++            LinkFont.Height = -11
++            LinkFont.Name = 'MS Sans Serif'
++            LinkFont.Style = [fsUnderline]
++          end
++          object RememberPasswordsCheckBox: TSpTBXCheckBox
++            Left = 120
++            Top = 128
++            Width = 117
++            Height = 15
++            Caption = 'remember passwords'
++            TabOrder = 9
++          end
++        end
++      end
+     end
+     object ApplyAndCloseButton: TSpTBXButton
+       Left = 43
+
+Modified: trunk/Lobby/TASClient/PreferencesFormUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/PreferencesFormUnit.pas	2008-09-14 11:32:55 UTC (rev 6419)
++++ trunk/Lobby/TASClient/PreferencesFormUnit.pas	2008-09-14 16:43:17 UTC (rev 6420)
+@@ -1523,13 +1523,11 @@
+ 
+ procedure TPreferencesForm.RegisterLadderAccountButtonClick(
+   Sender: TObject);
+-var
+-  CreateAccountThread : TLadderCreateAccountThread;
+ begin
+-  if Status.ConnectionState &lt;&gt; Connected then
+-    MessageDlg('You must be logged in to register a new ladder account !',mtWarning,[mbOK],0)
+-  else
+-    CreateAccountThread := TLadderCreateAccountThread.Create(False);
++  //if Status.ConnectionState &lt;&gt; Connected then
++  //  MessageDlg('You must be logged in to register a new ladder account !',mtWarning,[mbOK],0)
++  //else
++  TLadderCreateAccountThread.Create(False);
+ end;
+ 
+ procedure TPreferencesForm.ColorsButtonClick(Sender: TObject);
+
+Modified: trunk/Lobby/TASClient/Python/api.txt
+===================================================================
+--- trunk/Lobby/TASClient/Python/api.txt	2008-09-14 11:32:55 UTC (rev 6419)
++++ trunk/Lobby/TASClient/Python/api.txt	2008-09-14 16:43:17 UTC (rev 6420)
+@@ -31,6 +31,7 @@
+ - GetCurrentBattle
+ - GetServers
+ - SetServers(dict)
++- ChangeMap(mapName)
+ 
+ Callin :
+ 
+
+Modified: trunk/Lobby/TASClient/TASClient.dof
+===================================================================
+--- trunk/Lobby/TASClient/TASClient.dof	2008-09-14 11:32:55 UTC (rev 6419)
++++ trunk/Lobby/TASClient/TASClient.dof	2008-09-14 16:43:17 UTC (rev 6420)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=3
+ Release=0
+-Build=465
++Build=467
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TA Spring lobby client
+-FileVersion=0.3.0.465
++FileVersion=0.3.0.467
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: trunk/Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001189.html">[Taspring-linux-commit] r6419 - in trunk/rts: Game System/Sync
+</A></li>
+	<LI>Next message: <A HREF="001191.html">[Taspring-linux-commit] r6421 - trunk/rts/System/Sync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1190">[ date ]</a>
+              <a href="thread.html#1190">[ thread ]</a>
+              <a href="subject.html#1190">[ subject ]</a>
+              <a href="author.html#1190">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

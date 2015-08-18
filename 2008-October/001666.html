@@ -1,0 +1,232 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6897 - in trunk/rts: Game Game/UI Lua	Sim/Units
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6897%20-%20in%20trunk/rts%3A%20Game%20Game/UI%20Lua%0A%09Sim/Units&In-Reply-To=%3C20081026103234.4F1DC4751%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001665.html">
+   <LINK REL="Next"  HREF="001667.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6897 - in trunk/rts: Game Game/UI Lua	Sim/Units</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6897%20-%20in%20trunk/rts%3A%20Game%20Game/UI%20Lua%0A%09Sim/Units&In-Reply-To=%3C20081026103234.4F1DC4751%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6897 - in trunk/rts: Game Game/UI Lua	Sim/Units">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Oct 26 11:32:34 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001665.html">[Taspring-linux-commit] r6896 - in Lobby/TASClient: . Python	Python/scripts Python/scripts/layoutProfiles
+</A></li>
+        <LI>Next message: <A HREF="001667.html">[Taspring-linux-commit] r6898 - in trunk/rts: Game Game/UI Lua	Sim/Misc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1666">[ date ]</a>
+              <a href="thread.html#1666">[ thread ]</a>
+              <a href="subject.html#1666">[ subject ]</a>
+              <a href="author.html#1666">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: lurker
+Date: 2008-10-26 11:32:33 +0100 (Sun, 26 Oct 2008)
+New Revision: 6897
+
+Modified:
+   trunk/rts/Game/GameHelper.cpp
+   trunk/rts/Game/UI/GuiHandler.cpp
+   trunk/rts/Lua/LuaUnitDefs.cpp
+   trunk/rts/Sim/Units/UnitDef.h
+   trunk/rts/Sim/Units/UnitDefHandler.cpp
+Log:
+* GenerateTargets no longer has much information that the team requesting targets doesn't have.
+* The protection ring shows up for non-stockpile interceptors.
+
+Modified: trunk/rts/Game/GameHelper.cpp
+===================================================================
+--- trunk/rts/Game/GameHelper.cpp	2008-10-26 10:00:34 UTC (rev 6896)
++++ trunk/rts/Game/GameHelper.cpp	2008-10-26 10:32:33 UTC (rev 6897)
+@@ -421,9 +421,10 @@
+ 					}
+ 					float3 targPos;
+ 					float value = 1.0f;
+-					if (unit-&gt;losStatus[attacker-&gt;allyteam] &amp; LOS_INLOS) {
++					unsigned short unitLos = unit-&gt;losStatus[attacker-&gt;allyteam];
++					if (unitLos &amp; LOS_INLOS) {
+ 						targPos = unit-&gt;midPos;
+-					} else if (unit-&gt;losStatus[attacker-&gt;allyteam] &amp; LOS_INRADAR) {
++					} else if (unitLos &amp; LOS_INRADAR) {
+ 						const float radErr = radarhandler-&gt;radarErrorSize[attacker-&gt;allyteam];
+ 						targPos = unit-&gt;midPos + (unit-&gt;posErrorVector * radErr);
+ 						value *= 10.0f;
+@@ -433,27 +434,32 @@
+ 					const float modRange = radius + (aHeight - targPos.y) * heightMod;
+ 					if ((pos - targPos).SqLength2D() &lt;= modRange * modRange){
+ 						float dist2d = (pos - targPos).Length2D();
+-						value *= (secDamage + unit-&gt;health);
+ 						value *= (dist2d * weapon-&gt;weaponDef-&gt;proximityPriority + modRange * 0.4f + 100.0f);
+-						value *= (0.01f + unit-&gt;crashing);
+-						value /= weapon-&gt;weaponDef-&gt;damages[unit-&gt;armorType]
+-										 * unit-&gt;curArmorMultiple
+-						         * unit-&gt;power * (0.7f + gs-&gt;randFloat() * 0.6f);
+-						if (unit == lastTarget) {
+-							value *= weapon-&gt;avoidTarget ? 10.0f : 0.4f;
++						if (unitLos &amp; LOS_INLOS) {
++							value *= (secDamage + unit-&gt;health);
++							if (unit == lastTarget) {
++								value *= weapon-&gt;avoidTarget ? 10.0f : 0.4f;
++							}
++							if (paralyzer &amp;&amp; unit-&gt;health-unit-&gt;paralyzeDamage &lt; unit-&gt;maxHealth * 0.09f) {
++								value *= 4.0f;
++							}
++							if (weapon-&gt;hasTargetWeight) {
++								value *= weapon-&gt;TargetWeight(unit);
++							}
++						} else {
++							value *= (secDamage + 10000.0f);
+ 						}
+-						if (unit-&gt;category &amp; weapon-&gt;badTargetCategory) {
+-							value *= 100.0f;
++						if (unitLos &amp; LOS_PREVLOS) {
++							value /= weapon-&gt;weaponDef-&gt;damages[unit-&gt;armorType]
++											 * unit-&gt;curArmorMultiple
++									 * unit-&gt;power * (0.7f + gs-&gt;randFloat() * 0.6f);
++							if (unit-&gt;category &amp; weapon-&gt;badTargetCategory) {
++								value *= 100.0f;
++							}
++							if (unit-&gt;crashing) {
++								value *= 1000.0f;
++							}
+ 						}
+-						if (paralyzer &amp;&amp; unit-&gt;health-unit-&gt;paralyzeDamage &lt; unit-&gt;maxHealth * 0.09f) {
+-							value *= 4.0f;
+-						}
+-						if (unit-&gt;crashing) {
+-							value *= 10.0f;
+-						}
+-						if (weapon-&gt;hasTargetWeight) {
+-							value *= weapon-&gt;TargetWeight(unit);
+-						}
+ 						targets.insert(std::pair&lt;float, CUnit*&gt;(value, unit));
+ 					}
+ 				}
+
+Modified: trunk/rts/Game/UI/GuiHandler.cpp
+===================================================================
+--- trunk/rts/Game/UI/GuiHandler.cpp	2008-10-26 10:00:34 UTC (rev 6896)
++++ trunk/rts/Game/UI/GuiHandler.cpp	2008-10-26 10:32:33 UTC (rev 6897)
+@@ -3704,23 +3704,20 @@
+ 				DrawSensorRange(unitdef-&gt;sonarJamRadius, cmdColors.rangeSonarJammer, p);
+ 			}
+ 			// draw interceptor range
+-			const WeaponDef* wd = NULL;
+-			const CWeapon* w = NULL;
+-			if (enemyUnit) {
+-				wd = unitdef-&gt;stockpileWeaponDef;
+-			} else {
+-				w = unit-&gt;stockpileWeapon;
+-				if (w != NULL) {
+-					wd = w-&gt;weaponDef;
+-				}
+-			}
+-			if ((wd != NULL) &amp;&amp; wd-&gt;interceptor) {
+-				if (enemyUnit || w-&gt;numStockpiled) {
++			if (unitdef-&gt;maxCoverage &gt; 0.0f) {
++				const CWeapon* w = NULL; //will be checked if any missiles are ready
++				if (!enemyUnit) {
++					w = unit-&gt;stockpileWeapon;
++					if (w != NULL &amp;&amp; !w-&gt;weaponDef-&gt;interceptor) {
++						w = NULL; //if this isn't the interceptor, then don't use it
++					}
++				} //shows as on if enemy, a non-stockpiled weapon, or if the stockpile has a missile
++				if (enemyUnit || (w == NULL) || w-&gt;numStockpiled) {
+ 					glColor4fv(cmdColors.rangeInterceptorOn);
+ 				} else {
+ 					glColor4fv(cmdColors.rangeInterceptorOff);
+ 				}
+-				glSurfaceCircle(unit-&gt;pos, wd-&gt;coverageRange, 40);
++				glSurfaceCircle(unit-&gt;pos, unitdef-&gt;maxCoverage, 40);
+ 			}
+ 		}
+ 	}
+
+Modified: trunk/rts/Lua/LuaUnitDefs.cpp
+===================================================================
+--- trunk/rts/Lua/LuaUnitDefs.cpp	2008-10-26 10:00:34 UTC (rev 6896)
++++ trunk/rts/Lua/LuaUnitDefs.cpp	2008-10-26 10:32:33 UTC (rev 6897)
+@@ -754,6 +754,7 @@
+ 	ADD_FLOAT(&quot;slideTolerance&quot;,    ud.slideTolerance);
+ 
+ 	ADD_FLOAT(&quot;maxWeaponRange&quot;, ud.maxWeaponRange);
++	ADD_FLOAT(&quot;maxCoverage&quot;, ud.maxCoverage);
+ 
+ 	ADD_BOOL( &quot;buildRange3D&quot;,   ud.buildRange3D);
+ 	ADD_FLOAT(&quot;buildDistance&quot;,  ud.buildDistance);
+
+Modified: trunk/rts/Sim/Units/UnitDef.h
+===================================================================
+--- trunk/rts/Sim/Units/UnitDef.h	2008-10-26 10:00:34 UTC (rev 6896)
++++ trunk/rts/Sim/Units/UnitDef.h	2008-10-26 10:32:33 UTC (rev 6897)
+@@ -221,6 +221,7 @@
+ 	const WeaponDef* shieldWeaponDef;
+ 	const WeaponDef* stockpileWeaponDef;
+ 	float maxWeaponRange;
++	float maxCoverage;
+ 
+ 	std::map&lt;int, std::string&gt; buildOptions;
+ 
+
+Modified: trunk/rts/Sim/Units/UnitDefHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-10-26 10:00:34 UTC (rev 6896)
++++ trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-10-26 10:32:33 UTC (rev 6897)
+@@ -524,6 +524,7 @@
+ 	ud.stockpileWeaponDef = NULL;
+ 
+ 	ud.maxWeaponRange = 0.0f;
++	ud.maxCoverage = 0.0f;
+ 
+ 	const WeaponDef* noWeaponDef = weaponDefHandler-&gt;GetWeapon(&quot;NOWEAPON&quot;);
+ 
+@@ -584,6 +585,9 @@
+ 		if (wd-&gt;range &gt; ud.maxWeaponRange) {
+ 			ud.maxWeaponRange = wd-&gt;range;
+ 		}
++		if (wd-&gt;interceptor &amp;&amp; wd-&gt;coverageRange &gt; ud.maxCoverage) {
++			ud.maxCoverage = wd-&gt;coverageRange;
++		}
+ 		if (wd-&gt;isShield) {
+ 			if (!ud.shieldWeaponDef || // use the biggest shield
+ 			    (ud.shieldWeaponDef-&gt;shieldRadius &lt; wd-&gt;shieldRadius)) {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001665.html">[Taspring-linux-commit] r6896 - in Lobby/TASClient: . Python	Python/scripts Python/scripts/layoutProfiles
+</A></li>
+	<LI>Next message: <A HREF="001667.html">[Taspring-linux-commit] r6898 - in trunk/rts: Game Game/UI Lua	Sim/Misc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1666">[ date ]</a>
+              <a href="thread.html#1666">[ thread ]</a>
+              <a href="subject.html#1666">[ subject ]</a>
+              <a href="author.html#1666">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

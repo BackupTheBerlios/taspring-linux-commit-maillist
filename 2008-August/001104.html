@@ -1,0 +1,497 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6334 - in trunk/rts: Rendering/GL lib/gml
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6334%20-%20in%20trunk/rts%3A%20Rendering/GL%20lib/gml&In-Reply-To=%3C20080829141901.33B4C498E%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001103.html">
+   <LINK REL="Next"  HREF="001105.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6334 - in trunk/rts: Rendering/GL lib/gml</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6334%20-%20in%20trunk/rts%3A%20Rendering/GL%20lib/gml&In-Reply-To=%3C20080829141901.33B4C498E%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6334 - in trunk/rts: Rendering/GL lib/gml">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Aug 29 16:19:01 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001103.html">[Taspring-linux-commit] r6333 - trunk/tools/ArchiveMoverLinux
+</A></li>
+        <LI>Next message: <A HREF="001105.html">[Taspring-linux-commit] r6335 - branches/0.77-branch/rts/lib/gml
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1104">[ date ]</a>
+              <a href="thread.html#1104">[ thread ]</a>
+              <a href="subject.html#1104">[ subject ]</a>
+              <a href="author.html#1104">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zerver
+Date: 2008-08-29 16:19:00 +0200 (Fri, 29 Aug 2008)
+New Revision: 6334
+
+Modified:
+   trunk/rts/Rendering/GL/VertexArray.cpp
+   trunk/rts/Rendering/GL/VertexArray.h
+   trunk/rts/lib/gml/gmlfun.h
+   trunk/rts/lib/gml/gmlsrv.h
+Log:
+GML fix thread cleanup on exit
+
+Modified: trunk/rts/Rendering/GL/VertexArray.cpp
+===================================================================
+--- trunk/rts/Rendering/GL/VertexArray.cpp	2008-08-29 14:11:33 UTC (rev 6333)
++++ trunk/rts/Rendering/GL/VertexArray.cpp	2008-08-29 14:19:00 UTC (rev 6334)
+@@ -49,6 +49,16 @@
+ 		EnlargeStripArray();
+ }
+ 
++void CVertexArray::DrawArrays(int drawType, int stride) {
++	int newIndex,oldIndex=0;
++	int *stripArrayPtr=stripArray;
++	while(stripArrayPtr&lt;stripArrayPos) {
++		newIndex=(*stripArrayPtr++)/stride;
++		glDrawArrays(drawType,oldIndex,newIndex-oldIndex);
++		oldIndex=newIndex;
++	}
++}
++
+ void CVertexArray::DrawArray0(int drawType,int stride) {
+ 	CheckEndStrip();
+ 	glEnableClientState(GL_VERTEX_ARRAY);
+
+Modified: trunk/rts/Rendering/GL/VertexArray.h
+===================================================================
+--- trunk/rts/Rendering/GL/VertexArray.h	2008-08-29 14:11:33 UTC (rev 6333)
++++ trunk/rts/Rendering/GL/VertexArray.h	2008-08-29 14:19:00 UTC (rev 6334)
+@@ -1,6 +1,5 @@
+ #ifndef VERTEXARRAY_H
+ #define VERTEXARRAY_H
+-#include &quot;myGL.h&quot;
+ // VertexArray.h: interface for the CVertexArray class.
+ //
+ //////////////////////////////////////////////////////////////////////
+@@ -45,7 +44,7 @@
+ 	int* stripArraySize;
+ 
+ protected:
+-	inline void DrawArrays(int drawType, int stride);
++	void DrawArrays(int drawType, int stride);
+ 	inline void CheckEnlargeDrawArray();
+ 	void EnlargeStripArray();
+ 	void EnlargeDrawArray();
+@@ -136,14 +135,4 @@
+ 	*stripArrayPos++=((char *)drawArrayPos-(char *)drawArray);
+ }
+ 
+-inline void CVertexArray::DrawArrays(int drawType, int stride) {
+-	int newIndex,oldIndex=0;
+-	int *stripArrayPtr=stripArray;
+-	while(stripArrayPtr&lt;stripArrayPos) {
+-		newIndex=(*stripArrayPtr++)/stride;
+-		glDrawArrays(drawType,oldIndex,newIndex-oldIndex);
+-		oldIndex=newIndex;
+-	}
+-}
+-
+ #endif /* VERTEXARRAY_H */
+
+Modified: trunk/rts/lib/gml/gmlfun.h
+===================================================================
+--- trunk/rts/lib/gml/gmlfun.h	2008-08-29 14:11:33 UTC (rev 6333)
++++ trunk/rts/lib/gml/gmlfun.h	2008-08-29 14:19:00 UTC (rev 6334)
+@@ -12,27 +12,20 @@
+ #include &lt;set&gt;
+ #include &lt;map&gt;
+ 
++#define DEBUG_GML 0 // enable debugging
+ 
+-#define GML_NERROR_FUN(str,val)\
+-f=fopen(&quot;C:\\GMLERR.TXT&quot;,&quot;a&quot;);\
+-if(f) {\
+-	fprintf(f,&quot;%s line %d: %s %d\n&quot;,__FILE__,__LINE__,str,val);\
+-	fclose(f);\
+-}
+-
+-#define GML_ERROR_FUN(str,val)\
+-FILE *f=fopen(&quot;C:\\GMLERR.TXT&quot;,&quot;a&quot;);\
+-if(f) {\
+-	fprintf(f,&quot;%s line %d: %s %d\n&quot;,__FILE__,__LINE__,str,val);\
+-	fclose(f);\
+-}
+-
++#if DEBUG_GML
+ #define GML_DEBUG_FUN(str,val)\
+-FILE *f=fopen(&quot;C:\\GMLDBG.TXT&quot;,&quot;a&quot;);\
+-if(f) {\
+-	fprintf(f,&quot;%s line %d: %s %d\n&quot;,__FILE__,__LINE__,str,val);\
+-	fclose(f);\
++{\
++	FILE *f=fopen(&quot;C:\\GMLDBG.TXT&quot;,&quot;a&quot;);\
++	if(f) {\
++		fprintf(f,&quot;%s line %d: %s %d\n&quot;,__FILE__,__LINE__,str,val);\
++		fclose(f);\
++	}\
+ }
++#else
++#define GML_DEBUG_FUN(str,val)
++#endif
+ 
+ extern std::map&lt;GLenum,GLint&gt; gmlGetIntegervCache;
+ extern std::map&lt;GLenum,GLfloat&gt; gmlGetFloatvCache;
+@@ -43,10 +36,9 @@
+ #define GML_DEFAULT_RET(c,r) if(GML_USE_DEFAULT &amp;&amp; (c)) {return r;}
+ #define GML_DEFAULT_ERROR() if(GML_USE_NO_ERROR) return GL_NO_ERROR;
+ 
++//teximage, build2dmip
+ EXTERN inline int gmlNumArgsTexImage(int datatype) {
+-//	FILE *f;
+ 	switch(datatype) {
+-		//teximage, build2dmip
+ 		case GL_COLOR_INDEX:
+ 		case GL_RED:
+ 		case GL_GREEN:
+@@ -64,15 +56,14 @@
+ 		case GL_BGRA_EXT:
+ 			return 4;
+ 		default:
+-//			GML_NERROR_FUN(&quot;gmlNumArgsTexImage&quot;, datatype)
++			GML_DEBUG_FUN(&quot;gmlNumArgsTexImage&quot;, datatype)
+ 			return 0;
+ 	}
+ }
+ 
++// glLight, glMaterial
+ EXTERN inline int gmlNumArgsLightMat(int datatype) {
+-//	FILE *f;
+ 	switch(datatype) {
+-// glLight, glMaterial
+ 		case GL_AMBIENT:
+ 		case GL_DIFFUSE:
+ 		case GL_SPECULAR:
+@@ -91,15 +82,14 @@
+ 		case GL_QUADRATIC_ATTENUATION:
+ 			return 1;
+ 		default:
+-//			GML_NERROR_FUN(&quot;gmlNumArgsLightMat&quot;, datatype)
++			GML_DEBUG_FUN(&quot;gmlNumArgsLightMat&quot;, datatype)
+ 			return 0;
+ 	}
+ }
+ 
++//glFog
+ EXTERN inline int gmlNumArgsFog(int datatype) {
+-//	FILE *f;
+ 	switch(datatype) {
+-//glFog
+ 		case GL_FOG_MODE:
+ 		case GL_FOG_DENSITY:
+ 		case GL_FOG_START:
+@@ -109,44 +99,41 @@
+ 		case GL_FOG_COLOR:
+ 			return 4;
+ 		default:
+-//			GML_NERROR_FUN(&quot;gmlNumArgsFog&quot;, datatype)
++			GML_DEBUG_FUN(&quot;gmlNumArgsFog&quot;, datatype)
+ 			return 0;
+ 	}
+ }
+ 
++//glTexGen
+ EXTERN inline int gmlNumArgsTexGen(int datatype) {
+-//	FILE *f;
+ 	switch(datatype) {
+-//glTexGen
+ 		case GL_TEXTURE_GEN_MODE:
+ 			return 1;
+ 		case GL_OBJECT_PLANE:
+ 		case GL_EYE_PLANE:
+ 			return 4;
+ 		default:
+-//			GML_NERROR_FUN(&quot;gmlNumArgsTexGen&quot;, datatype)
++			GML_DEBUG_FUN(&quot;gmlNumArgsTexGen&quot;, datatype)
+ 			return 0;
+ 	}
+ }
+ 
++//glTexEnv
+ EXTERN inline int gmlNumArgsTexEnv(int datatype) {
+-//	FILE *f;
+ 	switch(datatype) {
+-//glTexEnv
+ 		case GL_TEXTURE_ENV_MODE:
+ 			return 1;
+ 		case GL_TEXTURE_ENV_COLOR:
+ 			return 4;
+ 		default:
+-//			GML_NERROR_FUN(&quot;gmlNumArgsTexEnv&quot;, datatype)
++			GML_DEBUG_FUN(&quot;gmlNumArgsTexEnv&quot;, datatype)
+ 			return 0;
+ 	}
+ }
+ 
++//glPointParametefv
+ EXTERN inline int gmlNumArgsPointParam(int datatype) {
+-//	FILE *f;
+ 	switch(datatype) {
+-//glPointParametefv
+ 		case GL_POINT_SIZE_MIN:
+ 		case GL_POINT_SIZE_MAX:
+ 		case GL_POINT_FADE_THRESHOLD_SIZE:
+@@ -155,15 +142,14 @@
+ 		case GL_POINT_DISTANCE_ATTENUATION:
+ 			return 3;
+ 		default:
+-//			GML_NERROR_FUN(&quot;gmlNumArgsPointParam&quot;, datatype)
++			GML_DEBUG_FUN(&quot;gmlNumArgsPointParam&quot;, datatype)
+ 			return 0;
+ 	}
+ }
+ 
++//glTexParameterfv
+ EXTERN inline int gmlNumArgsTexParam(int datatype) {
+-//	FILE *f;
+ 	switch(datatype) {
+-//glTexParameterfv
+ 		case GL_TEXTURE_MIN_FILTER:
+ 		case GL_TEXTURE_MAG_FILTER:
+ 		case GL_TEXTURE_WRAP_S:
+@@ -173,28 +159,28 @@
+ 		case GL_TEXTURE_BORDER_COLOR:
+ 			return 4;
+ 		default:
+-//			GML_NERROR_FUN(&quot;gmlNumArgsTexParam&quot;, datatype)
++			GML_DEBUG_FUN(&quot;gmlNumArgsTexParam&quot;, datatype)
+ 			return 0;
+ 	}
+ }
+ 
++//glLightModelfv
+ EXTERN inline int gmlNumArgsLightModel(int datatype) {
+-//	FILE *f;
+ 	switch(datatype) {
+-//glLightModelfv
+ 		case GL_LIGHT_MODEL_LOCAL_VIEWER:
+ 		case GL_LIGHT_MODEL_TWO_SIDE:
+ 			return 1;
+ 		case GL_LIGHT_MODEL_AMBIENT:
+ 			return 4;
+ 		default:
+-//			GML_NERROR_FUN(&quot;gmlNumArgsLightModel&quot;, datatype)
++			GML_DEBUG_FUN(&quot;gmlNumArgsLightModel&quot;, datatype)
+ 			return 0;
+ 	}
+ }
+ 
+-EXTERN inline int gmlNumArgsMap1(GLenum type) {
+-	switch(type) {
++//glMap1f
++EXTERN inline int gmlNumArgsMap1(int datatype) {
++	switch(datatype) {
+ 		case GL_MAP1_INDEX:
+ 		case GL_MAP1_TEXTURE_COORD_1:
+ 			return 1;
+@@ -209,12 +195,14 @@
+ 		case GL_MAP1_TEXTURE_COORD_4:
+ 			return 4;
+ 		default:
++			GML_DEBUG_FUN(&quot;gmlNumArgsMap1&quot;, datatype)
+ 			return 0;
+ 	}
+ }
+ 
+-EXTERN inline int gmlNumArgsMap2(GLenum type) {
+-	switch(type) {
++//glMap2f
++EXTERN inline int gmlNumArgsMap2(int datatype) {
++	switch(datatype) {
+ 		case GL_MAP2_INDEX:
+ 		case GL_MAP2_TEXTURE_COORD_1:
+ 			return 1;
+@@ -229,12 +217,12 @@
+ 		case GL_MAP2_TEXTURE_COORD_4:
+ 			return 4;
+ 		default:
++			GML_DEBUG_FUN(&quot;gmlNumArgsMap2&quot;, datatype)
+ 			return 0;
+ 	}
+ }
+ 
+ EXTERN inline int gmlSizeOf(int datatype) {
+-//	FILE *f;
+ 	switch(datatype) {
+ 		case GL_UNSIGNED_BYTE:
+ 			return sizeof(GLubyte);
+@@ -255,7 +243,7 @@
+ 		case GL_DOUBLE:
+ 			return sizeof(GLdouble);
+ 		default:
+-//			GML_NERROR_FUN(&quot;gmlSizeOf&quot;, datatype)
++			GML_DEBUG_FUN(&quot;gmlSizeOf&quot;, datatype)
+ 			return 0;
+ 	}
+ }
+@@ -721,7 +709,6 @@
+ 	ftypeX *e=&amp;(p-&gt;F);\
+ 	ftype6 *v=F;\
+ 	GML_STDCOPY1(ftype6,count,stride,nargs)\
+-/*	memcpy(&amp;(p-&gt;D),D,size+sizeof(ftypeX));*/\
+ 	GML_UPD_POS()\
+ }
+ 
+@@ -749,13 +736,12 @@
+ 	GML_COND(gl##name(A,B,C,D,E,F,G,H,I,J))\
+ 	int nargs=numargs;\
+ 	GML_PREP_VAR_SIZE(name,(nargs*count1*count2-1)*sizeof(ftypeX))\
+-	GML_MAKEASS_E()\
++	GML_MAKEASS_I()\
+ 	p-&gt;stride1=nargs*count2;\
+ 	p-&gt;stride2=nargs;\
+ 	ftypeX *e=&amp;(p-&gt;J);\
+ 	ftype10 *v=J;\
+ 	GML_STDCOPY2(ftype10,count1,stride1,count2,stride2,nargs)\
+-/*	memcpy(&amp;(p-&gt;D),D,size+sizeof(ftypeX));*/\
+ 	GML_UPD_POS()\
+ }
+ 
+@@ -887,28 +873,24 @@
+ 
+ #define GML_MEMCOPY()\
+ 	for(int i=0; i&lt;C; ++i) {\
+-/*		BYTE *e2=e;*/\
+ 		BYTE *v2=v;\
+ 		for(int j=0; j&lt;itemsize; ++j) {\
+-			*e/*2*/=*v2;\
+-			++e/*2*/;\
++			*e=*v2;\
++			++e;\
+ 			++v2;\
+ 		}\
+-/*		e+=itemsize;*/\
+ 		v+=itemstride;\
+ 	}
+ 
+ #define GML_IDXLOOP(ltype)\
+ 	for(int i=0; i&lt;B; ++i) {\
+-/*		BYTE *e2=e;*/\
+ 		BYTE *v2=v+(*(ltype *)dt)*itemstride;\
+ 		dt+=sizeof(ltype);\
+ 		for(int j=0; j&lt;itemsize; ++j) {\
+-			*e/*2*/=*v2;\
+-			++e/*2*/;\
++			*e=*v2;\
++			++e;\
+ 			++v2;\
+ 		}\
+-/*		e+=itemsize;*/\
+ 	}
+ 
+ #define GML_IDXCOPY()\
+@@ -974,7 +956,6 @@
+ 	std::set&lt;GLuint&gt;::iterator si=qd-&gt;VAset.begin();\
+ 	while(si!=qd-&gt;VAset.end()) {\
+ 		std::map&lt;GLuint,VAdata&gt;::iterator mi=qd-&gt;VAmap.find(*si);\
+-\
+ 		VAdata *vd=&amp;(mi-&gt;second);\
+ 		int itemstride=vd-&gt;stride;\
+  		int itemsize=vd-&gt;size*gmlSizeOf(vd-&gt;type);\
+@@ -986,7 +967,6 @@
+ 		datasize+=totalsize;\
+ 		while(qd-&gt;WritePos+datasize&gt;=qd-&gt;WriteSize)\
+ 			p=(gml##name##Data *)qd-&gt;WaitRealloc(&amp;e);\
+-\
+ 		VAstruct *vs=(VAstruct *)e;\
+ 		e+=sizeof(VAstruct);\
+ 		vs-&gt;target=*si;\
+@@ -996,12 +976,10 @@
+ 		vs-&gt;totalsize=totalsize;\
+ 		vs-&gt;pointer=(GLvoid *)((BYTE *)vd-&gt;pointer+first*itemstride);\
+ 		vs-&gt;buffer=vd-&gt;buffer;\
+-\
+ 		if(!vd-&gt;buffer) {\
+ 			BYTE *v=(BYTE *)vs-&gt;pointer;\
+ 			copyfun\
+ 		}\
+-\
+ 		++si;\
+ 	}
+ 
+
+Modified: trunk/rts/lib/gml/gmlsrv.h
+===================================================================
+--- trunk/rts/lib/gml/gmlsrv.h	2008-08-29 14:11:33 UTC (rev 6333)
++++ trunk/rts/lib/gml/gmlsrv.h	2008-08-29 14:19:00 UTC (rev 6334)
+@@ -94,6 +94,7 @@
+ 	GML_TYPENAME gmlExecState&lt;R,A,U&gt; ExecState[GML_MAX_EXEC_DEPTH];
+ 	boost::barrier Barrier; 
+ 	boost::thread *threads[GML_MAX_NUM_THREADS];
++	volatile BOOL_ dorun[GML_MAX_NUM_THREADS];
+ 	BOOL_ inited;
+ 	gmlCount threadcnt;
+ 	gmlCount ClientsReady;
+@@ -101,9 +102,19 @@
+ 
+ 	gmlClientServer():threadcnt(0),ClientsReady(0),Barrier(GML_CPU_COUNT),ExecDepth(0),newwork(FALSE) {
+ 		inited=FALSE;
++		memset((void *)dorun,1,GML_MAX_NUM_THREADS*sizeof(BOOL_));
+ 	}
+ 
+ 	~gmlClientServer() {
++		GML_TYPENAME gmlExecState&lt;R,A,U&gt; *ex=ExecState+ExecDepth;
++		ex-&gt;maxthreads=0;
++		for(int i=1; i&lt;gmlThreadCount; ++i)
++			dorun[i]=0;
++		Barrier.wait();
++		for(int i=1; i&lt;gmlThreadCount; ++i) {
++			threads[i]-&gt;join();
++			delete threads[i];
++		}
+ 	}
+ 
+ 	void gmlServer() {
+@@ -254,9 +265,9 @@
+ 	}
+ 
+ 	void gmlClient() {
+-		gmlThreadNumber=++threadcnt;
++		int thread=gmlThreadNumber=++threadcnt;
+ 		streflop_init&lt;streflop::Simple&gt;();
+-		while(1) {
++		while(dorun[thread]) {
+ 			gmlClientSub();
+ 		}
+ 	}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001103.html">[Taspring-linux-commit] r6333 - trunk/tools/ArchiveMoverLinux
+</A></li>
+	<LI>Next message: <A HREF="001105.html">[Taspring-linux-commit] r6335 - branches/0.77-branch/rts/lib/gml
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1104">[ date ]</a>
+              <a href="thread.html#1104">[ thread ]</a>
+              <a href="subject.html#1104">[ subject ]</a>
+              <a href="author.html#1104">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

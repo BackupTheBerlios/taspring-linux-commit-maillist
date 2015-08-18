@@ -1,0 +1,206 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6894 - trunk/rts/Rendering
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6894%20-%20trunk/rts/Rendering&In-Reply-To=%3C20081026030319.8F49D4742%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001662.html">
+   <LINK REL="Next"  HREF="001664.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6894 - trunk/rts/Rendering</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6894%20-%20trunk/rts/Rendering&In-Reply-To=%3C20081026030319.8F49D4742%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6894 - trunk/rts/Rendering">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Oct 26 04:03:19 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001662.html">[Taspring-linux-commit] r6893 - in trunk/rts: Game Map Rendering	Rendering/Env Sim/Features Sim/MoveTypes Sim/Projectiles	Sim/Projectiles/Unsynced Sim/Projectiles/WeaponProjectiles	Sim/Units/UnitTypes Sim/Weapons System
+</A></li>
+        <LI>Next message: <A HREF="001664.html">[Taspring-linux-commit] r6895 - trunk/rts/Rendering
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1663">[ date ]</a>
+              <a href="thread.html#1663">[ thread ]</a>
+              <a href="subject.html#1663">[ subject ]</a>
+              <a href="author.html#1663">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-10-26 04:03:19 +0100 (Sun, 26 Oct 2008)
+New Revision: 6894
+
+Modified:
+   trunk/rts/Rendering/ShadowHandler.cpp
+Log:
+cleanup shadow initialization: do not force useFPShadows to true unless they are supported (to prevent crashes during map-loading)
+
+Modified: trunk/rts/Rendering/ShadowHandler.cpp
+===================================================================
+--- trunk/rts/Rendering/ShadowHandler.cpp	2008-10-26 00:53:38 UTC (rev 6893)
++++ trunk/rts/Rendering/ShadowHandler.cpp	2008-10-26 03:03:19 UTC (rev 6894)
+@@ -24,7 +24,7 @@
+ 
+ 
+ bool CShadowHandler::canUseShadows = false;
+-bool CShadowHandler::useFPShadows  = true;  // FIXME -- this was being forced to true
++bool CShadowHandler::useFPShadows  = false;
+ bool CShadowHandler::firstInstance = true;
+ 
+ 
+@@ -43,44 +43,39 @@
+ 		return;
+ 	}
+ 
++	const bool haveShadowExts =
++		GLEW_ARB_vertex_program &amp;&amp;
++		GLEW_ARB_shadow &amp;&amp;
++		GLEW_ARB_depth_texture &amp;&amp;
++		GLEW_ARB_texture_env_combine;
+ 	const int configValue = configHandler.GetInt(&quot;Shadows&quot;, 0);
+-	if (configValue &lt; 0) {
++
++	if (configValue &lt; 0 || !haveShadowExts) {
++		logOutput.Print(&quot;shadows disabled or required OpenGL extension missing&quot;);
+ 		return;
+ 	}
+ 
+-	shadowMapSize=configHandler.GetInt(&quot;ShadowMapSize&quot;,DEFAULT_SHADOWMAPSIZE);
++	shadowMapSize = configHandler.GetInt(&quot;ShadowMapSize&quot;, DEFAULT_SHADOWMAPSIZE);
+ 
+ 	if (tmpFirstInstance) {
+-		if(!(GLEW_ARB_fragment_program)){
+-			logOutput.Print(&quot;You are missing an OpenGL extension needed to use shadowmaps (fragment_program)&quot;);
++		// this already checks for GLEW_ARB_vertex_program
++		if (!ProgramStringIsNative(GL_FRAGMENT_PROGRAM_ARB, &quot;unit.fp&quot;)) {
++			logOutput.Print(&quot;Your GFX card does not support the fragment programs needed for shadows&quot;);
+ 			return;
+ 		}
+ 
+-		if(!ProgramStringIsNative(GL_FRAGMENT_PROGRAM_ARB,&quot;unit.fp&quot;)){
+-			logOutput.Print(&quot;Your GFX card doesnt support the fragment programs needed to run in shadowed mode&quot;);
+-			return;
+-		}
++		// this was previously set to true (redundantly since
++		// it was actually never made false anywhere) if either
++		//      1. (!GLEW_ARB_texture_env_crossbar &amp;&amp; haveShadowExts)
++		//      2. (!GLEW_ARB_shadow_ambient &amp;&amp; GLEW_ARB_shadow)
++		// but the non-FP result isn't nice anyway so just always
++		// use the program if we are guaranteed of shadow support
++		useFPShadows = true;
+ 
+-		if(!(GLEW_ARB_shadow &amp;&amp; GLEW_ARB_depth_texture &amp;&amp; GLEW_ARB_vertex_program &amp;&amp; GLEW_ARB_texture_env_combine &amp;&amp; GLEW_ARB_texture_env_crossbar)){
+-			if(GLEW_ARB_shadow &amp;&amp; GLEW_ARB_depth_texture &amp;&amp; GLEW_ARB_vertex_program &amp;&amp; GLEW_ARB_texture_env_combine &amp;&amp; GLEW_ARB_fragment_program){
+-				//logOutput.Print(&quot;Using ARB_fragment_program_shadow&quot;);
+-				useFPShadows=true; // FIXME -- always true
+-			} else {
+-				logOutput.Print(&quot;You are missing an OpenGL extension needed to use shadowmaps&quot;);
+-				return;
+-			}
++		if (!GLEW_ARB_shadow_ambient) {
++			// can't use arbitrary texvals in case the depth comparison op fails (only 0)
++			logOutput.Print(&quot;You are missing the \&quot;ARB_shadow_ambient\&quot; extension (this will probably make shadows darker than they should be)&quot;);
+ 		}
+-
+-		if(!GLEW_ARB_shadow_ambient){
+-			if(GLEW_ARB_fragment_program){
+-				if(!useFPShadows){
+-					//logOutput.Print(&quot;Using ARB_fragment_program_shadow&quot;);
+-				}
+-				useFPShadows = true; // FIXME -- always true
+-			} else {
+-				logOutput.Print(&quot;You are missing the extension ARB_shadow_ambient, this will make shadows darker than they should be&quot;);
+-			}
+-		}
+ 	}
+ 
+ 	if (!InitDepthTarget()) {
+@@ -101,7 +96,6 @@
+ 	}
+ 
+ 	drawShadows = true;
+-//	useFPShadows = true; // FIXME -- why was this being forced?
+ }
+ 
+ 
+@@ -144,14 +138,14 @@
+ 
+ CShadowHandler::~CShadowHandler(void)
+ {
+-	if(drawShadows)
++	if (drawShadows)
+ 		glDeleteTextures(1, &amp;shadowTexture);
+ 	delete fb;
+ }
+ 
+ void CShadowHandler::DrawShadowPasses(void)
+ {
+-	inShadowPass=true;
++	inShadowPass = true;
+ 
+ 	ph-&gt;DrawShadowPass();
+ 	unitDrawer-&gt;DrawShadowPass();
+@@ -160,17 +154,17 @@
+ 	treeDrawer-&gt;DrawShadowPass();
+ 	eventHandler.DrawWorldShadow();
+ 
+-	inShadowPass=false;
++	inShadowPass = false;
+ }
+ 
+-void CShadowHandler::GetShadowMapSizeFactors (float &amp;p17, float &amp;p18)
++void CShadowHandler::GetShadowMapSizeFactors(float&amp; p17, float&amp; p18)
+ {
+-	if(shadowMapSize==2048){
+-		p17=0.01f;
+-		p18=-0.1f;
++	if (shadowMapSize == 2048) {
++		p17 =  0.01f;
++		p18 = -0.1f;
+ 	} else {
+-		p17=0.0025f;
+-		p18=-0.05f;
++		p17 =  0.0025f;
++		p18 = -0.05f;
+ 	}
+ }
+ 
+@@ -403,4 +397,3 @@
+ 		left.push_back(temp);
+ 	}
+ }
+-
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001662.html">[Taspring-linux-commit] r6893 - in trunk/rts: Game Map Rendering	Rendering/Env Sim/Features Sim/MoveTypes Sim/Projectiles	Sim/Projectiles/Unsynced Sim/Projectiles/WeaponProjectiles	Sim/Units/UnitTypes Sim/Weapons System
+</A></li>
+	<LI>Next message: <A HREF="001664.html">[Taspring-linux-commit] r6895 - trunk/rts/Rendering
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1663">[ date ]</a>
+              <a href="thread.html#1663">[ thread ]</a>
+              <a href="subject.html#1663">[ subject ]</a>
+              <a href="author.html#1663">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

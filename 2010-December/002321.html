@@ -1,0 +1,225 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7551 - in Lobby/TASClient: . Python/scripts
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7551%20-%20in%20Lobby/TASClient%3A%20.%20Python/scripts&In-Reply-To=%3C20101208223007.47990234C2%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002320.html">
+   <LINK REL="Next"  HREF="002322.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7551 - in Lobby/TASClient: . Python/scripts</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7551%20-%20in%20Lobby/TASClient%3A%20.%20Python/scripts&In-Reply-To=%3C20101208223007.47990234C2%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7551 - in Lobby/TASClient: . Python/scripts">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Dec  8 23:30:07 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002320.html">[Taspring-linux-commit] r7550 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002322.html">[Taspring-linux-commit] r7552 - in Lobby/TASClient: . Python/scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2321">[ date ]</a>
+              <a href="thread.html#2321">[ thread ]</a>
+              <a href="subject.html#2321">[ subject ]</a>
+              <a href="author.html#2321">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2010-12-08 23:30:06 +0100 (Wed, 08 Dec 2010)
+New Revision: 7551
+
+Modified:
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/Python/scripts/replaysBrowser.py
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.dpr
+   Lobby/TASClient/TASClient.res
+Log:
+
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2010-12-08 19:16:44 UTC (rev 7550)
++++ Lobby/TASClient/MainUnit.pas	2010-12-08 22:30:06 UTC (rev 7551)
+@@ -1754,6 +1754,7 @@
+     IgnoreVersionIncompatibility: Boolean;
+     LoginWithPasswordOnLan: Boolean;
+     IgnoreRedirects: Boolean;
++    Crashed: Boolean; // set to true if tasclient crashed during the previous run
+   end;
+ 
+   SCROLLING_NEWS_RSS_URL: string = '<A HREF="http://www.springfiles.com/rss2.php?s=20">http://www.springfiles.com/rss2.php?s=20</A>';
+@@ -6329,7 +6330,7 @@
+         begin
+           IgnoreNextTASClientChanJoin := False;
+           IgnoreTASClientChanMsgs := True;
+-          TryToSendCommand('SAYEX', 'tasclient is using TASClient '+VERSION_NUMBER+' rev '+IntToStr(Misc.GetLobbyRevision)+' on '+GetWinVersion+'. Scripts='+BooleanToStr(not Preferences.ScriptsDisabled)+' News='+BooleanToStr(not Preferences.DisableNews)+' AutohostGUI='+BooleanToStr(Preferences.DisplayAutohostInterface)+' Skin='+IFF(Preferences.ThemeType=sknSkin,IFF(MidStr(Preferences.Theme,2,2)=':\','Custom',Preferences.Theme),'Windows'));
++          TryToSendCommand('SAYEX', 'tasclient is using TASClient '+VERSION_NUMBER+' rev '+IntToStr(Misc.GetLobbyRevision)+' on '+GetWinVersion+'. Scripts='+BooleanToStr(not Preferences.ScriptsDisabled)+' News='+BooleanToStr(not Preferences.DisableNews)+' AutohostGUI='+BooleanToStr(Preferences.DisplayAutohostInterface)+' Skin='+IFF(Preferences.ThemeType=sknSkin,IFF(MidStr(Preferences.Theme,2,2)=':\','Custom',Preferences.Theme),'Windows')+IFF(Debug.Crashed,' Crashed',''));
+           TryToSendCommand('LEAVE', 'tasclient');
+           if AutoJoinTASClient then
+           begin
+@@ -9846,6 +9847,8 @@
+   if Preferences.EnableSpringDownloader then
+     CloseSpringDownloader;
+ 
++  Misc.SetRegistryData(HKEY_CURRENT_USER,TASCLIENT_REGISTRY_KEY,'Crashed',rdInteger,Misc.BoolToInt(False));
++
+   Application.Terminate;
+ end;
+ 
+
+Modified: Lobby/TASClient/Python/scripts/replaysBrowser.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/replaysBrowser.py	2010-12-08 19:16:44 UTC (rev 7550)
++++ Lobby/TASClient/Python/scripts/replaysBrowser.py	2010-12-08 22:30:06 UTC (rev 7551)
+@@ -16,10 +16,15 @@
+ demoPath = ''
+ downloadingReplayOrMap = False
+ mapName = ''
++replayDownloadWindowVisible = False
+ 
+ def onMapDownloadProgress(progress):
+ 	global downloadingReplayOrMap
+-	gui.SetControlProperties ('ReplayDownload', '', {'Visible':'False'})
++	global replayDownloadWindowVisible
++	
++	if replayDownloadWindowVisible:
++		gui.SetControlProperties ('ReplayDownload', '', {'Visible':'False'})
++		replayDownloadWindowVisible = False
+ 	if progress &lt; 0:
+ 		downloadingReplayOrMap = False
+ 	if progress == -1:
+@@ -27,7 +32,11 @@
+ 		
+ def onModDownloadProgress(progress):
+ 	global downloadingReplayOrMap
+-	gui.SetControlProperties ('ReplayDownload', '', {'Visible':'False'})
++	global replayDownloadWindowVisible
++	
++	if replayDownloadWindowVisible:
++		gui.SetControlProperties ('ReplayDownload', '', {'Visible':'False'})
++		replayDownloadWindowVisible = False
+ 	if progress &lt; -1:
+ 		downloadingReplayOrMap = False
+ 	if progress == -1:
+@@ -51,6 +60,8 @@
+ 		global demoPath 
+ 		global downloadingReplayOrMap
+ 		global mapName
++		global replayDownloadWindowVisible
++		
+ 		zip = zipfile.ZipFile (self.destFileName, 'r')
+ 		files = zip.namelist()
+ 		if len(files) == 1:
+@@ -74,6 +85,7 @@
+ 							p = subprocess.Popen([api.GetSpringExe(), demoPath])
+ 							time.sleep(2)
+ 							gui.SetControlProperties ('ReplayDownload', '', {'Visible':'False'})
++							replayDownloadWindowVisible = False
+ 						else:
+ 							api.DownloadMap(mapName,(),'replaysBrowser','onMapDownloadProgress')
+ 					else:
+@@ -153,8 +165,10 @@
+ 
+ def WebBrowserOnBeforeNavigate2(Sender,PostData,TargetFrameName,URL):
+ 	global downloadingReplayOrMap
++	global replayDownloadWindowVisible
+ 	if not downloadingReplayOrMap and URL.lower().find('<A HREF="http://replays.adune.nl/?act=download&amp;id=">http://replays.adune.nl/?act=download&amp;id=</A>') &gt; -1:
+ 		gui.SetControlProperties ('ReplayDownload', '', {'Visible':'True'})
++		replayDownloadWindowVisible = True
+ 		downloadingReplayOrMap = True
+ 		t = DownloaderThread(URL,'tmpReplayFile.zip')
+ 		t.start()
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2010-12-08 19:16:44 UTC (rev 7550)
++++ Lobby/TASClient/TASClient.dof	2010-12-08 22:30:06 UTC (rev 7551)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=81
+ Release=0
+-Build=1154
++Build=1155
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.81.0.1154
++FileVersion=0.81.0.1155
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.dpr
+===================================================================
+--- Lobby/TASClient/TASClient.dpr	2010-12-08 19:16:44 UTC (rev 7550)
++++ Lobby/TASClient/TASClient.dpr	2010-12-08 22:30:06 UTC (rev 7551)
+@@ -98,7 +98,9 @@
+   BotOptionsFormUnit in 'BotOptionsFormUnit.pas' {BotOptionsForm},
+   gnugettext in 'C:\Program Files\dxgettext\gnugettext.pas',
+   WidgetDBFormUnit in 'WidgetDBFormUnit.pas' {WidgetDBForm},
+-  Controls in 'Controls.pas';
++  Controls in 'Controls.pas',
++  Windows,
++  Registry;
+ 
+ var
+   i: Integer;
+@@ -182,6 +184,13 @@
+     
+   MainUnit.RunningUnderWine := MainUnit.RunningUnderWine;
+ 
++  try
++    Debug.Crashed := Misc.GetRegistryData(HKEY_CURRENT_USER,TASCLIENT_REGISTRY_KEY,'Crashed')
++  except
++    Debug.Crashed := False;
++  end;
++  Misc.SetRegistryData(HKEY_CURRENT_USER,TASCLIENT_REGISTRY_KEY,'Crashed',rdInteger,Misc.BoolToInt(True));
++
+   if MainUnit.Debug.Enabled then
+     Misc.TryToAddLog(MainUnit.StartDebugLog,'Displaying splashscreen ...');
+ 
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002320.html">[Taspring-linux-commit] r7550 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002322.html">[Taspring-linux-commit] r7552 - in Lobby/TASClient: . Python/scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2321">[ date ]</a>
+              <a href="thread.html#2321">[ thread ]</a>
+              <a href="subject.html#2321">[ subject ]</a>
+              <a href="author.html#2321">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

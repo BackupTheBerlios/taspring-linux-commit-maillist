@@ -1,0 +1,139 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5272 - in trunk/rts/Game: . UI
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5272%20-%20in%20trunk/rts/Game%3A%20.%20UI&In-Reply-To=%3CE1JBC7m-0002Mi-QY%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000079.html">
+   <LINK REL="Next"  HREF="000081.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5272 - in trunk/rts/Game: . UI</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5272%20-%20in%20trunk/rts/Game%3A%20.%20UI&In-Reply-To=%3CE1JBC7m-0002Mi-QY%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5272 - in trunk/rts/Game: . UI">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Jan  5 17:43:54 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000079.html">[Taspring-linux-commit] r5271 - trunk/Lobby/TASServer/WebInterface
+</A></li>
+        <LI>Next message: <A HREF="000081.html">[Taspring-linux-commit] r5273 - in trunk/rts: Game Rendering
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#80">[ date ]</a>
+              <a href="thread.html#80">[ thread ]</a>
+              <a href="subject.html#80">[ subject ]</a>
+              <a href="author.html#80">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-01-05 17:43:54 +0100 (Sat, 05 Jan 2008)
+New Revision: 5272
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameSetup.cpp
+   trunk/rts/Game/UI/GameSetupDrawer.cpp
+Log:
+* print a start message when demo playback has been started
+* don't show StartPosSelecter when playing a demo
+* disable GameSetupDrawer immediatelly after demo playback started
+
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-01-05 15:44:24 UTC (rev 5271)
++++ trunk/rts/Game/Game.cpp	2008-01-05 16:43:54 UTC (rev 5272)
+@@ -1902,6 +1902,9 @@
+ 
+ 	if(gameSetup &amp;&amp; !playing) {
+ 		allReady=gameSetup-&gt;Update();
++		if (allReady &amp;&amp; gameSetup-&gt;hostDemo)
++			// the NETMSG_STARTPLAYING may arrive later so don't show negative time until start
++			GameSetupDrawer::Disable();
+ 	} else if( gameServer &amp;&amp; gameServer-&gt;WaitsOnCon()) {
+ 		allReady=true;
+ 		for(int a=0;a&lt;gs-&gt;activePlayers;a++) {
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-01-05 15:44:24 UTC (rev 5271)
++++ trunk/rts/Game/GameServer.cpp	2008-01-05 16:43:54 UTC (rev 5272)
+@@ -726,6 +726,7 @@
+ 	if (demoReader) {
+ 		// the client told us to start a demo
+ 		// no need to send startpos and startplaying since its in the demo
++		SendSystemMsg(&quot;Starting demo playback...&quot;);
+ 		return;
+ 	}
+ 
+
+Modified: trunk/rts/Game/GameSetup.cpp
+===================================================================
+--- trunk/rts/Game/GameSetup.cpp	2008-01-05 15:44:24 UTC (rev 5271)
++++ trunk/rts/Game/GameSetup.cpp	2008-01-05 16:43:54 UTC (rev 5272)
+@@ -486,13 +486,13 @@
+ bool CGameSetup::Update()
+ {
+ 	bool allReady = true;
+-	if (!gameServer &amp;&amp; net-&gt;Connected())
++	if (!gameServer) // let the server/host start the game
+ 		return false;
+ 	for (int a = numDemoPlayers; a &lt; numPlayers; a++) {
+ 		if (!gs-&gt;players[a]-&gt;readyToStart) {
+ 			allReady = false;
+ 			break;
+-		} else if (!readyTeams[gs-&gt;players[a]-&gt;team])
++		} else if (!readyTeams[gs-&gt;players[a]-&gt;team] &amp;&amp; !hostDemo)
+ 		{
+ 			allReady = false;
+ 			break;
+
+Modified: trunk/rts/Game/UI/GameSetupDrawer.cpp
+===================================================================
+--- trunk/rts/Game/UI/GameSetupDrawer.cpp	2008-01-05 15:44:24 UTC (rev 5271)
++++ trunk/rts/Game/UI/GameSetupDrawer.cpp	2008-01-05 16:43:54 UTC (rev 5272)
+@@ -35,7 +35,7 @@
+ 
+ GameSetupDrawer::GameSetupDrawer()
+ {
+-	if (gameSetup-&gt;startPosType == CGameSetup::StartPos_ChooseInGame) {
++	if (gameSetup-&gt;startPosType == CGameSetup::StartPos_ChooseInGame &amp;&amp; !gameSetup-&gt;hostDemo) {
+ 		new CStartPosSelecter();
+ 	}
+ 	lctrl_pressed = false;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000079.html">[Taspring-linux-commit] r5271 - trunk/Lobby/TASServer/WebInterface
+</A></li>
+	<LI>Next message: <A HREF="000081.html">[Taspring-linux-commit] r5273 - in trunk/rts: Game Rendering
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#80">[ date ]</a>
+              <a href="thread.html#80">[ thread ]</a>
+              <a href="subject.html#80">[ subject ]</a>
+              <a href="author.html#80">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

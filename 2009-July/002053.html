@@ -1,0 +1,506 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7283 - in Lobby/TASClient: . Python	Python/engine Python/scripts
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7283%20-%20in%20Lobby/TASClient%3A%20.%20Python%0A%09Python/engine%20Python/scripts&In-Reply-To=%3C20090704195801.A5A833B7BE%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002052.html">
+   <LINK REL="Next"  HREF="002054.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7283 - in Lobby/TASClient: . Python	Python/engine Python/scripts</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7283%20-%20in%20Lobby/TASClient%3A%20.%20Python%0A%09Python/engine%20Python/scripts&In-Reply-To=%3C20090704195801.A5A833B7BE%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7283 - in Lobby/TASClient: . Python	Python/engine Python/scripts">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Jul  4 21:58:01 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002052.html">[Taspring-linux-commit] r7282 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002054.html">[Taspring-linux-commit] r7284 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2053">[ date ]</a>
+              <a href="thread.html#2053">[ thread ]</a>
+              <a href="subject.html#2053">[ subject ]</a>
+              <a href="author.html#2053">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2009-07-04 21:58:00 +0200 (Sat, 04 Jul 2009)
+New Revision: 7283
+
+Added:
+   Lobby/TASClient/Python/scripts/mapdownload.py
+Modified:
+   Lobby/TASClient/LobbyScriptUnit.pas
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/Python/api.txt
+   Lobby/TASClient/Python/engine/handlers.py
+   Lobby/TASClient/SpringDownloaderFormUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* PYTHON : few small fixes in the handler
+* PYTHON : map/mod downloading can be canceled now from both progress callback and startdownload callin
+* PYTHON : api.txt updated
+* PYTHON : new script to move the map downloading progress under the minimap if its downloading the current battle map
+* Battle sorting using insertion sort instead of quick sort to avoid moving battles
+
+Modified: Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- Lobby/TASClient/LobbyScriptUnit.pas	2009-07-04 05:18:32 UTC (rev 7282)
++++ Lobby/TASClient/LobbyScriptUnit.pas	2009-07-04 19:58:00 UTC (rev 7283)
+@@ -26,6 +26,14 @@
+   end;
+   PScriptSimpleCallback = ^TScriptSimpleCallback;
+ 
++  TScriptDownloadCallback = record
++    moduleName : string;
++    functionName : string;
++    args: PPyObject;
++    form: TForm;
++  end;
++  PScriptDownloadCallback = ^TScriptDownloadCallback;
++
+   TScriptMenuItemCallBack = record
+     moduleName : string;
+     functionName : string;
+@@ -165,7 +173,7 @@
+       procedure LockCallback;
+       procedure UnlockCallback;
+       procedure Print(data : string);
+-      procedure DownloadCallbackEvent(snc: PScriptSimpleCallback;progress: integer);
++      procedure DownloadCallbackEvent(snc: PScriptDownloadCallback;progress: integer);
+ 
+ 
+     public
+@@ -287,7 +295,7 @@
+ 
+ uses PythonScriptDebugFormUnit, Utility, MapListFormUnit, HostBattleFormUnit,
+ BattleFormUnit, ReplaysUnit, PreferencesFormUnit, CustomizeGUIFormUnit,
+-TypInfo,SpringDownloaderFormUnit;
++TypInfo, SpringDownloaderFormUnit;
+ 
+ 
+ //------------------------------------------------------------------------------------------------------
+@@ -834,7 +842,7 @@
+   CS.Leave;
+ end;
+ 
+-procedure TCallback.DownloadCallbackEvent(snc: PScriptSimpleCallback;progress: integer);
++procedure TCallback.DownloadCallbackEvent(snc: PScriptDownloadCallback;progress: integer);
+ var
+   m : PPyObject;
+ begin
+@@ -843,7 +851,8 @@
+   begin
+     m := FindFunction(snc.moduleName,snc.functionName);
+     PyList_SetItem(snc.args,0,PyLong_FromLong(progress));
+-    EvalPyFunction(m,PyList_AsTuple(snc.args));
++    if EvalPyFunction(m,PyList_AsTuple(snc.args)) then
++      TSpringDownloaderForm(snc.form).CancelButtonClick(nil);
+   end;
+   ReleaseMainThread;
+ end;
+@@ -1291,13 +1300,15 @@
+ 
+ procedure TCallback.DownloadMap(mapName: string; mapHash: integer; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string);
+ var
+-  snc : PScriptSimpleCallback;
++  snc : PScriptDownloadCallback;
+   nForm: TSpringDownloaderForm;
+ begin
+   nForm := SpringDownloaderFormUnit.DownloadMap(mapHash,mapName);
++  if nForm = nil then Exit;
+   New(snc);
+   snc.moduleName := callbackModuleName;
+   snc.functionName := callbackFunctionName;
++  snc.form := nForm;
+   with GetPythonEngine do
+   begin
+     snc.args := VariantAsPyObject(callbackArgs);
+@@ -1308,13 +1319,15 @@
+ end;
+ procedure TCallback.DownloadMod(modName: string; modHash: integer; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string);
+ var
+-  snc : PScriptSimpleCallback;
++  snc : PScriptDownloadCallback;
+   nForm: TSpringDownloaderForm;
+ begin
+   nForm := SpringDownloaderFormUnit.DownloadMod(modHash,modName);
++  if nForm = nil then Exit;
+   New(snc);
+   snc.moduleName := callbackModuleName;
+   snc.functionName := callbackFunctionName;
++  snc.form := nForm;
+   with GetPythonEngine do
+   begin
+     snc.args := VariantAsPyObject(callbackArgs);
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2009-07-04 05:18:32 UTC (rev 7282)
++++ Lobby/TASClient/MainUnit.dfm	2009-07-04 19:58:00 UTC (rev 7283)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 396
+-  Top = 173
++  Left = 506
++  Top = 174
+   Width = 850
+   Height = 538
+   Caption = '.'
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2009-07-04 05:18:32 UTC (rev 7282)
++++ Lobby/TASClient/MainUnit.pas	2009-07-04 19:58:00 UTC (rev 7283)
+@@ -565,9 +565,9 @@
+   );
+ 
+ const
+-  VERSION_NUMBER = '0.49'; // Must be float value! (with a period as a decimal seperator)
++  VERSION_NUMBER = '0.50'; // Must be float value! (with a period as a decimal seperator)
+   CHECK_BETA_LOBBY_URL = '<A HREF="http://tasclient.no-ip.org/TASClient_update_v3.txt">http://tasclient.no-ip.org/TASClient_update_v3.txt</A>';
+-  PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER;
++  PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER + ' beta';
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+   ASSUME_TIMEOUT_INTERVAL = 30000; // in milliseconds. Must be greater than KEEP_ALIVE_INTERVAL! If server hasn't send any data to us within this interval, then we assume timeout occured. It's us who must make sure we get constant replies from server by pinging it.
+   LOCAL_TAB = '$Local'; // caption of main (command) tab window. Must be special so that is different from channel names or user names, that is why there is a &quot;$&quot; in front of it.
+@@ -8866,13 +8866,28 @@
+   If Ascending is False, then the list will be sorted in descending order. }
+ procedure TMainForm.SortBattlesList(BattleList: TList; SortStyle: Byte; Ascending: Boolean);
+ var
+-  i, j: Integer;
++  i, index, j: Integer;
+   tmp: TBattle;
+   tmpNode: PVirtualNode;
+ begin
+-  BattleSorting := SortStyle;
++  {*BattleSorting := SortStyle;
+   BattleSortingDirection := Ascending;
+-  BattleList.Sort(BattleSortCompare);
++  BattleList.Sort(BattleSortCompare);*}
++  for j := 1 to BattleList.Count-1 do
++  begin
++    Index := j;
++    for i := Index-1 downto 0 do begin
++      if (CompareBattles(TBattle(BattleList[Index]), TBattle(BattleList[i]), SortStyle, Ascending) &lt; 0) then
++      begin
++        // swap:
++        tmp := BattleList[i];
++        BattleList[i] := BattleList[Index];
++        BattleList[Index] := tmp;
++        Dec(Index);
++      end
++      else break;
++    end;
++  end;
+ 
+   tmpNode := nil;
+   tmpNode := VDTBattles.GetFirst();
+
+Modified: Lobby/TASClient/Python/api.txt
+===================================================================
+--- Lobby/TASClient/Python/api.txt	2009-07-04 05:18:32 UTC (rev 7282)
++++ Lobby/TASClient/Python/api.txt	2009-07-04 19:58:00 UTC (rev 7283)
+@@ -11,6 +11,9 @@
+ - out_PROTOCOLCMD(args) return newArgs
+ 	PROTOCOLCMD can be any of the outgoing protocol command : SAY, SAYEX ...
+ 	see the protocol documentation for more information
++- all_in(args) return newArgs
++- all_in2(args) return newArgs
++- all_out(args)	return newArgs
+ - onLoggedIn
+ - onDisconnect
+ - onLogin
+@@ -24,8 +27,9 @@
+ - onURLClick(channel,url) return dontLetLobbyHandleIt : boolean
+ - onChatDblClick(channel,charPos,line) return dontLetLobbyHandleIt : boolean
+ - onStartSpring(args) return newArgs : string
+-- onDownloadModStart(formName,modHash,modName)
+-- onDownloadMapStart(formName,mapHash,mapName)
++- onDownloadModStart(formName,modHash,modName) return Cancel : boolean
++- onDownloadMapStart(formName,mapHash,mapName) return Cancel : boolean
++- timer_NBSECONDSINTERVAL()
+ 
+ 
+ Callback class
+@@ -62,12 +66,12 @@
+ - LeaveBattle
+ - StartBattle
+ - ChangeMap(mapName)
+-- DownloadMap(mapName,mapHash,callBackArgs,callBackModuleName,callBackFunctionName)
++- DownloadMap(mapName,mapHash,callBackArgs,callBackModuleName,callBackFunctionName) return Cancel : boolean
+ 	The progress in % is returned as first argument added to the argsTuple.
+ 	Progress = -1 : download complete
+ 	Progress = -2 : download failed (file not found, SD not launched etc)
+ 	Progress = -3 : download canceled
+-- DownloadMod(modName,modHash,callBackArgs,callBackModuleName,callBackFunctionName)
++- DownloadMod(modName,modHash,callBackArgs,callBackModuleName,callBackFunctionName) return Cancel : boolean
+ 	Same as DownloadMap
+ 
+ GUI Class
+
+Modified: Lobby/TASClient/Python/engine/handlers.py
+===================================================================
+--- Lobby/TASClient/Python/engine/handlers.py	2009-07-04 05:18:32 UTC (rev 7282)
++++ Lobby/TASClient/Python/engine/handlers.py	2009-07-04 19:58:00 UTC (rev 7283)
+@@ -131,7 +131,7 @@
+ 			returned = function()
+ 		else:
+ 			if total_args &gt; spaces:
+-				print 'Too many arguments in function %s of %s' % (funcname, s)
++				print 'Too many arguments in function %s of %s' % (function.__name__, inspect.getmodule(function))
+ 			else:
+ 				args = args.split(' ',total_args-1)
+ 				returned = function(*args)
+@@ -142,8 +142,11 @@
+ 			if returned == None: data = args
+ 			else: data = returned
+ 			if type(data) in (list, tuple): data = ' '.join(data)
+-			if data: data = '%s %s' % (cmd, data)
+-			else: data = cmd
++			if data:
++				if cmd!=None:
++					data = '%s %s' % (cmd, data)
++			else:
++				data = cmd
+ 	else:
+ 		print ' %s has an attribute %s but it is not a function' % (s, funcname)
+ 	return data
+@@ -167,7 +170,7 @@
+ 			return _call_function(function, spaces, data, cmd, args)
+ 		elif 'all_%s' % direction in dir(script):
+ 			exec 'function = script.all_%s' % direction
+-			return _call_function(function, spaces, data, cmd, data)
++			return _call_function(function, spaces+1, data, None, data)
+ 	return data
+ 	
+ def handleIn2(data, recursing=0):
+@@ -243,7 +246,7 @@
+ 	return _handle_callin('onDownloadModStart',formName+' '+str(modHash)+' '+modName)
+ 	
+ def onDownloadMapStart(formName,mapHash,mapName):
+-	return _handle_callin('onDownloadModStart',formName+' '+str(mapHash)+' '+mapName)
++	return _handle_callin('onDownloadMapStart',formName+' '+str(mapHash)+' '+mapName)
+ 	
+ def onStartSpring(args):
+ 	return _handle_callin('onStartSpring',args)
+
+Added: Lobby/TASClient/Python/scripts/mapdownload.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/mapdownload.py	                        (rev 0)
++++ Lobby/TASClient/Python/scripts/mapdownload.py	2009-07-04 19:58:00 UTC (rev 7283)
+@@ -0,0 +1,76 @@
++import lobbyscript
++
++api = lobbyscript.Callback()
++gui = lobbyscript.GUI()
++
++oldParent = dict()
++
++acceptNextDownload = False
++startDownload = False
++dlFormName = ''
++
++def changeComponentProp(comp,prop,value):
++	changeComponentPropFull(comp,'',prop,value)
++	
++def changeComponentPropFull(comp,path,prop,value):
++	p = gui.GetControlProperties(comp,path)
++	p[prop] = value
++	return gui.SetControlProperties(comp,path,p)
++	
++def onDownloadProgress(progress):
++	global dlFormName
++	if progress == -2:
++		p = gui.GetControlProperties(dlFormName+'.lblInfo','')
++		changeComponentProp(dlFormName+'.lblProgress','Caption',p['Caption'])
++		p = gui.GetControlProperties(dlFormName+'.lblInfo','Font')
++		changeComponentPropFull(dlFormName+'.lblProgress','Font','Color',p['Color'])
++	if progress == -1 or progress == -3:
++		for control in oldParent:
++			changeComponentProp(control,'Parent',oldParent[control])
++		changeComponentProp('BattleForm.MapDescLabel','Visible','True')
++		dlFormName = ''
++		
++def all_in(args):
++	global startDownload
++	if startDownload:
++		currBattle = api.GetCurrentBattle()
++		api.DownloadMap(currBattle['Battle']['Map'],currBattle['Battle']['MapHash'],(),'mapdownload','onDownloadProgress')
++		startDownload = False
++	
++def onDownloadMapStart(formName,mapHash,mapName):
++	global acceptNextDownload
++	global startDownload
++	global dlFormName
++	currBattle = api.GetCurrentBattle()
++	if currBattle != None and currBattle['Battle']['Map'] == mapName:
++		print acceptNextDownload
++		if acceptNextDownload:
++			changeComponentProp('BattleForm.MapDescLabel','Visible','False')		
++			
++			p = gui.GetControlProperties(formName+'.ProgressBar','')
++			oldParent[formName+'.ProgressBar'] = p['Parent']
++			changeComponentProp(formName+'.ProgressBar','Parent','BattleForm.SpTBXPanel3')
++			changeComponentProp(formName+'.ProgressBar','Align','alBottom')
++			
++			p = gui.GetControlProperties(formName+'.lblProgress','')
++			oldParent[formName+'.lblProgress'] = p['Parent']
++			changeComponentProp(formName+'.lblProgress','Parent','BattleForm.SpTBXPanel3')
++			changeComponentProp(formName+'.lblProgress','Align','alLeft')
++			
++			p = gui.GetControlProperties(formName+'.CancelButton','')
++			oldParent[formName+'.CancelButton'] = p['Parent']
++			changeComponentProp(formName+'.CancelButton','Parent','BattleForm.SpTBXPanel3')
++			changeComponentProp(formName+'.CancelButton','Align','alRight')
++
++			dlFormName = formName
++			acceptNextDownload = False
++			return False
++		else:
++			acceptNextDownload = True
++			startDownload = True
++			if dlFormName != '':
++				for control in oldParent:
++					changeComponentProp(control,'Parent',oldParent[control])
++				changeComponentProp('BattleForm.MapDescLabel','Visible','True')
++				dlFormName = ''
++			return True
+
+Modified: Lobby/TASClient/SpringDownloaderFormUnit.pas
+===================================================================
+--- Lobby/TASClient/SpringDownloaderFormUnit.pas	2009-07-04 05:18:32 UTC (rev 7282)
++++ Lobby/TASClient/SpringDownloaderFormUnit.pas	2009-07-04 19:58:00 UTC (rev 7283)
+@@ -8,7 +8,7 @@
+   LobbyScriptUnit, Math;
+ 
+ type
+-  TProgressEvent = procedure(snc: PScriptSimpleCallback;progress: integer) of object;
++  TProgressEvent = procedure(snc: PScriptDownloadCallback;progress: integer) of object;
+ 
+   TSpringDownloaderForm = class(TForm)
+     SpTBXTitleBar1: TSpTBXTitleBar;
+@@ -42,7 +42,7 @@
+ 
+     FOnProgress: TProgressEvent;
+   public
+-    cbInfo: PScriptSimpleCallback;
++    cbInfo: PScriptDownloadCallback;
+     procedure StartDownload(dlType: string; dlHash : integer; dlName: string; joinBattleWhenDownloadComplete : integer = 0);
+     property OnProgress: TProgressEvent read FOnProgress write FOnProgress;
+   end;
+@@ -119,6 +119,7 @@
+ function DownloadMod(modHash : integer; modName: string; joinBattleWhenDownloadComplete : integer = 0):TSpringDownloaderForm;
+ var
+   url: string;
++  cancel: boolean;
+ begin
+   if not Preferences.EnableSpringDownloader then
+   begin
+@@ -132,14 +133,18 @@
+   Application.CreateForm(TSpringDownloaderForm, Result);
+   Result.StartDownload('MOD',modHash,modName,joinBattleWhenDownloadComplete);
+   AcquireMainThread;
+-  try if not Preferences.ScriptsDisabled then handlers.onDownloadModStart(LobbyScriptUnit.GetStringFromComponent(Result),modHash,modName); except end;
++  try if not Preferences.ScriptsDisabled then cancel := handlers.onDownloadModStart(LobbyScriptUnit.GetStringFromComponent(Result),modHash,modName); except end;
+   ReleaseMainThread;
+-  Misc.ShowAndSetFocus(Result.DetailsButton);
++  if cancel then
++    Result.CancelButtonClick(nil)
++  else
++    Misc.ShowAndSetFocus(Result.CancelButton);
+ end;
+ 
+ function DownloadMap(mapHash : integer; mapName: string; noBrowser : boolean = False):TSpringDownloaderForm;
+ var
+   url: string;
++  cancel: boolean;
+ begin
+   if not Preferences.EnableSpringDownloader then
+   begin
+@@ -153,10 +158,14 @@
+     Exit;
+   Application.CreateForm(TSpringDownloaderForm, Result);
+   Result.StartDownload('MAP',mapHash,mapName);
++  cancel := false;
+   AcquireMainThread;
+-  try if not Preferences.ScriptsDisabled then handlers.onDownloadMapStart(LobbyScriptUnit.GetStringFromComponent(Result),mapHash,mapName); except end;
++  try if not Preferences.ScriptsDisabled then cancel := handlers.onDownloadMapStart(LobbyScriptUnit.GetStringFromComponent(Result),mapHash,mapName); except end;
+   ReleaseMainThread;
+-  Misc.ShowAndSetFocus(Result.DetailsButton);
++  if cancel then
++    Result.CancelButtonClick(nil)
++  else
++    Misc.ShowAndSetFocus(Result.CancelButton);
+ end;
+ 
+ procedure TSpringDownloaderForm.tmrProgressTimer(Sender: TObject);
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2009-07-04 05:18:32 UTC (rev 7282)
++++ Lobby/TASClient/TASClient.dof	2009-07-04 19:58:00 UTC (rev 7283)
+@@ -113,9 +113,9 @@
+ IncludeVerInfo=1
+ AutoIncBuild=1
+ MajorVer=0
+-MinorVer=49
++MinorVer=50
+ Release=0
+-Build=627
++Build=628
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.49.0.627
++FileVersion=0.50.0.628
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002052.html">[Taspring-linux-commit] r7282 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002054.html">[Taspring-linux-commit] r7284 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2053">[ date ]</a>
+              <a href="thread.html#2053">[ thread ]</a>
+              <a href="subject.html#2053">[ subject ]</a>
+              <a href="author.html#2053">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

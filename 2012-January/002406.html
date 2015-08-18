@@ -1,0 +1,190 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7636 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2012-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7636%20-%20Lobby/TASClient&In-Reply-To=%3C20120126201641.3DB83A81C7E%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002405.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7636 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7636%20-%20Lobby/TASClient&In-Reply-To=%3C20120126201641.3DB83A81C7E%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7636 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Jan 26 21:16:41 CET 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002405.html">[Taspring-linux-commit] r7635 - Lobby/TASClient
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2406">[ date ]</a>
+              <a href="thread.html#2406">[ thread ]</a>
+              <a href="subject.html#2406">[ subject ]</a>
+              <a href="author.html#2406">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2012-01-26 21:16:40 +0100 (Thu, 26 Jan 2012)
+New Revision: 7636
+
+Modified:
+   Lobby/TASClient/LogonFormUnit.pas
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/NewAccountUnit.dfm
+   Lobby/TASClient/ReplaysUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* fixed account registration not working properly
+* only the first version number is checked when starting a replay
+
+Modified: Lobby/TASClient/LogonFormUnit.pas
+===================================================================
+--- Lobby/TASClient/LogonFormUnit.pas	2012-01-15 16:49:56 UTC (rev 7635)
++++ Lobby/TASClient/LogonFormUnit.pas	2012-01-26 20:16:40 UTC (rev 7636)
+@@ -124,8 +124,9 @@
+   txtPassword.Text :=  NewAccountForm.PasswordEdit.Text;
+ 
+   PasswordChanged := true;
++  Status.Registering := True;
+ 
+-  PostMessage(MainForm.Handle, WM_DOREGISTER, 0, 0);
++  btLoginClick(nil);
+ end;
+ 
+ procedure TLogonForm.txtLoginKeyPress(Sender: TObject; var Key: Char);
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2012-01-15 16:49:56 UTC (rev 7635)
++++ Lobby/TASClient/MainUnit.dfm	2012-01-26 20:16:40 UTC (rev 7636)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 388
+-  Top = 453
++  Left = 786
++  Top = 128
+   Width = 882
+   Height = 567
+   Caption = 'TASClient'
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2012-01-15 16:49:56 UTC (rev 7635)
++++ Lobby/TASClient/MainUnit.pas	2012-01-26 20:16:40 UTC (rev 7636)
+@@ -2156,7 +2156,7 @@
+   if Status.ConnectionState &lt;&gt; Disconnected then Exit;
+ 
+   Status.Registering := True;
+-  ConnectButton.OnClick(nil);
++  TryToConnect;
+ end;
+ 
+ procedure TMainForm.OnCloseTabMessage(var Msg: TMessage); // responds to WM_CLOSETAB message
+
+Modified: Lobby/TASClient/NewAccountUnit.dfm
+===================================================================
+--- Lobby/TASClient/NewAccountUnit.dfm	2012-01-15 16:49:56 UTC (rev 7635)
++++ Lobby/TASClient/NewAccountUnit.dfm	2012-01-26 20:16:40 UTC (rev 7636)
+@@ -1,6 +1,6 @@
+ object NewAccountForm: TNewAccountForm
+-  Left = 932
+-  Top = 495
++  Left = 1117
++  Top = 802
+   BorderStyle = bsDialog
+   Caption = 'Create new account'
+   ClientHeight = 199
+
+Modified: Lobby/TASClient/ReplaysUnit.pas
+===================================================================
+--- Lobby/TASClient/ReplaysUnit.pas	2012-01-15 16:49:56 UTC (rev 7635)
++++ Lobby/TASClient/ReplaysUnit.pas	2012-01-26 20:16:40 UTC (rev 7636)
+@@ -1180,15 +1180,16 @@
+ 
+     FileName := Replay.FullFileName;
+ 
+-    springDir := ExtractFilePath(Application.ExeName)+'OldSpring\'+Replay.SpringVersion+'\';
+-    if not FileExists(springDir+'spring.exe') then
++    ParseDelimited(version1,springExeVersion,'.','');
++    ParseDelimited(version2,Replay.SpringVersion,'.','');
++
++    if version2.Count &gt;= 1 then
++      springDir := ExtractFilePath(Application.ExeName)+'OldSpring\'+version2[0]+'\';
++    if (version2.Count = 0) or not FileExists(springDir+'spring.exe') then
+     begin
+       springExeVersion := GetSpringVersionFromEXE;
+ 
+-      ParseDelimited(version1,springExeVersion,'.','');
+-      ParseDelimited(version2,Replay.SpringVersion,'.','');
+-
+-      if (springExeVersion &lt;&gt; Replay.SpringVersion) and (((version1.Count &lt; 3) and (version2.Count &lt; 3)) or not((version1[0] = version2[0]) and (version1[1] = version2[1]) and (version1[2] = version2[2]))) then
++      if (version1.Count &lt; 1) or (version2.Count &lt; 1) or (version1[0] &lt;&gt; version2[0]) then
+         if MessageDlg(springDir + _('spring.exe not found.')+EOL+EOL+_('Watching a replay with the wrong spring version may not work.')+EOL+EOL+_('Watch with the default spring.exe (')+springExeVersion+') ?',mtWarning,[mbYes,mbNo],0) = mrNo then
+           Exit;
+       springDir := ExtractFilePath(Application.ExeName);
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2012-01-15 16:49:56 UTC (rev 7635)
++++ Lobby/TASClient/TASClient.dof	2012-01-26 20:16:40 UTC (rev 7636)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=95
+ Release=0
+-Build=1346
++Build=1350
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -125,8 +125,8 @@
+ CodePage=1252
+ [Version Info Keys]
+ CompanyName=
+-FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.95.0.1346
++FileDescription=TASClient
++FileVersion=0.95.0.1350
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002405.html">[Taspring-linux-commit] r7635 - Lobby/TASClient
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2406">[ date ]</a>
+              <a href="thread.html#2406">[ thread ]</a>
+              <a href="subject.html#2406">[ subject ]</a>
+              <a href="author.html#2406">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

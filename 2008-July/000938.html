@@ -1,0 +1,214 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6158 - trunk/rts/Game
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6158%20-%20trunk/rts/Game&In-Reply-To=%3C20080712172803.109834937%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000937.html">
+   <LINK REL="Next"  HREF="000939.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6158 - trunk/rts/Game</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6158%20-%20trunk/rts/Game&In-Reply-To=%3C20080712172803.109834937%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6158 - trunk/rts/Game">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Jul 12 19:28:02 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000937.html">[Taspring-linux-commit] r6157 - trunk/tools/unitsync/test
+</A></li>
+        <LI>Next message: <A HREF="000939.html">[Taspring-linux-commit] r6159 - trunk/rts/Game/StartScripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#938">[ date ]</a>
+              <a href="thread.html#938">[ thread ]</a>
+              <a href="subject.html#938">[ subject ]</a>
+              <a href="author.html#938">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-07-12 19:28:02 +0200 (Sat, 12 Jul 2008)
+New Revision: 6158
+
+Modified:
+   trunk/rts/Game/GameServer.cpp
+Log:
+* demos should not desync any mre when recording a video
+
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-07-12 17:16:45 UTC (rev 6157)
++++ trunk/rts/Game/GameServer.cpp	2008-07-12 17:28:02 UTC (rev 6158)
+@@ -255,6 +255,8 @@
+ 				outstandingSyncFrames.push_back(serverframenum);
+ #endif
+ 			Broadcast(boost::shared_ptr&lt;const RawPacket&gt;(buf));
++			if (!skipping)
++				return;
+ 		}
+ 		else if ( msgCode != NETMSG_GAMEDATA &amp;&amp;
+ 						msgCode != NETMSG_SETPLAYERNUM &amp;&amp;
+@@ -420,21 +422,14 @@
+ 		}
+ 	}
+ 
+-	// when hosting a demo, read from file and broadcast data
+-	if (demoReader)
+-	{
+-		CheckSync();
+-		SendDemoData();
+-	}
+-
+ 	if (!gameStartTime)
+ 	{
+ 		CheckForGameStart();
+ 	}
+-	else if (serverframenum &gt; 0 &amp;&amp; !demoReader)
++	else if (serverframenum &gt; 0 || demoReader)
+ 	{
+ 		CreateNewFrame(true, false);
+-		if (!sentGameOverMsg)
++		if (!sentGameOverMsg &amp;&amp; !demoReader)
+ 			CheckForGameEnd();
+ 	}
+ 
+@@ -1241,57 +1236,66 @@
+ 
+ void CGameServer::CreateNewFrame(bool fromServerThread, bool fixedFrameTime)
+ {
++	if (!demoReader) // use NEWFRAME_MSGes from demo otherwise
++	{
+ #if (BOOST_VERSION &gt;= 103500)
+-	if (!fromServerThread)
+-		boost::recursive_mutex::scoped_lock scoped_lock(gameServerMutex, boost::defer_lock);
+-	else
+-		boost::recursive_mutex::scoped_lock scoped_lock(gameServerMutex);
++		if (!fromServerThread)
++			boost::recursive_mutex::scoped_lock scoped_lock(gameServerMutex, boost::defer_lock);
++		else
++			boost::recursive_mutex::scoped_lock scoped_lock(gameServerMutex);
+ #else
+-	boost::recursive_mutex::scoped_lock scoped_lock(gameServerMutex,!fromServerThread);
++		boost::recursive_mutex::scoped_lock scoped_lock(gameServerMutex,!fromServerThread);
+ #endif
+-	CheckSync();
+-	int newFrames = 1;
++		CheckSync();
++		int newFrames = 1;
++	
++		if(!fixedFrameTime){
++			unsigned currentTick = SDL_GetTicks();
++			unsigned timeElapsed = currentTick - lastTick;
++			if (timeElapsed&gt;200) {
++				timeElapsed=200;
++			}
+ 
+-	if(!fixedFrameTime){
+-		unsigned currentTick = SDL_GetTicks();
+-		unsigned timeElapsed = currentTick - lastTick;
+-		if (timeElapsed&gt;200) {
+-			timeElapsed=200;
+-		}
+-
+ #ifdef DEBUG
+-		if(gameClientUpdated){
+-			gameClientUpdated=false;
+-		}
++			if(gameClientUpdated){
++				gameClientUpdated=false;
++			}
+ #endif
+ 
+-		timeLeft += GAME_SPEED * internalSpeed * float(timeElapsed) / 1000.0f;
+-		lastTick=currentTick;
+-		newFrames = (timeLeft &gt; 0)? int(ceil(timeLeft)): 0;
+-		timeLeft -= newFrames;
+-	}
+-
+-	bool rec = false;
++			timeLeft += GAME_SPEED * internalSpeed * float(timeElapsed) / 1000.0f;
++			lastTick=currentTick;
++			newFrames = (timeLeft &gt; 0)? int(ceil(timeLeft)): 0;
++			timeLeft -= newFrames;
++		}
++	
++		bool rec = false;
+ #ifndef NO_AVI
+-	rec = game &amp;&amp; game-&gt;creatingVideo;
++		rec = game &amp;&amp; game-&gt;creatingVideo;
+ #endif
+-	bool normalFrame = !IsPaused &amp;&amp; !rec;
+-	bool videoFrame = !IsPaused &amp;&amp; fixedFrameTime;
+-	bool singleStep = fixedFrameTime &amp;&amp; !rec;
+-
+-	if(normalFrame || videoFrame || singleStep){
+-		for(int i=0; i &lt; newFrames; ++i){
+-			++serverframenum;
+-			//Send out new frame messages.
+-			if (0 == (serverframenum % serverKeyframeIntervall))
+-				Broadcast(CBaseNetProtocol::Get().SendKeyFrame(serverframenum));
+-			else
+-				Broadcast(CBaseNetProtocol::Get().SendNewFrame());
++		bool normalFrame = !IsPaused &amp;&amp; !rec;
++		bool videoFrame = !IsPaused &amp;&amp; fixedFrameTime;
++		bool singleStep = fixedFrameTime &amp;&amp; !rec;
++	
++		if(normalFrame || videoFrame || singleStep){
++			for(int i=0; i &lt; newFrames; ++i){
++				assert(!demoReader);
++				++serverframenum;
++				//Send out new frame messages.
++				if (0 == (serverframenum % serverKeyframeIntervall))
++					Broadcast(CBaseNetProtocol::Get().SendKeyFrame(serverframenum));
++				else
++					Broadcast(CBaseNetProtocol::Get().SendNewFrame());
+ #ifdef SYNCCHECK
+-			outstandingSyncFrames.push_back(serverframenum);
++				outstandingSyncFrames.push_back(serverframenum);
+ #endif
++			}
+ 		}
+ 	}
++	else
++	{
++		CheckSync();
++		SendDemoData();
++	}
+ }
+ 
+ void CGameServer::UpdateLoop()
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000937.html">[Taspring-linux-commit] r6157 - trunk/tools/unitsync/test
+</A></li>
+	<LI>Next message: <A HREF="000939.html">[Taspring-linux-commit] r6159 - trunk/rts/Game/StartScripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#938">[ date ]</a>
+              <a href="thread.html#938">[ thread ]</a>
+              <a href="subject.html#938">[ subject ]</a>
+              <a href="author.html#938">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

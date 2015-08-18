@@ -1,0 +1,2879 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5228 - in branches/testserver: . ChanServ	Tools Tools/TransferOldAccounts WebInterface WebInterface/inc
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5228%20-%20in%20branches/testserver%3A%20.%20ChanServ%0A%09Tools%20Tools/TransferOldAccounts%20WebInterface%20WebInterface/inc&In-Reply-To=%3CE1JABZi-0003H9-Fg%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000035.html">
+   <LINK REL="Next"  HREF="000037.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5228 - in branches/testserver: . ChanServ	Tools Tools/TransferOldAccounts WebInterface WebInterface/inc</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5228%20-%20in%20branches/testserver%3A%20.%20ChanServ%0A%09Tools%20Tools/TransferOldAccounts%20WebInterface%20WebInterface/inc&In-Reply-To=%3CE1JABZi-0003H9-Fg%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5228 - in branches/testserver: . ChanServ	Tools Tools/TransferOldAccounts WebInterface WebInterface/inc">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Jan  2 22:56:34 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000035.html">[Taspring-linux-commit] r5227 - trunk/Documentation/Lobby
+</A></li>
+        <LI>Next message: <A HREF="000037.html">[Taspring-linux-commit] r5229 - trunk/AI/Global/AAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#36">[ date ]</a>
+              <a href="thread.html#36">[ thread ]</a>
+              <a href="subject.html#36">[ subject ]</a>
+              <a href="author.html#36">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-01-02 22:56:33 +0100 (Wed, 02 Jan 2008)
+New Revision: 5228
+
+Added:
+   branches/testserver/ChanServ/DBInterface.java
+   branches/testserver/ChanServ/LogCleaner.java
+   branches/testserver/Tools/
+   branches/testserver/Tools/TransferOldAccounts/
+   branches/testserver/Tools/TransferOldAccounts/.classpath
+   branches/testserver/Tools/TransferOldAccounts/.project
+   branches/testserver/Tools/TransferOldAccounts/Account.java
+   branches/testserver/Tools/TransferOldAccounts/Accounts.java
+   branches/testserver/Tools/TransferOldAccounts/DBInterface.java
+   branches/testserver/Tools/TransferOldAccounts/TransferOldAccounts.java
+   branches/testserver/WebInterface/renew.php
+Removed:
+   branches/testserver/Tools/TransferOldAccounts/
+   branches/testserver/Tools/TransferOldAccounts/.classpath
+   branches/testserver/Tools/TransferOldAccounts/.project
+   branches/testserver/Tools/TransferOldAccounts/Account.java
+   branches/testserver/Tools/TransferOldAccounts/Accounts.java
+   branches/testserver/Tools/TransferOldAccounts/DBInterface.java
+   branches/testserver/Tools/TransferOldAccounts/TransferOldAccounts.java
+Modified:
+   branches/testserver/ChanServ/AntiSpamSystem.java
+   branches/testserver/ChanServ/ChanServ.java
+   branches/testserver/ChanServ/Channel.java
+   branches/testserver/ChanServ/Client.java
+   branches/testserver/ChanServ/Log.java
+   branches/testserver/ChanServ/Misc.java
+   branches/testserver/ChanServ/RemoteAccessServer.java
+   branches/testserver/WebInterface/ban.list.php
+   branches/testserver/WebInterface/ban.process.php
+   branches/testserver/WebInterface/inc/constants.inc
+   branches/testserver/WebInterface/inc/functions.php
+   branches/testserver/WebInterface/inc/head.php
+   branches/testserver/WebInterface/searchlog.php
+   branches/testserver/WebInterface/userinfo.php
+Log:
+* Update test server to approx released TASServer.
+  svn merge -r 5033:5227 <A HREF="https://spring.clan-sy.com/svn/spring/trunk/Lobby/TASServer">https://spring.clan-sy.com/svn/spring/trunk/Lobby/TASServer</A>
+
+
+
+Modified: branches/testserver/ChanServ/AntiSpamSystem.java
+===================================================================
+--- branches/testserver/ChanServ/AntiSpamSystem.java	2008-01-02 21:43:32 UTC (rev 5227)
++++ branches/testserver/ChanServ/AntiSpamSystem.java	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -12,6 +12,9 @@
+  * points to users based on message length and message repetition. It is possible
+  * to set penalty points for events per channel basis.
+  * 
++ * 25x12x2007: Added detection of &quot;CLIENTSTATUS spam&quot; exploit, which could freeze
++ * all players on the server who are using TASClient.
++ * 
+  */
+ 
+ /**
+@@ -108,6 +111,10 @@
+ 
+ public class AntiSpamSystem {
+ 
++	final static int CHECK_CLIENTSTATUSCHANGE_INTERVAL = 3000; // in milliseconds. Once every so milliseconds, we will reset the counter in Client class that counts how many CLIENTSTATUS command have been received from a user
++	final static float MAX_CLIENTSTATUSCHANGE_FREQUENCY = 5.0f; // max frequency of CLIENTSTATUS command (if we receive more than this times per second, we have a problem. We must still check MIN_CLIENTSTATUCCHANGE_COUNT_BEFORE_ALERT before taking actions, because a user might change status quickly (in few milliseconds) by accident (if spring crashes, for example)
++	final static int MIN_CLIENTSTATUCCHANGE_COUNT_BEFORE_ALERT = 5;
++	
+ 	// as a key in this list we use a combination of &quot;channame:username&quot;
+ 	static protected Map&lt;String, SpamRecord&gt; spamRecords;
+ 	
+@@ -115,7 +122,7 @@
+ 	static protected Map&lt;String, SpamSettings&gt; spamSettings;
+ 	
+ 	static private Timer antiSpamTimer;
+-
++	
+ 	// initializes the anti-spam system
+ 	public static void initialize() {
+ 		spamRecords = new HashMap&lt;String, SpamRecord&gt;();
+@@ -165,6 +172,27 @@
+ 		}
+ 	}
+ 	
++	public static void processClientStatusChange(Client client) {
++		if (System.currentTimeMillis() - client.clientStatusChangeCheckpoint &gt; CHECK_CLIENTSTATUSCHANGE_INTERVAL) {
++			// reset the counter:
++			client.clientStatusChangeCheckpoint = System.currentTimeMillis();
++			client.numClientStatusChanges = 0;
++		}
++		
++		client.numClientStatusChanges++;
++		
++		if (((System.currentTimeMillis() - client.clientStatusChangeCheckpoint) * 1.0f / client.numClientStatusChanges) &gt; MAX_CLIENTSTATUSCHANGE_FREQUENCY) {
++			if (client.numClientStatusChanges &gt; MIN_CLIENTSTATUCCHANGE_COUNT_BEFORE_ALERT) {
++				// reset the counter:
++				client.clientStatusChangeCheckpoint = System.currentTimeMillis();
++				client.numClientStatusChanges = 0;
++				
++				// take action:
++				ChanServ.sendLine(&quot;KICKUSER &quot; + client.name + &quot; CLIENTSTATUS command abuse - frequency too high&quot;);
++			}
++		}
++	}
++	
+ 	public static void setSpamSettingsForChannel(String chan, String settings) {
+ 		SpamSettings ss = SpamSettings.stringToSpamSettings(settings);
+ 		if (ss == null) {
+
+Modified: branches/testserver/ChanServ/ChanServ.java
+===================================================================
+--- branches/testserver/ChanServ/ChanServ.java	2008-01-02 21:43:32 UTC (rev 5227)
++++ branches/testserver/ChanServ/ChanServ.java	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -87,7 +87,9 @@
+ 	static Socket socket = null;
+     static PrintWriter sockout = null;
+     static BufferedReader sockin = null;
+-    static Timer timer; // keep alive timer
++    static Timer keepAliveTimer;
++    static Timer logCleanerTimer;
++    static boolean timersStarted = false;
+     
+     static Semaphore configLock = new Semaphore(1, true); // we use it when there is a danger of config object being used by main and TaskTimer threads simultaneously
+     
+@@ -101,12 +103,25 @@
+     static String lastMuteListChannel; // name of channel for which we are currently receiving (or we already did receive) mute list from the server
+ 	static Vector/*MuteListRequest*/ forwardMuteList = new Vector(); // list of current requests for mute lists.
+     
++	// database related:
++	public static DBInterface database;
++	private static String DB_URL = &quot;jdbc:<A HREF="mysql://127.0.0.1/ChanServLogs">mysql://127.0.0.1/ChanServLogs</A>&quot;;
++	private static String DB_username = &quot;&quot;;
++	private static String DB_password = &quot;&quot;;
++	
+     public static void closeAndExit() {
+     	closeAndExit(0);
+     }
+     	
+ 	public static void closeAndExit(int returncode) {
+ 		AntiSpamSystem.uninitialize();
++		if (timersStarted) {
++			try {
++				stopTimers();
++			} catch (Exception e) {
++				// ignore
++			}
++		}
+ 		Log.log(&quot;Program stopped.&quot;);
+ 		System.exit(returncode);
+ 	}
+@@ -145,6 +160,11 @@
+            //node = (Node)xpath.evaluate(&quot;config/account/username&quot;, config, XPathConstants.NODE);
+            //node.setTextContent(&quot;this is a test!&quot;);
+ 
++           // read database info:
++           DB_URL = (String)xpath.evaluate(&quot;config/database/url/text()&quot;, config, XPathConstants.STRING);
++           DB_username = (String)xpath.evaluate(&quot;config/database/username/text()&quot;, config, XPathConstants.STRING);
++           DB_password = (String)xpath.evaluate(&quot;config/database/password/text()&quot;, config, XPathConstants.STRING);
++           
+            // load remote access accounts:
+            node = (Node)xpath.evaluate(&quot;config/remoteaccessaccounts&quot;, config, XPathConstants.NODE);
+            if (node == null) {
+@@ -503,7 +523,9 @@
+ 			}
+ 		} else if (commands[0].equals(&quot;CLIENTSTATUS&quot;)) {
+ 			for (int i = 0; i &lt; clients.size(); i++) if (((Client)clients.get(i)).name.equals(commands[1])) {
+-				((Client)clients.get(i)).setStatus(Integer.parseInt(commands[2]));
++				Client client = (Client)clients.get(i); 
++				client.setStatus(Integer.parseInt(commands[2]));
++				AntiSpamSystem.processClientStatusChange(client);
+ 				break;
+ 			}
+ 		} else if (commands[0].equals(&quot;JOIN&quot;)) {
+@@ -512,9 +534,6 @@
+ 			if (chan == null) return false; // this could happen just after we unregistered the channel (since there is always some lag between us and the server)
+ 			chan.joined = true;
+ 			chan.clearClients();
+-			// put &quot;logging started&quot; header in the log file:
+-			Misc.outputLog(chan.logFileName, &quot;&quot;);
+-			Misc.outputLog(chan.logFileName, &quot;Log started on &quot; + Misc.easyDateFormat(&quot;dd/MM/yy&quot;));
+ 			// set topic, lock channel, ... :
+ 			if (!chan.isStatic) {
+ 				if (!chan.key.equals(&quot;&quot;))
+@@ -534,15 +553,15 @@
+ 			Channel chan = getChannel(commands[1]);
+ 			if (chan == null) return false; // this could happen just after we unregistered the channel (since there is always some lag between us and the server)
+ 			chan.addClient(commands[2]);
+-			Misc.outputLog(chan.logFileName, Misc.easyDateFormat(&quot;[HH:mm:ss]&quot;) + &quot; * &quot; + commands[2] + &quot; has joined &quot; + &quot;#&quot; + chan.name);
++			Log.toFile(chan.logFileName, &quot;* &quot; + commands[2] + &quot; has joined &quot; + &quot;#&quot; + chan.name);
+ 		} else if (commands[0].equals(&quot;LEFT&quot;)) { 
+ 			Channel chan = getChannel(commands[1]);
+ 			if (chan == null) return false; // this could happen just after we unregistered the channel (since there is always some lag between us and the server)
+ 			chan.removeClient(commands[2]);
+-			String out = Misc.easyDateFormat(&quot;[HH:mm:ss]&quot;) + &quot; * &quot; + commands[2] + &quot; has left &quot; + &quot;#&quot; + chan.name;
++			String out = &quot;* &quot; + commands[2] + &quot; has left &quot; + &quot;#&quot; + chan.name;
+ 			if (commands.length &gt; 3)
+ 				out = out + &quot; (&quot; + Misc.makeSentence(commands, 3) + &quot;)&quot;;
+-			Misc.outputLog(chan.logFileName, out);
++			Log.toFile(chan.logFileName, out);
+ 		} else if (commands[0].equals(&quot;JOINFAILED&quot;)) {
+ 			channels.add(new Channel(commands[1]));
+ 			Log.log(&quot;Failed to join #&quot; + commands[1] + &quot;. Reason: &quot; + Misc.makeSentence(commands, 2));
+@@ -550,14 +569,14 @@
+ 			Channel chan = getChannel(commands[1]);
+ 			if (chan == null) return false; // this could happen just after we unregistered the channel (since there is always some lag between us and the server)
+ 			chan.topic = Misc.makeSentence(commands, 4);
+-			Misc.outputLog(chan.logFileName, Misc.easyDateFormat(&quot;[HH:mm:ss]&quot;) + &quot; * Channel topic is '&quot; + chan.topic + &quot;' set by &quot; + commands[2]);
++			Log.toFile(chan.logFileName, &quot;* Channel topic is '&quot; + chan.topic + &quot;' set by &quot; + commands[2]);
+ 		} else if (commands[0].equals(&quot;SAID&quot;)) {
+ 			Channel chan = getChannel(commands[1]);
+ 			if (chan == null) return false; // this could happen just after we unregistered the channel (since there is always some lag between us and the server)
+ 			String user = commands[2];
+ 			String msg = Misc.makeSentence(commands, 3);
+ 			if (chan.antispam) AntiSpamSystem.processUserMsg(chan.name, user, msg);
+-			Misc.outputLog(chan.logFileName, Misc.easyDateFormat(&quot;[HH:mm:ss]&quot;) + &quot; &lt;&quot; + user + &quot;&gt; &quot; + msg);
++			Log.toFile(chan.logFileName, &quot;&lt;&quot; + user + &quot;&gt; &quot; + msg);
+ 			if ((msg.length() &gt; 0) &amp;&amp; (msg.charAt(0) == '!')) processUserCommand(msg.substring(1, msg.length()), getClient(user), chan);
+ 		} else if (commands[0].equals(&quot;SAIDEX&quot;)) {
+ 			Channel chan = getChannel(commands[1]);
+@@ -565,13 +584,13 @@
+ 			String user = commands[2];
+ 			String msg = Misc.makeSentence(commands, 3);
+ 			if (chan.antispam) AntiSpamSystem.processUserMsg(chan.name, user, msg);
+-			Misc.outputLog(chan.logFileName, Misc.easyDateFormat(&quot;[HH:mm:ss]&quot;) + &quot; * &quot; + user + &quot; &quot; + msg);
++			Log.toFile(chan.logFileName, &quot;* &quot; + user + &quot; &quot; + msg);
+ 		} else if (commands[0].equals(&quot;SAIDPRIVATE&quot;)) {
+ 			
+ 			String user = commands[1];
+ 			String msg = Misc.makeSentence(commands, 2);
+ 			
+-			Misc.outputLog(user + &quot;.log&quot;, Misc.easyDateFormat(&quot;[dd/MM/yy HH:mm:ss]&quot;) + &quot; &lt;&quot; + user + &quot;&gt; &quot; + msg);
++			Log.toFile(user + &quot;.log&quot;, &quot;&lt;&quot; + user + &quot;&gt; &quot; + msg);
+ 			if ((msg.length() &gt; 0) &amp;&amp; (msg.charAt(0)) == '!') processUserCommand(msg.substring(1, msg.length()), getClient(user), null);
+ 		} else if (commands[0].equals(&quot;SERVERMSG&quot;)) {
+ 			Log.log(&quot;Message from server: &quot; + Misc.makeSentence(commands, 1));
+@@ -581,8 +600,8 @@
+ 		} else if (commands[0].equals(&quot;CHANNELMESSAGE&quot;)) {
+ 			Channel chan = getChannel(commands[1]);
+ 			if (chan != null) {
+-				String out = Misc.easyDateFormat(&quot;[HH:mm:ss]&quot;) + &quot; * Channel message: &quot; + Misc.makeSentence(commands, 2);
+-				Misc.outputLog(chan.logFileName, out);
++				String out = &quot;* Channel message: &quot; + Misc.makeSentence(commands, 2);
++				Log.toFile(chan.logFileName, out);
+ 			}
+ 		} else if (commands[0].equals(&quot;BROADCAST&quot;)) {
+ 			Log.log(&quot;*** Broadcast from server: &quot; + Misc.makeSentence(commands, 1));
+@@ -706,6 +725,11 @@
+ 			}
+ 				
+ 			String chanName = params[1].substring(1, params[1].length());
++			String valid = Channel.isChanNameValid(chanName);
++			if (valid != null) {
++				sendMessage(client, channel, &quot;Error: Bad channel name (&quot; + valid + &quot;)&quot;);
++				return ;
++			}
+ 			
+ 			for (int i = 0; i &lt; channels.size(); i++) {
+ 				if (((Channel)channels.get(i)).name.equals(chanName)) {
+@@ -1302,7 +1326,7 @@
+ 			}
+ 			
+ 			// stop the program:
+-			stopKeepAliveTimer();
++			stopTimers();
+ 			saveConfig(CONFIG_FILENAME);
+ 			closeAndExit();
+ 		}
+@@ -1311,7 +1335,7 @@
+ 	
+ 	public static void sendPrivateMsg(Client client, String msg) {
+ 		sendLine(&quot;SAYPRIVATE &quot; + client.name + &quot; &quot; + msg);
+-		Misc.outputLog(client.name + &quot;.log&quot;, Misc.easyDateFormat(&quot;[dd/MM/yy HH:mm:ss]&quot;) + &quot; &lt;&quot; + username + &quot;&gt; &quot; + msg);
++		Log.toFile(client.name + &quot;.log&quot;, &quot;&lt;&quot; + username + &quot;&gt; &quot; + msg);
+ 	}
+ 
+ 	/* this method will send a message either to a client or a channel. This method decides what to do
+@@ -1349,16 +1373,24 @@
+ 		return null;
+ 	}
+ 	
+-	public static void startKeepAliveTimer() {
+-		timer = new Timer();
+-		timer.schedule(new KeepAliveTask(),
++	public static void startTimers() {
++		keepAliveTimer = new Timer();
++		keepAliveTimer.schedule(new KeepAliveTask(),
+                 1000,        //initial delay
+                 15*1000);  //subsequent rate
++		
++		logCleanerTimer = new Timer();
++		logCleanerTimer.schedule(new LogCleaner(),
++                5000,        //initial delay
++                20*1000);  //subsequent rate
++		
++		timersStarted = true;
+ 	}
+ 
+-	public static void stopKeepAliveTimer() {
++	public static void stopTimers() {
+ 		try {
+-			timer.cancel();
++			keepAliveTimer.cancel();
++			logCleanerTimer.cancel();
+ 		} catch (Exception e) {
+ 			//
+ 		}
+@@ -1369,14 +1401,14 @@
+ 		Log.externalLogFileName = &quot;$main.log&quot;;
+ 		Log.useExternalLogging = true;
+ 
+-		// check if &quot;./logs&quot; folder exists, if not then create it:
+-		File file = new File(&quot;./logs&quot;);
++		// check if LOG_FOLDER folder exists, if not then create it:
++		File file = new File(Log.LOG_FOLDER);
+ 		if (!file.exists()) {
+ 			if (!file.mkdir()) {
+-				Log.error(&quot;unable to create ./logs folder! Exiting ...&quot;);
++				Log.error(&quot;unable to create &quot; + Log.LOG_FOLDER + &quot; folder! Exiting ...&quot;);
+ 				closeAndExit(1);
+ 			} else {
+-				Log.log(&quot;Folder ./logs has been created&quot;);
++				Log.log(&quot;Folder &quot; + Log.LOG_FOLDER + &quot; has been created&quot;);
+ 			}
+ 		}
+ 
+@@ -1394,14 +1426,23 @@
+ 		remoteAccessServer = new RemoteAccessServer(remoteAccessPort);
+ 		remoteAccessServer.start();
+ 		
++		// establish connection with database:
++		database = new DBInterface();
++		if (!database.loadJDBCDriver()) {
++			closeAndExit(1);
++		}
++		if (!database.connectToDatabase(DB_URL, DB_username, DB_password)) {
++			closeAndExit(1);
++		}
++
+ 		if (!tryToConnect())
+ 			closeAndExit(1);
+ 		else {
+-			startKeepAliveTimer();
++			startTimers();
+ 			connected = true;
+ 			messageLoop();
+ 			connected = false;
+-			stopKeepAliveTimer();
++			stopTimers();
+ 		}
+ 		
+ 		// we are out of the main loop (due to an error, for example), lets reconnect:
+@@ -1413,11 +1454,11 @@
+ 
+ 	    	Log.log(&quot;Trying to reconnect to the server ...&quot;);
+ 			if (!tryToConnect()) continue;
+-			startKeepAliveTimer();
++			startTimers();
+ 			connected = true;
+ 			messageLoop();
+ 			connected = false;
+-			stopKeepAliveTimer();
++			stopTimers();
+ 		}
+ 		
+ 		// AntiSpamSystem.uninitialize(); -&gt; this code is unreachable. We call it in closeAndExit() method!
+
+Modified: branches/testserver/ChanServ/Channel.java
+===================================================================
+--- branches/testserver/ChanServ/Channel.java	2008-01-02 21:43:32 UTC (rev 5227)
++++ branches/testserver/ChanServ/Channel.java	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -106,4 +106,13 @@
+ 		return clients.indexOf(client) != -1;
+ 	}
+ 	
++	// returns 'null' if channel name is valid, or error description otherwise
++	public static String isChanNameValid(String channame) {
++		if (channame.length() &gt; 20) return &quot;Channel name too long&quot;;
++		if (channame.length() &lt; 1) return &quot;Channel name too short&quot;;
++		if (!channame.matches(&quot;^[A-Za-z0-9_\\[\\]]+$&quot;)) return &quot;Channel name contains invalid characters&quot;;
++		// everything is OK:
++		return null;
++	}	
++	
+ }
+
+Modified: branches/testserver/ChanServ/Client.java
+===================================================================
+--- branches/testserver/ChanServ/Client.java	2008-01-02 21:43:32 UTC (rev 5227)
++++ branches/testserver/ChanServ/Client.java	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -14,6 +14,10 @@
+ public class Client {
+ 	public String name;
+ 	private int status = 0;
++	
++	// some fields used with anti-spam system:
++	public int numClientStatusChanges; // number of received CLIENTSTATUS commands since last checkpoint
++	public long clientStatusChangeCheckpoint; // time of last &quot;checkpoint&quot; (that is time, when we last reset the counter)
+ 
+ 	public Client(String name) {
+ 		this.name = name;
+@@ -26,5 +30,5 @@
+ 	public boolean isModerator() {
+ 		return (status &amp; 0x20) &gt;&gt; 5 == 1;
+ 	}
+-
++	
+ }
+
+Copied: branches/testserver/ChanServ/DBInterface.java (from rev 5227, trunk/Lobby/TASServer/ChanServ/DBInterface.java)
+===================================================================
+--- branches/testserver/ChanServ/DBInterface.java	                        (rev 0)
++++ branches/testserver/ChanServ/DBInterface.java	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -0,0 +1,90 @@
++/*
++ * Created on 2007.11.9
++ *
++ */
++
++/**
++ * @author Betalord
++ *
++ */
++
++import java.sql.*;
++
++public class DBInterface {
++	private Connection conn;
++	private Statement stmt;
++	
++	public DBInterface() {
++		// TODO
++	}
++	
++	public Connection getConnection() {
++		return conn;
++	}
++	
++	public boolean loadJDBCDriver() {
++		try {
++			// The newInstance() call is a work around for some 
++			// broken Java implementations
++			
++			Class.forName(&quot;com.mysql.jdbc.Driver&quot;).newInstance();
++			Log.log(&quot;JDBC driver loaded.&quot;);
++		} catch (Exception e) {
++			Log.error(&quot;JDBC driver not found!&quot;);
++			return false;
++		}
++		return true;
++	}
++
++	public boolean connectToDatabase(String url, String username, String password) {
++		Log.log(&quot;Trying to connect to database ...&quot;);
++		try {
++			conn = DriverManager.getConnection(url, username, password);
++			stmt = conn.createStatement();
++		} catch (SQLException e) {
++			printSQLException(e);
++			Log.error(&quot;Unable to connect to database!&quot;);
++			return false;
++		}
++		
++		Log.log(&quot;Connection to database established.&quot;);
++		return true;
++	}
++	
++	/** returns null if error occurs */
++	public ResultSet execQuery(String query) {
++		try {
++			ResultSet rs = stmt.executeQuery(query);
++			return rs;
++		} catch (SQLException e) {
++			printSQLException(e);
++			return null;
++		}
++	}
++	
++	/** use for only those SQL statements that do not return any result.
++	 * Returns false in case of any error. */
++	public boolean execUpdate(String query) {
++		try {
++			stmt.executeUpdate(query);
++			return true;
++		} catch (SQLException e) {
++			printSQLException(e);
++			return false;
++		}
++	}
++	
++	public void printSQLException(SQLException e) {
++		Log.log(&quot;SQLException: &quot; + e.getMessage());
++		Log.log(&quot;SQLState: &quot; + e.getSQLState());
++		Log.log(&quot;VendorError: &quot; + e.getErrorCode());
++	}
++	
++	/** returns true if table with specified name exists in the database */
++	public boolean doesTableExist(String table) throws SQLException {
++		stmt.execute(&quot;SHOW TABLES LIKE '&quot; + table + &quot;'&quot;);
++		ResultSet rs = stmt.getResultSet();
++		return rs.next();
++	}
++
++}
+
+Modified: branches/testserver/ChanServ/Log.java
+===================================================================
+--- branches/testserver/ChanServ/Log.java	2008-01-02 21:43:32 UTC (rev 5227)
++++ branches/testserver/ChanServ/Log.java	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -16,17 +16,40 @@
+ 
+ import java.text.SimpleDateFormat;
+ import java.util.Date;
++import java.util.concurrent.Semaphore;
+ 
+ public class Log {
+ 	
++	static final String LOG_FOLDER = &quot;./logs&quot;; // folder where log files are put
++
++	static Semaphore logToDiskLock = new Semaphore(1, true);
++	
+ 	private static boolean part = false; // if true, we're in the middle of &quot;part&quot; output
+ 	public static boolean useExternalLogging = false; // if set to true, then all logs will be saved to &quot;externalLogFileName&quot; file
+ 	public static String externalLogFileName = &quot;&quot;; // if enableExternalLogging is true, then this is the file to which log will be saved
+-	
++
+ 	private static boolean logToDisk(String text, boolean newLine) {
+-		return Misc.outputLog(externalLogFileName, text, newLine);		
++		return toFile(externalLogFileName, text, newLine);		
+ 	}
+ 	
++	/* fname is file name without path (&quot;./logs&quot; path is automatically added).
++	 * Timestamp is automatically added in front of the line. */
++	public static boolean toFile(String fname, String line, boolean newLine) {
++		try {
++			logToDiskLock.acquire();
++			return Misc.appendTextToFile(LOG_FOLDER + &quot;/&quot; + fname, Misc.getUnixTimestamp() + &quot; &quot; + line, newLine);
++		} catch (InterruptedException e) {
++			return false;
++		} finally {
++			logToDiskLock.release();	
++		}
++	}
++
++	public static boolean toFile(String fname, String line) {
++		return toFile(fname, line, true);
++	}
++	
++	
+ 	public static void log(String s) {
+ 		if (part) {
+ 			part = false;
+
+Copied: branches/testserver/ChanServ/LogCleaner.java (from rev 5227, trunk/Lobby/TASServer/ChanServ/LogCleaner.java)
+===================================================================
+--- branches/testserver/ChanServ/LogCleaner.java	                        (rev 0)
++++ branches/testserver/ChanServ/LogCleaner.java	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -0,0 +1,173 @@
++/*
++ * Created on 25.12.2007
++ * 
++ * This class is involved in moving logs from files on disk to a database, 
++ * where they can be more easily accessed by TASServer web interface.
++ * 
++ * This is the procedure it follows:
++ * 1) Check if temp_logs folder exists. If not, create it.
++ * 2) Check if there are any files in temp_logs folder.
++ *    If there are, skip to 4), or else continue with 3).
++ * 3) Lock access to logs globally in ChanServ, then move
++ *    all log files to temp_logs folder.
++ * 4) Transfer all logs from temp_logs folder to a database
++ *    and remove them from disk.
++ *  
++ */
++
++/**
++ * @author Betalord
++ *
++ */
++
++import java.sql.SQLException;
++import java.util.*;
++import java.io.*;
++import java.sql.*;
++
++public class LogCleaner extends TimerTask {
++
++	final static String TEMP_LOGS_FOLDER = &quot;./temp_logs&quot;;
++	
++	public void run() {
++		// create temp log folder if it doesn't already exist:
++		File tempFolder = new File(TEMP_LOGS_FOLDER);
++		if (!tempFolder.exists()) {
++			boolean success = (tempFolder.mkdir());
++			if (!success){
++				Log.log(&quot;Error: unable to create folder: &quot; + TEMP_LOGS_FOLDER);
++				return ;
++			} else {
++				Log.log(&quot;Created missing folder: &quot; + TEMP_LOGS_FOLDER);
++			}
++		}
++		
++		// check if temp folder is empty (it should be):
++		if (tempFolder.listFiles().length == 0) {
++			// OK temp folder is empty, so now we will move all log files to this folder
++			
++			// lock writing logs to disk while we are moving them to temp folder:
++			try {
++				Log.logToDiskLock.acquire();
++				
++				File sourceFolder = new File(Log.LOG_FOLDER);
++				File files[] = sourceFolder.listFiles();
++				if (files.length == 0) {
++					// great, we have no new logs since last time we checked, so we can exit immediately
++					return ;
++				}
++				
++				// move each file to temp folder:
++				for(int i = 0; i &lt; files.length; i++) {
++					File source = files[i];
++					if (!source.isFile()) continue;
++					if (!source.getName().startsWith(&quot;#&quot;)) continue; // only move channel logs to database
++					
++					// move file to new folder:
++					if (!source.renameTo(new File(tempFolder, source.getName()))) {
++						Log.error(&quot;Unable to move file &quot; + source.toString() + &quot; to &quot; + tempFolder.toString());
++						return ;
++					}
++				}
++			} catch (InterruptedException e) {
++				return ; // this should not happen!
++			} finally {
++				Log.logToDiskLock.release();	
++			}
++		}
++		
++		// now comes the part when we transfer all logs from temp folder to the database:
++		File[] files = tempFolder.listFiles();
++			
++		for(int i = 0; i &lt; files.length; i++) {
++			File file = files[i];
++			String name = file.getName().substring(0, file.getName().length() - 4); // remove &quot;.log&quot; from the end of the file name
++
++			try {
++            	if (!ChanServ.database.doesTableExist(name)) {
++            		boolean result= ChanServ.database.execUpdate(&quot;CREATE TABLE `&quot; + name + &quot;` (&quot; + Misc.EOL + 
++            													 &quot;id INT NOT NULL AUTO_INCREMENT, &quot; + Misc.EOL +
++            													 &quot;stamp BIGINT NOT NULL, &quot; + Misc.EOL +
++            													 &quot;line TEXT NOT NULL, &quot; + Misc.EOL +
++            													 &quot;primary key(id)) ENGINE=InnoDB DEFAULT CHARSET=utf8;&quot;);
++            		if (!result) {
++            			Log.error(&quot;Unable to create table '&quot; + name + &quot;' in the database!&quot;);
++            			return ;
++            		}
++            	}
++				
++            	ArrayList&lt;Long&gt; stamps = new ArrayList&lt;Long&gt;();
++            	ArrayList&lt;String&gt; lines = new ArrayList&lt;String&gt;();
++            	
++    			String update = &quot;&quot;;
++            	
++				BufferedReader in = new BufferedReader(new FileReader(file));
++				String line;
++				
++				int lineCount = 0;
++	            while ((line = in.readLine()) != null) {
++	            	if (line.trim().equals(&quot;&quot;)) continue; // empty line
++	            	
++	            	long stamp;
++	            	try {
++						stamp = Long.parseLong(line.substring(0, line.indexOf(' ')));
++	            	} catch (NumberFormatException e) {
++	            		Log.error(&quot;Line from log file &quot; + file.getName() + &quot; does not contain time stamp. Line is: \&quot;&quot; + line + &quot;\&quot;&quot;);
++	            		return ;
++	            	}
++					
++	            	if (lineCount == 0) {
++		            	update += &quot;INSERT INTO `&quot; + name + &quot;` (stamp, line) values (?, ?)&quot;;
++	            	} else {
++	            		update += &quot;,&quot;+ Misc.EOL + 
++	            				  &quot;(?, ?)&quot;;	            		
++	            	}
++	            	
++	            	stamps.add(stamp);
++	            	lines.add(line.substring(line.indexOf(' ')+1, line.length()));
++	            	
++	            	lineCount++;
++		        }
++	            in.close();
++	            
++	            update += &quot;;&quot;;
++
++	            if (lineCount == 0) {
++	            	Log.error(&quot;Log file is empty: &quot; + file.getName());
++	            	// delete the file if possible:
++	            	if (file.delete()) {
++	            		Log.log(&quot;Empty log file was successfully deleted.&quot;);
++	            	} else {
++	            		Log.error(&quot;Unable to delete empty log file: &quot; + file.getName());
++	            	}
++	            	return ;
++	            }
++
++	            // insert into database:
++	            PreparedStatement pstmt = ChanServ.database.getConnection().prepareStatement(update);
++	            for (int j = 0; j &lt; stamps.size(); j++) {
++	            	pstmt.setLong(j*2+1, stamps.get(j));
++	            	pstmt.setString(j*2+2, lines.get(j));
++	            }
++	            pstmt.executeUpdate();
++	            pstmt.close();
++	            
++	            // finally, delete the file:
++	            if (!file.delete()) {
++	            	Log.error(&quot;Unable to delete log file, which was just transfered to the database: &quot; + file.getName());
++	            	return ;
++	            }
++			} catch (IOException e) {
++				Log.error(&quot;Unable to read contents of file &quot; + file.toString());
++				e.printStackTrace();
++				return ;
++			} catch (SQLException e) {
++				Log.error(&quot;Unable to access database. Error description: &quot; + e.toString());
++				e.printStackTrace();
++				return ;
++			}
++		}
++
++	}
++
++}
+
+Modified: branches/testserver/ChanServ/Misc.java
+===================================================================
+--- branches/testserver/ChanServ/Misc.java	2008-01-02 21:43:32 UTC (rev 5227)
++++ branches/testserver/ChanServ/Misc.java	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -30,6 +30,11 @@
+ 		return datenewformat;
+     }
+ 	
++	/* returns a unix-like timestamp */
++	public static String getUnixTimestamp() {
++		return &quot;&quot; + (System.currentTimeMillis() / 1000);
++	}
++	
+ 	/* puts together strings from sl, starting at sl[startIndex] */
+ 	public static String makeSentence(String[] sl, int startIndex) {
+ 		if (startIndex &gt; sl.length-1) return &quot;&quot;;
+@@ -168,15 +173,10 @@
+ 	   }
+ 	   while (!isSorted);
+ 	}	
+-	
+-	public static boolean outputLog(String fname, String text) {
+-		return outputLog(fname, text, true);
+-	}
+-	
+-	/* fname is file name withouth path (&quot;./logs&quot; path is automatically added) */
+-	public static boolean outputLog(String fname, String text, boolean newLine) {
++
++	public static boolean appendTextToFile(String fname, String text, boolean newLine) {
+ 		try {
+-			PrintStream out = new PrintStream(new BufferedOutputStream(new FileOutputStream(&quot;./logs/&quot; + fname, true)));
++			PrintStream out = new PrintStream(new BufferedOutputStream(new FileOutputStream(fname, true)));
+ 			if (newLine)
+ 				out.println(text);
+ 			else
+
+Modified: branches/testserver/ChanServ/RemoteAccessServer.java
+===================================================================
+--- branches/testserver/ChanServ/RemoteAccessServer.java	2008-01-02 21:43:32 UTC (rev 5227)
++++ branches/testserver/ChanServ/RemoteAccessServer.java	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -39,7 +39,7 @@
+  *   
+  * * QUERYSERVER {server command}  
+  *   This will forward the given command directly to server and then forward server's response back to the client.
+- *   This command means potential security risc. Will be replaced in the future by a set of user specific commands.
++ *   This command means potential security risk. Will be replaced in the future by a set of user specific commands.
+  *   Currently commands that may be passed to this function are limited - only some command are allowed. This is so
+  *   in order to avoid some security risks with the command.
+  *   If the operation fails for some reason, socket will simply get disconnected.   
+@@ -65,6 +65,7 @@
+ 		&quot;RELOADUPDATEPROPERTIES&quot;,
+ 		&quot;GETLOBBYVERSION&quot;,
+ 		&quot;UPDATEMOTD&quot;,
++		&quot;RETRIEVELATESTBANLIST&quot;
+ 		};
+ 	
+ 	public Vector threads = new Vector(); // here we keep a list of all currently running client threads
+
+Copied: branches/testserver/Tools (from rev 5227, trunk/Lobby/TASServer/Tools)
+
+Copied: branches/testserver/Tools/TransferOldAccounts (from rev 5227, trunk/Lobby/TASServer/Tools/TransferOldAccounts)
+
+Deleted: branches/testserver/Tools/TransferOldAccounts/.classpath
+===================================================================
+--- trunk/Lobby/TASServer/Tools/TransferOldAccounts/.classpath	2008-01-02 21:43:32 UTC (rev 5227)
++++ branches/testserver/Tools/TransferOldAccounts/.classpath	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -1,6 +0,0 @@
+-&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;
+-&lt;classpath&gt;
+-	&lt;classpathentry kind=&quot;src&quot; path=&quot;&quot;/&gt;
+-	&lt;classpathentry kind=&quot;con&quot; path=&quot;org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/jre1.5.0_06&quot;/&gt;
+-	&lt;classpathentry kind=&quot;output&quot; path=&quot;&quot;/&gt;
+-&lt;/classpath&gt;
+
+Copied: branches/testserver/Tools/TransferOldAccounts/.classpath (from rev 5227, trunk/Lobby/TASServer/Tools/TransferOldAccounts/.classpath)
+===================================================================
+--- branches/testserver/Tools/TransferOldAccounts/.classpath	                        (rev 0)
++++ branches/testserver/Tools/TransferOldAccounts/.classpath	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -0,0 +1,6 @@
++&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;
++&lt;classpath&gt;
++	&lt;classpathentry kind=&quot;src&quot; path=&quot;&quot;/&gt;
++	&lt;classpathentry kind=&quot;con&quot; path=&quot;org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/jre1.5.0_06&quot;/&gt;
++	&lt;classpathentry kind=&quot;output&quot; path=&quot;&quot;/&gt;
++&lt;/classpath&gt;
+
+Deleted: branches/testserver/Tools/TransferOldAccounts/.project
+===================================================================
+--- trunk/Lobby/TASServer/Tools/TransferOldAccounts/.project	2008-01-02 21:43:32 UTC (rev 5227)
++++ branches/testserver/Tools/TransferOldAccounts/.project	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -1,17 +0,0 @@
+-&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;
+-&lt;projectDescription&gt;
+-	&lt;name&gt;TransferOldAccounts&lt;/name&gt;
+-	&lt;comment&gt;&lt;/comment&gt;
+-	&lt;projects&gt;
+-	&lt;/projects&gt;
+-	&lt;buildSpec&gt;
+-		&lt;buildCommand&gt;
+-			&lt;name&gt;org.eclipse.jdt.core.javabuilder&lt;/name&gt;
+-			&lt;arguments&gt;
+-			&lt;/arguments&gt;
+-		&lt;/buildCommand&gt;
+-	&lt;/buildSpec&gt;
+-	&lt;natures&gt;
+-		&lt;nature&gt;org.eclipse.jdt.core.javanature&lt;/nature&gt;
+-	&lt;/natures&gt;
+-&lt;/projectDescription&gt;
+
+Copied: branches/testserver/Tools/TransferOldAccounts/.project (from rev 5227, trunk/Lobby/TASServer/Tools/TransferOldAccounts/.project)
+===================================================================
+--- branches/testserver/Tools/TransferOldAccounts/.project	                        (rev 0)
++++ branches/testserver/Tools/TransferOldAccounts/.project	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -0,0 +1,17 @@
++&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;
++&lt;projectDescription&gt;
++	&lt;name&gt;TransferOldAccounts&lt;/name&gt;
++	&lt;comment&gt;&lt;/comment&gt;
++	&lt;projects&gt;
++	&lt;/projects&gt;
++	&lt;buildSpec&gt;
++		&lt;buildCommand&gt;
++			&lt;name&gt;org.eclipse.jdt.core.javabuilder&lt;/name&gt;
++			&lt;arguments&gt;
++			&lt;/arguments&gt;
++		&lt;/buildCommand&gt;
++	&lt;/buildSpec&gt;
++	&lt;natures&gt;
++		&lt;nature&gt;org.eclipse.jdt.core.javanature&lt;/nature&gt;
++	&lt;/natures&gt;
++&lt;/projectDescription&gt;
+
+Deleted: branches/testserver/Tools/TransferOldAccounts/Account.java
+===================================================================
+--- trunk/Lobby/TASServer/Tools/TransferOldAccounts/Account.java	2008-01-02 21:43:32 UTC (rev 5227)
++++ branches/testserver/Tools/TransferOldAccounts/Account.java	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -1,161 +0,0 @@
+-/*
+- * Created on 2005.6.17
+- *
+- * TODO To change the template for this generated file go to
+- * Window - Preferences - Java - Code Style - Code Templates
+- * 
+- * ---- NOTES ----
+- * - Each account is uniquely identified by its username (I also used int ID in previous versions,
+- *   but since all usernames must be unique, we don't need another unique identifier).
+- */
+-
+-/**
+- * @author Betalord
+- *
+- * TODO To change the template for this generated type comment go to
+- * Window - Preferences - Java - Code Style - Code Templates
+- */
+-
+-public class Account {
+-
+-	/*
+-	 * access bits (31 effective bits, last one is a sign bit and we don't use it):
+-	 * * bits 0 - 2 (3 bits): access level
+-	 *     0 - none (should not be used for logged-in clients)
+-	 *     1 - normal (limited)
+-	 *     2 - privileged
+-	 *     3 - admin
+-	 *     values 4 - 7 are reserved for future use
+-	 * * bits 3 - 22 (20 bits): in-game time (how many minutes did client spent in-game).
+-	 * * bit 23: agreement bit. It tells us whether user has already
+-	 *     read the &quot;terms of use&quot; and agreed to it. If not, we should
+-	 *     first send him the agreement and wait until he confirms it (before
+-	 *     allowing him to log on the server).    
+-	 * * bit 24 - bot mode (0 - normal user, 1 - automated bot).     
+-	 * * bits 25 - 30 (6 bits): reserved for future use.
+-	 * * bit 31: unused (integer sign)
+-	 * 
+-	 */
+-	
+-	
+-	/*
+-	 * current rank categories:
+-	 * &lt; 5h = newbie
+-	 * 5h - 15h = beginner
+-	 * 15h - 30h = avarage
+-	 * 30h - 100h = above avarage
+-	 * 100h - 300h = experienced player
+-	 * 300h - 1000h = highly experienced player
+-	 * &gt; 1000h = veteran
+-	 *  
+-	 * */
+-	private static int rank1Limit = 60*5; // in minutes
+-	private static int rank2Limit = 60*15; // in minutes
+-	private static int rank3Limit = 60*30; // in minutes
+-	private static int rank4Limit = 60*100; // in minutes
+-	private static int rank5Limit = 60*300; // in minutes
+-	private static int rank6Limit = 60*1000; // in minutes
+-	
+-	public static int NIL_ACCESS = 0; // for clients that haven't logged in yet
+-	public static int NORMAL_ACCESS = 1;
+-	public static int PRIVILEGED_ACCESS = 2;
+-	public static int ADMIN_ACCESS = 3;
+-	
+-	public static int NO_USER_ID = 0;
+-	
+-	public String user;
+-	public String pass;
+-	public int access; // access type. Bit 31 must be 0 (due to int being signed number - we don't want to use any binary complement conversions).
+-	public int lastUserID; // unique user identification number. Equals NO_USER_ID (currently 0) if not used/set. By default it is not set. Multiple accounts may share same user ID. This value actually indicates last ID as sent with the LOGIN or USERID command by the client. We use it to detect spawned accounts (accounts registered by the same user), ban evasion etc.
+-	public long lastLogin; // time (System.currentTimeMillis()) of the last login
+-	public String lastIP; // the most recent IP used to log into this account
+-	public long registrationDate; // date when user registered this account. In miliseconds (refers to System.currentTimeMillis()). 0 means registration date is unknown (clients who registered in some early version when this field was not yet implemented. Note that this field was first introduced with Spring 0.67b3, Dec 18 2005).
+-	public String lastCountry; // resolved country code for this user's IP when he last logged on. If country could not be resolved, &quot;XX&quot; is used for country code, otherwise a 2-char country code is used
+-	//***public MapGradeList mapGrades; // list of map grades
+-	
+-	public Account(String user, String pass, int access, int lastUserID, long lastLogin, String lastIP, long registrationDate, String lastCountry/* ***, MapGradeList mapGrades*/)
+-	{
+-		this.user = user;
+-		this.pass = pass;
+-		this.access = access;
+-		this.lastUserID = lastUserID;
+-		this.lastLogin = lastLogin;
+-		this.lastIP = lastIP;
+-		this.registrationDate = registrationDate;
+-		this.lastCountry = lastCountry;
+-		//***this.mapGrades = mapGrades;
+-	}
+-	
+-	public Account(Account acc) {
+-		this.user = new String(acc.user);
+-		this.pass = new String(acc.pass);
+-		this.access = acc.access;
+-		this.lastUserID = NO_USER_ID;
+-		this.lastLogin = acc.lastLogin;
+-		this.lastIP = acc.lastIP;
+-		this.registrationDate = acc.registrationDate;
+-		this.lastCountry = new String(acc.lastCountry);
+-		//***this.mapGrades = MapGradeList.createFromString(acc.mapGrades.toString());
+-	}
+-	
+-	public String toString() {
+-		return user + &quot; &quot; + pass + &quot; &quot; + Integer.toString(access, 2) + &quot; &quot; + lastUserID + &quot; &quot; + lastLogin + &quot; &quot; + lastIP + &quot; &quot; + registrationDate + &quot; &quot; + lastCountry/* *** + &quot; &quot; + mapGrades.toString()*/;
+-	}
+-	
+-	public boolean equals(Object o) {
+-		if (this == o) return true;
+-		if (!(o instanceof Account)) return false;
+-		return this.user.equals(((Account)o).user);
+-	}	
+-	
+-	public int accessLevel() {
+-		return access &amp; 0x7;
+-	}
+-	
+-	public boolean getBotMode() {
+-		return ((access &amp; 0x1000000) &gt;&gt; 24) == 1;
+-	}
+-	
+-	public void setBotMode(boolean bot) {
+-		int b = bot ? 1 : 0;
+-		access = (access &amp; 0xFEFFFFFF) | (b &lt;&lt; 24);
+-	}
+-
+-	/* returns in-game time in minutes */
+-	public int getInGameTime() {
+-		return (access &amp; 0x7FFFF8) &gt;&gt; 3;
+-	}
+-	
+-	public void setInGameTime(int mins) {
+-		access = (access &amp; 0xFF800007) | (mins &lt;&lt; 3);
+-	}
+-	
+-	public boolean getAgreement() {
+-		return ((access &amp; 0x800000) &gt;&gt; 23) == 1;
+-	}
+-
+-	/* must be 1 (true) or 0 (false) */
+-	public void setAgreement(boolean agreed) {
+-		int agr = agreed ? 1 : 0;
+-		access = (access &amp; 0xFF7FFFFF) | (agr &lt;&lt; 23);
+-	} 
+-	
+-	public int getRank() {
+-		if (getInGameTime() &gt;= rank6Limit) return 6;
+-		else if (getInGameTime() &gt; rank5Limit) return 5;
+-		else if (getInGameTime() &gt; rank4Limit) return 4;
+-		else if (getInGameTime() &gt; rank3Limit) return 3;
+-		else if (getInGameTime() &gt; rank2Limit) return 2;
+-		else if (getInGameTime() &gt; rank1Limit) return 1;
+-		else return 0;
+-	}
+-	
+-	/* adds mins minutes to client's in-game time (this time is used to calculate 
+-	 * player's rank). Returns true if player's rank was changed, false otherwise. */
+-	public boolean addMinsToInGameTime(int mins) {
+-		int tmp = getRank();
+-		setInGameTime(getInGameTime() + mins);
+-		return tmp != getRank();
+-	}
+-	
+-}
+
+Copied: branches/testserver/Tools/TransferOldAccounts/Account.java (from rev 5227, trunk/Lobby/TASServer/Tools/TransferOldAccounts/Account.java)
+===================================================================
+--- branches/testserver/Tools/TransferOldAccounts/Account.java	                        (rev 0)
++++ branches/testserver/Tools/TransferOldAccounts/Account.java	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -0,0 +1,161 @@
++/*
++ * Created on 2005.6.17
++ *
++ * TODO To change the template for this generated file go to
++ * Window - Preferences - Java - Code Style - Code Templates
++ * 
++ * ---- NOTES ----
++ * - Each account is uniquely identified by its username (I also used int ID in previous versions,
++ *   but since all usernames must be unique, we don't need another unique identifier).
++ */
++
++/**
++ * @author Betalord
++ *
++ * TODO To change the template for this generated type comment go to
++ * Window - Preferences - Java - Code Style - Code Templates
++ */
++
++public class Account {
++
++	/*
++	 * access bits (31 effective bits, last one is a sign bit and we don't use it):
++	 * * bits 0 - 2 (3 bits): access level
++	 *     0 - none (should not be used for logged-in clients)
++	 *     1 - normal (limited)
++	 *     2 - privileged
++	 *     3 - admin
++	 *     values 4 - 7 are reserved for future use
++	 * * bits 3 - 22 (20 bits): in-game time (how many minutes did client spent in-game).
++	 * * bit 23: agreement bit. It tells us whether user has already
++	 *     read the &quot;terms of use&quot; and agreed to it. If not, we should
++	 *     first send him the agreement and wait until he confirms it (before
++	 *     allowing him to log on the server).    
++	 * * bit 24 - bot mode (0 - normal user, 1 - automated bot).     
++	 * * bits 25 - 30 (6 bits): reserved for future use.
++	 * * bit 31: unused (integer sign)
++	 * 
++	 */
++	
++	
++	/*
++	 * current rank categories:
++	 * &lt; 5h = newbie
++	 * 5h - 15h = beginner
++	 * 15h - 30h = avarage
++	 * 30h - 100h = above avarage
++	 * 100h - 300h = experienced player
++	 * 300h - 1000h = highly experienced player
++	 * &gt; 1000h = veteran
++	 *  
++	 * */
++	private static int rank1Limit = 60*5; // in minutes
++	private static int rank2Limit = 60*15; // in minutes
++	private static int rank3Limit = 60*30; // in minutes
++	private static int rank4Limit = 60*100; // in minutes
++	private static int rank5Limit = 60*300; // in minutes
++	private static int rank6Limit = 60*1000; // in minutes
++	
++	public static int NIL_ACCESS = 0; // for clients that haven't logged in yet
++	public static int NORMAL_ACCESS = 1;
++	public static int PRIVILEGED_ACCESS = 2;
++	public static int ADMIN_ACCESS = 3;
++	
++	public static int NO_USER_ID = 0;
++	
++	public String user;
++	public String pass;
++	public int access; // access type. Bit 31 must be 0 (due to int being signed number - we don't want to use any binary complement conversions).
++	public int lastUserID; // unique user identification number. Equals NO_USER_ID (currently 0) if not used/set. By default it is not set. Multiple accounts may share same user ID. This value actually indicates last ID as sent with the LOGIN or USERID command by the client. We use it to detect spawned accounts (accounts registered by the same user), ban evasion etc.
++	public long lastLogin; // time (System.currentTimeMillis()) of the last login
++	public String lastIP; // the most recent IP used to log into this account
++	public long registrationDate; // date when user registered this account. In miliseconds (refers to System.currentTimeMillis()). 0 means registration date is unknown (clients who registered in some early version when this field was not yet implemented. Note that this field was first introduced with Spring 0.67b3, Dec 18 2005).
++	public String lastCountry; // resolved country code for this user's IP when he last logged on. If country could not be resolved, &quot;XX&quot; is used for country code, otherwise a 2-char country code is used
++	//***public MapGradeList mapGrades; // list of map grades
++	
++	public Account(String user, String pass, int access, int lastUserID, long lastLogin, String lastIP, long registrationDate, String lastCountry/* ***, MapGradeList mapGrades*/)
++	{
++		this.user = user;
++		this.pass = pass;
++		this.access = access;
++		this.lastUserID = lastUserID;
++		this.lastLogin = lastLogin;
++		this.lastIP = lastIP;
++		this.registrationDate = registrationDate;
++		this.lastCountry = lastCountry;
++		//***this.mapGrades = mapGrades;
++	}
++	
++	public Account(Account acc) {
++		this.user = new String(acc.user);
++		this.pass = new String(acc.pass);
++		this.access = acc.access;
++		this.lastUserID = NO_USER_ID;
++		this.lastLogin = acc.lastLogin;
++		this.lastIP = acc.lastIP;
++		this.registrationDate = acc.registrationDate;
++		this.lastCountry = new String(acc.lastCountry);
++		//***this.mapGrades = MapGradeList.createFromString(acc.mapGrades.toString());
++	}
++	
++	public String toString() {
++		return user + &quot; &quot; + pass + &quot; &quot; + Integer.toString(access, 2) + &quot; &quot; + lastUserID + &quot; &quot; + lastLogin + &quot; &quot; + lastIP + &quot; &quot; + registrationDate + &quot; &quot; + lastCountry/* *** + &quot; &quot; + mapGrades.toString()*/;
++	}
++	
++	public boolean equals(Object o) {
++		if (this == o) return true;
++		if (!(o instanceof Account)) return false;
++		return this.user.equals(((Account)o).user);
++	}	
++	
++	public int accessLevel() {
++		return access &amp; 0x7;
++	}
++	
++	public boolean getBotMode() {
++		return ((access &amp; 0x1000000) &gt;&gt; 24) == 1;
++	}
++	
++	public void setBotMode(boolean bot) {
++		int b = bot ? 1 : 0;
++		access = (access &amp; 0xFEFFFFFF) | (b &lt;&lt; 24);
++	}
++
++	/* returns in-game time in minutes */
++	public int getInGameTime() {
++		return (access &amp; 0x7FFFF8) &gt;&gt; 3;
++	}
++	
++	public void setInGameTime(int mins) {
++		access = (access &amp; 0xFF800007) | (mins &lt;&lt; 3);
++	}
++	
++	public boolean getAgreement() {
++		return ((access &amp; 0x800000) &gt;&gt; 23) == 1;
++	}
++
++	/* must be 1 (true) or 0 (false) */
++	public void setAgreement(boolean agreed) {
++		int agr = agreed ? 1 : 0;
++		access = (access &amp; 0xFF7FFFFF) | (agr &lt;&lt; 23);
++	} 
++	
++	public int getRank() {
++		if (getInGameTime() &gt;= rank6Limit) return 6;
++		else if (getInGameTime() &gt; rank5Limit) return 5;
++		else if (getInGameTime() &gt; rank4Limit) return 4;
++		else if (getInGameTime() &gt; rank3Limit) return 3;
++		else if (getInGameTime() &gt; rank2Limit) return 2;
++		else if (getInGameTime() &gt; rank1Limit) return 1;
++		else return 0;
++	}
++	
++	/* adds mins minutes to client's in-game time (this time is used to calculate 
++	 * player's rank). Returns true if player's rank was changed, false otherwise. */
++	public boolean addMinsToInGameTime(int mins) {
++		int tmp = getRank();
++		setInGameTime(getInGameTime() + mins);
++		return tmp != getRank();
++	}
++	
++}
+
+Deleted: branches/testserver/Tools/TransferOldAccounts/Accounts.java
+===================================================================
+--- trunk/Lobby/TASServer/Tools/TransferOldAccounts/Accounts.java	2008-01-02 21:43:32 UTC (rev 5227)
++++ branches/testserver/Tools/TransferOldAccounts/Accounts.java	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -1,185 +0,0 @@
+-/*
+- * Created on 2006.10.15
+- *
+- * TODO To change the template for this generated file go to
+- * Window - Preferences - Java - Code Style - Code Templates
+- * 
+- */
+-
+-/**
+- * @author Betalord
+- *
+- */
+-
+-import java.io.BufferedReader;
+-import java.io.FileReader;
+-import java.io.IOException;
+-import java.util.*;
+-
+-public class Accounts {
+-	private static ArrayList&lt;Account&gt; accounts = new ArrayList&lt;Account&gt;(); // note: ArrayList is not synchronized! Use Vector class instead if multiple threads are going to access it.
+-	
+-	// 'map' is used to speed up searching for accounts by username (TreeMap class implements efficient Red-Black trees)
+-	private static TreeMap&lt;String, Account&gt; map = new TreeMap&lt;String, Account&gt;(
+-            new java.util.Comparator&lt;String&gt; () {
+-                public int compare(String s1, String s2)
+-                {
+-                  return s1.compareTo(s2);
+-                }
+-              }
+-      );
+-
+-	// same as 'map', only difference is that it ignores case
+-	private static TreeMap&lt;String, Account&gt; mapNoCase = new TreeMap&lt;String, Account&gt;(
+-            new java.util.Comparator&lt;String&gt; () {
+-                public int compare(String s1, String s2)
+-                {
+-                  return s1.compareToIgnoreCase(s2);
+-                }
+-              }
+-      );
+-
+-	private static long saveAccountInfoInterval = 1000 * 60 * 60; // in milliseconds
+-	private static long lastSaveAccountsTime = System.currentTimeMillis(); // time when we last saved accounts info to disk
+-	
+-	public static int getAccountsSize() {
+-		return accounts.size();
+-	}
+-	
+-	/* (re)loads accounts from disk */
+-	public static boolean loadAccounts()
+-	{
+-		long time = System.currentTimeMillis();
+-		try {
+-			BufferedReader in = new BufferedReader(new FileReader(&quot;accounts.txt&quot;));
+-
+-			accounts.clear();
+-			
+-			String line;
+-			String tokens[];
+-			
+-            while ((line = in.readLine()) != null) {
+-            	if (line.equals(&quot;&quot;)) continue;
+-            	tokens = line.split(&quot; &quot;);
+-            	addAccount(new Account(tokens[0], tokens[1], Integer.parseInt(tokens[2], 2), Integer.parseInt(tokens[3]), Long.parseLong(tokens[4]), tokens[5], Long.parseLong(tokens[6]), tokens[7]));
+-	        }
+-            
+-            in.close();
+-			
+-		} catch (IOException e) {
+-			// catch possible io errors from readLine()
+-			System.out.println(&quot;IOException error while trying to update accounts info from accounts.txt!&quot;);
+-			return false;
+-		}
+-		
+-		System.out.println(accounts.size() + &quot; accounts information read from accounts.txt (&quot; + (System.currentTimeMillis() - time) + &quot; ms)&quot;);
+-		
+-		return true;
+-	}
+-	
+-	// returns 'null' if username is valid, or error description otherwise
+-	public static String isUsernameValid(String username) {
+-		if (username.length() &gt; 20) return &quot;Username too long&quot;;
+-		if (username.length() &lt; 2) return &quot;Username too short&quot;;
+-		if (!username.matches(&quot;^[A-Za-z0-9_]+$&quot;)) return &quot;Username contains invalid characters&quot;;
+-		// everything is OK:
+-		return null; 
+-	}
+-	
+-	// returns 'null' if password is valid, or error description otherwise
+-	public static String isPasswordValid(String password) {
+-		if (password.length() &lt; 2) return &quot;Password too short&quot;;
+-		if (password.length() &gt; 30) return &quot;Password too long&quot;; // md5-base64 encoded passwords require 24 chars
+-		// we have to allow a bit wider range of possible chars as base64 can produce chars such as +, = and /
+-		if (!password.matches(&quot;^[\\x2B-\\x7A]+$&quot;)) return &quot;Password contains invalid characters&quot;;
+-		// everything is OK:
+-		return null; 
+-	}
+-	
+-	// returns 'null' if username is valid, or error description otherwise.
+-	// This is used with &quot;old&quot; format of usernames which could also contain &quot;[&quot; and &quot;]&quot; characters.
+-	public static String isOldUsernameValid(String username) {
+-		if (username.length() &gt; 20) return &quot;Username too long&quot;;
+-		if (username.length() &lt; 2) return &quot;Username too short&quot;;
+-		if (!username.matches(&quot;^[A-Za-z0-9_\\[\\]]+$&quot;)) return &quot;Username contains invalid characters&quot;;
+-		// everything is OK:
+-		return null; 
+-	}
+-	
+-	// returns 'null' if password is valid, or error description otherwise. 'baseUsername' is used to test nickname against
+-	// (nickname must contain part of username - it may only prefix and postfix the username)
+-	public static String isNicknameValid(String nickname, String baseUsername) {
+-		if (nickname.length() &gt; 25) return &quot;Nickname too long&quot;;
+-		if (nickname.length() &lt; 2) return &quot;Nickname too short&quot;;
+-
+-		if (!nickname.matches(&quot;^[A-Za-z0-9_\\[\\]\\|]+$&quot;)) return &quot;Nickname contains invalid characters&quot;;
+-		
+-		// check if prefix is valid:
+-		if (!nickname.matches(&quot;^([A-Za-z0-9\\[\\]\\|]+[\\|\\]])?&quot; + baseUsername)) return &quot;Invalid prefix found in nickname: embed your prefix in [] brackets or separate it by a | character&quot;;
+-
+-		// check if postfix is valid:
+-		if (!nickname.matches(baseUsername + &quot;([\\|\\[][A-Za-z0-9\\[\\]\\|]+)?$&quot;)) return &quot;Invalid postfix found in nickname: embed your postfix in [] brackets or separate it by a | character&quot;;
+-		
+-		// check if prefix and postfix are both valid in one shot:
+-		if (!nickname.matches(&quot;^([A-Za-z0-9\\[\\]\\|]+[\\|\\]])?&quot; + baseUsername + &quot;([\\|\\[][A-Za-z0-9\\[\\]\\|]+)?$&quot;)) return &quot;Nickname contains invalid prefix/postfix. Your username should be contained in your nickname!&quot;;
+-
+-		// everything is OK:
+-		return null; 
+-	}	
+-	
+-	/* WARNING: caller must check if username/password is valid etc. himself! */
+-	public static void addAccount(Account acc) {
+-		accounts.add(acc);
+-		map.put(acc.user, acc);
+-		mapNoCase.put(acc.user, acc);
+-	}	
+-	
+-	public static boolean addAccountWithCheck(Account acc) {
+-		if (isUsernameValid(acc.user) != null) return false;
+-		if (isPasswordValid(acc.pass) != null) return false;
+-
+-		// check for duplicate entries:
+-		if (doesAccountExist(acc.user)) return false;
+-		
+-		addAccount(acc);
+-		return true;
+-	}
+-
+-	// returns null if account is not found:
+-	public static Account getAccount(String username) {
+-		return map.get(username);
+-	}
+-
+-	/* returns null if index is out of bounds */
+-	public static Account getAccount(int index) {
+-		try {
+-			return accounts.get(index);
+-		} catch (IndexOutOfBoundsException e) {
+-			return null;
+-		}
+-	}
+-	
+-	public static Account findAccountNoCase(String username) {
+-		return mapNoCase.get(username);
+-	}
+-	
+-	public static boolean doesAccountExist(String username) {
+-		return getAccount(username) != null;
+-	}
+-	
+-	public static Account removeFirstAccount() {
+-		Account acc = accounts.remove(0);
+-		map.remove(acc.user);
+-		mapNoCase.remove(acc.user);
+-		return acc;
+-	}
+-	
+-	public static Account removeAccount(int index) {
+-		Account acc = accounts.remove(index);
+-		map.remove(acc.user);
+-		mapNoCase.remove(acc.user);
+-		return acc;
+-	}	
+-	
+-
+-}
+
+Copied: branches/testserver/Tools/TransferOldAccounts/Accounts.java (from rev 5227, trunk/Lobby/TASServer/Tools/TransferOldAccounts/Accounts.java)
+===================================================================
+--- branches/testserver/Tools/TransferOldAccounts/Accounts.java	                        (rev 0)
++++ branches/testserver/Tools/TransferOldAccounts/Accounts.java	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -0,0 +1,185 @@
++/*
++ * Created on 2006.10.15
++ *
++ * TODO To change the template for this generated file go to
++ * Window - Preferences - Java - Code Style - Code Templates
++ * 
++ */
++
++/**
++ * @author Betalord
++ *
++ */
++
++import java.io.BufferedReader;
++import java.io.FileReader;
++import java.io.IOException;
++import java.util.*;
++
++public class Accounts {
++	private static ArrayList&lt;Account&gt; accounts = new ArrayList&lt;Account&gt;(); // note: ArrayList is not synchronized! Use Vector class instead if multiple threads are going to access it.
++	
++	// 'map' is used to speed up searching for accounts by username (TreeMap class implements efficient Red-Black trees)
++	private static TreeMap&lt;String, Account&gt; map = new TreeMap&lt;String, Account&gt;(
++            new java.util.Comparator&lt;String&gt; () {
++                public int compare(String s1, String s2)
++                {
++                  return s1.compareTo(s2);
++                }
++              }
++      );
++
++	// same as 'map', only difference is that it ignores case
++	private static TreeMap&lt;String, Account&gt; mapNoCase = new TreeMap&lt;String, Account&gt;(
++            new java.util.Comparator&lt;String&gt; () {
++                public int compare(String s1, String s2)
++                {
++                  return s1.compareToIgnoreCase(s2);
++                }
++              }
++      );
++
++	private static long saveAccountInfoInterval = 1000 * 60 * 60; // in milliseconds
++	private static long lastSaveAccountsTime = System.currentTimeMillis(); // time when we last saved accounts info to disk
++	
++	public static int getAccountsSize() {
++		return accounts.size();
++	}
++	
++	/* (re)loads accounts from disk */
++	public static boolean loadAccounts()
++	{
++		long time = System.currentTimeMillis();
++		try {
++			BufferedReader in = new BufferedReader(new FileReader(&quot;accounts.txt&quot;));
++
++			accounts.clear();
++			
++			String line;
++			String tokens[];
++			
++            while ((line = in.readLine()) != null) {
++            	if (line.equals(&quot;&quot;)) continue;
++            	tokens = line.split(&quot; &quot;);
++            	addAccount(new Account(tokens[0], tokens[1], Integer.parseInt(tokens[2], 2), Integer.parseInt(tokens[3]), Long.parseLong(tokens[4]), tokens[5], Long.parseLong(tokens[6]), tokens[7]));
++	        }
++            
++            in.close();
++			
++		} catch (IOException e) {
++			// catch possible io errors from readLine()
++			System.out.println(&quot;IOException error while trying to update accounts info from accounts.txt!&quot;);
++			return false;
++		}
++		
++		System.out.println(accounts.size() + &quot; accounts information read from accounts.txt (&quot; + (System.currentTimeMillis() - time) + &quot; ms)&quot;);
++		
++		return true;
++	}
++	
++	// returns 'null' if username is valid, or error description otherwise
++	public static String isUsernameValid(String username) {
++		if (username.length() &gt; 20) return &quot;Username too long&quot;;
++		if (username.length() &lt; 2) return &quot;Username too short&quot;;
++		if (!username.matches(&quot;^[A-Za-z0-9_]+$&quot;)) return &quot;Username contains invalid characters&quot;;
++		// everything is OK:
++		return null; 
++	}
++	
++	// returns 'null' if password is valid, or error description otherwise
++	public static String isPasswordValid(String password) {
++		if (password.length() &lt; 2) return &quot;Password too short&quot;;
++		if (password.length() &gt; 30) return &quot;Password too long&quot;; // md5-base64 encoded passwords require 24 chars
++		// we have to allow a bit wider range of possible chars as base64 can produce chars such as +, = and /
++		if (!password.matches(&quot;^[\\x2B-\\x7A]+$&quot;)) return &quot;Password contains invalid characters&quot;;
++		// everything is OK:
++		return null; 
++	}
++	
++	// returns 'null' if username is valid, or error description otherwise.
++	// This is used with &quot;old&quot; format of usernames which could also contain &quot;[&quot; and &quot;]&quot; characters.
++	public static String isOldUsernameValid(String username) {
++		if (username.length() &gt; 20) return &quot;Username too long&quot;;
++		if (username.length() &lt; 2) return &quot;Username too short&quot;;
++		if (!username.matches(&quot;^[A-Za-z0-9_\\[\\]]+$&quot;)) return &quot;Username contains invalid characters&quot;;
++		// everything is OK:
++		return null; 
++	}
++	
++	// returns 'null' if password is valid, or error description otherwise. 'baseUsername' is used to test nickname against
++	// (nickname must contain part of username - it may only prefix and postfix the username)
++	public static String isNicknameValid(String nickname, String baseUsername) {
++		if (nickname.length() &gt; 25) return &quot;Nickname too long&quot;;
++		if (nickname.length() &lt; 2) return &quot;Nickname too short&quot;;
++
++		if (!nickname.matches(&quot;^[A-Za-z0-9_\\[\\]\\|]+$&quot;)) return &quot;Nickname contains invalid characters&quot;;
++		
++		// check if prefix is valid:
++		if (!nickname.matches(&quot;^([A-Za-z0-9\\[\\]\\|]+[\\|\\]])?&quot; + baseUsername)) return &quot;Invalid prefix found in nickname: embed your prefix in [] brackets or separate it by a | character&quot;;
++
++		// check if postfix is valid:
++		if (!nickname.matches(baseUsername + &quot;([\\|\\[][A-Za-z0-9\\[\\]\\|]+)?$&quot;)) return &quot;Invalid postfix found in nickname: embed your postfix in [] brackets or separate it by a | character&quot;;
++		
++		// check if prefix and postfix are both valid in one shot:
++		if (!nickname.matches(&quot;^([A-Za-z0-9\\[\\]\\|]+[\\|\\]])?&quot; + baseUsername + &quot;([\\|\\[][A-Za-z0-9\\[\\]\\|]+)?$&quot;)) return &quot;Nickname contains invalid prefix/postfix. Your username should be contained in your nickname!&quot;;
++
++		// everything is OK:
++		return null; 
++	}	
++	
++	/* WARNING: caller must check if username/password is valid etc. himself! */
++	public static void addAccount(Account acc) {
++		accounts.add(acc);
++		map.put(acc.user, acc);
++		mapNoCase.put(acc.user, acc);
++	}	
++	
++	public static boolean addAccountWithCheck(Account acc) {
++		if (isUsernameValid(acc.user) != null) return false;
++		if (isPasswordValid(acc.pass) != null) return false;
++
++		// check for duplicate entries:
++		if (doesAccountExist(acc.user)) return false;
++		
++		addAccount(acc);
++		return true;
++	}
++
++	// returns null if account is not found:
++	public static Account getAccount(String username) {
++		return map.get(username);
++	}
++
++	/* returns null if index is out of bounds */
++	public static Account getAccount(int index) {
++		try {
++			return accounts.get(index);
++		} catch (IndexOutOfBoundsException e) {
++			return null;
++		}
++	}
++	
++	public static Account findAccountNoCase(String username) {
++		return mapNoCase.get(username);
++	}
++	
++	public static boolean doesAccountExist(String username) {
++		return getAccount(username) != null;
++	}
++	
++	public static Account removeFirstAccount() {
++		Account acc = accounts.remove(0);
++		map.remove(acc.user);
++		mapNoCase.remove(acc.user);
++		return acc;
++	}
++	
++	public static Account removeAccount(int index) {
++		Account acc = accounts.remove(index);
++		map.remove(acc.user);
++		mapNoCase.remove(acc.user);
++		return acc;
++	}	
++	
++
++}
+
+Deleted: branches/testserver/Tools/TransferOldAccounts/DBInterface.java
+===================================================================
+--- trunk/Lobby/TASServer/Tools/TransferOldAccounts/DBInterface.java	2008-01-02 21:43:32 UTC (rev 5227)
++++ branches/testserver/Tools/TransferOldAccounts/DBInterface.java	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -1,83 +0,0 @@
+-/*
+- * Created on 2007.11.9
+- *
+- */
+-
+-/**
+- * @author Betalord
+- *
+- */
+-
+-import java.sql.*;
+-
+-public class DBInterface {
+-	private Connection conn;
+-	private Statement stmt;
+-	
+-	public DBInterface() {
+-		// TODO
+-	}
+-	
+-	public Connection getConnection() {
+-		return conn;
+-	}
+-	
+-	public boolean loadJDBCDriver() {
+-		try {
+-			// The newInstance() call is a work around for some 
+-			// broken Java implementations
+-			
+-			Class.forName(&quot;com.mysql.jdbc.Driver&quot;).newInstance();
+-			System.out.println(&quot;JDBC driver loaded.&quot;);
+-		} catch (Exception e) {
+-			System.out.println(&quot;JDBC driver not found!&quot;);
+-			return false;
+-		}
+-		return true;
+-	}
+-
+-	public boolean connectToDatabase(String url, String username, String password) {
+-		System.out.println(&quot;Trying to connect to database ...&quot;);
+-		try {
+-			conn = DriverManager.getConnection(url, username, password);
+-			stmt = conn.createStatement();
+-		} catch (SQLException e) {
+-			printSQLException(e);
+-			System.out.println(&quot;Unable to connect to database!&quot;);
+-			return false;
+-		}
+-		
+-		System.out.println(&quot;Connection to database established.&quot;);
+-		return true;
+-	}
+-	
+-	/** returns null if error occurs */
+-	public ResultSet execQuery(String query) {
+-		try {
+-			ResultSet rs = stmt.executeQuery(query);
+-			return rs;
+-		} catch (SQLException e) {
+-			printSQLException(e);
+-			return null;
+-		}
+-	}
+-	
+-	/** use for only those SQL statements that do not return any result.
+-	 * Returns false in case of any error. */
+-	public boolean execUpdate(String query) {
+-		try {
+-			stmt.executeUpdate(query);
+-			return true;
+-		} catch (SQLException e) {
+-			printSQLException(e);
+-			return false;
+-		}
+-	}
+-	
+-	public void printSQLException(SQLException e) {
+-		System.out.println(&quot;SQLException: &quot; + e.getMessage());
+-		System.out.println(&quot;SQLState: &quot; + e.getSQLState());
+-		System.out.println(&quot;VendorError: &quot; + e.getErrorCode());
+-	}
+-
+-}
+
+Copied: branches/testserver/Tools/TransferOldAccounts/DBInterface.java (from rev 5227, trunk/Lobby/TASServer/Tools/TransferOldAccounts/DBInterface.java)
+===================================================================
+--- branches/testserver/Tools/TransferOldAccounts/DBInterface.java	                        (rev 0)
++++ branches/testserver/Tools/TransferOldAccounts/DBInterface.java	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -0,0 +1,83 @@
++/*
++ * Created on 2007.11.9
++ *
++ */
++
++/**
++ * @author Betalord
++ *
++ */
++
++import java.sql.*;
++
++public class DBInterface {
++	private Connection conn;
++	private Statement stmt;
++	
++	public DBInterface() {
++		// TODO
++	}
++	
++	public Connection getConnection() {
++		return conn;
++	}
++	
++	public boolean loadJDBCDriver() {
++		try {
++			// The newInstance() call is a work around for some 
++			// broken Java implementations
++			
++			Class.forName(&quot;com.mysql.jdbc.Driver&quot;).newInstance();
++			System.out.println(&quot;JDBC driver loaded.&quot;);
++		} catch (Exception e) {
++			System.out.println(&quot;JDBC driver not found!&quot;);
++			return false;
++		}
++		return true;
++	}
++
++	public boolean connectToDatabase(String url, String username, String password) {
++		System.out.println(&quot;Trying to connect to database ...&quot;);
++		try {
++			conn = DriverManager.getConnection(url, username, password);
++			stmt = conn.createStatement();
++		} catch (SQLException e) {
++			printSQLException(e);
++			System.out.println(&quot;Unable to connect to database!&quot;);
++			return false;
++		}
++		
++		System.out.println(&quot;Connection to database established.&quot;);
++		return true;
++	}
++	
++	/** returns null if error occurs */
++	public ResultSet execQuery(String query) {
++		try {
++			ResultSet rs = stmt.executeQuery(query);
++			return rs;
++		} catch (SQLException e) {
++			printSQLException(e);
++			return null;
++		}
++	}
++	
++	/** use for only those SQL statements that do not return any result.
++	 * Returns false in case of any error. */
++	public boolean execUpdate(String query) {
++		try {
++			stmt.executeUpdate(query);
++			return true;
++		} catch (SQLException e) {
++			printSQLException(e);
++			return false;
++		}
++	}
++	
++	public void printSQLException(SQLException e) {
++		System.out.println(&quot;SQLException: &quot; + e.getMessage());
++		System.out.println(&quot;SQLState: &quot; + e.getSQLState());
++		System.out.println(&quot;VendorError: &quot; + e.getErrorCode());
++	}
++
++}
+
+Deleted: branches/testserver/Tools/TransferOldAccounts/TransferOldAccounts.java
+===================================================================
+--- trunk/Lobby/TASServer/Tools/TransferOldAccounts/TransferOldAccounts.java	2008-01-02 21:43:32 UTC (rev 5227)
++++ branches/testserver/Tools/TransferOldAccounts/TransferOldAccounts.java	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -1,125 +0,0 @@
+-/**
+- * Class that transfers old accounts (that were stored in 
+- * accounts.txt on the hard disk) to a database.
+- * 
+- * Created on 2007/12/28
+- *  
+- */
+-
+-/**
+- * @author Betalord
+- *
+- */
+-
+-import java.util.*;
+-import java.sql.*;
+-import java.text.*;
+-
+-public class TransferOldAccounts {
+-
+-	// database related:
+-	public static DBInterface database;
+-	private static String DB_URL = &quot;jdbc:<A HREF="mysql://127.0.0.1/spring">mysql://127.0.0.1/spring</A>&quot;;
+-	private static String DB_username = &quot;&quot;;
+-	private static String DB_password = &quot;&quot;;
+-	
+-	public static void closeAndExit() {
+-		closeAndExit(null);
+-	}
+-	
+-	public static void closeAndExit(String reason) {
+-		if (reason != null) {
+-			System.out.println(&quot;Shuting down. Reason: &quot; + reason);
+-		}
+-		System.exit(0);
+-	}
+-
+-	public static String easyDateFormat(long date, String format) {
+-		java.util.Date d = new java.util.Date(date);
+-		SimpleDateFormat formatter = new SimpleDateFormat(format);
+-		return formatter.format(d);
+-	}
+-	
+-	public static void main(String[] args) {
+-
+-		if (args.length != 2) {
+-			System.out.println(&quot;Error - none or too many arguments.&quot;);
+-		    return ;
+-		}
+-
+-		DB_username = args[0];
+-		DB_password = args[1];
+-
+-		// establish connection with database:
+-		System.out.println(&quot;Connecting to database ...&quot;);
+-		database = new DBInterface();
+-		if (!database.loadJDBCDriver()) {
+-			closeAndExit();
+-		}
+-		if (!database.connectToDatabase(DB_URL, DB_username, DB_password)) {
+-			closeAndExit();
+-		}
+-		
+-		System.out.println(&quot;Loading accounts from disk ...&quot;);
+-		System.out.flush();
+-		Accounts.loadAccounts();
+-
+-		// first, filter out any invalid accounts:
+-		for (int i = 0; i &lt; Accounts.getAccountsSize(); i++) {
+-			Account acc = Accounts.getAccount(i);
+-			if (Accounts.isOldUsernameValid(acc.user) != null) {
+-				System.out.println(&quot;Invalid username: &quot; + acc.toString());
+-				System.out.println(&quot;This user (&quot; + acc.user + &quot;) last logged in on &quot; + easyDateFormat(acc.lastLogin, &quot;d MMM yyyy HH:mm:ss z&quot;));
+-				Accounts.removeAccount(i);
+-				i--;
+-				continue;
+-			}
+-		}
+-
+-		System.out.println(&quot;After cleaning accounts, &quot; + Accounts.getAccountsSize() + &quot; valid accounts remain.&quot;);
+-		System.out.flush();
+-		
+-		// we will do INSERT in chunks, each of max size of 1000 entries
+-		for (int k = 0; k &lt; Accounts.getAccountsSize() / 1000 + 1; k++) {
+-			StringBuffer insert = new StringBuffer(&quot;INSERT INTO OldAccounts (Username, Password, AccessBits, RegistrationDate, LastCountry) values &quot;);
+-
+-			int count = 0;
+-			for (int i = k*1000; i &lt; Math.min(Accounts.getAccountsSize(), (k+1)*1000); i++) {
+-				Account acc = Accounts.getAccount(i);
+-				if (i == k*1000)
+-					insert.append(&quot;(?, ?, ?, ?, ?)&quot;);
+-				else
+-					insert.append(&quot;, (?, ?, ?, ?, ?)&quot;);
+-				count++;
+-			}
+-			
+-			insert.append(&quot;;&quot;);
+-			
+-			// set up the INSERT command:
+-			PreparedStatement pstmt = null;
+-			try {
+-	            pstmt = database.getConnection().prepareStatement(insert.toString());
+-	            for (int i = 0; i &lt; count; i++) {
+-	            	Account acc = Accounts.getAccount(k*1000+i);
+-	                pstmt.setString(i*5+1, acc.user);
+-	                pstmt.setString(i*5+2, acc.pass);
+-	                pstmt.setInt(i*5+3, acc.access);
+-	                pstmt.setLong(i*5+4, acc.registrationDate);
+-	                pstmt.setString(i*5+5, acc.lastCountry);
+-	            }
+-	            // insert into database:
+-	    		System.out.println(&quot;Inserting chunk #&quot; + k + &quot;(&quot; + count + &quot; rows) into database ...&quot;);
+-	    		System.out.flush();
+-	            pstmt.executeUpdate();
+-	            pstmt.close();
+-			} catch (SQLException e) {
+-				System.out.println(&quot;Inserting into database failed.&quot;);
+-				e.printStackTrace();
+-				closeAndExit(&quot;Error while accessing database.&quot;);
+-			}
+-		}
+-		
+-		System.out.println(&quot;Done.&quot;);
+-	}
+-
+-}
+
+Copied: branches/testserver/Tools/TransferOldAccounts/TransferOldAccounts.java (from rev 5227, trunk/Lobby/TASServer/Tools/TransferOldAccounts/TransferOldAccounts.java)
+===================================================================
+--- branches/testserver/Tools/TransferOldAccounts/TransferOldAccounts.java	                        (rev 0)
++++ branches/testserver/Tools/TransferOldAccounts/TransferOldAccounts.java	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -0,0 +1,125 @@
++/**
++ * Class that transfers old accounts (that were stored in 
++ * accounts.txt on the hard disk) to a database.
++ * 
++ * Created on 2007/12/28
++ *  
++ */
++
++/**
++ * @author Betalord
++ *
++ */
++
++import java.util.*;
++import java.sql.*;
++import java.text.*;
++
++public class TransferOldAccounts {
++
++	// database related:
++	public static DBInterface database;
++	private static String DB_URL = &quot;jdbc:<A HREF="mysql://127.0.0.1/spring">mysql://127.0.0.1/spring</A>&quot;;
++	private static String DB_username = &quot;&quot;;
++	private static String DB_password = &quot;&quot;;
++	
++	public static void closeAndExit() {
++		closeAndExit(null);
++	}
++	
++	public static void closeAndExit(String reason) {
++		if (reason != null) {
++			System.out.println(&quot;Shuting down. Reason: &quot; + reason);
++		}
++		System.exit(0);
++	}
++
++	public static String easyDateFormat(long date, String format) {
++		java.util.Date d = new java.util.Date(date);
++		SimpleDateFormat formatter = new SimpleDateFormat(format);
++		return formatter.format(d);
++	}
++	
++	public static void main(String[] args) {
++
++		if (args.length != 2) {
++			System.out.println(&quot;Error - none or too many arguments.&quot;);
++		    return ;
++		}
++
++		DB_username = args[0];
++		DB_password = args[1];
++
++		// establish connection with database:
++		System.out.println(&quot;Connecting to database ...&quot;);
++		database = new DBInterface();
++		if (!database.loadJDBCDriver()) {
++			closeAndExit();
++		}
++		if (!database.connectToDatabase(DB_URL, DB_username, DB_password)) {
++			closeAndExit();
++		}
++		
++		System.out.println(&quot;Loading accounts from disk ...&quot;);
++		System.out.flush();
++		Accounts.loadAccounts();
++
++		// first, filter out any invalid accounts:
++		for (int i = 0; i &lt; Accounts.getAccountsSize(); i++) {
++			Account acc = Accounts.getAccount(i);
++			if (Accounts.isOldUsernameValid(acc.user) != null) {
++				System.out.println(&quot;Invalid username: &quot; + acc.toString());
++				System.out.println(&quot;This user (&quot; + acc.user + &quot;) last logged in on &quot; + easyDateFormat(acc.lastLogin, &quot;d MMM yyyy HH:mm:ss z&quot;));
++				Accounts.removeAccount(i);
++				i--;
++				continue;
++			}
++		}
++
++		System.out.println(&quot;After cleaning accounts, &quot; + Accounts.getAccountsSize() + &quot; valid accounts remain.&quot;);
++		System.out.flush();
++		
++		// we will do INSERT in chunks, each of max size of 1000 entries
++		for (int k = 0; k &lt; Accounts.getAccountsSize() / 1000 + 1; k++) {
++			StringBuffer insert = new StringBuffer(&quot;INSERT INTO OldAccounts (Username, Password, AccessBits, RegistrationDate, LastCountry) values &quot;);
++
++			int count = 0;
++			for (int i = k*1000; i &lt; Math.min(Accounts.getAccountsSize(), (k+1)*1000); i++) {
++				Account acc = Accounts.getAccount(i);
++				if (i == k*1000)
++					insert.append(&quot;(?, ?, ?, ?, ?)&quot;);
++				else
++					insert.append(&quot;, (?, ?, ?, ?, ?)&quot;);
++				count++;
++			}
++			
++			insert.append(&quot;;&quot;);
++			
++			// set up the INSERT command:
++			PreparedStatement pstmt = null;
++			try {
++	            pstmt = database.getConnection().prepareStatement(insert.toString());
++	            for (int i = 0; i &lt; count; i++) {
++	            	Account acc = Accounts.getAccount(k*1000+i);
++	                pstmt.setString(i*5+1, acc.user);
++	                pstmt.setString(i*5+2, acc.pass);
++	                pstmt.setInt(i*5+3, acc.access);
++	                pstmt.setLong(i*5+4, acc.registrationDate);
++	                pstmt.setString(i*5+5, acc.lastCountry);
++	            }
++	            // insert into database:
++	    		System.out.println(&quot;Inserting chunk #&quot; + k + &quot;(&quot; + count + &quot; rows) into database ...&quot;);
++	    		System.out.flush();
++	            pstmt.executeUpdate();
++	            pstmt.close();
++			} catch (SQLException e) {
++				System.out.println(&quot;Inserting into database failed.&quot;);
++				e.printStackTrace();
++				closeAndExit(&quot;Error while accessing database.&quot;);
++			}
++		}
++		
++		System.out.println(&quot;Done.&quot;);
++	}
++
++}
+
+Modified: branches/testserver/WebInterface/ban.list.php
+===================================================================
+--- branches/testserver/WebInterface/ban.list.php	2008-01-02 21:43:32 UTC (rev 5227)
++++ branches/testserver/WebInterface/ban.list.php	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -3,11 +3,6 @@
+ &lt;?php
+   // useful link: <A HREF="http://www.databasejournal.com/features/mysql/article.php/10897_1469211_2">http://www.databasejournal.com/features/mysql/article.php/10897_1469211_2</A>
+   
+-  function goBackButton()
+-  {
+-    echo &quot;&lt;a class='button1' href='javascript:history.go(-1)'&gt;Go back&lt;/a&gt;&quot;;
+-  }
+-  
+   function deleteButton($id)
+   {
+     return &quot;&lt;a class='button1' href='ban.delete.php?id={$id}'&gt;Delete&lt;/a&gt;&quot;;
+
+Modified: branches/testserver/WebInterface/ban.process.php
+===================================================================
+--- branches/testserver/WebInterface/ban.process.php	2008-01-02 21:43:32 UTC (rev 5227)
++++ branches/testserver/WebInterface/ban.process.php	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -1,10 +1,6 @@
+ &lt;?php require(&quot;inc/head.php&quot;) ?&gt;
+ 
+ &lt;?php 
+-  function goBackButton()
+-  {
+-    echo &quot;&lt;a class='button1' href='javascript:history.go(-1)'&gt;Go back&lt;/a&gt;&quot;;
+-  }
+   
+   function returnError($err_msg) 
+   {
+@@ -15,6 +11,37 @@
+     exit();
+   }
+ 
++  function forceUpdate()
++  {
++    $conn = new ServerConnection();
++    if (($res = $conn-&gt;connect()) !== true)
++    {
++      printError(&quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Error: &quot; . $res . &quot;&lt;/p&gt;&quot;);
++      return;
++    }
++    if (($conn-&gt;identify()) == false)
++    {
++      printError(&quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Error while trying to authenticate with the server&quot; . &quot;&lt;/p&gt;&quot;);
++      return;
++    }
++
++    if (($res = $conn-&gt;sendLine(&quot;queryserver RETRIEVELATESTBANLIST&quot;)) !== TRUE)
++    {
++      printError(&quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Error while communicating with the server&quot; . &quot;&lt;/p&gt;&quot;);
++      return;
++    }
++    if (($res = $conn-&gt;readLine()) === FALSE)
++    {
++      printError(&quot;&lt;p style='color: black; font-weight: bold'&gt;&quot; . &quot;Error while communicating with the server&quot; . &quot;&lt;/p&gt;&quot;);
++      return;
++    }
++
++    $res = removeBeginning($res, 'SERVERMSG ');
++    echo &quot;&lt;p&gt;Server has successfully updated ban records from the database.&lt;/p&gt;&quot;;
++
++    // close connection with server:
++    $conn-&gt;close();
++  }  
+     
+   //$bandur; // ban duration. If 1, then we banned for limited time, if 2, we banned for indefinite time
+   if ($_POST[&quot;R_bandDuration&quot;] == &quot;limited&quot;) $bandur = 1;
+@@ -101,7 +128,8 @@
+   
+   mysql_close($dbh);
+   
+-  echo &quot;&lt;p&gt;New ban entry has been successfully created.&lt;/p&gt;&quot;;
++  echo &quot;&lt;p&gt;New ban entry has been successfully created. Now forcing TASServer to fetch new ban entries from the database ... &lt;/p&gt;&quot;;
++  forceUpdate();
+   echo &quot;&lt;a class='button1' href='ban.php'&gt;OK&lt;/a&gt;&quot;;
+   
+ ?&gt;
+
+Modified: branches/testserver/WebInterface/inc/constants.inc
+===================================================================
+--- branches/testserver/WebInterface/inc/constants.inc	2008-01-02 21:43:32 UTC (rev 5227)
++++ branches/testserver/WebInterface/inc/constants.inc	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -3,7 +3,7 @@
+   $constants['remote_address'] = &quot;89.212.76.147&quot;;
+   $constants['remote_port'] = &quot;8205&quot;;
+   $constants['access_key'] = &quot;phpscript:pass&quot;; // remote access key
+-  $constants['session_timeout_time'] = 10 * 60; // in seconds. After so many seconds of inactivity, user will be automatically logged out
++  $constants['session_timeout_time'] = 20 * 60; // in seconds. After so many seconds of inactivity, user will be automatically logged out
+   $constants['updates_file'] = &quot;../updates.xml&quot;; // file name (and path) to the updates.xml file
+   $constants['motd_file'] = &quot;../motd.txt&quot;; // file name (and path) to the updates.xml file
+   $constants['database_url'] = &quot;127.0.0.1&quot;; // database where ban entries are stored etc.
+
+Modified: branches/testserver/WebInterface/inc/functions.php
+===================================================================
+--- branches/testserver/WebInterface/inc/functions.php	2008-01-02 21:43:32 UTC (rev 5227)
++++ branches/testserver/WebInterface/inc/functions.php	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -97,66 +97,61 @@
+   function login($username, $password)
+   {
+     global $constants;
++    $password = md5_base64($password);
+ 
+-    $socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
+-    $result = socket_connect($socket, $constants['remote_address'], $constants['remote_port']);
+-    if ($result === false) {
+-      $_SESSION['error'] = &quot;socket_connect() failed.\nReason: ($result) &quot; . socket_strerror(socket_last_error($socket));
+-      return;
+-    }
++    $renewed = false; // has the account, to which this user is logging in, been renewed already?
++    
++    $dbh = mysql_connect($constants['database_url'], $constants['database_username'], $constants['database_password']) 
++      or printErrorAndDie(&quot;Unable to connect to the database. Error: &quot; . mysql_error());
++    $selected = mysql_select_db(&quot;spring&quot;, $dbh) 
++      or printErrorAndDie(&quot;Problems connecting to the database. Error: &quot; . mysql_error());
++    
++    $select = &quot;SELECT * FROM `Accounts` WHERE Username = '&quot; . $username . &quot;'&quot;;
++    $result = mysql_query($select);
++    if (!$result) printErrorAndDie(&quot;Problems accessing the database. Error: &quot; . mysql_error());
++    $row = mysql_fetch_row($result);
++    
++    if ($row === false) {
++      $select = &quot;SELECT * FROM `OldAccounts` WHERE Username = '&quot; . $username . &quot;'&quot;;
++      $result = mysql_query($select);
++      if (!$result) printErrorAndDie(&quot;Problems accessing the database. Error: &quot; . mysql_error());
++      $row = mysql_fetch_row($result);
++      
++      if ($row === false) {
++        // bad username
++        $_SESSION['error'] = &quot;Bad username/password&quot;;
++        return;      
++      } elseif ($row[4] != $password) {
++        // bad password
++        $_SESSION['error'] = &quot;Bad username/password&quot;;
++        return;      
++      }
+ 
+-    $in = &quot;identify &quot; . $constants['access_key'] . &quot;\n&quot;;
+-    socket_write($socket, $in, strlen($in));
++      if ($row[1] == 1) {
++        // can't log in old account that has already been renewed
++        $_SESSION['error'] = &quot;This account has already been renewed&quot;;
++        return;      
++      }
+ 
+-    // read the response:
+-//    while ($out = socket_read($socket, 2048)) {
+-//      echo $out;
+-//    }
+-    $out = trim(socket_read($socket, 2048));
+-    if ($out == 'FAILED') {
+-      $_SESSION['error'] = &quot;Unable to acquire link with the server&quot;;
+-      return;
+-    } else if ($out != 'PROCEED')
+-    {
+-      $_SESSION['error'] = &quot;Error while trying to connect to server&quot;;
+-      return;
++      $renewed = false; // using old account
++    } else {
++      if ($row[4] != $password) {
++        // bad password
++        $_SESSION['error'] = &quot;Bad username/password&quot;;
++        return;      
++      }
++      $renewed = true; // account has already been renewed (this is the new account)
+     }
+ 
+-    $in = &quot;TESTLOGIN &quot; . $username . &quot; &quot; . md5_base64($password) . &quot;\n&quot;;
+-    socket_write($socket, $in, strlen($in));
+-    $out = trim(socket_read($socket, 2048));
+-    if ($out == 'LOGINBAD')
+-    {
+-      $_SESSION['error'] = &quot;Bad username/password&quot;;
+-      return;
+-    } else if ($out != 'LOGINOK')
+-    {
+-      $_SESSION['error'] = &quot;Error in communication with server&quot;;
+-      return;
+-    }
++    mysql_close($dbh);
+ 
+-    // get access level:
+-    $in = &quot;GETACCESS &quot; . $username . &quot;\n&quot;;
+-    socket_write($socket, $in, strlen($in));
+-    $out = trim(socket_read($socket, 2048));
+-    if ($out == '0')
+-    {
+-      $_SESSION['error'] = &quot;Error in communication with server (#2)&quot;;
+-      return;
+-    }
+-    if ((intval($out) &lt; 1) || (intval($out) &gt; 3))
+-    {
+-      $_SESSION['error'] = &quot;Error in communication with server (#3)&quot;;
+-      return;
+-    }
+-    $access = $out;
++    $access = $row[5] &amp; 7;
+ 
+-    socket_close($socket);
+-
+     // ok everything seems fine, log the user in (create session data etc.):
+     unset($_SESSION['error']);
+     $_SESSION['username'] = $username;
+     $_SESSION['access'] = $access;
++    $_SESSION['renewed'] = $renewed; // if true, then this account is the new account (renewed), or else it is an old account (not renewed yet)
+     $_SESSION['last_timestamp'] = time(); // last time when user accessed some page. Used with manual timeout checking
+   }
+ 
+@@ -249,6 +244,11 @@
+       echo &quot;    &lt;input type='submit' value='Logout'&gt;&lt;br&gt;&quot;;
+       echo &quot;    &lt;/form&gt;&quot;;
+       echo &quot;  &lt;/td&gt;&lt;/tr&gt;&quot;;
++      if (isset($_SESSION['renewed']) &amp;&amp; $_SESSION['renewed'] == false) {
++        echo &quot;  &lt;tr&gt;&lt;td&gt;&quot;;
++        echo &quot;&lt;br&gt;&lt;span style='color: blue'&gt;Go &lt;a href='renew.php'&gt;here&lt;/a&gt; to renew your account!&lt;/span&gt;&quot;;
++        echo &quot;  &lt;/td&gt;&lt;/tr&gt;&quot;;
++      }
+       echo &quot;&lt;/table&gt;&quot;;
+ 
+     }
+@@ -273,4 +273,30 @@
+     echo &quot;&lt;span style='color: red; font-weight: bold;'&gt;$error&lt;/span&gt;&quot;;
+   }
+ 
++  function printErrorAndDie($error) {
++    printError($error);
++    die();
++  }
++
++  function goBackButton($level = 1)
++  {
++    echo &quot;&lt;a class='button1' href='javascript:history.go(-&quot; . $level . &quot;)'&gt;Go back&lt;/a&gt;&quot;;
++  }  
++
++  function microtime_float() {
++      list($usec, $sec) = explode(&quot; &quot;, microtime());
++      return ((float)$usec + (float)$sec);
++  }
++  
++  function transaction_begin() {
++    @mysql_query(&quot;BEGIN&quot;);
++  }
++  
++  function transaction_commit() {
++    @mysql_query(&quot;COMMIT&quot;);
++  }
++  
++  function transaction_rollback() {
++    @mysql_query(&quot;ROLLBACK&quot;);
++  }
+ ?&gt;
+
+Modified: branches/testserver/WebInterface/inc/head.php
+===================================================================
+--- branches/testserver/WebInterface/inc/head.php	2008-01-02 21:43:32 UTC (rev 5227)
++++ branches/testserver/WebInterface/inc/head.php	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -32,6 +32,13 @@
+       &lt;td&gt;
+      	  &lt;?php
+      	    echo &quot;&lt;h1&gt;TASServer Web Interface&lt;/h1&gt;&quot;;
++          echo &quot;&lt;span style='color: green; font-weight: bold;'&gt;
++                Important notice: until Spring 0.76b2 release, this site will not be connected to actual lobby accounts
++                but will rather be using temporary accounts that were transfered to a database from TASServer on 28.12.2007.
++                This will remain so until next release as this site is being updated to use new account database.
++                &lt;/span&gt;
++                &lt;hr&gt;
++                &quot;;
+     	  ?&gt;
+       &lt;/td&gt;
+     &lt;/tr&gt;
+
+Copied: branches/testserver/WebInterface/renew.php (from rev 5227, trunk/Lobby/TASServer/WebInterface/renew.php)
+===================================================================
+--- branches/testserver/WebInterface/renew.php	                        (rev 0)
++++ branches/testserver/WebInterface/renew.php	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -0,0 +1,391 @@
++&lt;?php require(&quot;inc/head.php&quot;) ?&gt;
++
++&lt;?php
++
++  $explanation = &quot;Since Spring 0.76b2 (lobby server version 0.36), all accounts have been transferred
++                  to a database and need to be renewed in order to be reactivated again.
++                  This is required because certain new restrictions have been applied to accounts.
++                  After you will renew your account you won't be able to rename it anymore, however you will 
++                  be able to set a nickname based on your username (username prefixed and/or postfixed with a 
++                  clan tag or some other text) from within the lobby (or this page). This will ease tracking and 
++                  uniquely identifying accounts making it easier to bind them with other external entities
++                  (such as ladder sites, statistics tracking etc.).
++                  When you renew your account your settings will be preserved.
++                  &lt;br /&gt;
++                  &lt;br /&gt;&quot;;
++
++  function returnError($err_msg, $back = 1) 
++  {
++    printError($err_msg);
++    echo &quot;&lt;br /&gt;&quot;;
++    echo &quot;&lt;br /&gt;&quot;;
++    goBackButton($back);
++    exit();
++  }
++
++  function keywordBox () {
++    echo '&lt;table class=&quot;standard-table&quot;&gt;';
++    echo '&lt;tr&gt;';
++    echo '  &lt;td colspan=&quot;4&quot;&gt;';
++    echo '  &lt;input type=&quot;checkbox&quot; name=&quot;usekeyword&quot; /&gt; Only show lines that contain:';
++    echo '  &lt;/td&gt;';
++    echo '&lt;/tr&gt;';
++    echo '&lt;tr&gt;';
++
++    echo '  &lt;td&gt;';
++    echo &quot;  Keyword: &lt;input type='text' name='keyword' /&gt;&quot;;
++    echo '  &lt;/td&gt;';
++
++    echo '&lt;/tr&gt;';
++
++    echo '&lt;tr&gt;';
++    echo '  &lt;td&gt;';
++    echo '  Note: wildcards are not supported!';
++    echo '  &lt;/td&gt;';
++    echo '&lt;/tr&gt;';
++
++    echo '&lt;/table&gt;';
++  }
++
++  function displayRenewalForm()
++  {
++    echo &quot;&lt;h2&gt;Account renewal&lt;/h2&gt;&quot;;
++
++    echo &quot;&lt;div style='width: 80%'&gt;&quot;;
++
++    global $explanation;
++    echo $explanation;
++    echo &quot;&lt;hr&gt;&quot;;
++    echo &quot;&lt;h2&gt;Account renewal form&lt;/h2&gt;&quot;;
++    
++    echo &quot;&lt;form action='{$PHP_SELF}' method='post'&gt;&quot;;
++
++    echo '&lt;table class=&quot;table4&quot;&gt;';
++
++    echo '&lt;tr&gt;';
++    echo '  &lt;td&gt;';
++    echo &quot;    Your old username: &quot;;
++    echo '  &lt;/td&gt;';
++    echo '  &lt;td&gt;';
++    echo &quot;    &lt;span style='font-weight: bold'&gt;&quot;;
++    echo $_SESSION['username'];
++    echo &quot;    &lt;/span&gt;&quot;;
++    echo '  &lt;/td&gt;';
++    echo '&lt;/tr&gt;';
++
++    echo '&lt;tr&gt;';
++    echo '  &lt;td&gt;';
++    echo &quot;    Your new username: &quot;;
++    echo '  &lt;/td&gt;';
++    echo '  &lt;td&gt;';
++    echo &quot;    &lt;input type='text' name='new_username' value='&quot; . $_SESSION['username'] . &quot;' /&gt;&quot;;
++    echo '  &lt;/td&gt;';
++    echo '&lt;/tr&gt;';
++    
++    echo '&lt;tr&gt;';
++    echo '  &lt;td&gt;';
++    echo &quot;    Your new nickname: &quot;;
++    echo '  &lt;/td&gt;';
++    echo '  &lt;td&gt;';
++    echo &quot;    &lt;input type='text' name='new_nickname' value='&quot; . $_SESSION['username'] . &quot;' /&gt;&quot;;
++    echo '  &lt;/td&gt;';
++    echo '&lt;/tr&gt;';
++    
++    echo '&lt;/table&gt;';
++
++    echo &quot;&lt;br /&gt;&quot;;
++
++    echo &quot;Note: You will be able to change your nickname within the lobby client using /nick command.&quot;;
++
++    echo &quot;&lt;br /&gt;&quot;;
++    echo &quot;&lt;br /&gt;&quot;;
++
++    echo &quot;&lt;span style='color: red; font-weight: bold'&gt;&quot;;
++    echo &quot;IMPORTANT: Once you renew your account, you won't be able to rename it anymore. You will be
++          able to choose a different nickname though, which will have to contain your username (optionally 
++          prefixed and/or postfixed with some text)&quot;;
++    echo &quot;&lt;/span&gt;&quot;;
++
++    echo &quot;&lt;br /&gt;&quot;;
++    echo &quot;&lt;br /&gt;&quot;;
++    echo &quot;&lt;input type='submit' value='Renew my account' name='submit' /&gt;&quot;;
++    echo &quot;&lt;/form&gt;&quot;;
++
++    echo &quot;&lt;/div&gt;&quot;;
++  }
++
++  function displayConfirmationForm()
++  {
++    echo &quot;&lt;h2&gt;Account renewal&lt;/h2&gt;&quot;;
++
++    echo &quot;&lt;div style='width: 80%'&gt;&quot;;
++    
++    echo &quot;Please confirm the changes:&quot;;
++
++    echo &quot;&lt;form action='{$PHP_SELF}' method='post'&gt;&quot;;
++
++    echo '&lt;table class=&quot;table4&quot;&gt;';
++    
++    echo '&lt;tr&gt;';
++    echo '  &lt;td&gt;';
++    echo &quot;    Your old username: &quot;;
++    echo '  &lt;/td&gt;';
++    echo '  &lt;td&gt;';
++    echo &quot;    &lt;span style='font-weight: bold'&gt;&quot;;
++    echo $_SESSION['username'];
++    echo &quot;    &lt;/span&gt;&quot;;
++    echo '  &lt;/td&gt;';
++    echo '&lt;/tr&gt;';
++
++    echo '&lt;tr&gt;';
++    echo '  &lt;td&gt;';
++    echo &quot;    Your new username: &quot;;
++    echo '  &lt;/td&gt;';
++    echo '  &lt;td&gt;';
++    echo &quot;    &lt;span style='font-weight: bold; color: blue'&gt;&quot;;
++    echo $_POST['new_username'];
++    echo &quot;    &lt;/span&gt;&quot;;
++    echo '  &lt;/td&gt;';
++    echo '&lt;/tr&gt;';
++    
++    echo '&lt;tr&gt;';
++    echo '  &lt;td&gt;';
++    echo &quot;    Your new nickname: &quot;;
++    echo '  &lt;/td&gt;';
++    echo '  &lt;td&gt;';
++    echo &quot;    &lt;span style='font-weight: bold; color: blue'&gt;&quot;;
++    echo $_POST['new_nickname'];
++    echo &quot;    &lt;/span&gt;&quot;;
++    echo '  &lt;/td&gt;';
++    echo '&lt;/tr&gt;';
++    
++    echo '&lt;/table&gt;';
++
++    echo &quot;&lt;br /&gt;&quot;;
++    echo &quot;&lt;input type='hidden' name='new_username_confirmed' value='&quot; . $_POST['new_username'] . &quot;'&gt;&quot;;
++    echo &quot;&lt;input type='submit' value='Renew my account' name='submit' /&gt;&quot;;
++    echo &quot;&lt;/form&gt;&quot;;
++
++    echo &quot;&lt;/div&gt;&quot;;
++  }
++
++  function displayCompletionForm()
++  {
++    echo &quot;&lt;h2&gt;Account renewal&lt;/h2&gt;&quot;;
++
++    echo &quot;&lt;div style='width: 80%'&gt;&quot;;
++
++    if (!isset($_SESSION['verified_new_username'])) {
++      printError(&quot;Error occured: new username is not defined in the session array. Please report this error!&quot;);
++      echo &quot;&lt;a class='button1' href='javascript:history.go(-2)'&gt;Go back&lt;/a&gt;&quot;;
++      return ;
++    }
++
++    if ($_POST['new_username_confirmed'] != $_SESSION['verified_new_username']) {
++      // perhaps user is trying to forge a custom POST request, we must deny it
++      printError(&quot;Error occured: new username doesn't match the one submited in POST form. Please try again or else report this error!&quot;);
++      echo &quot;&lt;a class='button1' href='javascript:history.go(-2)'&gt;Go back&lt;/a&gt;&quot;;
++      return ;
++    }
++
++    
++    $dbh = mysql_connect($constants['database_url'], $constants['database_username'], $constants['database_password']) 
++      or returnError(&quot;Unable to connect to the database. Error: &quot; . mysql_error());
++    $selected = mysql_select_db(&quot;spring&quot;, $dbh) 
++      or returnError(&quot;Problems connecting to the database. Error: &quot; . mysql_error());
++   
++    // really good introduction to mysql transactions: <A HREF="http://www.devshed.com/c/a/MySQL/Using-Transactions-In-MySQL-Part-1/">http://www.devshed.com/c/a/MySQL/Using-Transactions-In-MySQL-Part-1/</A>
++    
++    transaction_begin();
++
++    // check if such username already exists in Accounts table:
++    $select = &quot;SELECT * FROM Accounts WHERE Username='&quot; . $_SESSION['verified_new_username'] . &quot;'&quot;;
++    $result = mysql_query($select);
++    if (!$result) {
++      returnError(&quot;Error while trying to query the database. MySQL error: &quot; . mysql_error());
++    }
++    $row = mysql_fetch_row($result);
++    if ($row !== false) {
++      returnError(&quot;Error: account with username '&quot; . $_SESSION['verified_new_username'] . &quot;' already exists - please choose another username. Operation cancelled.&quot;, 2);
++    }
++
++    // check that user is not renaming to some other account (which is not his):
++    $select = &quot;SELECT * FROM OldAccounts WHERE Username='&quot; . $_SESSION['verified_new_username'] . &quot;'&quot;;
++    $result = mysql_query($select);
++    if (!$result) {
++      returnError(&quot;Error while trying to query the database. MySQL error: &quot; . mysql_error());
++    }
++    $row = mysql_fetch_row($result);
++    if (($row !== false) &amp;&amp; ($row[1] == 0 /* not renewed yet */) &amp;&amp; ($_SESSION['verified_new_username'] != $_SESSION['username'])) {
++      returnError(&quot;Error: account with username '&quot; . $_SESSION['verified_new_username'] . &quot;' already exists (but hasn't been renewed yet) - please choose another username. Operation cancelled.&quot;, 2);
++    }
++
++    // now select our own record so that we can transfer it to new account:
++    $select = &quot;SELECT * FROM `OldAccounts` WHERE Username = '&quot; . $_SESSION['username'] . &quot;'&quot;;
++    $result = mysql_query($select);
++    if (!$result) {
++      returnError(&quot;Problems accessing the database. Error: &quot; . mysql_error());
++    }
++    $row = mysql_fetch_row($result);
++    if ($row === false) {
++      returnError(&quot;Problems accessing the database. Your username could not be found (this should not happen). Please report this error!&quot;);
++    }
++    
++    if ($row[2] == 1) {
++      returnError(&quot;Error: this account has already been renewed. Cancelling operation ...&quot;);
++    }
++    
++    $insert = &quot;INSERT INTO Accounts (Username, Nickname, Password, AccessBits, RegistrationDate) values (&quot;;
++    $insert .= &quot;'&quot; . $_SESSION['verified_new_username'] . &quot;', '&quot; . $_SESSION['verified_new_nickname'] . &quot;', '&quot; . $row[4] . &quot;', &quot; . $row[5] . &quot;, &quot; . $row[6] . &quot;);&quot;;
++    $update = &quot;UPDATE OldAccounts SET Transferred=1, NewUsername='&quot; . $_SESSION['verified_new_username'] . &quot;' WHERE Username='&quot; . $_SESSION['username'] . &quot;';&quot;;
++    
++    if (!mysql_query($insert)) {
++      returnError(&quot;Error while trying to modify the database. MySQL error: &quot; . mysql_error());
++    }
++    
++    if (!mysql_query($update)) {
++      returnError(&quot;Error while trying to modify the database. MySQL error: &quot; . mysql_error());
++    }
++    
++    transaction_commit();
++    
++    mysql_close($dbh);
++  
++    logout();
++  
++    
++    echo &quot;Your account has been successfully updated to &quot;;
++    echo &quot;&lt;span style='font-weight: bold; color: blue'&gt;&quot;;
++    echo $_POST['new_username_confirmed'];
++    echo &quot;&lt;/span&gt;&quot;;
++
++    echo &quot;&lt;br /&gt;&quot;;
++    echo &quot;&lt;br /&gt;&quot;;
++    echo &quot;Your password remains the same. You may now login via lobby client using this account. &lt;br /&gt;&quot;;
++    echo &quot;Note: you have now been logged out from this site. You should login again if you want to perform any additional tasks.&quot;;
++
++    echo &quot;&lt;/div&gt;&quot;;
++  }
++
++  function displayGeneralInfo()
++  {
++    global $explanation;
++    
++    echo &quot;&lt;h2&gt;Account renewal&lt;/h2&gt;&quot;;
++
++    $text = $explanation . &quot;&lt;span style='color: blue; font-weight: bold;'&gt;
++                            In order to renew your account now, log in using your old lobby username and password at the menu
++                            on the left.
++                            &lt;/span&gt;
++                            &quot;;
++                           
++    echo &quot;&lt;div style='width: 80%; color: black; font-weight: normal;'&gt;$text&lt;/div&gt;&quot;;
++  }
++  
++  function displayAlreadyRenewedPage()
++  {
++    global $explanation;
++    
++    echo &quot;&lt;h2&gt;Account renewal&lt;/h2&gt;&quot;;
++
++    $text = $explanation . &quot;&lt;span style='color: blue; font-weight: bold;'&gt;
++                            The account you are currently logged in has already been renewed.
++                            &lt;/span&gt;
++                            &quot;;
++                           
++    echo &quot;&lt;div style='width: 80%; color: black; font-weight: normal;'&gt;$text&lt;/div&gt;&quot;;
++  }
++  
++  /* if validation fails it returns error description in &amp;$error */
++  function verifyNewUsernameAndNickname(&amp;$error)
++  {
++    $user = $_POST['new_username'];
++    $nick = $_POST['new_nickname'];
++
++    if (strlen($user) &lt; 2) {
++      $error = &quot;Username too short (minimum: 2 characters)&quot;;
++      return false;
++    } elseif (strlen($user) &gt; 20) {
++      $error = &quot;Username too long (maximum: 20 characters)&quot;;
++      return false;
++    }
++
++    if (strlen($nick) &lt; 2) {
++      $error = &quot;Nickname too short (minimum: 2 characters)&quot;;
++      return false;
++    } elseif (strlen($nick) &gt; 25) {
++      $error = &quot;Nickname too long (maximum: 25 characters)&quot;;
++      return false;
++    }
++
++  	if (!preg_match('/^[A-Za-z0-9_]+$/', $user)) {
++      $error = &quot;Username contains invalid characters (valid regex is: '^[A-Za-z0-9_]+$')&quot;;
++      return false;
++  	} 
++    
++  	if (!preg_match('/^[A-Za-z0-9_\[\]\|]+$/', $nick)) {
++      $error = &quot;Nickname contains invalid characters (valid regex is: '^[A-Za-z0-9_\[\]\|]+$')&quot;;
++      return false;
++  	} 
++    
++		// check if prefix is valid:
++  	if (!preg_match('/^([A-Za-z0-9\[\]\|]+[\|\]])?' . $user . '/', $nick)) {
++      $error = &quot;Invalid prefix found in nickname: embed your prefix in [] brackets or separate it by a | character&quot;;
++      return false;
++  	} 
++
++		// check if postfix is valid:
++  	if (!preg_match('/' . $user . '([\|\[][A-Za-z0-9\[\]\|]+)?$/', $nick)) {
++      $error = &quot;Invalid postfix found in nickname: embed your postfix in [] brackets or separate it by a | character&quot;;
++      return false;
++  	} 
++
++		// check if prefix and postfix are both valid in one shot:
++  	if (!preg_match('/^([A-Za-z0-9\[\]\|]+[\|\]])?' . $user . '([\|\[][A-Za-z0-9\[\]\|]+)?$/', $nick)) {
++      $error = &quot;Nickname contains invalid prefix/postfix. Your username should be contained in your nickname.&quot;;
++      return false;
++  	} 
++    
++    return true;
++  }
++
++  // page contents begin here:
++
++  if (!loggedIn())
++    displayGeneralInfo();
++  else if ($_SESSION['renewed'] == 1) 
++    displayAlreadyRenewedPage();
++  else if (!isset($_POST['new_username']) &amp;&amp; !isset($_POST['new_username_confirmed']))
++    displayRenewalForm();
++  else if (isset($_POST['new_username'])) {
++    if (!verifyNewUsernameAndNickname(&amp;$error)) {
++      echo &quot;&lt;span style='color: red; font-weight: bold'&gt; Error: &quot; . $error . &quot;&lt;/span&gt;&quot;;
++      echo &quot;&lt;br /&gt;&lt;br /&gt;&quot;;
++      echo &quot;Some examples of (in)valid nicknames: &lt;br /&gt;&quot;;
++      echo &quot;&lt;span style='color: blue'&gt;Username: Johnny&lt;/span&gt; &lt;br /&gt;&quot;;
++      echo &quot;Nickname: &lt;span style='color: green'&gt;Johnny&lt;/span&gt; &lt;br /&gt;&quot;;
++      echo &quot;Nickname: &lt;span style='color: green'&gt;[ClaN]Johnny&lt;/span&gt; &lt;br /&gt;&quot;;
++      echo &quot;Nickname: &lt;span style='color: green'&gt;MyClan|Johnny&lt;/span&gt; &lt;br /&gt;&quot;;
++      echo &quot;Nickname: &lt;span style='color: green'&gt;MyClan|Johnny[I_rule]&lt;/span&gt; &lt;br /&gt;&quot;;
++      echo &quot;Nickname: &lt;span style='color: red'&gt;Lucy&lt;/span&gt; &lt;br /&gt;&quot;;
++      echo &quot;Nickname: &lt;span style='color: red'&gt;_Johnny_&lt;/span&gt; &lt;br /&gt;&quot;;
++      echo &quot;Nickname: &lt;span style='color: red'&gt;somethingJohnny&lt;/span&gt; &lt;br /&gt;&quot;;
++      echo &quot;&lt;br /&gt;&quot;;
++      goBackButton();
++    } else {
++      $_SESSION['verified_new_username'] = $_POST['new_username'];
++      $_SESSION['verified_new_nickname'] = $_POST['new_nickname'];
++      
++      displayConfirmationForm();
++    }
++  }
++  else if (isset($_POST['new_username_confirmed'])) {
++    displayCompletionForm();
++    unset($_SESSION['verified_new_username']);
++    unset($_SESSION['verified_new_nickname']);
++  }
++  else printError(&quot;Error occured on the page. Please report this error!&quot;);
++
++?&gt;
++
++&lt;?php require(&quot;inc/footer.php&quot;) ?&gt;
+\ No newline at end of file
+
+Modified: branches/testserver/WebInterface/searchlog.php
+===================================================================
+--- branches/testserver/WebInterface/searchlog.php	2008-01-02 21:43:32 UTC (rev 5227)
++++ branches/testserver/WebInterface/searchlog.php	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -4,8 +4,18 @@
+ 
+     require(&quot;inc/searchlog.functions.php&quot;);
+ 
++    function returnError($err_msg) 
++    {
++      printError($err_msg);
++      echo &quot;&lt;br /&gt;&quot;;
++      echo &quot;&lt;br /&gt;&quot;;
++      goBackButton();
++      exit();
++    }
++  
+     function displaySearchForm()
+     {
++      print &quot;&lt;span style='color: blue; font-weight: bold;'&gt;Important notice: On 2007/12/26 older logs were moved to an archive and new logs are available only through a database, so any logs from before that date are unavailable.&lt;/span&gt;&quot;;
+       print &quot;&lt;p&gt; Select one or more criteria and click Submit: &lt;/p&gt;&quot;;
+ 
+       echo &quot;  &lt;form action='{$PHP_SELF}' method='post'&gt;&quot;;
+@@ -25,32 +35,46 @@
+ 
+     function displayLog($keyword, $mindate, $maxdate)
+     {
+-      $filename = &quot;../ChanServ/logs/#main.log&quot;;
+-      print &quot;&lt;p&gt;Using file {$filename}.&lt;/p&gt;&quot;;
++      $logname = &quot;#main&quot;;
++    
++      print &quot;&lt;p&gt;Using channel log {$logname}.&lt;/p&gt;&quot;;
+       print &quot;&lt;p&gt;Time stamps are relative to CET - Central European Time.&lt;/p&gt;&quot;;
+       print &quot;&lt;br&gt;&quot;;
+       print &quot;Search results:&quot;;
+       print '&lt;div style=&quot;font-family: Fixedsys, &quot;Lucida Console&quot;, monospace&quot;&gt;';
+       print &quot;&lt;hr /&gt;&quot;;
+ 
++      $timer = microtime_float();
++      
+       $count = 0;
+ 
+-      $command = &quot;./searchlog &quot; . $filename;
+-      if (strlen($keyword) &gt; 0) $command = $command . &quot; k &quot; . '&quot;' . $keyword . '&quot;';
+-      if ($mindate != 0) $command = $command . &quot; m &quot; . $mindate;
+-      if ($maxdate != 0) $command = $command . &quot; M &quot; . $maxdate;
++      $dbh = mysql_connect($constants['database_url'], $constants['database_username'], $constants['database_password']) 
++        or returnError(&quot;Unable to connect to the database.&quot;);
++      $selected = mysql_select_db(&quot;ChanServLogs&quot;, $dbh) 
++        or returnError(&quot;Problems connecting to the database. Error: &quot; . mysql_error());
++     
++      $select = &quot;SELECT stamp, line FROM `&quot; . $logname . &quot;`&quot;;
++      if (($mindate != 0) &amp;&amp; ($maxdate != 0)) {
++        $select .= &quot; WHERE stamp &gt; &quot; . $mindate . &quot; AND stamp &lt; &quot; . $maxdate;
++      } elseif (($mindate == 0) &amp;&amp; ($maxdate != 0)) {
++        $select .= &quot; WHERE stamp &lt; &quot; . $maxdate;
++      } elseif (($mindate != 0) &amp;&amp; ($maxdate == 0)) {
++        $select .= &quot; WHERE stamp &gt; &quot; . $mindate;
++      }
++      
++      $result = mysql_query($select);
++      while($row = mysql_fetch_row($result))
++      {
++        if (strlen($keyword) &gt; 0) 
++          if (strpos($row[1], $keyword) === false) 
++            continue;
+ 
+-      $handle = popen($command, &quot;r&quot;);
+-      while (!feof($handle))
+-      {
+-        $read = fgets($handle, 1024);
+-        if (feof($handle)) continue;
+-//        echo &quot;&lt;i&gt;&quot; . htmlspecialchars(rtrim($read)) . &quot;&lt;/i&gt;&lt;br&gt;&quot;;
+-        echo htmlspecialchars(rtrim($read)) . &quot;&lt;br&gt;&quot;;
++        echo &quot;[&quot; . date('Y-m-d H:i:s', $row[0]) . &quot;] &quot; . htmlspecialchars(rtrim($row[1])) . &quot;&lt;br&gt;&quot;;
+         $count += 1;
+-      }
+-      pclose($handle);
+-
++      }     
++      
++      mysql_close($dbh);
++        
+       if ($count == 0)
+       {
+         echo &quot;No mathing lines have been found! Try searching using different keyword.&quot;;
+@@ -59,7 +83,8 @@
+ 
+       print &quot;&lt;hr /&gt;&quot;;
+       print &quot;&lt;/div&gt;&quot;;
+-      echo &quot;&lt;br&gt; $count lines mathing search criteria. &lt;br&gt; End of file.&quot;;
++      $timer = microtime_float() - $timer;
++      printf(&quot;&lt;br&gt; %d lines mathing search criteria. Query took %01.2f seconds &lt;br&gt; End of file.&quot;, $count, $timer);
+     }
+ 
+     // this is where execution of this script starts:
+
+Modified: branches/testserver/WebInterface/userinfo.php
+===================================================================
+--- branches/testserver/WebInterface/userinfo.php	2008-01-02 21:43:32 UTC (rev 5227)
++++ branches/testserver/WebInterface/userinfo.php	2008-01-02 21:56:33 UTC (rev 5228)
+@@ -16,9 +16,9 @@
+     echo &quot;&lt;/form&gt;&quot;;
+   }
+ 
+-  function displayResultForm()
++  function displayResultForm($username)
+   {
+-    displayUserInfo($_POST['username']);
++    displayUserInfo($username);
+   }
+ 
+   function displayUserInfo($username)
+@@ -200,12 +200,13 @@
+   // page contents begin here:
+ 
+   $username = $_POST['username'];
++  if ($username == &quot;&quot;) $username = $_GET['username'];
+   if ($username == &quot;&quot;)
+     displayInputForm();
+   else {
+     displayInputForm();
+     echo &quot;&lt;br&gt;&lt;br&gt;&quot;;
+-    displayResultForm();
++    displayResultForm($username);
+   }
+ 
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000035.html">[Taspring-linux-commit] r5227 - trunk/Documentation/Lobby
+</A></li>
+	<LI>Next message: <A HREF="000037.html">[Taspring-linux-commit] r5229 - trunk/AI/Global/AAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#36">[ date ]</a>
+              <a href="thread.html#36">[ thread ]</a>
+              <a href="subject.html#36">[ subject ]</a>
+              <a href="author.html#36">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

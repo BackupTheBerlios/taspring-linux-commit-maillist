@@ -1,0 +1,311 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5367 - trunk/AI/Global/KAIK-0.13
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5367%20-%20trunk/AI/Global/KAIK-0.13&In-Reply-To=%3CE1JHhIX-00055e-SS%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000173.html">
+   <LINK REL="Next"  HREF="000175.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5367 - trunk/AI/Global/KAIK-0.13</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5367%20-%20trunk/AI/Global/KAIK-0.13&In-Reply-To=%3CE1JHhIX-00055e-SS%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5367 - trunk/AI/Global/KAIK-0.13">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Jan 23 16:13:53 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000173.html">[Taspring-linux-commit] r5366 - trunk/Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="000175.html">[Taspring-linux-commit] r5368 - trunk/AI/Global/KAIK-0.13
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#174">[ date ]</a>
+              <a href="thread.html#174">[ thread ]</a>
+              <a href="subject.html#174">[ subject ]</a>
+              <a href="author.html#174">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-01-23 16:13:53 +0100 (Wed, 23 Jan 2008)
+New Revision: 5367
+
+Modified:
+   trunk/AI/Global/KAIK-0.13/BuildUp.cpp
+   trunk/AI/Global/KAIK-0.13/UnitHandler.cpp
+   trunk/AI/Global/KAIK-0.13/UnitTable.cpp
+Log:
+have KAIK check the canAssist / canBeAssisted tags
+
+Modified: trunk/AI/Global/KAIK-0.13/BuildUp.cpp
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/BuildUp.cpp	2008-01-23 15:06:39 UTC (rev 5366)
++++ trunk/AI/Global/KAIK-0.13/BuildUp.cpp	2008-01-23 15:13:53 UTC (rev 5367)
+@@ -64,6 +64,8 @@
+ 
+ 
+ void CBuildUp::Buildup(int frame) {
++	// KLOOTNOTE: make it emphasize mexes and energy more
++	// during the first two minutes (important for PURE)
+ 	float mIncome = ai-&gt;cb-&gt;GetMetalIncome();
+ 	float eIncome = ai-&gt;cb-&gt;GetEnergyIncome();
+ 	float mLevel = ai-&gt;cb-&gt;GetMetal();
+@@ -82,8 +84,8 @@
+ 	bool eLevel50 = (eLevel &gt; (eStorage * e1));		// is our current energy level more than 50% of our current energy storage capacity?
+ 	bool eLevel80 = (eLevel &gt; (eStorage * e2));		// is our current energy level more than 80% of our current energy storage capacity?
+ 
+-	bool mStall = (mIncome &lt; (mUsage * 1.3f));		// are we currently producing less metal than we are currently expending * 1.3?
+-	bool eStall = (eIncome &lt; (eUsage * 1.6f));		// are we currently producing less energy than we are currently expending * 1.6?
++	bool mStall = ((frame &lt; 900) || (mIncome &lt; (mUsage * 1.3f)));	// are we currently producing less metal than we are currently expending * 1.3?
++	bool eStall = ((frame &lt; 450) || (eIncome &lt; (eUsage * 1.6f)));	// are we currently producing less energy than we are currently expending * 1.6?
+ 
+ 
+ 	// KLOOTNOTE: &lt;MAX_NUKE_SILOS&gt; nuke silos ought to be enough for
+
+Modified: trunk/AI/Global/KAIK-0.13/UnitHandler.cpp
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/UnitHandler.cpp	2008-01-23 15:06:39 UTC (rev 5366)
++++ trunk/AI/Global/KAIK-0.13/UnitHandler.cpp	2008-01-23 15:13:53 UTC (rev 5367)
+@@ -844,12 +844,12 @@
+ 
+ 
+ 
+-bool CUnitHandler::BuildTaskAddBuilder(int builder, int category) {
++bool CUnitHandler::BuildTaskAddBuilder(int builderID, int category) {
+ 	assert(category &gt;= 0);
+ 	assert(category &lt; LASTCATEGORY);
+-	assert(builder &gt;= 0);
+-	assert(ai-&gt;MyUnits[builder] != NULL);
+-	BuilderTracker* builderTracker = GetBuilderTracker(builder);
++	assert(builderID &gt;= 0);
++	assert(ai-&gt;MyUnits[builderID] != NULL);
++	BuilderTracker* builderTracker = GetBuilderTracker(builderID);
+ 
+ 	// make sure this builder is free
+ 	// KLOOTNOTE: no longer use assertions
+@@ -859,41 +859,42 @@
+ 	bool b2 = (builderTracker-&gt;buildTaskId == 0);
+ 	bool b3 = (builderTracker-&gt;factoryId == 0);
+ 	bool b4 = (builderTracker-&gt;customOrderId == 0);
++	bool b5 = (ai-&gt;MyUnits[builderID]-&gt;def())-&gt;canAssist;
+ 
+-	if (!b1 || !b2 || !b3 || !b4) {
++	if (!b1 || !b2 || !b3 || !b4 || !b5) {
+ 		return false;
+ 	}
+ 
+ 	// see if there are any BuildTasks that it can join
+ 	if (BuildTasks[category].size()) {
+-		float largestime = 0;
++		float largestime = 0.0f;
+ 		list&lt;BuildTask&gt;::iterator besttask;
+ 
+ 		for (list&lt;BuildTask&gt;::iterator i = BuildTasks[category].begin(); i != BuildTasks[category].end(); i++) {
+-			float timebuilding = ai-&gt;math-&gt;ETT(*i) - ai-&gt;math-&gt;ETA(builder, ai-&gt;cb-&gt;GetUnitPos(i-&gt;id));
++			float timebuilding = ai-&gt;math-&gt;ETT(*i) - ai-&gt;math-&gt;ETA(builderID, ai-&gt;cb-&gt;GetUnitPos(i-&gt;id));
+ 			if (timebuilding &gt; largestime) {
+ 				largestime = timebuilding;
+ 				besttask = i;
+ 			}
+ 		}
+ 
+-		if (largestime &gt; 0) {
++		if (largestime &gt; 0.0f) {
+ 			BuildTaskAddBuilder(&amp;*besttask, builderTracker);
+-			ai-&gt;MyUnits[builder]-&gt;Repair(besttask-&gt;id);
++			ai-&gt;MyUnits[builderID]-&gt;Repair(besttask-&gt;id);
+ 			return true;
+ 		}
+ 	}
+ 
+ 	if (TaskPlans[category].size()) {
+-			float largestime = 0;
++			float largestime = 0.0f;
+ 			list&lt;TaskPlan&gt;::iterator besttask;
+ 
+ 			for (list&lt;TaskPlan&gt;::iterator i = TaskPlans[category].begin(); i != TaskPlans[category].end(); i++) {
+-				float timebuilding = (i-&gt;def-&gt;buildTime / i-&gt;currentBuildPower) - ai-&gt;math-&gt;ETA(builder, i-&gt;pos);
++				float timebuilding = (i-&gt;def-&gt;buildTime / i-&gt;currentBuildPower) - ai-&gt;math-&gt;ETA(builderID, i-&gt;pos);
+ 
+ 				// must test if this builder can make this unit/building too
+ 				if (timebuilding &gt; largestime) {
+-					const UnitDef* builderDef = ai-&gt;cb-&gt;GetUnitDef(builder);
++					const UnitDef* builderDef = ai-&gt;cb-&gt;GetUnitDef(builderID);
+ 					vector&lt;int&gt;* canBuildList = &amp;ai-&gt;ut-&gt;unitTypes[builderDef-&gt;id].canBuildList;
+ 					int size = canBuildList-&gt;size();
+ 					int thisBuildingID = i-&gt;def-&gt;id;
+@@ -908,11 +909,11 @@
+ 				}
+ 			}
+ 
+-			if (largestime &gt; 10) {
+-				assert(builder &gt;= 0);
+-				assert(ai-&gt;MyUnits[builder] !=  NULL);
+-				// this is bad, as ai-&gt;MyUnits[builder]-&gt;Build uses TaskPlanCreate()
+-				ai-&gt;MyUnits[builder]-&gt;Build(besttask-&gt;pos, besttask-&gt;def, -1);
++			if (largestime &gt; 10.0f) {
++				assert(builderID &gt;= 0);
++				assert(ai-&gt;MyUnits[builderID] !=  NULL);
++				// this is bad, as ai-&gt;MyUnits[builderID]-&gt;Build uses TaskPlanCreate()
++				ai-&gt;MyUnits[builderID]-&gt;Build(besttask-&gt;pos, besttask-&gt;def, -1);
+ 				return true;
+ 		}
+ 	}
+@@ -1174,9 +1175,10 @@
+ 
+ 
+ 
+-bool CUnitHandler::FactoryBuilderAdd(int builder) {
+-	BuilderTracker* builderTracker = GetBuilderTracker(builder);
+-	return FactoryBuilderAdd(builderTracker);
++bool CUnitHandler::FactoryBuilderAdd(int builderID) {
++	bool b = (ai-&gt;MyUnits[builderID]-&gt;def())-&gt;canAssist;
++	BuilderTracker* builderTracker = GetBuilderTracker(builderID);
++	return (b &amp;&amp; FactoryBuilderAdd(builderTracker));
+ }
+ 
+ 
+@@ -1188,19 +1190,21 @@
+ 	assert(builderTracker-&gt;customOrderId == 0);
+ 
+ 	for (list&lt;Factory&gt;::iterator i = Factories.begin(); i != Factories.end(); i++) {
+-		float totalbuildercost = 0.0f;
++		if ((ai-&gt;MyUnits[i-&gt;id]-&gt;def())-&gt;canBeAssisted) {
++			float totalbuildercost = 0.0f;
+ 
+-		// HACK
+-		for (list&lt;int&gt;::iterator j = i-&gt;supportbuilders.begin(); j != i-&gt;supportbuilders.end(); j++) {
+-			totalbuildercost += ai-&gt;math-&gt;GetUnitCost(*j);
+-		}
++			// HACK
++			for (list&lt;int&gt;::iterator j = i-&gt;supportbuilders.begin(); j != i-&gt;supportbuilders.end(); j++) {
++				totalbuildercost += ai-&gt;math-&gt;GetUnitCost(*j);
++			}
+ 
+-		if (totalbuildercost &lt; ai-&gt;math-&gt;GetUnitCost(i-&gt;id) * BUILDERFACTORYCOSTRATIO) {
+-			builderTracker-&gt;factoryId = i-&gt;id;
+-			i-&gt;supportbuilders.push_back(builderTracker-&gt;builderID);
+-			i-&gt;supportBuilderTrackers.push_back(builderTracker);
+-			ai-&gt;MyUnits[builderTracker-&gt;builderID]-&gt;Guard(i-&gt;id);
+-			return true;
++			if (totalbuildercost &lt; ai-&gt;math-&gt;GetUnitCost(i-&gt;id) * BUILDERFACTORYCOSTRATIO) {
++				builderTracker-&gt;factoryId = i-&gt;id;
++				i-&gt;supportbuilders.push_back(builderTracker-&gt;builderID);
++				i-&gt;supportBuilderTrackers.push_back(builderTracker);
++				ai-&gt;MyUnits[builderTracker-&gt;builderID]-&gt;Guard(i-&gt;id);
++				return true;
++			}
+ 		}
+ 	}
+ 
+
+Modified: trunk/AI/Global/KAIK-0.13/UnitTable.cpp
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/UnitTable.cpp	2008-01-23 15:06:39 UTC (rev 5366)
++++ trunk/AI/Global/KAIK-0.13/UnitTable.cpp	2008-01-23 15:13:53 UTC (rev 5367)
+@@ -154,29 +154,35 @@
+ 	if (f) {
+ 		char str[1024];
+ 		char name[512];
+-		float value = 1.0f;
++		float costMult = 1.0f;
++		int techLvl = -1;
+ 
+ 		while (fgets(str, 1024, f) != 0x0) {
+-			int i = sscanf(str, &quot;%s %f&quot;, name, &amp;value);
++			if (str[0] == '/' &amp;&amp; str[1] == '/') {
++				continue;
++			}
++
++			int i = sscanf(str, &quot;%s %f %d&quot;, name, &amp;costMult, &amp;techLvl);
+ 			const UnitDef* udef = ai-&gt;cb-&gt;GetUnitDef(name);
+ 
+ 			if ((i == 2) &amp;&amp; udef) {
+-				unitTypes[udef-&gt;id].costMultiplier = value;
++				unitTypes[udef-&gt;id].costMultiplier = costMult;
++				unitTypes[udef-&gt;id].techLevel = techLvl;
+ 			}
+ 		}
+-
+-		fclose(f);
+ 	} else {
+ 		// write a new file with default values
+ 		// for each UnitType in unitTypes array
+ 		f = fopen(configFileName, &quot;w&quot;);
++		fprintf(f, &quot;// unitName costMultiplier techLevel\n&quot;);
+ 
+ 		for (int i = 1; i &lt;= numOfUnits; i++) {
+-			fprintf(f, &quot;%s %f\n&quot;, unitTypes[i].def-&gt;name.c_str(), unitTypes[i].costMultiplier);
++			UnitType* utype = &amp;unitTypes[i];
++			fprintf(f, &quot;%s %f %d\n&quot;, utype-&gt;def-&gt;name.c_str(), utype-&gt;costMultiplier, utype-&gt;techLevel);
+ 		}
++	}
+ 
+-		fclose(f);
+-	}
++	fclose(f);
+ }
+ 
+ 
+@@ -723,7 +729,6 @@
+ 		// set side of start unit (eg. commander) and continue recursively
+ 		int unitDefID = startUnits[s];
+ 		unitTypes[unitDefID].sides.insert(s);
+-		unitTypes[unitDefID].techLevel = 0;
+ 
+ 		CalcBuildTree(unitDefID, s);
+ 	}
+@@ -859,7 +864,10 @@
+ // determines sides of unitTypes by recursion
+ void CUnitTable::CalcBuildTree(int unitDefID, int rootSide) {
+ 	UnitType* utype = &amp;unitTypes[unitDefID];
++
++	// assign default values
+ 	utype-&gt;costMultiplier = 1.0f;
++	utype-&gt;techLevel = -1;
+ 
+ 	// go through all possible build options and set side if necessary
+ 	for (unsigned int i = 0; i != utype-&gt;canBuildList.size(); i++) {
+@@ -870,7 +878,7 @@
+ 		// KLOOTNOTE: techLevel will not make much sense if
+ 		// unit has multiple ancestors at different depths
+ 		// in tree (eg. Adv. Vehicle Plants in XTA)
+-		buildOptionType-&gt;techLevel = utype-&gt;techLevel;
++		// buildOptionType-&gt;techLevel = utype-&gt;techLevel;
+ 		// buildOptionType-&gt;techLevel = utype-&gt;def-&gt;techLevel;
+ 		// FIXME: causes duplicated entries in PURE
+ 		// buildOptionType-&gt;builtByList.push_back(unitDefID);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000173.html">[Taspring-linux-commit] r5366 - trunk/Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="000175.html">[Taspring-linux-commit] r5368 - trunk/AI/Global/KAIK-0.13
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#174">[ date ]</a>
+              <a href="thread.html#174">[ thread ]</a>
+              <a href="subject.html#174">[ subject ]</a>
+              <a href="author.html#174">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

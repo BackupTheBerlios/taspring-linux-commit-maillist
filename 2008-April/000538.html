@@ -1,0 +1,912 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5757 - in trunk: AI/Global/AAI game/AI/AAI	game/AI/AAI/cfg/map
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5757%20-%20in%20trunk%3A%20AI/Global/AAI%20game/AI/AAI%0A%09game/AI/AAI/cfg/map&In-Reply-To=%3C20080419220335.92CBC46A1%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000536.html">
+   <LINK REL="Next"  HREF="000539.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5757 - in trunk: AI/Global/AAI game/AI/AAI	game/AI/AAI/cfg/map</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5757%20-%20in%20trunk%3A%20AI/Global/AAI%20game/AI/AAI%0A%09game/AI/AAI/cfg/map&In-Reply-To=%3C20080419220335.92CBC46A1%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5757 - in trunk: AI/Global/AAI game/AI/AAI	game/AI/AAI/cfg/map">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Apr 20 00:03:35 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000536.html">[Taspring-linux-commit] r5756 - in trunk/rts: Game/StartScripts	System System/Script
+</A></li>
+        <LI>Next message: <A HREF="000539.html">[Taspring-linux-commit] r5758 - in trunk/rts: Game System/Script
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#538">[ date ]</a>
+              <a href="thread.html#538">[ thread ]</a>
+              <a href="subject.html#538">[ subject ]</a>
+              <a href="author.html#538">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: submarine
+Date: 2008-04-20 00:03:33 +0200 (Sun, 20 Apr 2008)
+New Revision: 5757
+
+Added:
+   trunk/game/AI/AAI/cfg/map/ExpandedTropics.cfg
+Modified:
+   trunk/AI/Global/AAI/AAI ReadMe.txt
+   trunk/AI/Global/AAI/AAIBrain.cpp
+   trunk/AI/Global/AAI/AAIBrain.h
+   trunk/AI/Global/AAI/AAIBuildTable.cpp
+   trunk/AI/Global/AAI/AAIExecute.cpp
+   trunk/AI/Global/AAI/AAIMap.cpp
+   trunk/AI/Global/AAI/AAIMap.h
+   trunk/AI/Global/AAI/AAISector.cpp
+   trunk/AI/Global/AAI/AAISector.h
+   trunk/AI/Global/AAI/aidef.h
+   trunk/game/AI/AAI/AAI ReadMe.txt
+Log:
+AAI v0.862	
+- Added submarine defence map -&gt; AAI will now store its defence capabilities vs submarines separately from other naval units
+
+- AAI now takes continents into account when sending scouts to positions (e.g. it does not try send ground scouts to positions on other islands/continents anymore)
+
+- Bumped mod learning file version to 0.86 due to some changes in handling of amphibious units
+
+Modified: trunk/AI/Global/AAI/AAI ReadMe.txt
+===================================================================
+--- trunk/AI/Global/AAI/AAI ReadMe.txt	2008-04-18 21:15:23 UTC (rev 5756)
++++ trunk/AI/Global/AAI/AAI ReadMe.txt	2008-04-19 22:03:33 UTC (rev 5757)
+@@ -105,6 +105,15 @@
+ 		- Brandon Potter for his TBT 12 cfg file
+ 
+ 
++AAI v0.862	- Added submarine defence map -&gt; AAI will now store its defence capabilities vs submarines separately from other 
++		  naval units
++
++		- AAI now takes continents into account when sending scouts to positions (e.g. it does not try send ground scouts to 
++		  positions on other islands/continents anymore)
++
++		- Bumped mod learning file version to 0.86 due to some changes in handling of amphibious units
++
++
+ AAI v0.86	- Added NON_AMPHIB_MAX_WATERDEPTH float (default is 15) statement to mod cfg file, specifies the max water depth 
+ 		  non amphibious ground units can cross
+ 
+
+Modified: trunk/AI/Global/AAI/AAIBrain.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIBrain.cpp	2008-04-18 21:15:23 UTC (rev 5756)
++++ trunk/AI/Global/AAI/AAIBrain.cpp	2008-04-19 22:03:33 UTC (rev 5757)
+@@ -166,65 +166,54 @@
+ 	return dest;
+ }
+ 
+-AAISector* AAIBrain::GetNewScoutDest(int scout)
++void AAIBrain::GetNewScoutDest(float3 *dest, int scout)
+ {
++	*dest = ZeroVector;
++
+ 	// TODO: take scouts pos into account
+ 	float my_rating, best_rating = 0;
+ 	AAISector *scout_sector = 0, *sector;
+-	
++
+ 	const UnitDef *def = cb-&gt;GetUnitDef(scout);
++	unsigned int scout_movement_type = bt-&gt;units_static[def-&gt;id].movement_type;
++
++	float3 pos = cb-&gt;GetUnitPos(scout);
++
++	// get continent 
++	int continent = map-&gt;GetSmartContinentID(&amp;pos, scout_movement_type);//map-&gt;GetContinentID(&amp;pos);
+ 	
+-	for(int x = 0; x &lt; map-&gt;xSectors; x++)
++	for(int x = 0; x &lt; map-&gt;xSectors; ++x)
+ 	{
+-		for(int y = 0; y &lt; map-&gt;ySectors; y++)
++		for(int y = 0; y &lt; map-&gt;ySectors; ++y)
+ 		{
+ 			sector = &amp;map-&gt;sector[x][y];
+ 			
+-			if(sector-&gt;distance_to_base &gt; 0)
++			if(sector-&gt;distance_to_base &gt; 0 &amp;&amp; scout_movement_type &amp; sector-&gt;allowed_movement_types)
+ 			{
+-				// land sector
+-				if(sector-&gt;water_ratio &gt; 0.7)
++				my_rating = sector-&gt;importance_this_game * sector-&gt;last_scout;
++				++sector-&gt;last_scout;
++				
++				if(my_rating &gt; best_rating)
+ 				{
+-					if(! (bt-&gt;units_static[def-&gt;id].movement_type &amp; MOVE_TYPE_GROUND))
++					// possible scout dest, try to find pos in sector
++					pos = ZeroVector;
++
++					sector-&gt;GetMovePos(&amp;pos, scout_movement_type, continent); 
++					
++					if(pos.x &gt; 0)
+ 					{
+-						my_rating = sector-&gt;importance_this_game * sector-&gt;last_scout;
+-						++sector-&gt;last_scout;
++						best_rating = my_rating;
++						scout_sector = sector;
++						*dest = pos;
+ 					}
+-					else
+-						my_rating = 0;
+ 				}
+-				// water sector
+-				else if(sector-&gt;water_ratio &lt; 0.3)
+-				{
+-					if(! (bt-&gt;units_static[def-&gt;id].movement_type &amp; MOVE_TYPE_SEA))
+-					{
+-						my_rating = sector-&gt;importance_this_game * sector-&gt;last_scout;
+-						++sector-&gt;last_scout;
+-					}
+-					else
+-						my_rating = 0;
+-				}
+-				// land/water sector
+-				else
+-				{
+-					my_rating = sector-&gt;importance_this_game * sector-&gt;last_scout;
+-					++sector-&gt;last_scout;
+-				}
+-
+-				if(my_rating &gt; best_rating)
+-				{
+-					best_rating = my_rating;
+-					scout_sector = sector;
+-				}
+ 			}
+ 		}
+ 	}
+ 
+-	// set dest sector as visited
+-	if(scout_sector)
++	// set dest sector as visited 
++	if(dest-&gt;x &gt; 0)
+ 		scout_sector-&gt;last_scout = 1;
+-	
+-	return scout_sector;
+ }
+ 
+ bool AAIBrain::MetalForConstr(int unit, int workertime)
+
+Modified: trunk/AI/Global/AAI/AAIBrain.h
+===================================================================
+--- trunk/AI/Global/AAI/AAIBrain.h	2008-04-18 21:15:23 UTC (rev 5756)
++++ trunk/AI/Global/AAI/AAIBrain.h	2008-04-19 22:03:33 UTC (rev 5757)
+@@ -70,7 +70,7 @@
+ 	bool EnergyForConstr(int unit, int wokertime = 175);
+ 
+ 	// returns pos where scout schould be sent to
+-	AAISector* GetNewScoutDest(int scout);
++	void GetNewScoutDest(float3 *dest, int scout);
+ 
+ 	// returns true if sector is considered to be safe
+ 	bool IsSafeSector(AAISector *sector);
+
+Modified: trunk/AI/Global/AAI/AAIBuildTable.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIBuildTable.cpp	2008-04-18 21:15:23 UTC (rev 5756)
++++ trunk/AI/Global/AAI/AAIBuildTable.cpp	2008-04-19 22:03:33 UTC (rev 5757)
+@@ -363,11 +363,11 @@
+ 			{
+ 				if(unitList[i-1]-&gt;movedata-&gt;moveType == MoveData::Ground_Move)
+ 				{
+-					units_static[i].movement_type |= MOVE_TYPE_GROUND;
+-
+ 					// check for amphibious units
+ 					if(unitList[i-1]-&gt;maxWaterDepth &gt;= 250)
+ 						units_static[i].movement_type |= MOVE_TYPE_AMPHIB;
++					else
++						units_static[i].movement_type |= MOVE_TYPE_GROUND;
+ 				}
+ 				else if(unitList[i-1]-&gt;movedata-&gt;moveType == MoveData::Hover_Move)
+ 					units_static[i].movement_type |= MOVE_TYPE_HOVER;	
+@@ -3748,7 +3748,7 @@
+ 
+ bool AAIBuildTable::IsGround(int def_id)
+ {
+-	if(units_static[def_id].movement_type &amp; MOVE_TYPE_GROUND)
++	if(units_static[def_id].movement_type &amp; (MOVE_TYPE_GROUND + MOVE_TYPE_AMPHIB) )
+ 		return true;
+ 	else 
+ 		return false;
+@@ -4066,21 +4066,13 @@
+ unsigned int AAIBuildTable::GetAllowedMovementTypesForAssister(int building)
+ {
+ 	// determine allowed movement types
+-	unsigned int allowed_movement_types = 0;
++	// alwas allowed: MOVE_TYPE_AIR, MOVE_TYPE_HOVER, MOVE_TYPE_AMPHIB
++	unsigned int allowed_movement_types = 22;
+ 
+ 	if(units_static[building].movement_type &amp; MOVE_TYPE_STATIC_LAND)
+-	{
+-		allowed_movement_types |= MOVE_TYPE_AIR;
+ 		allowed_movement_types |= MOVE_TYPE_GROUND;
+-		allowed_movement_types |= MOVE_TYPE_HOVER;
+-	}
+ 	else
+-	{
+-		allowed_movement_types |= MOVE_TYPE_AIR;
+ 		allowed_movement_types |= MOVE_TYPE_SEA;
+-		allowed_movement_types |= MOVE_TYPE_HOVER;	
+-		allowed_movement_types |= MOVE_TYPE_AMPHIB;
+-	}
+-
++		
+ 	return allowed_movement_types;
+ }
+\ No newline at end of file
+
+Modified: trunk/AI/Global/AAI/AAIExecute.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIExecute.cpp	2008-04-18 21:15:23 UTC (rev 5756)
++++ trunk/AI/Global/AAI/AAIExecute.cpp	2008-04-19 22:03:33 UTC (rev 5757)
+@@ -153,7 +153,6 @@
+ 	{
+ 		int scout = 0;
+ 
+-		
+ 		float cost; 
+ 		float los;
+ 
+@@ -176,26 +175,19 @@
+ 		}
+ 
+ 		// determine movement type of scout based on map
+-		unsigned int allowed_movement_types = 0;
+-	
+-		allowed_movement_types |= MOVE_TYPE_AIR;
++		// always: MOVE_TYPE_AIR, MOVE_TYPE_HOVER, MOVE_TYPE_AMPHIB
++		unsigned int allowed_movement_types = 22;
+ 		
+ 		if(map-&gt;mapType == LAND_MAP)
+-		{
+ 			allowed_movement_types |= MOVE_TYPE_GROUND;
+-			allowed_movement_types |= MOVE_TYPE_HOVER;
+-		}
+ 		else if(map-&gt;mapType == LAND_WATER_MAP)
+ 		{
+ 			allowed_movement_types |= MOVE_TYPE_GROUND;
+ 			allowed_movement_types |= MOVE_TYPE_SEA;
+-			allowed_movement_types |= MOVE_TYPE_HOVER;
+ 		}
+ 		else if(map-&gt;mapType == WATER_MAP)
+-		{
+ 			allowed_movement_types |= MOVE_TYPE_SEA;
+-			allowed_movement_types |= MOVE_TYPE_HOVER;
+-		}
++		
+ 
+ 		// request cloakable scouts from time to time
+ 		if(rand()%5 == 1)
+@@ -217,40 +209,18 @@
+ 		}
+ 	}
+ 
+-	AAISector *dest;
+-	int scout_x, scout_y;
+-
+ 	// get idle scouts and let them explore the map
+ 	for(list&lt;int&gt;::iterator scout = ai-&gt;scouts.begin(); scout != ai-&gt;scouts.end(); ++scout)
+ 	{
+ 		if(!IsBusy(*scout))
+ 		{
++			pos = ZeroVector;
++			
+ 			// get scout dest
+-			dest = brain-&gt;GetNewScoutDest(*scout);
++			brain-&gt;GetNewScoutDest(&amp;pos, *scout);
+ 
+-			// get sector of scout
+-			pos = cb-&gt;GetUnitPos(*scout);
+-			scout_x = pos.x/map-&gt;xSectorSize;
+-			scout_y = pos.z/map-&gt;xSectorSize;
+-
+-			if(dest-&gt;x &gt; scout_x)
+-				pos.x = (dest-&gt;left + 7 * dest-&gt;right)/8;
+-			else if(dest-&gt;x &lt; scout_x)
+-				pos.x = (7 * dest-&gt;left + dest-&gt;right)/8;
+-			else
+-				pos.x = (dest-&gt;left + dest-&gt;right)/2;
+-
+-			if(dest-&gt;y &gt; scout_y)
+-				pos.z = (7 * dest-&gt;bottom + dest-&gt;top)/8;
+-			else if(dest-&gt;y &lt; scout_y)
+-				pos.z = (dest-&gt;bottom + 7 * dest-&gt;top)/8;
+-			else
+-				pos.z = (dest-&gt;bottom + dest-&gt;top)/2;
+-
+-			pos.y = cb-&gt;GetElevation(pos.x, pos.z);
+-
+-			moveUnitTo(*scout, &amp;pos);
+-
++			if(pos.x &gt; 0)
++				moveUnitTo(*scout, &amp;pos);
+ 		}
+ 	}
+ }
+
+Modified: trunk/AI/Global/AAI/AAIMap.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIMap.cpp	2008-04-18 21:15:23 UTC (rev 5756)
++++ trunk/AI/Global/AAI/AAIMap.cpp	2008-04-19 22:03:33 UTC (rev 5757)
+@@ -14,6 +14,8 @@
+ 
+ // all the static vars
+ int AAIMap::aai_instances = 0;
++int AAIMap::xSize;
++int AAIMap::ySize;	
+ int AAIMap::xMapSize;
+ int AAIMap::yMapSize;				
+ int AAIMap::xDefMapSize;
+@@ -169,6 +171,9 @@
+ 		xMapSize = cb-&gt;GetMapWidth();
+ 		yMapSize = cb-&gt;GetMapHeight();
+ 
++		xSize = xMapSize * SQUARE_SIZE;
++		ySize = yMapSize * SQUARE_SIZE;
++
+ 		xDefMapSize = xMapSize / 4;
+ 		yDefMapSize = yMapSize / 4;
+ 
+@@ -234,6 +239,7 @@
+ 	// create defence
+ 	defence_map.resize(xDefMapSize*yDefMapSize, 0);
+ 	air_defence_map.resize(xDefMapSize*yDefMapSize, 0); 
++	submarine_defence_map.resize(xDefMapSize*yDefMapSize, 0); 
+ 
+ 	initialized = true;
+ 
+@@ -735,7 +741,21 @@
+ 			{
+ 				// load sector data
+ 				fscanf(load_file, &quot;%f %f %f&quot;, &amp;sector[i][j].flat_ratio, &amp;sector[i][j].water_ratio, &amp;sector[i][j].importance_learned);
++				
++				// set movement types that may enter this sector
++				// always: MOVE_TYPE_AIR, MOVE_TYPE_AMPHIB, MOVE_TYPE_HOVER;
++				sector[i][j].allowed_movement_types = 22;
+ 
++				if(sector[i][j].water_ratio &lt; 0.3)
++					sector[i][j].allowed_movement_types |= MOVE_TYPE_GROUND;
++				else if(sector[i][j].water_ratio &lt; 0.7)
++				{
++					sector[i][j].allowed_movement_types |= MOVE_TYPE_GROUND;
++					sector[i][j].allowed_movement_types |= MOVE_TYPE_SEA;
++				}
++				else
++					sector[i][j].allowed_movement_types |= MOVE_TYPE_SEA;
++
+ 				if(sector[i][j].importance_learned &lt;= 1)
+ 					sector[i][j].importance_learned += (rand()%5)/20.0;
+ 
+@@ -766,6 +786,20 @@
+ 				sector[i][j].flat_ratio = sector[i][j].GetFlatRatio();
+ 				sector[i][j].water_ratio = sector[i][j].GetWaterRatio();
+ 
++				// set movement types that may enter this sector
++				// always: MOVE_TYPE_AIR, MOVE_TYPE_AMPHIB, MOVE_TYPE_HOVER;
++				sector[i][j].allowed_movement_types = 22;
++
++				if(sector[i][j].water_ratio &lt; 0.3)
++					sector[i][j].allowed_movement_types |= MOVE_TYPE_GROUND;
++				else if(sector[i][j].water_ratio &lt; 0.7)
++				{
++					sector[i][j].allowed_movement_types |= MOVE_TYPE_GROUND;
++					sector[i][j].allowed_movement_types |= MOVE_TYPE_SEA;
++				}
++				else
++					sector[i][j].allowed_movement_types |= MOVE_TYPE_SEA;
++
+ 				if(auto_set)
+ 				{
+ 					sector[i][j].importance_this_game = sector[i][j].importance_learned;
+@@ -2311,20 +2345,23 @@
+ 
+ 	float power;
+ 	float air_power;
++	float submarine_power;
+ 
+ 	if(cfg-&gt;AIR_ONLY_MOD)
+ 	{
+-		power = bt-&gt;fixed_eff[defence][0] + bt-&gt;fixed_eff[defence][1];
+-		air_power = bt-&gt;fixed_eff[defence][2] + bt-&gt;fixed_eff[defence][3];
++		power = bt-&gt;fixed_eff[defence][0];
++		air_power = (bt-&gt;fixed_eff[defence][1] + bt-&gt;fixed_eff[defence][2])/2.0f;
++		submarine_power = bt-&gt;fixed_eff[defence][3];
+ 	}
+ 	else
+ 	{
+ 		if(bt-&gt;unitList[defence-1]-&gt;minWaterDepth &gt; 0)
+-			power = bt-&gt;fixed_eff[defence][3] + bt-&gt;fixed_eff[defence][4];
++			power = (bt-&gt;fixed_eff[defence][2] + bt-&gt;fixed_eff[defence][3]) / 2.0f;
+ 		else
+ 			power = bt-&gt;fixed_eff[defence][0];
+ 		
+ 		air_power = bt-&gt;fixed_eff[defence][1];
++		submarine_power = bt-&gt;fixed_eff[defence][4];
+ 	}
+ 
+ 	int xPos = pos-&gt;x / 32;
+@@ -2363,14 +2400,21 @@
+ 
+ 			defence_map[cell] += power;
+ 			air_defence_map[cell] += air_power;
++			submarine_defence_map[cell] += submarine_power;
+ 		}	
+ 	}
+ 
+ 	// further increase values close around the bulding (to prevent aai from packing buildings too close together)
+-	// y range is const
+-	yStart = yPos - 4;
+-	yEnd = yPos + 4;
++	xStart = xPos - 2;
++	xEnd = xPos + 2;
++	yStart = yPos - 2;
++	yEnd = yPos + 2;
+ 
++	if(xStart &lt; 0)
++		xStart = 0;
++	if(xEnd &gt;= xDefMapSize)
++		xEnd = xDefMapSize-1;
++
+ 	if(yStart &lt; 0)
+ 		yStart = 0;
+ 	if(yEnd &gt;= yDefMapSize)
+@@ -2378,23 +2422,13 @@
+ 
+ 	for(int y = yStart; y &lt;= yEnd; ++y)
+ 	{
+-		// determine x-range
+-		xRange = (int) floor( sqrt( (float) ( 16 - (y - yPos) * (y - yPos) ) ) + 0.5f );
+-		
+-		xStart = xPos - xRange;
+-		xEnd = xPos + xRange;
+-
+-		if(xStart &lt; 0)
+-			xStart = 0;
+-		if(xEnd &gt; xDefMapSize)
+-			xEnd = xDefMapSize;
+-
+-		for(int x = xStart; x &lt; xEnd; ++x)
++		for(int x = xStart; x &lt;= xEnd; ++x)
+ 		{
+ 			cell = x + xDefMapSize*y;
+ 			
+ 			defence_map[cell] += 128.0f;
+ 			air_defence_map[cell] += 128.0f;
++			submarine_defence_map[cell] += 128.0f;
+ 		}
+ 	}
+ }
+@@ -2406,35 +2440,39 @@
+ 
+ 	float power;
+ 	float air_power;
++	float submarine_power;
+ 
+ 	if(cfg-&gt;AIR_ONLY_MOD)
+ 	{
+-		power = bt-&gt;fixed_eff[defence][0] + bt-&gt;fixed_eff[defence][1];
+-		air_power = bt-&gt;fixed_eff[defence][2] + bt-&gt;fixed_eff[defence][3];
++		power = bt-&gt;fixed_eff[defence][0];
++		air_power = (bt-&gt;fixed_eff[defence][1] + bt-&gt;fixed_eff[defence][2])/2.0f;
++		submarine_power = bt-&gt;fixed_eff[defence][3];
+ 	}
+ 	else
+ 	{
+ 		if(bt-&gt;unitList[defence-1]-&gt;minWaterDepth &gt; 0)
+-			power = bt-&gt;fixed_eff[defence][3] + bt-&gt;fixed_eff[defence][4];
++			power = (bt-&gt;fixed_eff[defence][2] + bt-&gt;fixed_eff[defence][3]) / 2.0f;
+ 		else
+ 			power = bt-&gt;fixed_eff[defence][0];
+ 		
+ 		air_power = bt-&gt;fixed_eff[defence][1];
++		submarine_power = bt-&gt;fixed_eff[defence][4];
+ 	}
+ 	
+ 	int xPos = pos-&gt;x / 32;
+ 	int yPos = pos-&gt;z / 32;
+ 
+-	// x range will change from line to line 
+-	int xStart;
+-	int xEnd;
+-	int xRange;
+-
+ 	// further decrease values close around the bulding (to prevent aai from packing buildings too close together)
+-	// y range is const
+-	int yStart = yPos - 4;
+-	int yEnd = yPos + 4;
++	int xStart = xPos - 2;
++	int xEnd = xPos + 2;
++	int yStart = yPos - 2;
++	int yEnd = yPos + 2;
+ 
++	if(xStart &lt; 0)
++		xStart = 0;
++	if(xEnd &gt;= xDefMapSize)
++		xEnd = xDefMapSize-1;
++
+ 	if(yStart &lt; 0)
+ 		yStart = 0;
+ 	if(yEnd &gt;= yDefMapSize)
+@@ -2442,27 +2480,18 @@
+ 
+ 	for(int y = yStart; y &lt;= yEnd; ++y)
+ 	{
+-		// determine x-range
+-		xRange = (int) floor( sqrt( (float) ( 16 - (y - yPos) * (y - yPos) ) ) + 0.5f );
+-		
+-		xStart = xPos - xRange;
+-		xEnd = xPos + xRange;
+-
+-		if(xStart &lt; 0)
+-			xStart = 0;
+-		if(xEnd &gt; xDefMapSize)
+-			xEnd = xDefMapSize;
+-
+-		for(int x = xStart; x &lt; xEnd; ++x)
++		for(int x = xStart; x &lt;= xEnd; ++x)
+ 		{
+-			cell= x + xDefMapSize*y;
++			cell = x + xDefMapSize*y;
+ 			
+ 			defence_map[cell] -= 128.0f;
+ 			air_defence_map[cell] -= 128.0f;
++			submarine_defence_map[cell] -= 128.0f;
+ 		}
+ 	}
+ 
+ 	// y range is const
++	int xRange;
+ 	yStart = yPos - range;
+ 	yEnd = yPos + range;
+ 
+@@ -2490,12 +2519,16 @@
+ 			
+ 			defence_map[cell] -= power;
+ 			air_defence_map[cell] -= air_power;
++			submarine_defence_map[cell] -= submarine_power;
+ 
+ 			if(defence_map[cell] &lt; 0)
+ 				defence_map[cell] = 0;
+ 			
+ 			if(air_defence_map[cell] &lt; 0)
+ 				air_defence_map[cell] = 0;
++
++			if(submarine_defence_map[cell] &lt; 0)
++				submarine_defence_map[cell] = 0;
+ 		}
+ 	}
+ }
+@@ -2515,11 +2548,15 @@
+ 
+ 	if(cfg-&gt;AIR_ONLY_MOD)
+ 	{
+-		if(category == HOVER_ASSAULT || category == SEA_ASSAULT)
++		if(category == AIR_ASSAULT || category == HOVER_ASSAULT)
+ 			map = &amp;air_defence_map;
++		else if(category == SEA_ASSAULT)
++			map = &amp;submarine_defence_map;
+ 	}
+ 	else if(category == AIR_ASSAULT)
+ 		map = &amp;air_defence_map;
++	else if(category == SUBMARINE_ASSAULT)
++		map = &amp;submarine_defence_map;
+ 
+ 	float range =  bt-&gt;units_static[def-&gt;id].range / 8.0;
+ 
+@@ -2533,7 +2570,7 @@
+ 			{
+ 				cell = (xPos + xDefMapSize * yPos) / 4;
+ 
+-				my_rating = terrain_modifier * plateau_map[cell] - (*map)[cell] + 0.15f * ((float) (rand()%20));
++				my_rating = terrain_modifier * plateau_map[cell] - (*map)[cell] + 0.15f *  (float)(rand()%20);
+ 
+ 				// determine minimum distance from buildpos to the edges of the map
+ 				edge_distance = xPos;
+@@ -2576,4 +2613,71 @@
+ int AAIMap::GetContinentID(int x, int y)
+ {
+ 	return continent_map[(y/4) * xContMapSize + x / 4];
++}
++
++int AAIMap::GetContinentID(float3 *pos)
++{
++	int x = pos-&gt;x / 32;
++	int y = pos-&gt;z / 32;
++
++	// check if pos inside of the map
++	if(x &lt; 0)
++		x = 0;
++	else if(x &gt;= xContMapSize)
++		x = xContMapSize - 1;
++
++	if(y &lt; 0)
++		y = 0;
++	else if(y &gt;= yContMapSize)
++		y = yContMapSize - 1;
++
++	return continent_map[y * xContMapSize + x];
++}
++
++int AAIMap::GetSmartContinentID(float3 *pos, unsigned int unit_movement_type)
++{
++	// check if non sea/amphib unit in shallow water
++	if(ai-&gt;cb-&gt;GetElevation(pos-&gt;x, pos-&gt;z) &lt; 0 &amp;&amp; unit_movement_type &amp; MOVE_TYPE_GROUND)
++	{
++		//look for closest land cell
++		for(int k = 1; k &lt; 10; ++k)
++		{
++			if(ai-&gt;cb-&gt;GetElevation(pos-&gt;x + k * 16, pos-&gt;z) &gt; 0)
++			{
++				pos-&gt;x += k *16;
++				break;
++			}
++			else if(ai-&gt;cb-&gt;GetElevation(pos-&gt;x - k * 16, pos-&gt;z) &gt; 0)
++			{
++				pos-&gt;x -= k *16;
++				break;
++			}
++			else if(ai-&gt;cb-&gt;GetElevation(pos-&gt;x, pos-&gt;z + k * 16) &gt; 0)
++			{
++				pos-&gt;z += k *16;
++				break;
++			}
++			else if(ai-&gt;cb-&gt;GetElevation(pos-&gt;x, pos-&gt;z - k * 16) &gt; 0)
++			{
++				pos-&gt;z -= k *16;
++				break;
++			}
++		}
++	}
++
++	int x = pos-&gt;x / 32;
++	int y = pos-&gt;z / 32;
++
++	// check if pos inside of the map
++	if(x &lt; 0)
++		x = 0;
++	else if(x &gt;= xContMapSize)
++		x = xContMapSize - 1;
++
++	if(y &lt; 0)
++		y = 0;
++	else if(y &gt;= yContMapSize)
++		y = yContMapSize - 1;
++
++	return continent_map[y * xContMapSize + x];
+ }
+\ No newline at end of file
+
+Modified: trunk/AI/Global/AAI/AAIMap.h
+===================================================================
+--- trunk/AI/Global/AAI/AAIMap.h	2008-04-18 21:15:23 UTC (rev 5756)
++++ trunk/AI/Global/AAI/AAIMap.h	2008-04-19 22:03:33 UTC (rev 5757)
+@@ -2,9 +2,8 @@
+ 
+ #include &quot;aidef.h&quot;
+ 
+-#include &quot;AAISector.h&quot;
+-
+ class AAIBuildTable;
++class AAISector;
+ class AAI;
+ 
+ class AAIMap
+@@ -25,7 +24,11 @@
+ 
+ 	// returns id of continent the cell belongs to
+ 	int GetContinentID(int x, int y);
++	int GetContinentID(float3 *pos);
+ 
++	// returns continent id with respect to the units movement type (eg land, non amphib unit being in shallow water will return id of nearest land continent)
++	int GetSmartContinentID(float3 *pos, unsigned int unit_movement_type);
++
+ 	// true if x/y are a valid sector
+ 	bool ValidSector(int x, int y);
+ 
+@@ -107,8 +110,9 @@
+ 	bool initialized;
+ 
+ 	// defence maps
+-	vector&lt;float&gt; defence_map;	// defence map has 1/4 of resolution of blockmap/buildmap
++	vector&lt;float&gt; defence_map;	//  ground/sea defence map has 1/4 of resolution of blockmap/buildmap
+ 	vector&lt;float&gt; air_defence_map; // air defence map has 1/4 of resolution of blockmap/buildmap
++	vector&lt;float&gt; submarine_defence_map; // submarine defence map has 1/4 of resolution of blockmap/buildmap
+ 
+ 	// temp for scouting
+ 	vector&lt;float&gt; units_spotted;
+@@ -129,7 +133,8 @@
+ 
+ 	static int aai_instances;	// how many aai instances have been initialized
+ 
+-	static int xMapSize, yMapSize;				// x and y size of the map
++	static int xSize, ySize;					// x and y size of the map (unit coordinates)
++	static int xMapSize, yMapSize;				// x and y size of the map (map coordinates)
+ 	static int xDefMapSize, yDefMapSize;		// x and y size of the defence maps (1/4 resolution of map)
+ 	static int xContMapSize, yContMapSize;		// x and y size of the defence maps (1/4 resolution of map)
+ 	static int xSectors, ySectors;				// number of sectors
+
+Modified: trunk/AI/Global/AAI/AAISector.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAISector.cpp	2008-04-18 21:15:23 UTC (rev 5756)
++++ trunk/AI/Global/AAI/AAISector.cpp	2008-04-19 22:03:33 UTC (rev 5757)
+@@ -676,4 +676,44 @@
+ 	}
+ 
+ 	return false;
++}
++
++void AAISector::GetMovePos(float3 *pos, unsigned int movement_type, int continent)
++{
++	if(movement_type &amp;  MOVE_TYPE_CONTINENT_BOUND)
++	{
++		*pos = ZeroVector;
++		
++		// try to get random spot
++		for(int i = 0; i &lt; 6; ++i)
++		{
++			pos-&gt;x = left + map-&gt;xSectorSize * (0.2f + 0.06f * (float)(rand()%11) );
++			pos-&gt;z = top + map-&gt;ySectorSize * (0.2f + 0.06f * (float)(rand()%11) );
++
++			if(map-&gt;GetContinentID(pos) == continent)
++				return;
++			else
++				*pos = ZeroVector;
++		}
++
++		// search systematically 
++		for(int i = 0; i &lt; map-&gt;xSectorSizeMap; i += 8)
++		{
++			for(int j = 0; j &lt; map-&gt;ySectorSizeMap; j += 8)
++			{
++				if(map-&gt;GetContinentID(i + left/SQUARE_SIZE, j + top/SQUARE_SIZE) == continent)
++				{
++					pos-&gt;x = left + i * SQUARE_SIZE;
++					pos-&gt;z = top + j * SQUARE_SIZE;
++					return;
++				}
++			}
++		}
++
++	}
++	else	// air/hover/amphib -&gt; can reach any pos
++	{
++			pos-&gt;x = left + map-&gt;xSectorSize * (0.2f + 0.06f * (float)(rand()%11) );
++			pos-&gt;z = top + map-&gt;ySectorSize * (0.2f + 0.06f * (float)(rand()%11) );
++	}
+ }
+\ No newline at end of file
+
+Modified: trunk/AI/Global/AAI/AAISector.h
+===================================================================
+--- trunk/AI/Global/AAI/AAISector.h	2008-04-18 21:15:23 UTC (rev 5756)
++++ trunk/AI/Global/AAI/AAISector.h	2008-04-19 22:03:33 UTC (rev 5757)
+@@ -94,6 +94,9 @@
+ 	float GetWaterRatio();
+ 	float GetFlatRatio();
+ 
++	// returns a position in sector on specified continent for the movement type (ZeroVector if none found)
++	void GetMovePos(float3 *pos, unsigned int movement_type, int continent); 
++
+ 	// returns true if sector is connected with a big ocean (and not only a small pond)
+ 	bool ConnectedToOcean();
+ 
+@@ -153,7 +156,6 @@
+ 
+ 	int distance_to_base;	// 0 = base, 1 = neighbour to base 
+ 	bool interior;			// true if sector is no inner sector
++
++	unsigned int allowed_movement_types;	// movement types that may enter this sector
+ };
+-
+-#include &quot;AAIMap.h&quot;
+-
+
+Modified: trunk/AI/Global/AAI/aidef.h
+===================================================================
+--- trunk/AI/Global/AAI/aidef.h	2008-04-18 21:15:23 UTC (rev 5756)
++++ trunk/AI/Global/AAI/aidef.h	2008-04-19 22:03:33 UTC (rev 5757)
+@@ -32,9 +32,9 @@
+ #ifndef AIDEF_H
+ #define AIDEF_H
+ 
+-#define AAI_VERSION &quot;0.86&quot;
++#define AAI_VERSION &quot;0.862&quot;
+ #define MAP_FILE_VERSION &quot;MAP_LEARN_0_80&quot;
+-#define TABLE_FILE_VERSION &quot;MOD_LEARN_0_85&quot;
++#define TABLE_FILE_VERSION &quot;MOD_LEARN_0_86&quot;
+ #define MAP_DATA_VERSION &quot;MAP_DATA_0_86&quot;
+ #define CONTINENT_DATA_VERSION &quot;MOVEMENT_MAPS_0_86&quot;
+ 
+@@ -69,15 +69,18 @@
+ #define MOVE_TYPE_AIR (unsigned int) 2
+ #define MOVE_TYPE_HOVER (unsigned int) 4
+ #define MOVE_TYPE_SEA (unsigned int) 8
+-#define MOVE_TYPE_UNIT (unsigned int) 15	// used to filter out unit movement typ (e.g. only MOVE_TYPE_SEA for sumarines (that also have MOVE_TYPE_UNDERWATER set))
+-#define MOVE_TYPE_STATIC (unsigned int) 16
+-#define MOVE_TYPE_FLOATER (unsigned int) 32
+-#define MOVE_TYPE_UNDERWATER (unsigned int) 64
+-#define MOVE_TYPE_STATIC_LAND (unsigned int) 128
+-#define MOVE_TYPE_STATIC_WATER (unsigned int) 256
+-#define MOVE_TYPE_AMPHIB (unsigned int) 512
++#define MOVE_TYPE_AMPHIB (unsigned int) 16
++#define MOVE_TYPE_STATIC (unsigned int) 32
++#define MOVE_TYPE_FLOATER (unsigned int) 64
++#define MOVE_TYPE_UNDERWATER (unsigned int) 128
++#define MOVE_TYPE_STATIC_LAND (unsigned int) 256
++#define MOVE_TYPE_STATIC_WATER (unsigned int) 512
+ 
+ 
++#define MOVE_TYPE_UNIT (unsigned int) 31	// used to filter out unit movement typ (e.g. only MOVE_TYPE_SEA for sumarines (that also have MOVE_TYPE_UNDERWATER set))
++#define MOVE_TYPE_CONTINENT_BOUND (unsigned int) 9
++
++
+ // unit types (for bitfield)
+ #define UNIT_TYPE_BUILDER (unsigned int) 1
+ #define UNIT_TYPE_FACTORY (unsigned int) 2
+
+Modified: trunk/game/AI/AAI/AAI ReadMe.txt
+===================================================================
+--- trunk/game/AI/AAI/AAI ReadMe.txt	2008-04-18 21:15:23 UTC (rev 5756)
++++ trunk/game/AI/AAI/AAI ReadMe.txt	2008-04-19 22:03:33 UTC (rev 5757)
+@@ -105,6 +105,15 @@
+ 		- Brandon Potter for his TBT 12 cfg file
+ 
+ 
++AAI v0.862	- Added submarine defence map -&gt; AAI will now store its defence capabilities vs submarines separately from other 
++		  naval units
++
++		- AAI now takes continents into account when sending scouts to positions (e.g. it does not try send ground scouts to 
++		  positions on other islands/continents anymore)
++
++		- Bumped mod learning file version to 0.86 due to some changes in handling of amphibious units
++
++
+ AAI v0.86	- Added NON_AMPHIB_MAX_WATERDEPTH float (default is 15) statement to mod cfg file, specifies the max water depth 
+ 		  non amphibious ground units can cross
+ 
+
+Added: trunk/game/AI/AAI/cfg/map/ExpandedTropics.cfg
+===================================================================
+--- trunk/game/AI/AAI/cfg/map/ExpandedTropics.cfg	                        (rev 0)
++++ trunk/game/AI/AAI/cfg/map/ExpandedTropics.cfg	2008-04-19 22:03:33 UTC (rev 5757)
+@@ -0,0 +1 @@
++WATER_MAP
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000536.html">[Taspring-linux-commit] r5756 - in trunk/rts: Game/StartScripts	System System/Script
+</A></li>
+	<LI>Next message: <A HREF="000539.html">[Taspring-linux-commit] r5758 - in trunk/rts: Game System/Script
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#538">[ date ]</a>
+              <a href="thread.html#538">[ thread ]</a>
+              <a href="subject.html#538">[ subject ]</a>
+              <a href="author.html#538">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

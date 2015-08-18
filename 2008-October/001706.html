@@ -1,0 +1,551 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6937 - in trunk/rts: Game Game/Server	System System/Net
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6937%20-%20in%20trunk/rts%3A%20Game%20Game/Server%0A%09System%20System/Net&In-Reply-To=%3C20081030190606.385B44730%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001705.html">
+   <LINK REL="Next"  HREF="001707.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6937 - in trunk/rts: Game Game/Server	System System/Net</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6937%20-%20in%20trunk/rts%3A%20Game%20Game/Server%0A%09System%20System/Net&In-Reply-To=%3C20081030190606.385B44730%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6937 - in trunk/rts: Game Game/Server	System System/Net">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Oct 30 20:06:05 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001705.html">[Taspring-linux-commit] r6936 - in branches/gmltest/rts: Game Lua	Rendering/UnitModels Sim/Projectiles Sim/Projectiles/Unsynced	Sim/Projectiles/WeaponProjectiles Sim/Units System lib/gml
+</A></li>
+        <LI>Next message: <A HREF="001707.html">[Taspring-linux-commit] r6938 - trunk/tools/unitsync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1706">[ date ]</a>
+              <a href="thread.html#1706">[ thread ]</a>
+              <a href="subject.html#1706">[ subject ]</a>
+              <a href="author.html#1706">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-10-30 20:06:05 +0100 (Thu, 30 Oct 2008)
+New Revision: 6937
+
+Modified:
+   trunk/rts/Game/ChatMessage.cpp
+   trunk/rts/Game/CommandMessage.cpp
+   trunk/rts/Game/GameData.cpp
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameServer.h
+   trunk/rts/Game/GameSetup.cpp
+   trunk/rts/Game/PreGame.cpp
+   trunk/rts/Game/Server/MsgStrings.h
+   trunk/rts/System/BaseNetProtocol.cpp
+   trunk/rts/System/BaseNetProtocol.h
+   trunk/rts/System/Net/UnpackPacket.cpp
+   trunk/rts/System/Net/UnpackPacket.h
+   trunk/rts/System/NetProtocol.cpp
+   trunk/rts/System/NetProtocol.h
+Log:
+* rework the initial connect message to use names instead of numbers
+
+
+Modified: trunk/rts/Game/ChatMessage.cpp
+===================================================================
+--- trunk/rts/Game/ChatMessage.cpp	2008-10-30 17:38:18 UTC (rev 6936)
++++ trunk/rts/Game/ChatMessage.cpp	2008-10-30 19:06:05 UTC (rev 6937)
+@@ -16,14 +16,10 @@
+ 
+ ChatMessage::ChatMessage(boost::shared_ptr&lt;const netcode::RawPacket&gt; data)
+ {
+-	UnpackPacket packet(data);
+-	unsigned char ID;
+-	unsigned char length;
++	assert(data-&gt;data[0] == NETMSG_CHAT);
++	UnpackPacket packet(data, 2);
+ 	unsigned char from;
+ 	unsigned char dest;
+-	packet &gt;&gt; ID;
+-	assert(ID == NETMSG_CHAT);
+-	packet &gt;&gt; length;
+ 	packet &gt;&gt; from;
+ 	packet &gt;&gt; dest;
+ 	packet &gt;&gt; msg;
+@@ -34,8 +30,7 @@
+ const netcode::RawPacket* ChatMessage::Pack() const
+ {
+ 	unsigned char size = 4*sizeof(unsigned char) + msg.size()+1;
+-	PackPacket* buffer = new PackPacket(size);
+-	*buffer &lt;&lt; (unsigned char)NETMSG_CHAT;
++	PackPacket* buffer = new PackPacket(size, NETMSG_CHAT);
+ 	*buffer &lt;&lt; size;
+ 	*buffer &lt;&lt; (unsigned char)fromPlayer;
+ 	*buffer &lt;&lt; (unsigned char)destination;
+
+Modified: trunk/rts/Game/CommandMessage.cpp
+===================================================================
+--- trunk/rts/Game/CommandMessage.cpp	2008-10-30 17:38:18 UTC (rev 6936)
++++ trunk/rts/Game/CommandMessage.cpp	2008-10-30 19:06:05 UTC (rev 6937)
+@@ -25,12 +25,8 @@
+ 
+ CommandMessage::CommandMessage(boost::shared_ptr&lt;const netcode::RawPacket&gt; pckt)
+ {
+-	UnpackPacket packet(pckt);
+-	unsigned char ID;
+-	unsigned short length;
+-	packet &gt;&gt; ID;
+-	assert(ID == NETMSG_CCOMMAND);
+-	packet &gt;&gt; length;
++	assert(pckt-&gt;data[0] == NETMSG_CCOMMAND);
++	UnpackPacket packet(pckt, 3);
+ 	packet &gt;&gt; player;
+ 	packet &gt;&gt; action.command;
+ 	packet &gt;&gt; action.extra;
+@@ -39,8 +35,7 @@
+ const netcode::RawPacket* CommandMessage::Pack() const
+ {
+ 	unsigned short size = 3 + sizeof(player) + action.command.size() + action.extra.size() + 2;
+-	PackPacket* buffer = new PackPacket(size);
+-	*buffer &lt;&lt; (unsigned char)NETMSG_CCOMMAND;
++	PackPacket* buffer = new PackPacket(size, NETMSG_CCOMMAND);
+ 	*buffer &lt;&lt; size;
+ 	*buffer &lt;&lt; player;
+ 	*buffer &lt;&lt; action.command;
+
+Modified: trunk/rts/Game/GameData.cpp
+===================================================================
+--- trunk/rts/Game/GameData.cpp	2008-10-30 17:38:18 UTC (rev 6936)
++++ trunk/rts/Game/GameData.cpp	2008-10-30 19:06:05 UTC (rev 6937)
+@@ -19,12 +19,8 @@
+ 
+ GameData::GameData(boost::shared_ptr&lt;const RawPacket&gt; pckt)
+ {
+-	UnpackPacket packet(pckt);
+-	unsigned char ID;
+-	unsigned short length;
+-	packet &gt;&gt; ID;
+-	assert(ID == NETMSG_GAMEDATA);
+-	packet &gt;&gt; length;
++	assert(pckt-&gt;data[0] == NETMSG_GAMEDATA);
++	UnpackPacket packet(pckt, 3);
+ 	packet &gt;&gt; script;
+ 	packet &gt;&gt; map;
+ 	packet &gt;&gt; mapChecksum;
+@@ -36,8 +32,7 @@
+ const netcode::RawPacket* GameData::Pack() const
+ {
+ 	unsigned short size = 3 + 2*sizeof(unsigned) + map.size() + mod.size() + script.size() + 4 + 3;
+-	PackPacket* buffer = new PackPacket(size);
+-	*buffer &lt;&lt; (unsigned char)NETMSG_GAMEDATA;
++	PackPacket* buffer = new PackPacket(size, NETMSG_GAMEDATA);
+ 	*buffer &lt;&lt; size;
+ 	*buffer &lt;&lt; script;
+ 	*buffer &lt;&lt; map;
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-10-30 17:38:18 UTC (rev 6936)
++++ trunk/rts/Game/GameServer.cpp	2008-10-30 19:06:05 UTC (rev 6937)
+@@ -37,6 +37,7 @@
+ #include &quot;System/Net/Connection.h&quot;
+ #include &quot;System/Net/UDPConnection.h&quot;
+ #include &quot;System/Net/LocalConnection.h&quot;
++#include &quot;System/Net/UnpackPacket.h&quot;
+ #include &quot;System/DemoReader.h&quot;
+ #include &quot;System/AutohostInterface.h&quot;
+ #include &quot;System/Util.h&quot;
+@@ -186,12 +187,12 @@
+ 	delete thread;
+ }
+ 
+-void CGameServer::AddLocalClient(unsigned wantedNumber)
++void CGameServer::AddLocalClient(const std::string&amp; myName, const std::string&amp; myVersion)
+ {
+ 	boost::recursive_mutex::scoped_lock scoped_lock(gameServerMutex);
+ 	assert(!hasLocalClient);
+ 	hasLocalClient = true;
+-	localClientNumber = BindConnection(wantedNumber, true, boost::shared_ptr&lt;netcode::CConnection&gt;(new netcode::CLocalConnection()));
++	localClientNumber = BindConnection(myName, myVersion, true, boost::shared_ptr&lt;netcode::CConnection&gt;(new netcode::CLocalConnection()));
+ }
+ 
+ void CGameServer::AddAutohostInterface(const int remotePort)
+@@ -882,10 +883,13 @@
+ 		boost::shared_ptr&lt;netcode::UDPConnection&gt; prev = UDPNet-&gt;PreviewConnection().lock();
+ 		boost::shared_ptr&lt;const RawPacket&gt; packet = prev-&gt;GetData();
+ 		
+-		if (packet &amp;&amp; packet-&gt;length &gt;= 3 &amp;&amp; packet-&gt;data[0] == NETMSG_ATTEMPTCONNECT &amp;&amp; packet-&gt;data[2] == NETWORK_VERSION)
++		if (packet &amp;&amp; packet-&gt;length &gt;= 3 &amp;&amp; packet-&gt;data[0] == NETMSG_ATTEMPTCONNECT)
+ 		{
+-			const unsigned wantedNumber = packet-&gt;data[1];
+-			BindConnection(wantedNumber, false, UDPNet-&gt;AcceptConnection());
++			netcode::UnpackPacket msg(packet, 3);
++			std::string name, version;
++			msg &gt;&gt; name;
++			msg &gt;&gt; version;
++			BindConnection(name, version, false, UDPNet-&gt;AcceptConnection());
+ 		}
+ 		else
+ 		{
+@@ -1349,11 +1353,26 @@
+ 	}
+ }
+ 
+-unsigned CGameServer::BindConnection(unsigned wantedNumber, bool isLocal, boost::shared_ptr&lt;netcode::CConnection&gt; link)
++unsigned CGameServer::BindConnection(const std::string&amp; name, const std::string&amp; version, bool isLocal, boost::shared_ptr&lt;netcode::CConnection&gt; link)
+ {
+-	unsigned hisNewNumber = wantedNumber;
++	unsigned hisNewNumber = 0;
++	bool found = false;
++
++	if (setup)
++	{
++		for (unsigned i = 0; i &lt; setup-&gt;numPlayers; ++i)
++		{
++			if (name == setup-&gt;playerStartingData[i].name)
++			{
++				hisNewNumber = i;
++				found = true;
++				break;
++			}
++		}
++	}
++
+ 	if (demoReader) {
+-		hisNewNumber = std::max(wantedNumber, (unsigned)demoReader-&gt;GetFileHeader().maxPlayerNum+1);
++		hisNewNumber = std::max(hisNewNumber, (unsigned)demoReader-&gt;GetFileHeader().maxPlayerNum+1);
+ 	}
+ 	if (players[hisNewNumber])
+ 	{
+@@ -1367,10 +1386,10 @@
+ 		}
+ 	}
+ 
+-	if (setup &amp;&amp; hisNewNumber &gt;= static_cast&lt;unsigned&gt;(setup-&gt;numPlayers) &amp;&amp; !demoReader)
++	if (setup &amp;&amp; (hisNewNumber &gt;= static_cast&lt;unsigned&gt;(setup-&gt;numPlayers) || !found) &amp;&amp; !demoReader)
+ 	{
+-		// number not in setup, drop connection
+-		Message(str(format(&quot;Connection rejected because of number %i not in setup (wanted number %i).&quot;) %hisNewNumber %wantedNumber));
++		// player not found
++		Message(str(format(&quot;Player %s not found, rejecting connection attempt&quot;) %name));
+ 		return 0;
+ 	}
+ 	
+@@ -1421,7 +1440,7 @@
+ 			}
+ 		}
+ 	}
+-	Message(str(format(NewConnection) %hisNewNumber %wantedNumber));
++	Message(str(format(NewConnection) %name %hisNewNumber %version));
+ 
+ 	link-&gt;Flush(true);
+ 	return hisNewNumber;
+
+Modified: trunk/rts/Game/GameServer.h
+===================================================================
+--- trunk/rts/Game/GameServer.h	2008-10-30 17:38:18 UTC (rev 6936)
++++ trunk/rts/Game/GameServer.h	2008-10-30 19:06:05 UTC (rev 6937)
+@@ -66,7 +66,7 @@
+ 	CGameServer(int port, bool onlyLocal, const GameData* const gameData, const CGameSetup* const setup, const std::string&amp; demoName = &quot;&quot;);
+ 	virtual ~CGameServer();
+ 
+-	void AddLocalClient(unsigned wantedNumber);
++	void AddLocalClient(const std::string&amp; myName, const std::string&amp; myVersion);
+ 
+ 	void AddAutohostInterface(const int remotePort);
+ 
+@@ -106,7 +106,7 @@
+ 	*/
+ 	void KickPlayer(const int playerNum);
+ 
+-	unsigned BindConnection(unsigned wantedNumber, bool isLocal, boost::shared_ptr&lt;netcode::CConnection&gt; link);
++	unsigned BindConnection(const std::string&amp; name, const std::string&amp; version, bool isLocal, boost::shared_ptr&lt;netcode::CConnection&gt; link);
+ 
+ 	void CheckForGameStart(bool forced=false);
+ 	void StartGame();
+
+Modified: trunk/rts/Game/GameSetup.cpp
+===================================================================
+--- trunk/rts/Game/GameSetup.cpp	2008-10-30 17:38:18 UTC (rev 6936)
++++ trunk/rts/Game/GameSetup.cpp	2008-10-30 19:06:05 UTC (rev 6937)
+@@ -448,17 +448,11 @@
+ 	LoadAllyTeams(file);
+ 
+ 	file.GetDef(myPlayerName,  &quot;&quot;, &quot;GAME\\MyPlayerName&quot;);
+-	if (!myPlayerName.empty())
++	if (myPlayerName.empty())
+ 	{
+-		for (int i = 0; i != playerStartingData.size(); ++i)
+-		{
+-			if (myPlayerName == playerStartingData[i].name)
+-			{
+-				myPlayerNum = i;
+-				break;
+-			}
+-		}
++		myPlayerName = playerStartingData[myPlayerNum].name;
+ 	}
++
+ 	// Relocate indices (for gap removing)
+ 	RemapPlayers();
+ 	RemapTeams();
+
+Modified: trunk/rts/Game/PreGame.cpp
+===================================================================
+--- trunk/rts/Game/PreGame.cpp	2008-10-30 17:38:18 UTC (rev 6936)
++++ trunk/rts/Game/PreGame.cpp	2008-10-30 19:06:05 UTC (rev 6937)
+@@ -10,6 +10,7 @@
+ 
+ #include &quot;PreGame.h&quot;
+ #include &quot;Game.h&quot;
++#include &quot;GameVersion.h&quot;
+ #include &quot;Team.h&quot;
+ #include &quot;FPUCheck.h&quot;
+ #include &quot;GameServer.h&quot;
+@@ -89,7 +90,7 @@
+ 	}
+ 
+ 	if(server){
+-		net-&gt;InitLocalClient(gameSetup ? gameSetup-&gt;myPlayerNum : 0);
++		net-&gt;InitLocalClient();
+ 		if (!demoFile.empty())
+ 		{
+ 			ReadDataFromDemo(demoFile);
+@@ -110,14 +111,14 @@
+ 	} else {
+ 		if(gameSetup){
+ 			PrintLoadMsg(&quot;Connecting to server&quot;);
+-			net-&gt;InitClient(gameSetup-&gt;hostip.c_str(),gameSetup-&gt;hostport,gameSetup-&gt;sourceport, gameSetup-&gt;myPlayerNum);
++			net-&gt;InitClient(gameSetup-&gt;hostip.c_str(),gameSetup-&gt;hostport,gameSetup-&gt;sourceport, gameSetup ? gameSetup-&gt;myPlayerName : configHandler.GetString(&quot;name&quot;, &quot;&quot;), std::string(VERSION_STRING_DETAILED));
+ 			state = WAIT_CONNECTING;
+ 		} else {
+ 			if (hasDemo) {
+ 				net-&gt;localDemoPlayback = true;
+ 				state = WAIT_CONNECTING;
+ 				ReadDataFromDemo(demoFile); // scan for GameData
+-				net-&gt;InitLocalClient(0);
++				net-&gt;InitLocalClient();
+ 				if (gameSetup) {	// we read a gameSetup from the demofiles
+ 					logOutput.Print(&quot;Read GameSetup from Demofile&quot;);
+ 				}
+@@ -306,7 +307,7 @@
+ 				break;
+ 
+ 			configHandler.SetString(&quot;address&quot;,userInput);
+-			net-&gt;InitClient(userInput.c_str(),springDefaultPort,0, 0);
++			net-&gt;InitClient(userInput.c_str(),springDefaultPort,0, gameSetup ? gameSetup-&gt;myPlayerName : configHandler.GetString(&quot;name&quot;, &quot;&quot;), std::string(VERSION_STRING_DETAILED));
+ 			state = WAIT_CONNECTING;
+ 			// fall trough
+ 		}
+@@ -437,7 +438,7 @@
+ 	if (gameSetup &amp;&amp; gameSetup-&gt;autohostport &gt; 0) {
+ 		gameServer-&gt;AddAutohostInterface(gameSetup-&gt;autohostport);
+ 	}
+-	gameServer-&gt;AddLocalClient(gameSetup? gameSetup-&gt;myPlayerNum : 0);
++	gameServer-&gt;AddLocalClient(gameSetup? gameSetup-&gt;myPlayerName : configHandler.GetString(&quot;name&quot;, &quot;&quot;), std::string(VERSION_STRING_DETAILED));
+ 	good_fpu_control_registers(&quot;after CGameServer creation&quot;);
+ }
+ 
+@@ -503,7 +504,7 @@
+ 			GameData *data = new GameData(boost::shared_ptr&lt;const RawPacket&gt;(buf));
+ 			good_fpu_control_registers(&quot;before CGameServer creation&quot;);
+ 			gameServer = new CGameServer(hasSetup ? gameSetup-&gt;hostport : springDefaultPort, false, data, gameSetup, demoName);
+-			gameServer-&gt;AddLocalClient(gameSetup ? gameSetup-&gt;myPlayerNum : 0);
++			gameServer-&gt;AddLocalClient(gameSetup? gameSetup-&gt;myPlayerName : gs-&gt;players[gu-&gt;myPlayerNum]-&gt;name, std::string(VERSION_STRING_DETAILED));
+ 			good_fpu_control_registers(&quot;after CGameServer creation&quot;);
+ 			break;
+ 		}
+
+Modified: trunk/rts/Game/Server/MsgStrings.h
+===================================================================
+--- trunk/rts/Game/Server/MsgStrings.h	2008-10-30 17:38:18 UTC (rev 6936)
++++ trunk/rts/Game/Server/MsgStrings.h	2008-10-30 19:06:05 UTC (rev 6937)
+@@ -18,10 +18,10 @@
+ const std::string SyncError = &quot;Sync error for %s in frame %d (%x)&quot;;
+ const std::string NoSyncCheck = &quot;Warning: Sync checking disabled!&quot;;
+ 
+-const std::string NewConnection = &quot;New connection established in %d (wanted number was %d)&quot;;
++const std::string NewConnection = &quot;Player %s with number %d connected (client version %s)&quot;;
+ const std::string ConnectionReject = &quot;Connection attempt rejected (Message ID: %d Network version: %d Datalength: %d)&quot;;
+ const std::string WrongPlayer = &quot;Got message %d from %d claiming to be from %d&quot;;
+-const std::string PlayerJoined = &quot;Player %s joined as %d&quot;;
++const std::string PlayerJoined = &quot;Player %s finished loading and joined as player %d&quot;;
+ const std::string PlayerLeft = &quot;Player %s left the game: %s&quot;;
+ 
+ const std::string NoStartposChange = &quot;%s tried to change his startposition illegally&quot;;
+
+Modified: trunk/rts/System/BaseNetProtocol.cpp
+===================================================================
+--- trunk/rts/System/BaseNetProtocol.cpp	2008-10-30 17:38:18 UTC (rev 6936)
++++ trunk/rts/System/BaseNetProtocol.cpp	2008-10-30 19:06:05 UTC (rev 6937)
+@@ -156,10 +156,11 @@
+ }
+ 
+ 
+-PacketType CBaseNetProtocol::SendAttemptConnect(uchar myPlayerNum, uchar networkVersion)
++PacketType CBaseNetProtocol::SendAttemptConnect(const std::string name, const std::string version)
+ {
+-	PackPacket* packet = new PackPacket(3, NETMSG_ATTEMPTCONNECT);
+-	*packet &lt;&lt; myPlayerNum &lt;&lt; networkVersion;
++	uint16_t size = 5 + name.size() + version.size();
++	PackPacket* packet = new PackPacket(size , NETMSG_ATTEMPTCONNECT);
++	*packet &lt;&lt; size &lt;&lt; name &lt;&lt; version;
+ 	return PacketType(packet);
+ }
+ 
+@@ -382,7 +383,7 @@
+ 	proto-&gt;AddType(NETMSG_CPU_USAGE, 5);
+ 	proto-&gt;AddType(NETMSG_DIRECT_CONTROL, 2);
+ 	proto-&gt;AddType(NETMSG_DC_UPDATE, 7);
+-	proto-&gt;AddType(NETMSG_ATTEMPTCONNECT, 3);
++	proto-&gt;AddType(NETMSG_ATTEMPTCONNECT, -2);
+ 	proto-&gt;AddType(NETMSG_SHARE, 12);
+ 	proto-&gt;AddType(NETMSG_SETSHARE, 11);
+ 	proto-&gt;AddType(NETMSG_SENDPLAYERSTAT, 1);
+
+Modified: trunk/rts/System/BaseNetProtocol.h
+===================================================================
+--- trunk/rts/System/BaseNetProtocol.h	2008-10-30 17:38:18 UTC (rev 6936)
++++ trunk/rts/System/BaseNetProtocol.h	2008-10-30 19:06:05 UTC (rev 6937)
+@@ -52,7 +52,7 @@
+ 	NETMSG_CPU_USAGE        = 21, // float cpuUsage;
+ 	NETMSG_DIRECT_CONTROL   = 22, // uchar myPlayerNum;
+ 	NETMSG_DC_UPDATE        = 23, // uchar myPlayerNum, status; short heading, pitch;
+-	NETMSG_ATTEMPTCONNECT   = 25, // uchar myPlayerNum, networkVersion;
++	NETMSG_ATTEMPTCONNECT   = 25, // ushort msgsize, string playername, string VERSION_STRING_DETAILED
+ 	NETMSG_SHARE            = 26, // uchar myPlayerNum, shareTeam, bShareUnits; float shareMetal, shareEnergy;
+ 	NETMSG_SETSHARE         = 27, // uchar myPlayerNum, uchar myTeam; float metalShareFraction, energyShareFraction;
+ 	NETMSG_SENDPLAYERSTAT   = 28, //
+@@ -128,7 +128,7 @@
+ 	PacketType SendCPUUsage(float cpuUsage);
+ 	PacketType SendDirectControl(uchar myPlayerNum);
+ 	PacketType SendDirectControlUpdate(uchar myPlayerNum, uchar status, short heading, short pitch);
+-	PacketType SendAttemptConnect(uchar myPlayerNum, uchar networkVersion);
++	PacketType SendAttemptConnect(const std::string name, const std::string version);
+ 	PacketType SendShare(uchar myPlayerNum, uchar shareTeam, uchar bShareUnits, float shareMetal, float shareEnergy);
+ 	PacketType SendSetShare(uchar myPlayerNum, uchar myTeam, float metalShareFraction, float energyShareFraction);
+ 	PacketType SendSendPlayerStat();
+
+Modified: trunk/rts/System/Net/UnpackPacket.cpp
+===================================================================
+--- trunk/rts/System/Net/UnpackPacket.cpp	2008-10-30 17:38:18 UTC (rev 6936)
++++ trunk/rts/System/Net/UnpackPacket.cpp	2008-10-30 19:06:05 UTC (rev 6937)
+@@ -3,7 +3,7 @@
+ namespace netcode
+ {
+ 
+-UnpackPacket::UnpackPacket(boost::shared_ptr&lt;const RawPacket&gt; packet) : pckt(packet), pos(0)
++UnpackPacket::UnpackPacket(boost::shared_ptr&lt;const RawPacket&gt; packet, unsigned skipBytes) : pckt(packet), pos(skipBytes)
+ {
+ }
+ 
+
+Modified: trunk/rts/System/Net/UnpackPacket.h
+===================================================================
+--- trunk/rts/System/Net/UnpackPacket.h	2008-10-30 17:38:18 UTC (rev 6936)
++++ trunk/rts/System/Net/UnpackPacket.h	2008-10-30 19:06:05 UTC (rev 6937)
+@@ -12,7 +12,7 @@
+ class UnpackPacket
+ {
+ public:
+-	UnpackPacket(boost::shared_ptr&lt;const RawPacket&gt;);
++	UnpackPacket(boost::shared_ptr&lt;const RawPacket&gt;, unsigned skipBytes = 0);
+ 	
+ 	template &lt;typename T&gt;
+ 	void operator&gt;&gt;(T&amp; t) {t = *(T*)(pckt-&gt;data+pos); pos += sizeof(T);};
+
+Modified: trunk/rts/System/NetProtocol.cpp
+===================================================================
+--- trunk/rts/System/NetProtocol.cpp	2008-10-30 17:38:18 UTC (rev 6936)
++++ trunk/rts/System/NetProtocol.cpp	2008-10-30 19:06:05 UTC (rev 6937)
+@@ -32,14 +32,14 @@
+ 	logOutput.Print(server-&gt;Statistics());
+ }
+ 
+-void CNetProtocol::InitClient(const char *server_addr, unsigned portnum,unsigned sourceport, const unsigned wantedNumber)
++void CNetProtocol::InitClient(const char *server_addr, unsigned portnum,unsigned sourceport, const std::string&amp; myName, const std::string&amp; myVersion)
+ {
+ 	boost::shared_ptr&lt;netcode::UDPSocket&gt; sock(new netcode::UDPSocket(sourceport));
+ 	sock-&gt;SetBlocking(false);
+ 	netcode::UDPConnection* conn = new netcode::UDPConnection(sock, server_addr, portnum);
+ 	conn-&gt;SetMTU(configHandler.GetInt(&quot;MaximumTransmissionUnit&quot;, 0));
+ 	server.reset(conn);
+-	server-&gt;SendData(CBaseNetProtocol::Get().SendAttemptConnect(wantedNumber, NETWORK_VERSION));
++	server-&gt;SendData(CBaseNetProtocol::Get().SendAttemptConnect(myName, myVersion));
+ 	server-&gt;Flush(true);
+ 
+ 	if (!gameSetup || !gameSetup-&gt;hostDemo)	//TODO do we really want this?
+@@ -47,10 +47,10 @@
+ 		record.reset(new CDemoRecorder());
+ 	}
+ 	
+-	logOutput.Print(&quot;Connecting to %s:%i using number %i&quot;, server_addr, portnum, wantedNumber);
++	logOutput.Print(&quot;Connecting to %s:%i using name %s&quot;, server_addr, portnum, myName.c_str());
+ }
+ 
+-void CNetProtocol::InitLocalClient(const unsigned wantedNumber)
++void CNetProtocol::InitLocalClient()
+ {
+ 	server.reset(new netcode::CLocalConnection);
+ 	server-&gt;Flush();
+@@ -59,7 +59,7 @@
+ 		record.reset(new CDemoRecorder());
+ 	}
+ 	
+-	logOutput.Print(&quot;Connecting to local server using number %i&quot;, wantedNumber);
++	logOutput.Print(&quot;Connecting to local server&quot;);
+ }
+ 
+ bool CNetProtocol::Active() const
+
+Modified: trunk/rts/System/NetProtocol.h
+===================================================================
+--- trunk/rts/System/NetProtocol.h	2008-10-30 17:38:18 UTC (rev 6936)
++++ trunk/rts/System/NetProtocol.h	2008-10-30 19:06:05 UTC (rev 6937)
+@@ -27,12 +27,12 @@
+ 	/**
+ 	@brief Initialise in client mode (remote server)
+ 	*/
+-	void InitClient(const char* server,unsigned portnum,unsigned sourceport, const unsigned wantedNumber);
++	void InitClient(const char* server,unsigned portnum,unsigned sourceport, const std::string&amp; myName, const std::string&amp; myVersion);
+ 	
+ 	/**
+ 	@brief Initialise in client mode (local server)
+ 	 */
+-	void InitLocalClient(const unsigned wantedNumber);
++	void InitLocalClient();
+ 
+ 	/// Are we still connected (or did the connection timed out)?
+ 	bool Active() const;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001705.html">[Taspring-linux-commit] r6936 - in branches/gmltest/rts: Game Lua	Rendering/UnitModels Sim/Projectiles Sim/Projectiles/Unsynced	Sim/Projectiles/WeaponProjectiles Sim/Units System lib/gml
+</A></li>
+	<LI>Next message: <A HREF="001707.html">[Taspring-linux-commit] r6938 - trunk/tools/unitsync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1706">[ date ]</a>
+              <a href="thread.html#1706">[ thread ]</a>
+              <a href="subject.html#1706">[ subject ]</a>
+              <a href="author.html#1706">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

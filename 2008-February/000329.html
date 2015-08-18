@@ -1,0 +1,183 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5523 - in trunk/rts: Lua Sim/Weapons
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5523%20-%20in%20trunk/rts%3A%20Lua%20Sim/Weapons&In-Reply-To=%3CE1JSHMh-0006n8-3r%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000330.html">
+   <LINK REL="Next"  HREF="000331.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5523 - in trunk/rts: Lua Sim/Weapons</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5523%20-%20in%20trunk/rts%3A%20Lua%20Sim/Weapons&In-Reply-To=%3CE1JSHMh-0006n8-3r%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5523 - in trunk/rts: Lua Sim/Weapons">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Feb 21 20:45:55 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000330.html">[Taspring-linux-commit] r5522 - trunk/rts/Game
+</A></li>
+        <LI>Next message: <A HREF="000331.html">[Taspring-linux-commit] r5524 - trunk/tools/DedicatedServer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#329">[ date ]</a>
+              <a href="thread.html#329">[ thread ]</a>
+              <a href="subject.html#329">[ subject ]</a>
+              <a href="author.html#329">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: KDR_11k
+Date: 2008-02-21 20:45:54 +0100 (Thu, 21 Feb 2008)
+New Revision: 5523
+
+Modified:
+   trunk/rts/Lua/LuaWeaponDefs.cpp
+   trunk/rts/Sim/Weapons/PlasmaRepulser.cpp
+   trunk/rts/Sim/Weapons/PlasmaRepulser.h
+   trunk/rts/Sim/Weapons/WeaponDefHandler.cpp
+   trunk/rts/Sim/Weapons/WeaponDefHandler.h
+Log:
+* Added shieldRechargeDelay weapon tag (float, default 0). The delay is the number of seconds the shield won't charge after being hit (kinda like the idle autoheal for hitpoints)
+
+Modified: trunk/rts/Lua/LuaWeaponDefs.cpp
+===================================================================
+--- trunk/rts/Lua/LuaWeaponDefs.cpp	2008-02-21 19:41:40 UTC (rev 5522)
++++ trunk/rts/Lua/LuaWeaponDefs.cpp	2008-02-21 19:45:54 UTC (rev 5523)
+@@ -555,6 +555,7 @@
+ 	ADD_FLOAT(&quot;shieldPower&quot;,            wd.shieldPower);
+ 	ADD_FLOAT(&quot;shieldPowerRegen&quot;,       wd.shieldPowerRegen);
+ 	ADD_FLOAT(&quot;shieldPowerRegenEnergy&quot;, wd.shieldPowerRegenEnergy);
++	ADD_INT(  &quot;shieldRechargeDelay&quot;,    wd.shieldRechargeDelay);
+ 	ADD_FLOAT(&quot;shieldGoodColorR&quot;,       wd.shieldGoodColor.x);
+ 	ADD_FLOAT(&quot;shieldGoodColorG&quot;,       wd.shieldGoodColor.y);
+ 	ADD_FLOAT(&quot;shieldGoodColorB&quot;,       wd.shieldGoodColor.z);
+
+Modified: trunk/rts/Sim/Weapons/PlasmaRepulser.cpp
+===================================================================
+--- trunk/rts/Sim/Weapons/PlasmaRepulser.cpp	2008-02-21 19:41:40 UTC (rev 5522)
++++ trunk/rts/Sim/Weapons/PlasmaRepulser.cpp	2008-02-21 19:45:54 UTC (rev 5523)
+@@ -24,6 +24,7 @@
+ 	CR_MEMBER(sqRadius),
+ 	CR_MEMBER(curPower),
+ 	CR_MEMBER(hitFrames),
++	CR_MEMBER(rechargeDelay),
+ 	CR_MEMBER(isEnabled),
+ 	CR_MEMBER(wasDrawn),
+ 	CR_MEMBER(incoming),
+@@ -45,6 +46,7 @@
+ 	sqRadius(0),
+ 	curPower(0),
+ 	hitFrames(0),
++	rechargeDelay(0),
+ 	isEnabled(true),
+ 	wasDrawn(true),
+ 	startShowingShield(true)
+@@ -81,7 +83,10 @@
+ {
+ 	const int defHitFrames = weaponDef-&gt;visibleShieldHitFrames;
+ 	const bool couldBeVisible = (weaponDef-&gt;visibleShield || (defHitFrames &gt; 0));
++	const int defRechargeDelay = weaponDef-&gt;shieldRechargeDelay;
+ 
++	rechargeDelay -= (rechargeDelay &gt; 0) ? 1 : 0;
++	
+ 	if (startShowingShield) {
+ 		startShowingShield = false;
+ 		if (couldBeVisible) {
+@@ -99,7 +104,7 @@
+ 		}
+ 	}
+ 
+-	if (isEnabled &amp;&amp; (curPower &lt; weaponDef-&gt;shieldPower)) {
++	if (isEnabled &amp;&amp; (curPower &lt; weaponDef-&gt;shieldPower) &amp;&amp; rechargeDelay &lt;= 0) {
+ 		if (owner-&gt;UseEnergy(weaponDef-&gt;shieldPowerRegenEnergy * (1.0f / 30.0f))) {
+ 			curPower += weaponDef-&gt;shieldPowerRegen * (1.0f / 30.0f);
+ 		}
+@@ -144,6 +149,7 @@
+ 			const float3 dif = (*pi)-&gt;pos-owner-&gt;pos;
+ 			if ((*pi)-&gt;checkCol &amp;&amp; dif.SqLength()&lt;sqRadius &amp;&amp; curPower &gt; (*pi)-&gt;weaponDef-&gt;damages[0]) {
+ 				if (gs-&gt;Team(owner-&gt;team)-&gt;energy &gt; weaponDef-&gt;shieldEnergyUse) {
++					rechargeDelay = defRechargeDelay;
+ 					if (weaponDef-&gt;shieldRepulser) {
+ 					  // bounce the projectile
+ 						const int type = (*pi)-&gt;ShieldRepulse(this, weaponPos,
+
+Modified: trunk/rts/Sim/Weapons/PlasmaRepulser.h
+===================================================================
+--- trunk/rts/Sim/Weapons/PlasmaRepulser.h	2008-02-21 19:41:40 UTC (rev 5522)
++++ trunk/rts/Sim/Weapons/PlasmaRepulser.h	2008-02-21 19:45:54 UTC (rev 5523)
+@@ -33,6 +33,7 @@
+ 	float sqRadius;
+ 
+ 	int hitFrames;
++	int rechargeDelay;
+ 
+ 	bool isEnabled;
+ 	bool wasDrawn;
+
+Modified: trunk/rts/Sim/Weapons/WeaponDefHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Weapons/WeaponDefHandler.cpp	2008-02-21 19:41:40 UTC (rev 5522)
++++ trunk/rts/Sim/Weapons/WeaponDefHandler.cpp	2008-02-21 19:45:54 UTC (rev 5523)
+@@ -327,6 +327,7 @@
+ 		wd.shieldPower            = shTable.GetFloat(&quot;power&quot;,            0.0f);
+ 		wd.shieldPowerRegen       = shTable.GetFloat(&quot;powerRegen&quot;,       0.0f);
+ 		wd.shieldPowerRegenEnergy = shTable.GetFloat(&quot;powerRegenEnergy&quot;, 0.0f);
++		wd.shieldRechargeDelay    = (int)(shTable.GetFloat(&quot;rechargeDelay&quot;, 0) * GAME_SPEED);
+ 		wd.shieldStartingPower    = shTable.GetFloat(&quot;startingPower&quot;,    0.0f);
+ 		wd.shieldInterceptType    = shTable.GetInt(&quot;interceptType&quot;, 0);
+ 		wd.shieldBadColor         = shTable.GetFloat3(&quot;badColor&quot;,  shieldBadColor);
+@@ -347,6 +348,7 @@
+ 		wd.shieldPower            = wdTable.GetFloat(&quot;shieldPower&quot;,            0.0f);
+ 		wd.shieldPowerRegen       = wdTable.GetFloat(&quot;shieldPowerRegen&quot;,       0.0f);
+ 		wd.shieldPowerRegenEnergy = wdTable.GetFloat(&quot;shieldPowerRegenEnergy&quot;, 0.0f);
++		wd.shieldRechargeDelay    = (int)(wdTable.GetFloat(&quot;shieldRechargeDelay&quot;, 0) * GAME_SPEED);
+ 		wd.shieldStartingPower    = wdTable.GetFloat(&quot;shieldStartingPower&quot;,    0.0f);
+ 		wd.shieldInterceptType    = wdTable.GetInt(&quot;shieldInterceptType&quot;, 0);
+ 		wd.shieldBadColor  = wdTable.GetFloat3(&quot;shieldBadColor&quot;,  shieldBadColor);
+
+Modified: trunk/rts/Sim/Weapons/WeaponDefHandler.h
+===================================================================
+--- trunk/rts/Sim/Weapons/WeaponDefHandler.h	2008-02-21 19:41:40 UTC (rev 5522)
++++ trunk/rts/Sim/Weapons/WeaponDefHandler.h	2008-02-21 19:45:54 UTC (rev 5523)
+@@ -192,6 +192,7 @@
+ 	float shieldPowerRegen;						// how fast the power regenerates per second
+ 	float shieldPowerRegenEnergy;				// how much energy is needed to regenerate power per second
+ 	float shieldStartingPower;					// how much power the shield has when first created
++	int   shieldRechargeDelay;					// number of frames to delay recharging by after each hit
+ 	float3 shieldGoodColor;						// color when shield at full power
+ 	float3 shieldBadColor;						// color when shield is empty
+ 	float shieldAlpha;							// shield alpha value
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000330.html">[Taspring-linux-commit] r5522 - trunk/rts/Game
+</A></li>
+	<LI>Next message: <A HREF="000331.html">[Taspring-linux-commit] r5524 - trunk/tools/DedicatedServer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#329">[ date ]</a>
+              <a href="thread.html#329">[ thread ]</a>
+              <a href="subject.html#329">[ subject ]</a>
+              <a href="author.html#329">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,248 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6406 - in trunk/rts: Game System/Sync
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6406%20-%20in%20trunk/rts%3A%20Game%20System/Sync&In-Reply-To=%3C20080911163525.7261049BD%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001175.html">
+   <LINK REL="Next"  HREF="001177.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6406 - in trunk/rts: Game System/Sync</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6406%20-%20in%20trunk/rts%3A%20Game%20System/Sync&In-Reply-To=%3C20080911163525.7261049BD%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6406 - in trunk/rts: Game System/Sync">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Sep 11 18:35:25 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001175.html">[Taspring-linux-commit] r6405 - trunk/Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="001177.html">[Taspring-linux-commit] r6407 - trunk/rts/System/Sync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1176">[ date ]</a>
+              <a href="thread.html#1176">[ thread ]</a>
+              <a href="subject.html#1176">[ subject ]</a>
+              <a href="author.html#1176">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-09-11 18:35:24 +0200 (Thu, 11 Sep 2008)
+New Revision: 6406
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/System/Sync/SyncDebugger.cpp
+   trunk/rts/System/Sync/SyncDebugger.h
+Log:
+* fix the syncdebugger
+
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-09-11 16:17:03 UTC (rev 6405)
++++ trunk/rts/Game/Game.cpp	2008-09-11 16:35:24 UTC (rev 6406)
+@@ -3971,8 +3971,7 @@
+ 			}
+ 			default: {
+ #ifdef SYNCDEBUG
+-				//lastLength = CSyncDebugger::GetInstance()-&gt;ClientReceived(&amp;inbuf[inbufpos]);
+-				//if (!lastLength)
++				if (!CSyncDebugger::GetInstance()-&gt;ClientReceived(inbuf))
+ #endif
+ 				{
+ 					logOutput.Print(&quot;Unknown net msg in client %d&quot;, (int) inbuf[0]);
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-09-11 16:17:03 UTC (rev 6405)
++++ trunk/rts/Game/GameServer.cpp	2008-09-11 16:35:24 UTC (rev 6406)
+@@ -868,6 +868,12 @@
+ 			Warning(str(format(UnknownNetmsg) %(unsigned)inbuf[0] %a));
+ #endif
+ 			break;
++#ifdef SYNCDEBUG
++		case NETMSG_SD_CHKRESPONSE:
++		case NETMSG_SD_BLKRESPONSE:
++			if (!CSyncDebugger::GetInstance()-&gt;ClientReceived(inbuf))
++			break;
++#endif
+ 		default:
+ 		{
+ 			Warning(str(format(UnknownNetmsg) %(unsigned)inbuf[0] %a));
+
+Modified: trunk/rts/System/Sync/SyncDebugger.cpp
+===================================================================
+--- trunk/rts/System/Sync/SyncDebugger.cpp	2008-09-11 16:17:03 UTC (rev 6405)
++++ trunk/rts/System/Sync/SyncDebugger.cpp	2008-09-11 16:35:24 UTC (rev 6406)
+@@ -202,9 +202,9 @@
+  * Plugin for the CGameServer network code in GameServer.cpp.
+  * @return the number of bytes read from the network stream
+  */
+-int CSyncDebugger::ServerReceived(const unsigned char* inbuf)
++bool CSyncDebugger::ServerReceived(const unsigned char* inbuf)
+ {
+-	int length = 0;
++	bool syncDebugPacket = false;
+ 	switch (inbuf[0]) {
+ 		case NETMSG_SD_CHKRESPONSE:
+ 			if (*(short*)&amp;inbuf[1] != HISTORY_SIZE * sizeof(unsigned) + 12) {
+@@ -227,7 +227,7 @@
+ 					}
+ 				}
+ 			}
+-			length = *(short*)&amp;inbuf[1];
++			syncDebugPacket = true;
+ 			break;
+ 		case NETMSG_SD_BLKRESPONSE:
+ 			if (*(short*)&amp;inbuf[1] != BLOCK_SIZE * sizeof(unsigned) + 4) {
+@@ -251,14 +251,10 @@
+ 					}
+ 				}
+ 			}
+-			length = *(short*)&amp;inbuf[1];
++			syncDebugPacket = true;
+ 			break;
+-		default:
+-			logger.AddLine(&quot;Server: invalid msg&quot;);
+-			length = 0;
+-			break;
+ 	}
+-	return length;
++	return syncDebugPacket;
+ }
+ 
+ 
+@@ -268,9 +264,9 @@
+  * Plugin for the CGame network code in Game.cpp.
+  * @return the number of bytes read from the network stream
+  */
+-int CSyncDebugger::ClientReceived(const unsigned char* inbuf)
++bool CSyncDebugger::ClientReceived(const unsigned char* inbuf)
+ {
+-	int length = 0;
++	bool syncDebugPacket = false;
+ 	switch (inbuf[0]) {
+ 		case NETMSG_SD_CHKREQUEST:
+ 			if (gs-&gt;frameNum != *(int*)&amp;inbuf[1]) {
+@@ -281,7 +277,7 @@
+ 				ClientSendChecksumResponse();
+ 				logger.AddLine(&quot;Client: checksum response sent&quot;);
+ 			}
+-			length = 5;
++			syncDebugPacket = true;
+ 			break;
+ 		case NETMSG_SD_BLKREQUEST:
+ 			if (*(unsigned short*)&amp;inbuf[1] &gt;= HISTORY_SIZE) {
+@@ -292,7 +288,7 @@
+ 				// simple progress indication
+ 				logOutput.Print(&quot;[SD] Client: %d / %d&quot;, *(unsigned short*)&amp;inbuf[3], *(unsigned short*)&amp;inbuf[5]);
+ 			}
+-			length = 7;
++			syncDebugPacket = true;
+ 			break;
+ 		case NETMSG_SD_RESET:
+ 			logger.CloseSession();
+@@ -303,14 +299,10 @@
+ 				logOutput.Print(&quot;[SD] Client: Automatical quit enforced from commandline&quot;);
+ 				globalQuit = true;
+ 			}
+-			length = 1;
++			syncDebugPacket = true;
+ 			break;
+-		default:
+-			logOutput.Print(&quot;[SD] Client: invalid msg&quot;);
+-			length = 0;
+-			break;
+ 	}
+-	return length;
++	return syncDebugPacket;
+ }
+ 
+ 
+@@ -534,32 +526,7 @@
+ 	logOutput.Print(&quot;[SD] Server: Done!&quot;);
+ }
+ 
+-
+ /**
+- * @brief helper network plugin function
+- *
+- * @return the size of the sync debugger related net message in inbuf
+- * at index 0 (if any), zero otherwise.
+- */
+-int CSyncDebugger::GetMessageLength(const unsigned char* inbuf) const
+-{
+-	switch (inbuf[0]) {
+-		case NETMSG_SD_CHKREQUEST:
+-			return 5;
+-		case NETMSG_SD_BLKREQUEST:
+-			return 7;
+-		case NETMSG_SD_CHKRESPONSE:
+-		case NETMSG_SD_BLKRESPONSE:
+-			return *(short*)&amp;inbuf[1];
+-		case NETMSG_SD_RESET:
+-			return 1;
+-		default:
+-			return 0;
+-	}
+-}
+-
+-
+-/**
+  * @brief re-enable the history
+  *
+  * Restart the sync debugger lifecycle, so it can be used again (if the sync
+
+Modified: trunk/rts/System/Sync/SyncDebugger.h
+===================================================================
+--- trunk/rts/System/Sync/SyncDebugger.h	2008-09-11 16:17:03 UTC (rev 6405)
++++ trunk/rts/System/Sync/SyncDebugger.h	2008-09-11 16:35:24 UTC (rev 6406)
+@@ -127,10 +127,9 @@
+ 
+ 		void Initialize(bool useBacktrace);
+ 		void ServerTriggerSyncErrorHandling(int serverframenum);
+-		int ServerReceived(const unsigned char* inbuf);
++		bool ServerReceived(const unsigned char* inbuf);
+ 		void ServerHandlePendingBlockRequests();
+-		int ClientReceived(const unsigned char* inbuf);
+-		int GetMessageLength(const unsigned char* inbuf) const;
++		bool ClientReceived(const unsigned char* inbuf);
+ 		void Reset();
+ 
+ 		friend class CSyncedPrimitiveBase;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001175.html">[Taspring-linux-commit] r6405 - trunk/Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="001177.html">[Taspring-linux-commit] r6407 - trunk/rts/System/Sync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1176">[ date ]</a>
+              <a href="thread.html#1176">[ thread ]</a>
+              <a href="subject.html#1176">[ subject ]</a>
+              <a href="author.html#1176">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

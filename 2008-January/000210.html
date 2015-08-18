@@ -1,0 +1,1354 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5403 - in trunk: rts/Game rts/System	tools/DedicatedServer
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5403%20-%20in%20trunk%3A%20rts/Game%20rts/System%0A%09tools/DedicatedServer&In-Reply-To=%3CE1JIvom-0006PO-Nl%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000209.html">
+   <LINK REL="Next"  HREF="000211.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5403 - in trunk: rts/Game rts/System	tools/DedicatedServer</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5403%20-%20in%20trunk%3A%20rts/Game%20rts/System%0A%09tools/DedicatedServer&In-Reply-To=%3CE1JIvom-0006PO-Nl%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5403 - in trunk: rts/Game rts/System	tools/DedicatedServer">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Jan 27 01:56:16 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000209.html">[Taspring-linux-commit] r5402 - in trunk/rts: Game Game/UI System	System/Net System/Script
+</A></li>
+        <LI>Next message: <A HREF="000211.html">[Taspring-linux-commit] r5404 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#210">[ date ]</a>
+              <a href="thread.html#210">[ thread ]</a>
+              <a href="subject.html#210">[ subject ]</a>
+              <a href="author.html#210">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-01-27 01:56:16 +0100 (Sun, 27 Jan 2008)
+New Revision: 5403
+
+Removed:
+   trunk/tools/DedicatedServer/GameServer.cpp
+   trunk/tools/DedicatedServer/GameServer.h
+Modified:
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameSetup.cpp
+   trunk/rts/System/UnsyncedRNG.cpp
+   trunk/tools/DedicatedServer/CMakeLists.txt
+Log:
+* no need to keep old includes in GameSetup.cpp
+* fix some compiler warnings
+* removed copy of GameServer in the dedicated directory
+* dedicated server builds again
+
+
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-01-27 00:39:47 UTC (rev 5402)
++++ trunk/rts/Game/GameServer.cpp	2008-01-27 00:56:16 UTC (rev 5403)
+@@ -724,7 +724,7 @@
+ 	
+ 	if (gameSetup)
+ 	{
+-		for (unsigned a = numDemoPlayers; a &lt; gameSetup-&gt;numPlayers; a++) {
++		for (unsigned a = numDemoPlayers; a &lt; (unsigned)gameSetup-&gt;numPlayers; a++) {
+ 			if (!players[a] || !players[a]-&gt;readyToStart) {
+ 				allReady = false;
+ 				break;
+@@ -831,6 +831,7 @@
+ 		return;
+ 	}
+ 
++#ifndef DEDICATED
+ 	unsigned numActiveTeams[MAX_TEAMS]; // active teams per ally team
+ 	memset(numActiveTeams, 0, sizeof(numActiveTeams));
+ 	unsigned numActiveAllyTeams = 0;
+@@ -848,6 +849,7 @@
+ 		gameEndTime=SDL_GetTicks();
+ 		serverNet-&gt;SendSendPlayerStat();
+ 	}
++#endif
+ }
+ 
+ void CGameServer::CreateNewFrame(bool fromServerThread)
+@@ -942,7 +944,7 @@
+ 	}
+ 
+ 	players[hisNewNumber].reset(new GameParticipant(grantRights)); // give him rights to change speed, kick players etc
+-	if (gameSetup &amp;&amp; hisNewNumber &lt; gameSetup-&gt;numPlayers/* needed for non-hosted demo playback */)
++	if (gameSetup &amp;&amp; hisNewNumber &lt; (unsigned)gameSetup-&gt;numPlayers/* needed for non-hosted demo playback */)
+ 	{
+ 		unsigned hisTeam = gameSetup-&gt;playerStartingTeam[hisNewNumber];
+ 		if (!teams[hisTeam]) // is commsharing
+
+Modified: trunk/rts/Game/GameSetup.cpp
+===================================================================
+--- trunk/rts/Game/GameSetup.cpp	2008-01-27 00:39:47 UTC (rev 5402)
++++ trunk/rts/Game/GameSetup.cpp	2008-01-27 00:56:16 UTC (rev 5403)
+@@ -2,15 +2,12 @@
+ #include &lt;algorithm&gt;
+ #include &lt;cctype&gt;
+ #include &lt;SDL.h&gt;
+-#include &quot;CameraHandler.h&quot;
+ #include &quot;GameSetup.h&quot;
+ #include &quot;GameVersion.h&quot;
+ #include &quot;LogOutput.h&quot;
+-#include &quot;GameServer.h&quot;
+ #include &quot;Player.h&quot;
+ #include &quot;TdfParser.h&quot;
+ #include &quot;Team.h&quot;
+-#include &quot;System/NetProtocol.h&quot;
+ #include &quot;FileSystem/ArchiveScanner.h&quot;
+ #include &quot;FileSystem/FileHandler.h&quot;
+ #include &quot;FileSystem/VFSHandler.h&quot;
+@@ -19,7 +16,6 @@
+ #include &quot;Lua/LuaRules.h&quot;
+ #include &quot;Lua/LuaParser.h&quot;
+ #include &quot;Map/ReadMap.h&quot;
+-#include &quot;Platform/ConfigHandler.h&quot;
+ #include &quot;Rendering/Textures/TAPalette.h&quot;
+ 
+ 
+
+Modified: trunk/rts/System/UnsyncedRNG.cpp
+===================================================================
+--- trunk/rts/System/UnsyncedRNG.cpp	2008-01-27 00:39:47 UTC (rev 5402)
++++ trunk/rts/System/UnsyncedRNG.cpp	2008-01-27 00:56:16 UTC (rev 5403)
+@@ -13,4 +13,4 @@
+ {
+ 	randSeed = (randSeed * 214013L + 2531011L);
+ 	return randSeed &amp; 0x7FFF;
+-}
+\ No newline at end of file
++}
+
+Modified: trunk/tools/DedicatedServer/CMakeLists.txt
+===================================================================
+--- trunk/tools/DedicatedServer/CMakeLists.txt	2008-01-27 00:39:47 UTC (rev 5402)
++++ trunk/tools/DedicatedServer/CMakeLists.txt	2008-01-27 00:56:16 UTC (rev 5403)
+@@ -33,6 +33,6 @@
+ ADD_LIBRARY(fileops SHARED  ${fsfiles} ${platformfiles} ../../rts/System/TdfParser ../../rts/System/Platform/FileSystem ../../rts/System/Platform/ConfigHandler ../../rts/System/LogOutput)
+ TARGET_LINK_LIBRARIES(fileops hpiutil2 7zip minizip boost_regex)
+ 
+-ADD_EXECUTABLE(server main GameServer ../../rts/Game/GameSetupData ../../rts/Game/GameVersion ../../rts/System/DemoReader ../../rts/System/Demo ../../rts/System/AutohostInterface  ../../rts/System/BaseNetProtocol)
++ADD_EXECUTABLE(server main ../../rts/Game/GameServer ../../rts/Game/GameSetupData ../../rts/Game/GameVersion ../../rts/System/DemoReader ../../rts/System/Demo ../../rts/System/AutohostInterface  ../../rts/System/BaseNetProtocol ../../rts/System/UnsyncedRNG)
+ TARGET_LINK_LIBRARIES(server SDL boost_thread net fileops)
+ INCLUDE_DIRECTORIES(../../rts/ ../../rts/Game ../../rts/lib/7zip ../../rts/System)
+
+Deleted: trunk/tools/DedicatedServer/GameServer.cpp
+===================================================================
+--- trunk/tools/DedicatedServer/GameServer.cpp	2008-01-27 00:39:47 UTC (rev 5402)
++++ trunk/tools/DedicatedServer/GameServer.cpp	2008-01-27 00:56:16 UTC (rev 5403)
+@@ -1,1004 +0,0 @@
+-#include &quot;GameServer.h&quot;
+-
+-#include &lt;stdarg.h&gt;
+-#include &lt;boost/bind.hpp&gt;
+-#include &lt;SDL_timer.h&gt;
+-
+-#include &quot;FileSystem/ArchiveScanner.h&quot;
+-
+-#ifndef NO_AVI
+-#include &quot;Game.h&quot;
+-#endif
+-
+-#ifndef DEDICATED
+-#include &quot;GameSetup.h&quot;
+-#else
+-#include &quot;GameSetupData.h&quot;
+-extern CGameSetupData* gameSetup;
+-#endif
+-#include &quot;System/StdAfx.h&quot;
+-#include &quot;System/BaseNetProtocol.h&quot;
+-#include &quot;System/DemoReader.h&quot;
+-#include &quot;System/AutohostInterface.h&quot;
+-#include &quot;Platform/ConfigHandler.h&quot;
+-#include &quot;FileSystem/CRC.h&quot;
+-#include &quot;Player.h&quot;
+-#include &quot;Team.h&quot;
+-
+-#define SYNCCHECK_TIMEOUT 300 //frames
+-#define SYNCCHECK_MSG_TIMEOUT 400  // used to prevent msg spam
+-
+-GameParticipant::GameParticipant(bool willHaveRights)
+-: name(&quot;unnamed&quot;)
+-, readyToStart(false)
+-, cpuUsage (0.0f)
+-, ping (0)
+-, hasRights(willHaveRights)
+-{
+-}
+-
+-CGameServer* gameServer=0;
+-
+-CGameServer::CGameServer(int port, const std::string&amp; newMapName, const std::string&amp; newModName, const std::string&amp; newScriptName, const std::string&amp; demoName)
+-{
+-	delayedSyncResponseFrame = 0;
+-	syncErrorFrame=0;
+-	syncWarningFrame=0;
+-	lastPlayerInfo = 0;
+-	serverframenum=0;
+-	timeLeft=0;
+-	gameEndTime=0;
+-	lastUpdate = SDL_GetTicks();
+-	modGameTime = 0.0f;
+-	quitServer=false;
+-#ifdef DEBUG
+-	gameClientUpdated=false;
+-#endif
+-	demoReader = 0;
+-	hostif = 0;
+-	IsPaused = false;
+-	userSpeedFactor = 1.0f;
+-	internalSpeed = 1.0f;
+-	gamePausable = true;
+-	noHelperAIs = false;
+-	sentGameOverMsg = false;
+-	nextserverframenum = 0;
+-	serverNet = new CBaseNetProtocol();
+-	serverNet-&gt;InitServer(port);
+-
+-	SendSystemMsg(&quot;Starting server on port %i&quot;, port);
+-	mapName = newMapName;
+-	mapChecksum = archiveScanner-&gt;GetMapChecksum(mapName);
+-
+-	modName = newModName;
+-	const std::string modArchive = archiveScanner-&gt;ModNameToModArchive(modName);
+-	modChecksum = archiveScanner-&gt;GetModChecksum(modArchive);
+-
+-	scriptName = newScriptName;
+-
+-	lastTick = SDL_GetTicks();
+-
+-	if (gameSetup) {
+-		maxUserSpeed = gameSetup-&gt;maxSpeed;
+-		minUserSpeed = gameSetup-&gt;minSpeed;
+-		noHelperAIs = (bool)gameSetup-&gt;noHelperAIs;
+-	}
+-	else
+-	{
+-		maxUserSpeed=5;
+-		minUserSpeed=0.3f;
+-	}
+-
+-	if (!demoName.empty())
+-	{
+-		SendSystemMsg(&quot;Playing demo %s&quot;, demoName.c_str());
+-		demoReader = new CDemoReader(demoName, modGameTime+0.1f);
+-	}
+-
+-	thread = new boost::thread(boost::bind&lt;void, CGameServer, CGameServer*&gt;(&amp;CGameServer::UpdateLoop, this));
+-
+-#ifdef STREFLOP_H
+-	// Something in CGameServer::CGameServer borks the FPU control word
+-	// maybe the threading, or something in CNet::InitServer() ??
+-	// Set single precision floating point math.
+-	streflop_init&lt;streflop::Simple&gt;();
+-#endif
+-}
+-
+-CGameServer::~CGameServer()
+-{
+-	quitServer=true;
+-	thread-&gt;join();
+-	delete thread;
+-	if (demoReader)
+-		delete demoReader;
+-
+-	delete serverNet;
+-	serverNet=0;
+-	if (hostif)
+-	{
+-		hostif-&gt;SendQuit();
+-		delete hostif;
+-	}
+-}
+-
+-void CGameServer::AddLocalClient(unsigned wantedNumber)
+-{
+-	boost::mutex::scoped_lock scoped_lock(gameServerMutex);
+-	serverNet-&gt;ServerInitLocalClient();
+-	BindConnection(wantedNumber, true);
+-}
+-
+-void CGameServer::AddAutohostInterface(const int usePort, const int remotePort)
+-{
+-	if (hostif == 0)
+-	{
+-		boost::mutex::scoped_lock scoped_lock(gameServerMutex);
+-		SendSystemMsg(&quot;Connecting to autohost on port %i&quot;, remotePort);
+-		hostif = new AutohostInterface(usePort, remotePort);
+-		hostif-&gt;SendStart();
+-	}
+-}
+-
+-void CGameServer::PostLoad(unsigned newlastTick, int newserverframenum)
+-{
+-	boost::mutex::scoped_lock scoped_lock(gameServerMutex);
+-	lastTick = newlastTick;
+-//	serverframenum = newserverframenum;
+-	nextserverframenum = newserverframenum+1;
+-}
+-
+-void CGameServer::SkipTo(int targetframe)
+-{
+-	boost::mutex::scoped_lock scoped_lock(gameServerMutex);
+-	serverframenum = targetframe;
+-}
+-
+-std::string CGameServer::GetPlayerNames(const std::vector&lt;int&gt;&amp; indices) const
+-{
+-	std::string playerstring;
+-	std::vector&lt;int&gt;::const_iterator p = indices.begin();
+-	for (; p != indices.end(); ++p) {
+-		if (!playerstring.empty())
+-			playerstring += &quot;, &quot;;
+-		playerstring += players[*p]-&gt;name;
+-	}
+-	return playerstring;
+-}
+-
+-void CGameServer::CheckSync()
+-{
+-#ifdef SYNCCHECK
+-	// Check sync
+-	std::deque&lt;int&gt;::iterator f = outstandingSyncFrames.begin();
+-	while (f != outstandingSyncFrames.end()) {
+-		std::vector&lt;int&gt; noSyncResponse;
+-		//maps incorrect checksum to players with that checksum
+-		std::map&lt;unsigned, std::vector&lt;int&gt; &gt; desyncGroups;
+-		bool bComplete = true;
+-		bool bGotCorrectChecksum = false;
+-		unsigned correctChecksum = 0;
+-		for (unsigned a = 0; a &lt; MAX_PLAYERS; ++a) {
+-			if (!players[a])
+-				continue;
+-			std::map&lt;int, unsigned&gt;::iterator it = players[a]-&gt;syncResponse.find(*f);
+-			if (it == players[a]-&gt;syncResponse.end()) {
+-				if (*f &gt;= serverframenum - SYNCCHECK_TIMEOUT)
+-					bComplete = false;
+-				else
+-					noSyncResponse.push_back(a);
+-			} else {
+-				if (!bGotCorrectChecksum) {
+-					bGotCorrectChecksum = true;
+-					correctChecksum = it-&gt;second;
+-				} else if (it-&gt;second != correctChecksum) {
+-					desyncGroups[it-&gt;second].push_back(a);
+-				}
+-			}
+-		}
+-
+-		if (!noSyncResponse.empty()) {
+-			if (!syncWarningFrame || (*f - syncWarningFrame &gt; SYNCCHECK_MSG_TIMEOUT)) {
+-				syncWarningFrame = *f;
+-
+-				std::string players = GetPlayerNames(noSyncResponse);
+-				SendSystemMsg(&quot;No response from %s for frame %d&quot;, players.c_str(), *f);
+-			}
+-		}
+-
+-		// If anything's in it, we have a desync.
+-		// TODO take care of !bComplete case?
+-		// Should we start resync then immediately or wait for the missing packets (while paused)?
+-		if ( /*bComplete &amp;&amp; */ !desyncGroups.empty()) {
+-			if (!syncErrorFrame || (*f - syncErrorFrame &gt; SYNCCHECK_MSG_TIMEOUT)) {
+-				syncErrorFrame = *f;
+-
+-				// TODO enable this when we have resync
+-				//serverNet-&gt;SendPause(SERVER_PLAYER, true);
+-
+-				//For each group, output a message with list of playernames in it.
+-				// TODO this should be linked to the resync system so it can roundrobin
+-				// the resync checksum request packets to multiple clients in the same group.
+-				std::map&lt;unsigned, std::vector&lt;int&gt; &gt;::const_iterator g = desyncGroups.begin();
+-				for (; g != desyncGroups.end(); ++g) {
+-					std::string players = GetPlayerNames(g-&gt;second);
+-					SendSystemMsg(&quot;Sync error for %s in frame %d (0x%X)&quot;, players.c_str(), *f, g-&gt;first ^ correctChecksum);
+-				}
+-			}
+-		}
+-
+-		// Remove complete sets (for which all player's checksums have been received).
+-		if (bComplete) {
+-// 			if (*f &gt;= serverframenum - SYNCCHECK_TIMEOUT)
+-// 				logOutput.Print(&quot;Succesfully purged outstanding sync frame %d from the deque&quot;, *f);
+-			for (unsigned a = 0; a &lt; MAX_PLAYERS; ++a) {
+-				if (players[a])
+-					players[a]-&gt;syncResponse.erase(*f);
+-			}
+-			f = outstandingSyncFrames.erase(f);
+-		} else
+-			++f;
+-	}
+-#else
+-	// Make it clear this build isn't suitable for release.
+-	if (!syncErrorFrame || (serverframenum - syncErrorFrame &gt; SYNCCHECK_MSG_TIMEOUT)) {
+-		syncErrorFrame = serverframenum;
+-		SendSystemMsg(&quot;Warning: Sync checking disabled!&quot;);
+-	}
+-#endif
+-}
+-
+-void CGameServer::Update()
+-{
+-	if (!IsPaused &amp;&amp; !WaitsOnCon())
+-	{
+-		modGameTime += float(SDL_GetTicks() - lastUpdate) * 0.001f * internalSpeed;
+-	}
+-	lastUpdate = SDL_GetTicks();
+-
+-	if(lastPlayerInfo &lt; (SDL_GetTicks() - 2000)){
+-		lastPlayerInfo = SDL_GetTicks();
+-
+-		if (serverframenum &gt; 0) {
+-			//send info about the players
+-			float maxCpu = 0.0f;
+-			for (int a = 0; a &lt; MAX_PLAYERS; ++a) {
+-				if (players[a]) {
+-					serverNet-&gt;SendPlayerInfo(a, players[a]-&gt;cpuUsage, players[a]-&gt;ping);
+-					if (players[a]-&gt;cpuUsage &gt; maxCpu) {
+-						maxCpu = players[a]-&gt;cpuUsage;
+-					}
+-				}
+-			}
+-
+-			if (maxCpu != 0.0f) {
+-				float wantedCpu=0.35f+(1-internalSpeed/userSpeedFactor)*0.5f;
+-				//float speedMod=1+wantedCpu-maxCpu;
+-				float newSpeed=internalSpeed*wantedCpu/maxCpu;
+-				//logOutput.Print(&quot;Speed %f %f %f %f&quot;,maxCpu,wantedCpu,speedMod,newSpeed);
+-				newSpeed=(newSpeed+internalSpeed)*0.5f;
+-				if(newSpeed&gt;userSpeedFactor)
+-					newSpeed=userSpeedFactor;
+-				if(newSpeed&lt;0.1f)
+-					newSpeed=0.1f;
+-				if(newSpeed!=internalSpeed)
+-					serverNet-&gt;SendInternalSpeed(newSpeed);
+-			}
+-		}
+-	}
+-
+-	// when hosting a demo, read from file and broadcast data
+-	if (demoReader != 0) {
+-		unsigned char demobuffer[netcode::NETWORK_BUFFER_SIZE];
+-		unsigned length = 0;
+-
+-		while ( (length = demoReader-&gt;GetData(demobuffer, netcode::NETWORK_BUFFER_SIZE, modGameTime)) &gt; 0 ) {
+-			if (demobuffer[0] == NETMSG_NEWFRAME)
+-			{
+-				// we can't use CreateNewFrame() here
+-				CheckSync();
+-				lastTick = SDL_GetTicks();
+-				serverframenum++;
+-				serverNet-&gt;SendNewFrame(serverframenum);
+-#ifdef SYNCCHECK
+-				outstandingSyncFrames.push_back(serverframenum);
+-#endif
+-			}
+-			else if (
+-			          demobuffer[0] != NETMSG_SETPLAYERNUM &amp;&amp;
+-			          demobuffer[0] != NETMSG_USER_SPEED &amp;&amp;
+-			          demobuffer[0] != NETMSG_INTERNAL_SPEED &amp;&amp;
+-			          demobuffer[0] != NETMSG_PAUSE) // dont send these from demo
+-			{
+-				serverNet-&gt;RawSend(demobuffer, length);
+-			}
+-		}
+-
+-		if (demoReader-&gt;ReachedEnd()) {
+-			delete demoReader;
+-			demoReader = 0;
+-			SendSystemMsg(&quot;End of demo reached&quot;);
+-			gameEndTime = SDL_GetTicks();
+-		}
+-	}
+-
+-	ServerReadNet();
+-
+-	if (serverframenum &gt; 0 &amp;&amp; !demoReader)
+-	{
+-		CreateNewFrame(true);
+-	}
+-	serverNet-&gt;Update();
+-
+-	if (hostif)
+-	{
+-		std::string msg = hostif-&gt;GetChatMessage();
+-
+-		if (!msg.empty())
+-			GotChatMessage(msg, SERVER_PLAYER);
+-	}
+-	if (!demoReader &amp;&amp; !sentGameOverMsg)
+-		CheckForGameEnd();
+-}
+-
+-void CGameServer::ServerReadNet()
+-{
+-	// handle new connections
+-	while (serverNet-&gt;HasIncomingConnection())
+-	{
+-		RawPacket* packet = serverNet-&gt;GetData();
+-		const unsigned char* inbuf = packet-&gt;data;
+-
+-		if (packet-&gt;length &gt;= 3 &amp;&amp; inbuf[0] == NETMSG_ATTEMPTCONNECT &amp;&amp; inbuf[2] == NETWORK_VERSION)
+-		{
+-			const unsigned wantedNumber = inbuf[1];
+-			BindConnection(wantedNumber);
+-		}
+-		else
+-		{
+-			SendSystemMsg(&quot;Client AttemptConnect rejected: NETMSG: %i VERSION: %i Length: %i&quot;, inbuf[0], inbuf[2], packet-&gt;length);
+-			serverNet-&gt;RejectIncomingConnection();
+-		}
+-		delete packet;
+-	}
+-
+-	for(unsigned a=0; (int)a &lt;= serverNet-&gt;MaxConnectionID(); a++)
+-	{
+-		if (serverNet-&gt;IsActiveConnection(a))
+-		{
+-			RawPacket* packet = 0;
+-			bool quit = false;
+-			while (!quit &amp;&amp; (packet = serverNet-&gt;GetData(a)))
+-			{
+-				const unsigned char* inbuf = packet-&gt;data;
+-				const unsigned length = packet-&gt;length;
+-				switch (inbuf[0]){
+-					case NETMSG_NEWFRAME:
+-						players[a]-&gt;ping = serverframenum-*(int*)&amp;inbuf[1];
+-						break;
+-
+-					case NETMSG_PAUSE:
+-						if(inbuf[1]!=a){
+-							SendSystemMsg(&quot;Server: Warning got pause msg from %i claiming to be from %i&quot;,a,inbuf[1]);
+-						} else {
+-							if (!inbuf[2])  // reset sync checker
+-								syncErrorFrame = 0;
+-							if(gamePausable || players[a]-&gt;hasRights) // allow host to pause even if nopause is set
+-							{
+-								timeLeft=0;
+-								if (IsPaused != !!inbuf[2]) {
+-									IsPaused ? IsPaused = false : IsPaused = true;
+-								}
+-								serverNet-&gt;SendPause(inbuf[1],inbuf[2]);
+-							}
+-						}
+-						break;
+-
+-					case NETMSG_USER_SPEED: {
+-						unsigned char playerNum = inbuf[1];
+-						float speed = *((float*) &amp;inbuf[2]);
+-
+-						if (speed &gt; maxUserSpeed)
+-							speed = maxUserSpeed;
+-						if (speed &lt; minUserSpeed)
+-							speed = minUserSpeed;
+-						if (userSpeedFactor != speed)
+-						{
+-							if (internalSpeed == userSpeedFactor || internalSpeed&gt;speed)
+-							{
+-								serverNet-&gt;SendInternalSpeed(speed);
+-								internalSpeed = speed;
+-							}
+-							// forward data
+-							serverNet-&gt;SendUserSpeed(playerNum, speed);
+-							userSpeedFactor = speed;
+-						}
+-					} break;
+-
+-
+-					case NETMSG_CPU_USAGE:
+-						players[a]-&gt;cpuUsage = *((float*)&amp;inbuf[1]);
+-						break;
+-
+-					case NETMSG_QUIT: {
+-						serverNet-&gt;SendPlayerLeft(a, 1);
+-						serverNet-&gt;Kill(a);
+-						quit = true;
+-						if (hostif)
+-						{
+-							hostif-&gt;SendPlayerLeft(a, 1);
+-						}
+-						break;
+-					}
+-
+-					case NETMSG_PLAYERNAME: {
+-						unsigned char playerNum = inbuf[2];
+-						if(playerNum!=a){
+-							SendSystemMsg(&quot;Server: Warning got playername msg from %i claiming to be from %i&quot;,a,playerNum);
+-						} else {
+-							players[playerNum]-&gt;name = (std::string)((char*)inbuf+3);
+-							players[playerNum]-&gt;readyToStart = true;
+-							SendSystemMsg(&quot;Player %s joined as %i&quot;, players[playerNum]-&gt;name.c_str(), playerNum);
+-							serverNet-&gt;SendPlayerName(playerNum, players[playerNum]-&gt;name);
+-							if (hostif)
+-							{
+-								hostif-&gt;SendPlayerJoined(playerNum, players[playerNum]-&gt;name);
+-							}
+-						}
+-						break;
+-					}
+-
+-					case NETMSG_CHAT:
+-						if(inbuf[2]!=a){
+-							SendSystemMsg(&quot;Server: Warning got chat msg from %i claiming to be from %i&quot;,a,inbuf[2]);
+-						} else {
+-							GotChatMessage(std::string((char*)(inbuf+3)), inbuf[2]);
+-						}
+-						break;
+-
+-					case NETMSG_SYSTEMMSG:
+-						if(inbuf[2]!=a){
+-							SendSystemMsg(&quot;Server: Warning got system msg from %i claiming to be from %i&quot;,a,inbuf[2]);
+-						} else {
+-							serverNet-&gt;SendSystemMessage(inbuf[2], (char*)(&amp;inbuf[3]));
+-						}
+-						break;
+-
+-					case NETMSG_STARTPOS:
+-						if(inbuf[1] != a){
+-							SendSystemMsg(&quot;Server: Warning got startpos msg from %i claiming to be from %i&quot;,a,inbuf[1]);
+-						} else {
+-							serverNet-&gt;SendStartPos(inbuf[1],inbuf[2], inbuf[3], *((float*)&amp;inbuf[4]), *((float*)&amp;inbuf[8]), *((float*)&amp;inbuf[12])); //forward data
+-							if (hostif)
+-							{
+-								hostif-&gt;SendPlayerReady(a, inbuf[3]);
+-							}
+-						}
+-						break;
+-
+-					case NETMSG_COMMAND:
+-						if(inbuf[3]!=a){
+-							SendSystemMsg(&quot;Server: Warning got command msg from %i claiming to be from %i&quot;,a,inbuf[3]);
+-						} else {
+-							if (!demoReader)
+-								serverNet-&gt;RawSend(inbuf,*((short int*)&amp;inbuf[1])); //forward data
+-						}
+-						break;
+-
+-					case NETMSG_SELECT:
+-						if(inbuf[3]!=a){
+-							SendSystemMsg(&quot;Server: Warning got select msg from %i claiming to be from %i&quot;,a,inbuf[3]);
+-						} else {
+-							if (!demoReader)
+-								serverNet-&gt;RawSend(inbuf,*((short int*)&amp;inbuf[1])); //forward data
+-						}
+-						break;
+-
+-					case NETMSG_AICOMMAND:
+-						if(inbuf[3]!=a){
+-							SendSystemMsg(&quot;Server: Warning got aicommand msg from %i claiming to be from %i&quot;,a,inbuf[3]);
+-						}
+-						else if (noHelperAIs) {
+-							SendSystemMsg(&quot;Server: Player %i is using a helper AI illegally&quot;, a);
+-						}
+-						else if (!demoReader) {
+-							serverNet-&gt;RawSend(inbuf,*((short int*)&amp;inbuf[1])); //forward data
+-						}
+-						break;
+-
+-					case NETMSG_AICOMMANDS:
+-						if(inbuf[3]!=a){
+-							SendSystemMsg(&quot;Server: Warning got aicommands msg from %i claiming to be from %i&quot;,a,inbuf[3]);
+-						}
+-						else if (noHelperAIs) {
+-							SendSystemMsg(&quot;Server: Player %i is using a helper AI illegally&quot;, a);
+-						}
+-						else if (!demoReader) {
+-							serverNet-&gt;RawSend(inbuf,*((short int*)&amp;inbuf[1])); //forward data
+-						}
+-						break;
+-
+-					case NETMSG_LUAMSG:
+-						if(inbuf[3]!=a){
+-							SendSystemMsg(&quot;Server: Warning got LuaMsg from %i claiming to be from %i&quot;,a,inbuf[3]);
+-						}
+-						else if (!demoReader) {
+-							serverNet-&gt;RawSend(inbuf,*((short int*)&amp;inbuf[1])); //forward data
+-						}
+-						break;
+-
+-					case NETMSG_SYNCRESPONSE:
+-#ifdef SYNCCHECK
+-						if(inbuf[1]!=a){
+-							SendSystemMsg(&quot;Server: Warning got syncresponse msg from %i claiming to be from %i&quot;,a,inbuf[1]);
+-						} else {
+-							int frameNum = *(int*)&amp;inbuf[2];
+-							if (outstandingSyncFrames.empty() || frameNum &gt;= outstandingSyncFrames.front())
+-								players[a]-&gt;syncResponse[frameNum] = *(unsigned*)&amp;inbuf[6];
+-							else if (serverframenum - delayedSyncResponseFrame &gt; SYNCCHECK_MSG_TIMEOUT) {
+-								delayedSyncResponseFrame = serverframenum;
+-								SendSystemMsg(&quot;Delayed response from %s for frame %d (current %d)&quot;,
+-										players[a]-&gt;name.c_str(), frameNum, serverframenum);
+-							}
+-							// update players' ping (if !defined(SYNCCHECK) this is done in NETMSG_NEWFRAME)
+-							players[a]-&gt;ping = serverframenum - frameNum;
+-						}
+-#endif
+-						break;
+-
+-					case NETMSG_SHARE:
+-						if(inbuf[1]!=a){
+-							SendSystemMsg(&quot;Server: Warning got share msg from %i claiming to be from %i&quot;,a,inbuf[1]);
+-						} else {
+-							if (!demoReader)
+-								serverNet-&gt;SendShare(inbuf[1], inbuf[2], inbuf[3], *((float*)&amp;inbuf[4]), *((float*)&amp;inbuf[8]));
+-						}
+-						break;
+-
+-					case NETMSG_SETSHARE:
+-						if(inbuf[1]!= a){
+-							SendSystemMsg(&quot;Server: Warning got setshare msg from %i claiming to be from %i&quot;,a,inbuf[1]);
+-						} else {
+-							if (!demoReader)
+-								serverNet-&gt;SendSetShare(inbuf[1], inbuf[2], *((float*)&amp;inbuf[3]), *((float*)&amp;inbuf[7]));
+-						}
+-						break;
+-
+-					case NETMSG_PLAYERSTAT:
+-						if(inbuf[1]!=a){
+-							SendSystemMsg(&quot;Server: Warning got stat msg from %i claiming to be from %i&quot;,a,inbuf[1]);
+-						} else {
+-							serverNet-&gt;RawSend(inbuf,sizeof(CPlayer::Statistics)+2); //forward data
+-						}
+-						break;
+-
+-					case NETMSG_MAPDRAW:
+-						serverNet-&gt;RawSend(inbuf,inbuf[1]); //forward data
+-						break;
+-
+-#ifdef DIRECT_CONTROL_ALLOWED
+-					case NETMSG_DIRECT_CONTROL:
+-						if(inbuf[1]!=a){
+-							SendSystemMsg(&quot;Server: Warning got direct control msg from %i claiming to be from %i&quot;,a,inbuf[1]);
+-						} else {
+-							if (!demoReader)
+-								serverNet-&gt;SendDirectControl(inbuf[1]);
+-						}
+-						break;
+-
+-					case NETMSG_DC_UPDATE:
+-						if(inbuf[1]!=a){
+-							SendSystemMsg(&quot;Server: Warning got dc update msg from %i claiming to be from %i&quot;,a,inbuf[1]);
+-						} else {
+-							if (!demoReader)
+-								serverNet-&gt;SendDirectControlUpdate(inbuf[1], inbuf[2], *((short*)&amp;inbuf[3]), *((short*)&amp;inbuf[5]));
+-						}
+-						break;
+-#endif
+-
+-					case NETMSG_STARTPLAYING:
+-					{
+-						if (players[a]-&gt;hasRights)
+-							StartGame();
+-						break;
+-					}
+-					case NETMSG_RANDSEED:
+-					{
+-						if (players[a]-&gt;hasRights &amp;&amp; !demoReader)
+-							serverNet-&gt;SendRandSeed(*(unsigned int*)(inbuf+1));
+-						break;
+-					}
+-					case NETMSG_TEAM:
+-					{
+-						if (inbuf[1] != a)
+-						{
+-							SendSystemMsg(&quot;Server: Warning got teammsg from %i claiming to be from %i&quot;,a,inbuf[1]);
+-						}
+-						else
+-						{
+-							serverNet-&gt;RawSend(inbuf, length);
+-						}
+-						break;
+-					}
+-
+-					// CGameServer should never get these messages
+-					case NETMSG_GAMEID:
+-					case NETMSG_INTERNAL_SPEED:
+-					case NETMSG_ATTEMPTCONNECT:
+-					case NETMSG_MAPNAME:
+-						break;
+-					default:
+-						{
+-							SendSystemMsg(&quot;Unhandled net msg (%d) in server from %d&quot;, (int)inbuf[0], a);
+-						}
+-						break;
+-				}
+-				delete packet;
+-			}
+-		}
+-		else if (players[a])
+-		{
+-			players[a].reset();
+-			serverNet-&gt;SendPlayerLeft(a, 0);
+-			SendSystemMsg(&quot;Lost connection to player %i (timeout)&quot;, a);
+-			if (hostif)
+-			{
+-				hostif-&gt;SendPlayerLeft(a, 0);
+-			}
+-		}
+-	}
+-
+-	for (int a = (serverNet-&gt;MaxConnectionID() + 1); a &lt; MAX_PLAYERS; ++a)
+-	{
+-		//HACK check if we lost connection to the last player(s)
+-		if (players[a])
+-		{
+-			players[a].reset();
+-			serverNet-&gt;SendPlayerLeft(a, 0);
+-			SendSystemMsg(&quot;Lost connection to player %i (timeout)&quot;, a);
+-			if (hostif)
+-			{
+-				hostif-&gt;SendPlayerLeft(a, 0);
+-			}
+-		}
+-	}
+-
+-#ifdef SYNCDEBUG
+-	CSyncDebugger::GetInstance()-&gt;ServerHandlePendingBlockRequests();
+-#endif
+-}
+-
+-// FIXME: move to separate file-&gt;make utility class of it and use it in GlobalStuff
+-class CRandomNumberGenerator
+-{
+-public:
+-	CRandomNumberGenerator() : randSeed(0) {}
+-	void Seed(unsigned seed) { randSeed = seed; }
+-	unsigned int operator()() {
+-		randSeed = (randSeed * 214013L + 2531011L);
+-		return randSeed &amp; 0x7FFF;
+-	}
+-private:
+-	unsigned randSeed;
+-};
+-
+-/** @brief Generate a unique game identifier and sent it to all clients. */
+-void CGameServer::GenerateAndSendGameID()
+-{
+-	CRandomNumberGenerator prand;
+-	prand.Seed(SDL_GetTicks());
+-
+-	// This is where we'll store the ID temporarily.
+-	union {
+-		unsigned char charArray[16];
+-		unsigned int intArray[4];
+-	} gameID;
+-
+-	// First and second dword are time based (current time and load time).
+-	gameID.intArray[0] = (unsigned) time(NULL);
+-	for (int i = 4; i &lt; 12; ++i)
+-		gameID.charArray[i] = prand();
+-
+-	CRC entropy;
+-	entropy.UpdateData((const unsigned char*)&amp;lastTick, sizeof(lastTick));
+-
+-	// Third dword is CRC of gameSetupText (if there is a gameSetup)
+-	// or pseudo random bytes (if there is no gameSetup)
+-	if (gameSetup != NULL) {
+-		CRC crc;
+-		crc.UpdateData((const unsigned char*)gameSetup-&gt;gameSetupText, gameSetup-&gt;gameSetupTextLength);
+-		gameID.intArray[2] = crc.GetCRC();
+-	}
+-
+-	gameID.intArray[3] = entropy.GetCRC();
+-
+-	serverNet-&gt;SendGameID(gameID.charArray);
+-}
+-
+-void CGameServer::StartGame()
+-{
+-	serverNet-&gt;Listening(false);
+-
+-	for(unsigned a=0; a &lt; MAX_PLAYERS; ++a) {
+-		if(players[a])
+-			serverNet-&gt;SendPlayerName(a, players[a]-&gt;name);
+-	}
+-
+-	// make sure initial game speed is within allowed range and sent a new speed if not
+-	if(userSpeedFactor&gt;maxUserSpeed)
+-	{
+-		serverNet-&gt;SendUserSpeed(0,maxUserSpeed);
+-		userSpeedFactor = maxUserSpeed;
+-	}
+-	else if(userSpeedFactor&lt;minUserSpeed)
+-	{
+-		serverNet-&gt;SendUserSpeed(0,minUserSpeed);
+-		userSpeedFactor = minUserSpeed;
+-	}
+-
+-	if (demoReader) {
+-		// the client told us to start a demo
+-		// no need to send startpos and startplaying since its in the demo
+-		SendSystemMsg(&quot;Starting demo playback...&quot;);
+-		return;
+-	}
+-
+-	GenerateAndSendGameID();
+-	if (gameSetup) {
+-		/*for (unsigned a = 0; a &lt; gs-&gt;activeTeams; ++a)
+-		{
+-			serverNet-&gt;SendStartPos(SERVER_PLAYER, a, 1, gs-&gt;Team(a)-&gt;startPos.x, gs-&gt;Team(a)-&gt;startPos.y, gs-&gt;Team(a)-&gt;startPos.z);
+-		}*/
+-	}
+-
+-	serverNet-&gt;SendStartPlaying();
+-	if (hostif)
+-	{
+-		hostif-&gt;SendStartPlaying();
+-	}
+-	timeLeft=0;
+-	lastTick = SDL_GetTicks()-1;
+-	CreateNewFrame(true);
+-}
+-
+-void CGameServer::SetGamePausable(const bool arg)
+-{
+-	gamePausable = arg;
+-}
+-
+-void CGameServer::CheckForGameEnd()
+-{
+-	if (gameEndTime &gt; 0) {
+-		if (gameEndTime &lt; SDL_GetTicks() - 2000) {
+-			SendSystemMsg(&quot;Server: Game has ended&quot;);
+-			serverNet-&gt;SendGameOver();
+-			if (hostif) {
+-				hostif-&gt;SendGameOver();
+-			}
+-			sentGameOverMsg = true;
+-		}
+-		return;
+-	}
+-
+-	/*unsigned numActiveTeams[MAX_TEAMS]; // active teams per ally team
+-	memset(numActiveTeams, 0, sizeof(numActiveTeams));
+-	unsigned numActiveAllyTeams = 0;
+-
+-	for (unsigned a = 0; (int)a &lt; gs-&gt;activeTeams; ++a)
+-		if (!gs-&gt;Team(a)-&gt;isDead &amp;&amp; !gs-&gt;Team(a)-&gt;gaia)
+-			++numActiveTeams[gs-&gt;AllyTeam(a)];
+-
+-	for (unsigned a = 0; (int)a &lt; gs-&gt;activeAllyTeams; ++a)
+-		if (numActiveTeams[a] != 0)
+-			++numActiveAllyTeams;
+-
+-	if (numActiveAllyTeams &lt;= 1)
+-	{
+-		gameEndTime=SDL_GetTicks();
+-		serverNet-&gt;SendSendPlayerStat();
+-	}*/
+-}
+-
+-void CGameServer::CreateNewFrame(bool fromServerThread)
+-{
+-	boost::mutex::scoped_lock scoped_lock(gameServerMutex,!fromServerThread);
+-	CheckSync();
+-
+-	// Send out new frame messages.
+-	unsigned currentTick = SDL_GetTicks();
+-	unsigned timeElapsed = currentTick - lastTick;
+-	if (timeElapsed&gt;200) {
+-		timeElapsed=200;
+-	}
+-
+-#ifdef DEBUG
+-	if(gameClientUpdated){
+-		gameClientUpdated=false;
+-	}
+-#endif
+-
+-	timeLeft+=GAME_SPEED*internalSpeed*float(timeElapsed)/1000.0f;
+-	lastTick=currentTick;
+-
+-	while((timeLeft&gt;0) &amp;&amp; !IsPaused)
+-	{
+-#ifndef NO_AVI
+-		if((!game || !game-&gt;creatingVideo) || !fromServerThread)
+-#endif
+-		{
+-			if (nextserverframenum!=0) {
+-				serverframenum = nextserverframenum;
+-				nextserverframenum = 0;
+-			} else
+-				serverframenum++;
+-			serverNet-&gt;SendNewFrame(serverframenum);
+-#ifdef SYNCCHECK
+-			outstandingSyncFrames.push_back(serverframenum);
+-#endif
+-		}
+-		timeLeft--;
+-	}
+-}
+-
+-void CGameServer::UpdateLoop()
+-{
+-	while(!quitServer)
+-	{
+-		{
+-			boost::mutex::scoped_lock scoped_lock(gameServerMutex);
+-			Update();
+-		}
+-		SDL_Delay(10);
+-	}
+-}
+-
+-bool CGameServer::WaitsOnCon() const
+-{
+-	return serverNet-&gt;Listening();
+-}
+-
+-void CGameServer::KickPlayer(const int playerNum)
+-{
+-	if (playerNum != 0 &amp;&amp; players[playerNum]) {
+-		serverNet-&gt;SendPlayerLeft(playerNum, 2);
+-		serverNet-&gt;SendQuit(playerNum);
+-		serverNet-&gt;Kill(playerNum);
+-		if (hostif)
+-		{
+-			hostif-&gt;SendPlayerLeft(playerNum, 2);
+-		}
+-	}
+-}
+-
+-void CGameServer::BindConnection(unsigned wantedNumber, bool grantRights)
+-{
+-	if (demoReader) {
+-		wantedNumber = std::max(wantedNumber, (unsigned)demoReader-&gt;GetFileHeader().maxPlayerNum+1);
+-	}
+-	unsigned hisNewNumber = serverNet-&gt;AcceptIncomingConnection(wantedNumber);
+-
+-	serverNet-&gt;SendSetPlayerNum((unsigned char)hisNewNumber, (unsigned char)hisNewNumber);
+-
+-	// send game data (in case he didn't know or for checksumming)
+-	serverNet-&gt;SendScript(scriptName);
+-	serverNet-&gt;SendMapName(mapChecksum, mapName);
+-	serverNet-&gt;SendModName(modChecksum, modName);
+-
+-	for (unsigned a = 0; a &lt; MAX_PLAYERS; ++a) {
+-		if(players[a] &amp;&amp; players[a]-&gt;readyToStart)
+-			serverNet-&gt;SendPlayerName(a, players[a]-&gt;name);
+-	}
+-
+-	if (gameSetup) {
+-		/*for(unsigned a=0; a &lt; gs-&gt;activeTeams; ++a)
+-		{
+-			serverNet-&gt;SendStartPos(SERVER_PLAYER, a, 2, gs-&gt;Team(a)-&gt;startPos.x, gs-&gt;Team(a)-&gt;startPos.y, gs-&gt;Team(a)-&gt;startPos.z);
+-		}*/
+-	}
+-
+-	players[hisNewNumber].reset(new GameParticipant(grantRights)); // give him rights to change speed, kick players etc
+-	SendSystemMsg(&quot;Client connected on slot %i (wanted number was %i)&quot;, hisNewNumber, wantedNumber);
+-	serverNet-&gt;FlushNet();
+-}
+-
+-void CGameServer::PlayerDefeated(const int playerNum) const
+-{
+-	if (hostif)
+-	{
+-		hostif-&gt;SendPlayerDefeated((unsigned char)playerNum);
+-	}
+-}
+-
+-#include &lt;iostream&gt;
+-void CGameServer::SendSystemMsg(const char* fmt,...)
+-{
+-	char text[500];
+-	va_list		ap;										// Pointer To List Of Arguments
+-
+-	if (fmt == NULL)									// If There's No Text
+-		return;											// Do Nothing
+-
+-	va_start(ap, fmt);									// Parses The String For Variables
+-	VSNPRINTF(text, sizeof(text), fmt, ap);				// And Converts Symbols To Actual Numbers
+-	va_end(ap);											// Results Are Stored In Text
+-
+-	std::string msg = text;
+-	serverNet-&gt;SendSystemMessage((unsigned char)SERVER_PLAYER, msg);
+-	std::cout &lt;&lt; msg &lt;&lt; std::endl;
+-}
+-
+-void CGameServer::GotChatMessage(const std::string&amp; msg, unsigned player)
+-{
+-	//TODO: migrate more stuff from CGame::HandleChatMessage here
+-	if ((msg.find(&quot;.kickbynum&quot;) == 0) &amp;&amp; (players[player]-&gt;hasRights)) {
+-		if (msg.length() &gt;= 11) {
+-			int playerNum = atoi(msg.substr(11, string::npos).c_str());
+-			KickPlayer(playerNum);
+-		}
+-	}
+-	else if ((msg.find(&quot;.kick&quot;) == 0) &amp;&amp; (players[player]-&gt;hasRights)) {
+-		if (msg.length() &gt;= 6) {
+-			std::string name = msg.substr(6,string::npos);
+-			if (!name.empty()){
+-				StringToLowerInPlace(name);
+-				for (unsigned a=1; a &lt; MAX_PLAYERS;++a){
+-					if (players[a]){
+-						std::string playerLower = StringToLower(players[a]-&gt;name);
+-						if (playerLower.find(name)==0) {               //can kick on substrings of name
+-							KickPlayer(a);
+-						}
+-					}
+-				}
+-			}
+-		}
+-	}
+-	else if ((msg.find(&quot;.nopause&quot;) == 0) &amp;&amp; (players[player]-&gt;hasRights)) {
+-		SetBoolArg(gamePausable, msg, &quot;.nopause&quot;);
+-	}
+-	else if ((msg.find(&quot;.nohelp&quot;) == 0) &amp;&amp; (players[player]-&gt;hasRights)) {
+-		SetBoolArg(noHelperAIs, msg, &quot;.nohelp&quot;);
+-		// sent it because clients have to do stuff when this changes
+-		serverNet-&gt;SendChat(player, msg);
+-	}
+-	else if ((msg.find(&quot;.setmaxspeed&quot;) == 0) &amp;&amp; (players[player]-&gt;hasRights)) {
+-		maxUserSpeed = atof(msg.substr(12).c_str());
+-		if (userSpeedFactor &gt; maxUserSpeed) {
+-			serverNet-&gt;SendUserSpeed(player, maxUserSpeed);
+-			userSpeedFactor = maxUserSpeed;
+-			if (internalSpeed &gt; maxUserSpeed) {
+-				serverNet-&gt;SendInternalSpeed(userSpeedFactor);
+-				internalSpeed = userSpeedFactor;
+-			}
+-		}
+-	}
+-	else if ((msg.find(&quot;.setminspeed&quot;) == 0) &amp;&amp; (players[player]-&gt;hasRights)) {
+-		minUserSpeed = atof(msg.substr(12).c_str());
+-		if (userSpeedFactor &lt; minUserSpeed) {
+-			serverNet-&gt;SendUserSpeed(player, minUserSpeed);
+-			userSpeedFactor = minUserSpeed;
+-			if (internalSpeed &lt; minUserSpeed) {
+-				serverNet-&gt;SendInternalSpeed(userSpeedFactor);
+-				internalSpeed = userSpeedFactor;
+-			}
+-		}
+-	}
+-	else {
+-		serverNet-&gt;SendChat(player, msg);
+-		if (hostif &amp;&amp; player != SERVER_PLAYER) {
+-			// don't echo packets to autohost
+-			hostif-&gt;SendPlayerChat(player, msg);
+-		}
+-	}
+-}
+-
+-void CGameServer::SetBoolArg(bool&amp; value, const std::string&amp; str, const char* cmd)
+-{
+-	char* end;
+-	const char* start = str.c_str() + strlen(cmd);
+-	const int num = strtol(start, &amp;end, 10);
+-	if (end != start) {
+-		value = (num != 0);
+-	} else {
+-		value = !value;
+-	}
+-}
+
+Deleted: trunk/tools/DedicatedServer/GameServer.h
+===================================================================
+--- trunk/tools/DedicatedServer/GameServer.h	2008-01-27 00:39:47 UTC (rev 5402)
++++ trunk/tools/DedicatedServer/GameServer.h	2008-01-27 00:56:16 UTC (rev 5403)
+@@ -1,164 +0,0 @@
+-#ifndef __GAME_SERVER_H__
+-#define __GAME_SERVER_H__
+-
+-#include &lt;boost/thread/mutex.hpp&gt;
+-#include &lt;boost/thread/thread.hpp&gt;
+-#include &lt;boost/scoped_ptr.hpp&gt;
+-#include &lt;string&gt;
+-#include &lt;map&gt;
+-#include &lt;deque&gt;
+-
+-#include &quot;System/GlobalStuff.h&quot;
+-
+-class CBaseNetProtocol;
+-class CDemoReader;
+-class AutohostInterface;
+-
+-const unsigned SERVER_PLAYER = 255; //server generated message which needs a playernumber
+-
+-//TODO: move to seperate file
+-class GameParticipant
+-{
+-public:
+-	GameParticipant(bool willHaveRights);
+-
+-	std::string name;
+-	bool readyToStart;
+-	float cpuUsage;
+-	int ping;
+-
+-	bool hasRights;
+-#ifdef SYNCCHECK
+-	std::map&lt;int, unsigned&gt; syncResponse; // syncResponse[frameNum] = checksum
+-#endif
+-};
+-
+-/**
+<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">- at brief</A> Server class for game handling
+-This class represents a gameserver. It is responsible for recieving, checking and forwarding gamedata to the clients. It keeps track of the sync, cpu and other stats and informs all clients about events.
+-*/
+-class CGameServer
+-{
+-	friend class CLoadSaveHandler;     //For initialize server state after load
+-public:
+-	CGameServer(int port, const std::string&amp; mapName, const std::string&amp; modName, const std::string&amp; scriptName, const std::string&amp; demoName = &quot;&quot;);
+-	~CGameServer();
+-
+-	void AddLocalClient(unsigned wantedNumber);
+-
+-	void AddAutohostInterface(const int usePort, const int remotePort);
+-
+-	/**
+-	@brief Set frame after loading
+-	WARNING! No checks are done, so be carefull
+-	*/
+-	void PostLoad(unsigned lastTick, int serverframenum);
+-
+-	/**
+-	@brief skip frames
+-	@todo skipping is buggy and could need some improvements
+-	Currently only sets serverframenum
+-	*/
+-	void SkipTo(int targetframe);
+-
+-	void CreateNewFrame(bool fromServerThread=false);
+-
+-	bool WaitsOnCon() const;
+-
+-	void PlayerDefeated(const int playerNum) const;
+-
+-	void SetGamePausable(const bool arg);
+-
+-#ifdef DEBUG
+-	bool gameClientUpdated;			//used to prevent the server part to update to fast when the client is mega slow (running some sort of debug mode)
+-#endif
+-
+-private:
+-	/**
+-	@brief catch commands from chat messages and handle them
+-	Insert chat messages here. If it contains a command (e.g. .nopause) usefull for the server it get filtered out, otherwise it will forwarded to all clients.
+-	@param msg The whole message
+-	@param player The playernumber which sent the message
+-	*/
+-	void GotChatMessage(const std::string&amp; msg, unsigned player);
+-
+-	void SendSystemMsg(const char* fmt,...);
+-
+-	/**
+-	@brief kick the specified player from the battle
+-	*/
+-	void KickPlayer(const int playerNum);
+-
+-	void BindConnection(unsigned wantedNumber, bool grantRights=false);
+-
+-	void StartGame();
+-	void UpdateLoop();
+-	void Update();
+-	void CheckSync();
+-	void ServerReadNet();
+-	void CheckForGameEnd();
+-
+-	/// Class for network communication
+-	CBaseNetProtocol* serverNet;
+-
+-	CDemoReader* demoReader;
+-
+-	/// Inform 3. party programms about events
+-	AutohostInterface* hostif;
+-
+-	void GenerateAndSendGameID();
+-	void SetBoolArg(bool&amp; value, const std::string&amp; str, const char* cmd);
+-	std::string GetPlayerNames(const std::vector&lt;int&gt;&amp; indices) const;
+-
+-	/////////////////// game status variables ///////////////////
+-
+-	bool quitServer;
+-	int serverframenum;
+-	int nextserverframenum; //For loading game
+-
+-	unsigned gameEndTime;	//Tick when game end was detected
+-	bool sentGameOverMsg;
+-	unsigned lastTick;
+-	float timeLeft;
+-	unsigned lastPlayerInfo;
+-	unsigned lastUpdate;
+-	float modGameTime;
+-
+-	bool IsPaused;
+-	float userSpeedFactor;
+-	float internalSpeed;
+-
+-	boost::scoped_ptr&lt;GameParticipant&gt; players[MAX_PLAYERS];
+-
+-	/////////////////// game settings ///////////////////
+-	/// Wheter the game is pausable for others than the host
+-	bool gamePausable;
+-
+-	/// The maximum speed users are allowed to set
+-	float maxUserSpeed;
+-
+-	/// The minimum speed users are allowed to set (actual speed can be lower due to high cpu usage)
+-	float minUserSpeed;
+-
+-	bool noHelperAIs;
+-	std::string scriptName;
+-	unsigned int mapChecksum;
+-	std::string mapName;
+-	unsigned int modChecksum;
+-	std::string modName;
+-
+-	/////////////////// sync stuff ///////////////////
+-#ifdef SYNCCHECK
+-	std::deque&lt;int&gt; outstandingSyncFrames;
+-#endif
+-	int syncErrorFrame;
+-	int syncWarningFrame;
+-	int delayedSyncResponseFrame;
+-
+-	boost::thread* thread;
+-	mutable boost::mutex gameServerMutex;
+-};
+-
+-extern CGameServer* gameServer;
+-
+-#endif // __GAME_SERVER_H__
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000209.html">[Taspring-linux-commit] r5402 - in trunk/rts: Game Game/UI System	System/Net System/Script
+</A></li>
+	<LI>Next message: <A HREF="000211.html">[Taspring-linux-commit] r5404 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#210">[ date ]</a>
+              <a href="thread.html#210">[ thread ]</a>
+              <a href="subject.html#210">[ subject ]</a>
+              <a href="author.html#210">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

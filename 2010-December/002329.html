@@ -1,0 +1,474 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7559 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7559%20-%20Lobby/TASClient&In-Reply-To=%3C20101219182010.D252A23217%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002328.html">
+   <LINK REL="Next"  HREF="002330.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7559 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7559%20-%20Lobby/TASClient&In-Reply-To=%3C20101219182010.D252A23217%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7559 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Dec 19 19:20:10 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002328.html">[Taspring-linux-commit] r7558 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002330.html">[Taspring-linux-commit] r7560 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2329">[ date ]</a>
+              <a href="thread.html#2329">[ thread ]</a>
+              <a href="subject.html#2329">[ subject ]</a>
+              <a href="author.html#2329">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2010-12-19 19:20:10 +0100 (Sun, 19 Dec 2010)
+New Revision: 7559
+
+Modified:
+   Lobby/TASClient/BattleFormUnit.pas
+   Lobby/TASClient/LobbyScriptUnit.pas
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+   Lobby/TASClient/Utility.pas
+Log:
+* more bugs fixed
+
+Modified: Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.pas	2010-12-18 15:39:56 UTC (rev 7558)
++++ Lobby/TASClient/BattleFormUnit.pas	2010-12-19 18:20:10 UTC (rev 7559)
+@@ -637,6 +637,7 @@
+     FCurrentModName: string; // index of currently loaded map. -1 for none.
+     procedure SetMyReadyStatus(Status: Boolean); // sets FMyReadyStatus
+   public
++    ChatActive: Boolean;
+     SpringSettingsProfile: string;
+     ModOptionsList: TList;
+     MapOptionsList: TList;
+@@ -1358,6 +1359,7 @@
+     try
+       if MapHeight &lt;&gt; nil then Utility.free(MapHeight);
+       MapHeight := Utility.getHeightMap(Utility.MapList[MapIndex],MapHeightWidth,MapHeightHeight);
++      if MapHeight = nil then raise Exception.Create('error');
+     except
+       MapHeightWidth := 64;
+       MapHeightHeight := 64;
+@@ -1388,6 +1390,7 @@
+     try
+       if MapMetal &lt;&gt; nil then Utility.free(MapMetal);
+       MapMetal := Utility.getMetalMap(Utility.MapList[MapIndex],MapMetalWidth,MapMetalHeight);
++      if MapMetal = nil then raise Exception.Create('error');
+     except
+       MapMetalWidth := 64;
+       MapMetalHeight := 64;
+@@ -2780,6 +2783,7 @@
+   FCurrentMapIndex := -1;
+   MapHeight := nil;
+   MapMetal := nil;
++  ChatActive := False;
+ 
+   MyTeamNoButton.SpinOptions.MinValue := 1;
+   MyTeamNoButton.SpinOptions.MaxValue := MAX_TEAMS;
+@@ -3989,6 +3993,7 @@
+   msgLines : TWideStringList;
+   i : integer;
+ begin
++  BattleForm.ChatActive := True;
+   if Key = 13 then
+   begin
+     msgLines := TWideStringList.Create;
+@@ -4597,6 +4602,8 @@
+ 
+   GetNodeClient(Index,RealIndex,WhatToDraw);
+ 
++  if RealIndex = -1 then Exit; // shouldn't happen
++
+   with Sender as TVirtualDrawTree, PaintInfo do
+   begin
+ 
+@@ -4679,7 +4686,7 @@
+           if not hot then
+           begin
+             group := TClient(BattleState.Battle.Clients[RealIndex]).GetGroup;
+-            if (group &lt;&gt; nil) and (PaintInfo.Node &lt;&gt; VDTBattleClients.FocusedNode) then begin
++            if (group &lt;&gt; nil) and (PaintInfo.Node &lt;&gt; VDTBattleClients.FocusedNode) and (group.EnableColor) then begin
+               Canvas.Brush.Color := group.Color;
+               Canvas.Font.Color := Misc.ComplementaryTextColor(group.Color);
+               Canvas.FillRect(Rect(R.Left+Pos,R.Top,R.Right,R.Bottom));
+@@ -5732,28 +5739,51 @@
+   if (Node = nil) then
+     Exit;
+   GetNodeClient(Node.Index,RealIndex,WhatToDraw);
+-  if (WhatToDraw &lt;&gt; NormalClient) then
+-    Exit;
+-with Sender as TVirtualDrawTree, HintCanvas do
++  if RealIndex = -1 then Exit; // shouldn't happen
++  if (WhatToDraw = NormalClient) then
+   begin
+-    Pen.Color := clBlack;
+-    Brush.Color := $00ffdddd; { 0 b g r }
+-    Brush.Style := bsSolid;
+-    Rectangle(ClipRect);
+-    Brush.Style := bsClear;
+-    h := '';
+-    try
+-      h := h + TClient(BattleState.Battle.Clients[RealIndex]).Name;
+-      h := h + ' - '+MainForm.GetCountryName(TClient(BattleState.Battle.Clients[RealIndex]).Country);
+-      if TClient(BattleState.Battle.Clients[RealIndex]).GetMode &lt;&gt; 0 then
+-        h := h + ' - ' + Utility.SideList[TClient(BattleState.Battle.Clients[RealIndex]).GetSide];
+-      if TClient(BattleState.Battle.Clients[RealIndex]).GetGroup &lt;&gt; nil then
+-        h := h + ', ' + TClient(BattleState.Battle.Clients[RealIndex]).GetGroup.Name;
+-      Canvas.Font := VDTBattleClients.Font;
+-      TextOut(5, 2, h);
+-    except
+-      Exit;
++    with Sender as TVirtualDrawTree, HintCanvas do
++    begin
++      Pen.Color := clBlack;
++      Brush.Color := $00ffdddd; { 0 b g r }
++      Brush.Style := bsSolid;
++      Rectangle(ClipRect);
++      Brush.Style := bsClear;
++      h := '';
++      try
++        h := h + TClient(BattleState.Battle.Clients[RealIndex]).Name;
++        h := h + ' - '+MainForm.GetCountryName(TClient(BattleState.Battle.Clients[RealIndex]).Country);
++        if TClient(BattleState.Battle.Clients[RealIndex]).GetMode &lt;&gt; 0 then
++          h := h + ' - ' + Utility.SideList[TClient(BattleState.Battle.Clients[RealIndex]).GetSide];
++        if TClient(BattleState.Battle.Clients[RealIndex]).GetGroup &lt;&gt; nil then
++          h := h + ', ' + TClient(BattleState.Battle.Clients[RealIndex]).GetGroup.Name;
++        Canvas.Font := VDTBattleClients.Font;
++        TextOut(5, 2, h);
++      except
++        Exit;
++      end;
+     end;
++  end
++  else if (WhatToDraw = NormalBot) then
++  begin
++    with Sender as TVirtualDrawTree, HintCanvas do
++    begin
++      Pen.Color := clBlack;
++      Brush.Color := $00ffdddd; { 0 b g r }
++      Brush.Style := bsSolid;
++      Rectangle(ClipRect);
++      Brush.Style := bsClear;
++      h := '';
++      try
++        h := h + TBot(BattleState.Battle.Bots[RealIndex]).Name;
++        h := h + ' - '+TBot(BattleState.Battle.Bots[RealIndex]).OwnerName;
++        h := h + ' - '+TBot(BattleState.Battle.Bots[RealIndex]).AIShortName;
++        Canvas.Font := VDTBattleClients.Font;
++        TextOut(5, 2, h);
++      except
++        Exit;
++      end;
++    end;
+   end;
+ end;
+ 
+@@ -5767,25 +5797,43 @@
+   if (Node = nil) then
+     Exit;
+   GetNodeClient(Node.Index,RealIndex,WhatToDraw);
+-  if (WhatToDraw &lt;&gt; NormalClient) then
+-    Exit;
++  if RealIndex = -1 then Exit; // shouldn't happen
+   R := Rect(0, 0, 0, 0);
+-  h := '';
+-  with (Sender as TVirtualDrawTree) do
++  if (WhatToDraw = NormalClient) then
+   begin
+-  try
+-    h := h + TClient(BattleState.Battle.Clients[RealIndex]).Name;
+-    h := h + ' - '+MainForm.GetCountryName(TClient(BattleState.Battle.Clients[RealIndex]).Country);
+-    if TClient(BattleState.Battle.Clients[RealIndex]).GetMode &lt;&gt; 0 then
+-      h := h + ' - ' + Utility.SideList[TClient(BattleState.Battle.Clients[RealIndex]).GetSide];
+-    if TClient(BattleState.Battle.Clients[RealIndex]).GetGroup &lt;&gt; nil then
+-      h := h + ', ' + TClient(BattleState.Battle.Clients[RealIndex]).GetGroup.Name;
+-    Canvas.Font := VDTBattleClients.Font;
+-    R := Rect(0, 0, Round(Canvas.TextWidth(h)), 18);
+-  except
+-    Exit;
+-  end;
+-  end;
++    h := '';
++    with (Sender as TVirtualDrawTree) do
++    begin
++      try
++        h := h + TClient(BattleState.Battle.Clients[RealIndex]).Name;
++        h := h + ' - '+MainForm.GetCountryName(TClient(BattleState.Battle.Clients[RealIndex]).Country);
++        if TClient(BattleState.Battle.Clients[RealIndex]).GetMode &lt;&gt; 0 then
++          h := h + ' - ' + Utility.SideList[TClient(BattleState.Battle.Clients[RealIndex]).GetSide];
++        if TClient(BattleState.Battle.Clients[RealIndex]).GetGroup &lt;&gt; nil then
++          h := h + ', ' + TClient(BattleState.Battle.Clients[RealIndex]).GetGroup.Name;
++        Canvas.Font := VDTBattleClients.Font;
++        R := Rect(0, 0, Round(Canvas.TextWidth(h)), 18);
++      except
++        Exit;
++      end;
++    end;
++  end
++  else if (WhatToDraw = NormalBot) then
++  begin
++    h := '';
++    with (Sender as TVirtualDrawTree) do
++    begin
++      try
++        h := h + TBot(BattleState.Battle.Bots[RealIndex]).Name;
++        h := h + ' - '+TBot(BattleState.Battle.Bots[RealIndex]).OwnerName;
++        h := h + ' - '+TBot(BattleState.Battle.Bots[RealIndex]).AIShortName;
++        Canvas.Font := VDTBattleClients.Font;
++        R := Rect(0, 0, Round(Canvas.TextWidth(h)), 18);
++      except
++        Exit;
++      end;
++    end;
++  end
+ end;
+ 
+ procedure TBattleForm.mnuFixTeamsClick(Sender: TObject);
+
+Modified: Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- Lobby/TASClient/LobbyScriptUnit.pas	2010-12-18 15:39:56 UTC (rev 7558)
++++ Lobby/TASClient/LobbyScriptUnit.pas	2010-12-19 18:20:10 UTC (rev 7559)
+@@ -1284,7 +1284,7 @@
+   LockCallback;
+   Result := True;
+ 
+-  if BattleState.Status &lt;&gt; None then
++  if (BattleState.Status &lt;&gt; None) or ScriptJoining then
+   begin
+     Result := False;
+     UnlockCallback;
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2010-12-18 15:39:56 UTC (rev 7558)
++++ Lobby/TASClient/MainUnit.pas	2010-12-19 18:20:10 UTC (rev 7559)
+@@ -2232,7 +2232,10 @@
+     if MainForm.Active and FilterList.Focused and (FilterList.FocusedNode &lt;&gt; nil) then
+       FilterList.EditNode(FilterList.FocusedNode,3)
+     else if MainForm.Active then
+-      BattleForm.Show
++    begin
++      BattleForm.Show;
++      BattleForm.ChatActive := True;
++    end
+     else if BattleForm.Active then
+       MainForm.Show;
+     Exit;
+@@ -3987,6 +3990,7 @@
+ begin
+   MainForm.lastActiveTab.ClientListBoxPosition := MainForm.ClientsListBox.TopIndex;
+   MainForm.lastActiveTab := Self;
++  BattleForm.ChatActive := False;
+   MainForm.UpdateClientsListBox;
+   MainForm.ClientsListBox.TopIndex := Min(ClientListBoxPosition,MainForm.ClientsListBox.Count-1);
+   try
+@@ -8249,6 +8253,7 @@
+     UpdateClientsListBox;
+     ShowAndSetFocus(TWinControl(lastActiveTab.FindComponent('InputEdit')));
+   end;
++  BattleForm.ChatActive := False;
+   TabSheet.Free;
+ end;
+ 
+@@ -8697,6 +8702,8 @@
+     AcquireMainThread;
+     try if not Preferences.ScriptsDisabled then handlers.onDisconnect; except end;
+     ReleaseMainThread;
++    if BattleForm.IsBattleActive then
++      BattleForm.DisconnectButtonClick(nil);
+     TryToSendCommand('EXIT');
+     Socket.CloseDelayed; // we must call CloseDelayed and not just Close, because this method is called from various methods and events like OnDataAvailable!
+     MainForm.MainTitleBar.Caption := PROGRAM_VERSION;
+@@ -9820,8 +9827,10 @@
+ 
+ procedure TMainForm.FormClose(Sender: TObject; var Action: TCloseAction);
+ begin
++  OutputDebugString('toto1');
+   if Status.LoggedIn then
+     TryToDisconnect;
++  OutputDebugString('toto2');
+   ClearAllClientsList;
+ 
+   AcquireMainThread;
+@@ -9833,7 +9842,7 @@
+   KeepAliveTimer.Enabled := False;
+   LadderCupsRefresh.Enabled := False;
+ 
+-
++  OutputDebugString('toto3');
+   if Debug.Log then (TMyTabSheet(MainForm.ChatTabs[0]).FindChildControl('RichEdit') as TExRichEdit).Lines.SaveToFile(ExtractFilePath(Application.ExeName) + LOG_FILENAME);
+   if FiltersButton.ImageIndex = 1 then
+   begin
+@@ -9847,7 +9856,7 @@
+   PerformForm.SaveCommandListToFile(ExtractFilePath(Application.ExeName) + VAR_FOLDER + '\perform.dat');
+   HighlightingForm.SaveHighlightsToFile(ExtractFilePath(Application.ExeName) + VAR_FOLDER + '\highlights.dat');
+   IgnoreListForm.SaveIgnoreListToFile(ExtractFilePath(Application.ExeName) + VAR_FOLDER + '\ignorelist.dat');
+-
++   OutputDebugString('toto4');
+   SaveFiltersToFile(CurrentFilters);
+   AutoJoinForm.SaveAutoJoinPreset(AUTOJOIN_PRESETS_FOLDER + '\current.ini');
+   ReplaysForm.SaveReplayFiltersToFile(REPLAY_FILTERS_FOLDER + '\current.ini');
+@@ -9855,12 +9864,12 @@
+     MenuForm.SaveSettings;
+   SaveGroups;
+   SaveRenames;
+-
++  OutputDebugString('toto5');
+   if Preferences.EnableSpringDownloader then
+     CloseSpringDownloader;
+ 
+   Misc.SetRegistryData(HKEY_CURRENT_USER,TASCLIENT_REGISTRY_KEY,'Crashed',rdInteger,Misc.BoolToInt(False));
+-
++  OutputDebugString('toto6');
+   Application.Terminate;
+ end;
+ 
+@@ -11425,6 +11434,7 @@
+ procedure TMainForm.mnuBattleScreenClick(Sender: TObject);
+ begin
+   Misc.ShowAndSetFocus(BattleForm.InputEdit);
++  BattleForm.ChatActive := True;
+ end;
+ 
+ procedure TMainForm.menuHostBattleClick(Sender: TObject);
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2010-12-18 15:39:56 UTC (rev 7558)
++++ Lobby/TASClient/TASClient.dof	2010-12-19 18:20:10 UTC (rev 7559)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=83
+ Release=0
+-Build=1179
++Build=1183
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.83.0.1179
++FileVersion=0.83.0.1183
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+Modified: Lobby/TASClient/Utility.pas
+===================================================================
+--- Lobby/TASClient/Utility.pas	2010-12-18 15:39:56 UTC (rev 7558)
++++ Lobby/TASClient/Utility.pas	2010-12-19 18:20:10 UTC (rev 7559)
+@@ -1324,23 +1324,23 @@
+ var
+   mapCheckSum: integer;
+ begin
++  Result := nil;
++
+   try
+     mapCheckSum := MapChecksums.Items[MapList.IndexOf(mapName)];
+   except
+     MessageDlg(Format(_('Map &quot;%s&quot; not in the list !'),[mapName]),mtError,[mbOk],0);
++    Exit;
+   end;
+ 
+-  if FileExists(MAPS_CACHE_FOLDER+'\'+IntToStr(mapCheckSum)+'.metal.png') then
++  if FileExists(MAPS_CACHE_FOLDER+'\'+IntToStr(mapCheckSum)+'.metal.png') and (ilLoadImage(PChar(MAPS_CACHE_FOLDER+'\'+IntToStr(mapCheckSum)+'.metal.png')) = IL_TRUE) then
+   begin
+-    if ilLoadImage(PChar(MAPS_CACHE_FOLDER+'\'+IntToStr(mapCheckSum)+'.metal.png')) = IL_TRUE then
+-    begin
+-      width := ilGetInteger(IL_IMAGE_WIDTH);
+-      height := ilGetInteger(IL_IMAGE_HEIGHT);
++    width := ilGetInteger(IL_IMAGE_WIDTH);
++    height := ilGetInteger(IL_IMAGE_HEIGHT);
+ 
+-      Result := malloc(width*height);
++    Result := malloc(width*height);
+ 
+-      ilCopyPixels(0,0,0,width,height,1,IL_LUMINANCE,IL_BYTE,Result);
+-    end;
++    ilCopyPixels(0,0,0,width,height,1,IL_LUMINANCE,IL_BYTE,Result);
+   end
+   else
+   begin
+@@ -1362,23 +1362,22 @@
+ var
+   mapCheckSum: integer;
+ begin
++  Result := nil;
++
+   try
+     mapCheckSum := MapChecksums.Items[MapList.IndexOf(mapName)];
+   except
+     MessageDlg(Format(_('Map &quot;%s&quot; not in the list !'),[mapName]),mtError,[mbOk],0);
+   end;
+ 
+-  if FileExists(MAPS_CACHE_FOLDER+'\'+IntToStr(mapCheckSum)+'.height.png') then
++  if FileExists(MAPS_CACHE_FOLDER+'\'+IntToStr(mapCheckSum)+'.height.png') and (ilLoadImage(PChar(MAPS_CACHE_FOLDER+'\'+IntToStr(mapCheckSum)+'.height.png')) = IL_TRUE) then
+   begin
+-    if ilLoadImage(PChar(MAPS_CACHE_FOLDER+'\'+IntToStr(mapCheckSum)+'.height.png')) = IL_TRUE then
+-    begin
+-      width := ilGetInteger(IL_IMAGE_WIDTH);
+-      height := ilGetInteger(IL_IMAGE_HEIGHT);
++    width := ilGetInteger(IL_IMAGE_WIDTH);
++    height := ilGetInteger(IL_IMAGE_HEIGHT);
+ 
+-      Result := malloc(width*height);
++    Result := malloc(width*height);
+ 
+-      ilCopyPixels(0,0,0,width,height,1,IL_LUMINANCE,IL_BYTE,Result);
+-    end;
++    ilCopyPixels(0,0,0,width,height,1,IL_LUMINANCE,IL_BYTE,Result);
+   end
+   else
+   begin
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002328.html">[Taspring-linux-commit] r7558 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002330.html">[Taspring-linux-commit] r7560 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2329">[ date ]</a>
+              <a href="thread.html#2329">[ thread ]</a>
+              <a href="subject.html#2329">[ subject ]</a>
+              <a href="author.html#2329">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

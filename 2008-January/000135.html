@@ -1,0 +1,592 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5328 - in trunk/rts: ExternalAI	Rendering/UnitModels System/Platform System/Platform/Linux	System/Platform/Mac build/scons
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5328%20-%20in%20trunk/rts%3A%20ExternalAI%0A%09Rendering/UnitModels%20System/Platform%20System/Platform/Linux%0A%09System/Platform/Mac%20build/scons&In-Reply-To=%3CE1JEi4y-0002Su-3J%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000134.html">
+   <LINK REL="Next"  HREF="000136.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5328 - in trunk/rts: ExternalAI	Rendering/UnitModels System/Platform System/Platform/Linux	System/Platform/Mac build/scons</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5328%20-%20in%20trunk/rts%3A%20ExternalAI%0A%09Rendering/UnitModels%20System/Platform%20System/Platform/Linux%0A%09System/Platform/Mac%20build/scons&In-Reply-To=%3CE1JEi4y-0002Su-3J%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5328 - in trunk/rts: ExternalAI	Rendering/UnitModels System/Platform System/Platform/Linux	System/Platform/Mac build/scons">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Jan 15 10:27:32 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000134.html">[Taspring-linux-commit] r5327 -	trunk/installer/builddata/springcontent/gamedata
+</A></li>
+        <LI>Next message: <A HREF="000136.html">[Taspring-linux-commit] r5329 - branches/testserver
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#135">[ date ]</a>
+              <a href="thread.html#135">[ thread ]</a>
+              <a href="subject.html#135">[ subject ]</a>
+              <a href="author.html#135">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-01-15 10:27:30 +0100 (Tue, 15 Jan 2008)
+New Revision: 5328
+
+Added:
+   trunk/rts/System/Platform/Mac/MacFileSystemHandler.cpp
+   trunk/rts/System/Platform/Mac/MacFileSystemHandler.h
+   trunk/rts/System/Platform/Mac/MacUtils.h
+Modified:
+   trunk/rts/ExternalAI/aibase.h
+   trunk/rts/Rendering/UnitModels/s3o.h
+   trunk/rts/Rendering/UnitModels/s3oParser.cpp
+   trunk/rts/System/Platform/FileSystem.cpp
+   trunk/rts/System/Platform/Linux/UnixFileSystemHandler.cpp
+   trunk/rts/System/Platform/Linux/UnixFileSystemHandler.h
+   trunk/rts/System/Platform/Mac/SDLMain.m
+   trunk/rts/System/Platform/errorhandler.cpp
+   trunk/rts/build/scons/filelist.py
+Log:
+* Apply part of spring-mac-2008-01-12.patch.bz2 (mantis: #793)
+
+ - Changed filelist.py to exclude the Platform/Mac directory
+ - Fixed s3o loader, so it runs on big endian machines
+ - Unitsync compiles, yet without Java and Python bindings
+ - Error messages appear as GUI dialog now instead of stdout (at least some of them)
+ - Some refactoring on Mac specific utilities
+
+
+
+Modified: trunk/rts/ExternalAI/aibase.h
+===================================================================
+--- trunk/rts/ExternalAI/aibase.h	2008-01-15 03:11:46 UTC (rev 5327)
++++ trunk/rts/ExternalAI/aibase.h	2008-01-15 09:27:30 UTC (rev 5328)
+@@ -31,7 +31,7 @@
+ #endif
+ 
+ // Virtual destructor support (across DLL/SO interface)
+-#ifdef _WIN32
++#if defined(_WIN32) || defined(__APPLE__)
+ 	// MSVC chokes on (pure) virtual destructors across DLL boundaries,
+ 	// just dont define/declare any.
+ 	// MinGW crashes on pure virtual destructors and doesn't link non
+
+Modified: trunk/rts/Rendering/UnitModels/s3o.h
+===================================================================
+--- trunk/rts/Rendering/UnitModels/s3o.h	2008-01-15 03:11:46 UTC (rev 5327)
++++ trunk/rts/Rendering/UnitModels/s3o.h	2008-01-15 09:27:30 UTC (rev 5328)
+@@ -1,46 +1,96 @@
+ #ifndef s3oH
+ #define s3oH
+ 
++#include &quot;Platform/byteorder.h&quot;
++
++/// Structure in .s3o files representing draw primitives
+ struct Piece{
+-	int name;		//offset in file to char* name of this piece
+-	int numChilds;		//number of sub pieces this piece has
+-	int childs;		//file offset to table of dwords containing offsets to child pieces
+-	int numVertices;	//number of vertices in this piece
+-	int vertices;		//file offset to vertices in this piece
+-	int vertexType;	//0 for now
+-	int primitiveType;	//type of primitives for this piece, 0=triangles,1 triangle strips,2=quads
+-	int vertexTableSize;	//number of indexes in vertice table
+-	int vertexTable;	//file offset to vertice table, vertice table is made up of dwords indicating vertices for this piece, to indicate end of a triangle strip use 0xffffffff
+-	int collisionData;	//offset in file to collision data, must be 0 for now (no collision data)
+-	float xoffset;		//offset from parent piece
++	int name;		///&lt; offset in file to char* name of this piece
++	int numChilds;		///&lt; number of sub pieces this piece has
++	int childs;		///&lt; file offset to table of dwords containing offsets to child pieces
++	int numVertices;	///&lt; number of vertices in this piece
++	int vertices;		///&lt; file offset to vertices in this piece
++	int vertexType;	///&lt; 0 for now
++	int primitiveType;	///&lt; type of primitives for this piece, 0=triangles,1 triangle strips,2=quads
++	int vertexTableSize;	///&lt; number of indexes in vertice table
++	int vertexTable;	///&lt; file offset to vertice table, vertice table is made up of dwords indicating vertices for this piece, to indicate end of a triangle strip use 0xffffffff
++	int collisionData;	///&lt; offset in file to collision data, must be 0 for now (no collision data)
++	float xoffset;		///&lt; offset from parent piece
+ 	float yoffset;
+ 	float zoffset;
++	
++	/// Swap byte order (endianess) for big-endian machines
++	void swap()
++	{
++		name = swabdword(name);
++		numChilds = swabdword(numChilds);
++		childs = swabdword(childs);
++		numVertices = swabdword(numVertices);
++		vertices = swabdword(vertices);
++		vertexType = swabdword(vertexType);
++		primitiveType = swabdword(primitiveType);
++		vertexTableSize = swabdword(vertexTableSize);
++		vertexTable = swabdword(vertexTable);
++		collisionData = swabdword(collisionData);
++		xoffset = swabfloat(xoffset);
++		yoffset = swabfloat(yoffset);
++		zoffset = swabfloat(zoffset);
++	}
+ };
+ 
++/// Vertex structure for .s3o files. As far as I (Commander) can tell, this is never actually used.
+ struct Vertex{
+-	float xpos;		//position of vertex relative piece origin
++	float xpos;		///&lt; position of vertex relative piece origin
+ 	float ypos;
+ 	float zpos;
+-	float xnormal;		//normal of vertex relative piece rotation
++	float xnormal;		///&lt; normal of vertex relative piece rotation
+ 	float ynormal;
+ 	float znormal;
+-	float texu;		//texture offset for vertex
++	float texu;		///&lt; texture offset for vertex
+ 	float texv;
++	
++	/// Swap byte order (endianess) for big-endian machines
++	void swap()
++	{
++		xpos = swabfloat(xpos);
++		ypos = swabfloat(ypos);
++		zpos = swabfloat(zpos);
++		xnormal = swabfloat(xnormal);
++		ynormal = swabfloat(ynormal);
++		znormal = swabfloat(znormal);
++		texu = swabfloat(texu);
++		texv = swabfloat(texv);
++	}
+ };
+ 
++/// Header structure for .s3o files
+ struct S3OHeader{
+-	char magic[12];		//&quot;Spring unit\0&quot;
+-	int version;		//0 for this version
+-	float radius;		//radius of collision sphere
+-	float height;		//height of whole object
+-	float midx;		//these give the offset from origin(which is supposed to lay in the ground plane) to the middle of the unit collision sphere
++	char magic[12];		///&lt; &quot;Spring unit\0&quot;
++	int version;		///&lt; 0 for this version
++	float radius;		///&lt; radius of collision sphere
++	float height;		///&lt; height of whole object
++	float midx;		///&lt; these give the offset from origin(which is supposed to lay in the ground plane) to the middle of the unit collision sphere
+ 	float midy;
+ 	float midz;
+-	int rootPiece;		//offset in file to root piece
+-	int collisionData;	//offset in file to collision data, must be 0 for now (no collision data)
+-	int texture1;		//offset in file to char* filename of first texture
+-	int texture2;		//offset in file to char* filename of second texture
++	int rootPiece;		///&lt; offset in file to root piece
++	int collisionData;	///&lt; offset in file to collision data, must be 0 for now (no collision data)
++	int texture1;		///&lt; offset in file to char* filename of first texture
++	int texture2;		///&lt; offset in file to char* filename of second texture
+ 
++	/// Swap byte order (endianess) for big-endian machines
++	void swap()
++	{
++		version = swabdword(version);
++		radius = swabfloat(radius);
++		height = swabfloat(height);
++		midx = swabfloat(midx);
++		midy = swabfloat(midy);
++		midz = swabfloat(midz);
++		rootPiece = swabdword(rootPiece);
++		collisionData = swabdword(collisionData);
++		texture1 = swabdword(texture1);
++		texture2 = swabdword(texture2);
++	}
+ };
+ 
+ #endif
+
+Modified: trunk/rts/Rendering/UnitModels/s3oParser.cpp
+===================================================================
+--- trunk/rts/Rendering/UnitModels/s3oParser.cpp	2008-01-15 03:11:46 UTC (rev 5327)
++++ trunk/rts/Rendering/UnitModels/s3oParser.cpp	2008-01-15 09:27:30 UTC (rev 5328)
+@@ -80,6 +80,7 @@
+ 	file.Read(fileBuf, file.FileSize());
+ 	S3OHeader header;
+ 	memcpy(&amp;header,fileBuf,sizeof(header));
++	header.swap();
+ 
+ 	S3DOModel *model = SAFE_NEW S3DOModel;
+ 	model-&gt;numobjects=0;
+@@ -205,6 +206,7 @@
+ 	SS3O* piece=SAFE_NEW SS3O;
+ 
+ 	Piece* fp=(Piece*)&amp;buf[offset];
++	fp-&gt;swap(); // Does it matter we mess with the original buffer here? Don't hope so.
+ 
+ 	piece-&gt;offset.x=fp-&gt;xoffset;
+ 	piece-&gt;offset.y=fp-&gt;yoffset;
+@@ -214,6 +216,7 @@
+ 
+ 	int vertexPointer=fp-&gt;vertices;
+ 	for(int a=0;a&lt;fp-&gt;numVertices;++a){
++		((Vertex*)&amp;buf[vertexPointer])-&gt;swap();  // Does it matter we mess with the original buffer here?
+ 		piece-&gt;vertices.push_back(*(SS3OVertex*)&amp;buf[vertexPointer]);
+ /*		piece-&gt;vertices.back().normal.x=piece-&gt;vertices.back().pos.x;
+ 		piece-&gt;vertices.back().normal.y=piece-&gt;vertices.back().pos.y;
+@@ -223,20 +226,20 @@
+ 	}
+ 	int vertexTablePointer=fp-&gt;vertexTable;
+ 	for(int a=0;a&lt;fp-&gt;vertexTableSize;++a){
+-		int num=*(int*)&amp;buf[vertexTablePointer];
++		int num=swabdword(*(int*)&amp;buf[vertexTablePointer]);
+ 		piece-&gt;vertexDrawOrder.push_back(num);
+ 		vertexTablePointer+=sizeof(int);
+ 
+ 		if(num==-1 &amp;&amp; a!=fp-&gt;vertexTableSize-1){		//for triangle strips
+ 			piece-&gt;vertexDrawOrder.push_back(num);
+ 
+-			num=*(int*)&amp;buf[vertexTablePointer];
++			num=swabdword(*(int*)&amp;buf[vertexTablePointer]);
+ 			piece-&gt;vertexDrawOrder.push_back(num);
+ 		}
+ 	}
+ 	int childPointer=fp-&gt;childs;
+ 	for(int a=0;a&lt;fp-&gt;numChilds;++a){
+-		piece-&gt;childs.push_back(LoadPiece(buf,*(int*)&amp;buf[childPointer],model));
++		piece-&gt;childs.push_back(LoadPiece(buf,swabdword(*(int*)&amp;buf[childPointer]),model));
+ 		childPointer+=sizeof(int);
+ 	}
+ 	return piece;
+
+Modified: trunk/rts/System/Platform/FileSystem.cpp
+===================================================================
+--- trunk/rts/System/Platform/FileSystem.cpp	2008-01-15 03:11:46 UTC (rev 5327)
++++ trunk/rts/System/Platform/FileSystem.cpp	2008-01-15 09:27:30 UTC (rev 5328)
+@@ -16,11 +16,15 @@
+ #include &lt;sys/stat.h&gt;
+ #include &lt;sys/types.h&gt;
+ #include &quot;FileSystem.h&quot;
++
+ #ifdef WIN32
+-#include &quot;Win/WinFileSystemHandler.h&quot;
++#	include &quot;Win/WinFileSystemHandler.h&quot;
++#elif defined(__APPLE__)
++#	include &quot;Mac/MacFileSystemHandler.h&quot;
+ #else
+-#include &quot;Linux/UnixFileSystemHandler.h&quot;
++#	include &quot;Linux/UnixFileSystemHandler.h&quot;
+ #endif
++
+ #include &quot;FileSystem/ArchiveScanner.h&quot;
+ #include &quot;FileSystem/VFSHandler.h&quot;
+ #include &quot;LogOutput.h&quot;
+@@ -56,6 +60,8 @@
+ 	if (!instance) {
+ #ifdef WIN32
+ 		instance = new WinFileSystemHandler(verbose);
++#elif defined(__APPLE__)
++		instance = new MacFileSystemHandler(verbose);
+ #else
+ 		instance = new UnixFileSystemHandler(verbose);
+ #endif
+
+Modified: trunk/rts/System/Platform/Linux/UnixFileSystemHandler.cpp
+===================================================================
+--- trunk/rts/System/Platform/Linux/UnixFileSystemHandler.cpp	2008-01-15 03:11:46 UTC (rev 5327)
++++ trunk/rts/System/Platform/Linux/UnixFileSystemHandler.cpp	2008-01-15 09:27:30 UTC (rev 5328)
+@@ -252,17 +252,19 @@
+  *
+  * Locates data directories and initializes the VFS.
+  */
+-UnixFileSystemHandler::UnixFileSystemHandler(bool verbose)
++UnixFileSystemHandler::UnixFileSystemHandler(bool verbose, bool initialize)
+ {
+-	LocateDataDirs();
+-	InitVFS();
++	if(initialize){
++		LocateDataDirs();
++		InitVFS();
+ 
+-	for (std::vector&lt;DataDir&gt;::const_iterator d = datadirs.begin(); d != datadirs.end(); ++d) {
+-		if (d-&gt;readable) {
+-			if (d-&gt;writable)
+-				logOutput.Print(&quot;Using read-write data directory: %s&quot;, d-&gt;path.c_str());
+-			else
+-				logOutput.Print(&quot;Using read-only  data directory: %s&quot;, d-&gt;path.c_str());
++		for (std::vector&lt;DataDir&gt;::const_iterator d = datadirs.begin(); d != datadirs.end(); ++d) {
++			if (d-&gt;readable) {
++				if (d-&gt;writable)
++					logOutput.Print(&quot;Using read-write data directory: %s&quot;, d-&gt;path.c_str());
++				else
++					logOutput.Print(&quot;Using read-only  data directory: %s&quot;, d-&gt;path.c_str());
++			}
+ 		}
+ 	}
+ }
+
+Modified: trunk/rts/System/Platform/Linux/UnixFileSystemHandler.h
+===================================================================
+--- trunk/rts/System/Platform/Linux/UnixFileSystemHandler.h	2008-01-15 03:11:46 UTC (rev 5327)
++++ trunk/rts/System/Platform/Linux/UnixFileSystemHandler.h	2008-01-15 09:27:30 UTC (rev 5328)
+@@ -24,7 +24,7 @@
+ 	public:
+ 
+ 		virtual ~UnixFileSystemHandler();
+-		UnixFileSystemHandler(bool verbose);
++		UnixFileSystemHandler(bool verbose, bool initialize = true);
+ 
+ 		virtual bool mkdir(const std::string&amp; dir) const;
+ 
+@@ -33,7 +33,7 @@
+ 		virtual std::string LocateFile(const std::string&amp; file) const;
+ 		virtual std::vector&lt;std::string&gt; GetDataDirectories() const;
+ 
+-	private:
++	protected:
+ 
+ 		struct DataDir
+ 		{
+
+Added: trunk/rts/System/Platform/Mac/MacFileSystemHandler.cpp
+===================================================================
+--- trunk/rts/System/Platform/Mac/MacFileSystemHandler.cpp	                        (rev 0)
++++ trunk/rts/System/Platform/Mac/MacFileSystemHandler.cpp	2008-01-15 09:27:30 UTC (rev 5328)
+@@ -0,0 +1,72 @@
++/*
++ * @file MacFileSystemHandler.cpp
++ * @author Fabian Herb
++ *
++ * Copyright (C) 2008.  Licensed under the terms of the
++ * GNU GPL, v2 or later
++ */
++
++#include &lt;CoreFoundation/CoreFoundation.h&gt;
++#include &quot;StdAfx.h&quot;
++#include &quot;LogOutput.h&quot;
++#include &quot;Platform/Mac/MacFileSystemHandler.h&quot;
++
++/**
++ * This does exactly the same as the constructor of UnixFileSystemHandler, but unfortunately
++ * simply making LocateDataDirs() virtual did not work, it would not call the correct one.
++ */
++MacFileSystemHandler::MacFileSystemHandler(bool verbose) : UnixFileSystemHandler(verbose, false)
++{
++	LocateDataDirs();
++	InitVFS();
++	
++	for (std::vector&lt;DataDir&gt;::const_iterator d = datadirs.begin(); d != datadirs.end(); ++d) {
++		if (d-&gt;readable) {
++			if (d-&gt;writable)
++				logOutput.Print(&quot;Using read-write data directory: %s&quot;, d-&gt;path.c_str());
++			else
++				logOutput.Print(&quot;Using read-only  data directory: %s&quot;, d-&gt;path.c_str());
++		}
++	}
++}
++
++void MacFileSystemHandler::LocateDataDirs()
++{
++	// Get the path to the application bundle we are running:
++	char cPath[1024];
++    CFBundleRef mainBundle = CFBundleGetMainBundle();
++    if(!mainBundle)
++	    throw content_error(&quot;Could not determine bundle path&quot;);
++
++    CFURLRef mainBundleURL = CFBundleCopyBundleURL(mainBundle);
++	if(!mainBundleURL)
++		 throw content_error(&quot;Could not determine bundle path&quot;);
++
++    CFStringRef cfStringRef = CFURLCopyFileSystemPath(mainBundleURL, kCFURLPOSIXPathStyle);
++	if(!cfStringRef)
++		 throw content_error(&quot;Could not determine bundle path&quot;);
++
++    CFStringGetCString(cfStringRef, cPath, 1024, kCFStringEncodingASCII);
++
++    CFRelease(mainBundleURL);
++    CFRelease(cfStringRef);
++	std::string path(cPath);
++	
++	datadirs.clear();
++	writedir = NULL;
++	
++	// Add bundle resources:
++	datadirs.push_back(path + &quot;/Contents/Resources/&quot;);
++	datadirs.rbegin()-&gt;readable = true;
++	// Add the directory surrounding the bundle, for users to add mods and maps in:
++	datadirs.push_back(filesystem.GetDirectory(path));
++	// Use surrounding directory as writedir for now, should propably
++	// change this to something inside the home directory:
++	datadirs.rbegin()-&gt;writable = true;
++	datadirs.rbegin()-&gt;readable = true;
++	writedir = &amp;*datadirs.rbegin();
++	
++	// See UnixFileSystemHandler::LocateDataDirs() on why we change the working
++	// directory here:
++	chdir(GetWriteDir().c_str());
++}
+
+
+Property changes on: trunk/rts/System/Platform/Mac/MacFileSystemHandler.cpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/rts/System/Platform/Mac/MacFileSystemHandler.h
+===================================================================
+--- trunk/rts/System/Platform/Mac/MacFileSystemHandler.h	                        (rev 0)
++++ trunk/rts/System/Platform/Mac/MacFileSystemHandler.h	2008-01-15 09:27:30 UTC (rev 5328)
+@@ -0,0 +1,26 @@
++/*
++ * @file MacFileSystemHandler.h
++ * @author Fabian Herb
++ * @brief Abstracts locating of content on different platforms
++ *
++ * Copyright (C) 2008.  Licensed under the terms of the
++ * GNU GPL, v2 or later
++ *
++ */
++ 
++#ifndef MACFILESYSTEMHANDLER_H
++#define MACFILESYSTEMHANDLER_H
++
++#include &quot;Platform/Linux/UnixFileSystemHandler.h&quot;
++
++/// Mac file system handler, configures mac-specific search paths
++class MacFileSystemHandler : public UnixFileSystemHandler
++{
++public:
++	MacFileSystemHandler(bool verbose);
++protected:
++	/// Adds the application bundle resources and the surrounding dir to the searchtree
++	void LocateDataDirs();
++};
++
++#endif
+
+
+Property changes on: trunk/rts/System/Platform/Mac/MacFileSystemHandler.h
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/rts/System/Platform/Mac/MacUtils.h
+===================================================================
+--- trunk/rts/System/Platform/Mac/MacUtils.h	                        (rev 0)
++++ trunk/rts/System/Platform/Mac/MacUtils.h	2008-01-15 09:27:30 UTC (rev 5328)
+@@ -0,0 +1,22 @@
++//
++//  MacMessageBox.h
++//  SpringRTS
++//
++//  Created by Fabian Herb on 09.01.08.
++//  Copyright 2008. All rights reserved.
++//
++#ifndef MACMESSAGEBOX_H
++#define MACMESSAGEBOX_H
++
++#if defined(__cplusplus)
++extern &quot;C&quot;
++{
++#endif
++
++void MacMessageBox(const char *msg, const char *caption, unsigned int flags);
++
++#if defined(__cplusplus)
++}
++#endif
++
++#endif
+
+
+Property changes on: trunk/rts/System/Platform/Mac/MacUtils.h
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/rts/System/Platform/Mac/SDLMain.m
+===================================================================
+--- trunk/rts/System/Platform/Mac/SDLMain.m	2008-01-15 03:11:46 UTC (rev 5327)
++++ trunk/rts/System/Platform/Mac/SDLMain.m	2008-01-15 09:27:30 UTC (rev 5328)
+@@ -18,7 +18,7 @@
+ static char  **gArgv;
+ static BOOL   gFinderLaunch;
+ 
+-static NSAutoreleasePool *pool = 0;
++extern NSAutoreleasePool *pool;
+ void PreInitMac();
+ 
+ #if SDL_USE_NIB_FILE
+@@ -280,10 +280,4 @@
+     return 0;
+ }
+ 
+-/* Provides a way for anything in spring that uses cocoa */
+-void PreInitMac()
+-{
+-	if (!pool) {
+-		pool = [[NSAutoreleasePool alloc] init];
+-	}
+-}
++
+
+Modified: trunk/rts/System/Platform/errorhandler.cpp
+===================================================================
+--- trunk/rts/System/Platform/errorhandler.cpp	2008-01-15 03:11:46 UTC (rev 5327)
++++ trunk/rts/System/Platform/errorhandler.cpp	2008-01-15 09:27:30 UTC (rev 5328)
+@@ -14,8 +14,8 @@
+ #include &lt;SDL.h&gt;
+ #ifdef _WIN32
+ #include &lt;windows.h&gt;
+-#else
+-#include &lt;iostream&gt;
++#elif defined(__APPLE__)
++#include &quot;Mac/MacUtils.h&quot;
+ #endif
+ 
+ // from X_MessageBox.cpp:
+@@ -40,8 +40,7 @@
+ 	MessageBox (GetActiveWindow(), msg, caption, winFlags);
+ 
+ #elif defined(__APPLE__)
+-	// Need a Mac-like dialog here
+-	std::cout &lt;&lt; caption &lt;&lt; &quot; &quot; &lt;&lt; msg &lt;&lt; std::endl;
++	MacMessageBox(msg, caption, flags);
+ #else
+ 	// X implementation
+ 
+
+Modified: trunk/rts/build/scons/filelist.py
+===================================================================
+--- trunk/rts/build/scons/filelist.py	2008-01-15 03:11:46 UTC (rev 5327)
++++ trunk/rts/build/scons/filelist.py	2008-01-15 09:27:30 UTC (rev 5328)
+@@ -87,6 +87,7 @@
+ 		'rts/lib/libhpi',
+ 		'rts/lib/streflop', # streflop is compiled with it's own Makefiles
+ 		'rts/System/Platform/BackgroundReader.cpp',
++		'rts/System/Platform/Mac', # Mac build uses XCode
+ 		'rts/System/Platform/Linux/UnixFileSystemHandler.cpp', # see SConstruct
+ 	]
+ 	# we may be called before we were configured (e.g. when cleaning)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000134.html">[Taspring-linux-commit] r5327 -	trunk/installer/builddata/springcontent/gamedata
+</A></li>
+	<LI>Next message: <A HREF="000136.html">[Taspring-linux-commit] r5329 - branches/testserver
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#135">[ date ]</a>
+              <a href="thread.html#135">[ thread ]</a>
+              <a href="subject.html#135">[ subject ]</a>
+              <a href="author.html#135">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

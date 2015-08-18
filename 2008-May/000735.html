@@ -1,0 +1,238 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5955 - branches/gml/rts/lib/gml
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5955%20-%20branches/gml/rts/lib/gml&In-Reply-To=%3C20080526191944.16E204717%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000734.html">
+   <LINK REL="Next"  HREF="000736.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5955 - branches/gml/rts/lib/gml</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5955%20-%20branches/gml/rts/lib/gml&In-Reply-To=%3C20080526191944.16E204717%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5955 - branches/gml/rts/lib/gml">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon May 26 21:19:44 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000734.html">[Taspring-linux-commit] r5954 - trunk/rts/Game/StartScripts
+</A></li>
+        <LI>Next message: <A HREF="000736.html">[Taspring-linux-commit] r5956 - trunk/rts/Rendering/Textures
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#735">[ date ]</a>
+              <a href="thread.html#735">[ thread ]</a>
+              <a href="subject.html#735">[ subject ]</a>
+              <a href="author.html#735">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zerver
+Date: 2008-05-26 21:19:43 +0200 (Mon, 26 May 2008)
+New Revision: 5955
+
+Modified:
+   branches/gml/rts/lib/gml/gml.h
+   branches/gml/rts/lib/gml/gmlcls.h
+   branches/gml/rts/lib/gml/gmlsrv.h
+Log:
+Fixed build problem related to boost::detail::atomic_count on non-w32 platforms
+
+Modified: branches/gml/rts/lib/gml/gml.h
+===================================================================
+--- branches/gml/rts/lib/gml/gml.h	2008-05-26 18:20:44 UTC (rev 5954)
++++ branches/gml/rts/lib/gml/gml.h	2008-05-26 19:19:43 UTC (rev 5955)
+@@ -12,9 +12,6 @@
+ #include &lt;set&gt;
+ #include &lt;map&gt;
+ #include &lt;GL/glew.h&gt;
+-#include &lt;boost/thread/mutex.hpp&gt;
+-#include &lt;boost/thread/thread.hpp&gt;
+-#include &lt;boost/detail/atomic_count.hpp&gt;
+ 
+ #include &quot;gmlcls.h&quot;
+ 
+
+Modified: branches/gml/rts/lib/gml/gmlcls.h
+===================================================================
+--- branches/gml/rts/lib/gml/gmlcls.h	2008-05-26 18:20:44 UTC (rev 5954)
++++ branches/gml/rts/lib/gml/gmlcls.h	2008-05-26 19:19:43 UTC (rev 5955)
+@@ -12,7 +12,9 @@
+ #include &lt;GL/glew.h&gt;
+ #include &lt;boost/thread/mutex.hpp&gt;
+ #include &lt;boost/thread/thread.hpp&gt;
++#define private public // we need access to the private value_ member of atomic_count
+ #include &lt;boost/detail/atomic_count.hpp&gt;
++#undef private
+ #include &lt;map&gt;
+ #include &lt;set&gt;
+ 
+@@ -132,12 +134,46 @@
+   }
+ };
+ 
++#if !defined(BOOST_HAS_THREADS) || (!defined(BOOST_AC_USE_PTHREADS) &amp;&amp; (BOOST_VERSION&lt;103500 || !(defined(__GNUC__) &amp;&amp; (defined(__i386__) || defined(__x86_64__)))) &amp;&amp; (defined(WIN32) || defined(_WIN32) || defined(__WIN32__)))
++#define gmlCount boost::detail::atomic_count
++#else
++class gmlCount : public boost::detail::atomic_count {
++public:
++	gmlCount(long val):boost::detail::atomic_count(val) {
++	}
++
++	virtual ~gmlCount() {}
++
++	long operator++() {
++  #if defined(BOOST_AC_USE_PTHREADS)
++  	scoped_lock lock(mutex_);
++  	return ++value_;
++  #elif (BOOST_VERSION&gt;=103500) &amp;&amp; (defined(__GNUC__) &amp;&amp; (defined(__i386__) || defined(__x86_64__)))
++    return atomic_exchange_and_add(&amp;value_, 1)+1;
++//  #elif defined(WIN32) || defined(_WIN32) || defined(__WIN32__)
++//    return BOOST_INTERLOCKED_INCREMENT(&amp;value_);
++  #elif (BOOST_VERSION&gt;=103500) &amp;&amp; (defined(__GNUC__) &amp;&amp; (__GNUC__*100+__GNUC_MINOR__&gt;=401))
++    return __sync_add_and_fetch(&amp;value_, 1);
++  #elif defined(__GLIBCPP__) || defined(__GLIBCXX__)
++    return __exchange_and_add(&amp;value_, 1)+1;
++  #elif defined(BOOST_HAS_PTHREADS)
++    #define BOOST_AC_USE_PTHREADS
++    scoped_lock lock(mutex_);
++    return ++value_;
++  #else
++    #error Unrecognized threading platform
++  #endif
++  }
++};
++#endif
++
+ // this hack will assign the counter of a boost atomic_count object
+-inline void operator%=(boost::detail::atomic_count&amp; a, long val) {
+-#ifdef BOOST_AC_USE_PTHREADS
+-  a.~boost::detail::atomic_count();
++inline void operator%=(gmlCount&amp; a, long val) {
++	a.value_=val;
++/*#ifdef BOOST_AC_USE_PTHREADS
++  a.~gmlCount();
+ #endif
+-  new (&amp;a) boost::detail::atomic_count(val);
++  new (&amp;a) gmlCount(val);*/
+ }
+ 
+ #include &lt;iterator&gt;
+@@ -177,7 +213,7 @@
+ class gmlClassVector {
+   T *data;
+ #if GML_ORDERED_VOLATILE
+-  boost::detail::atomic_count count;
++  gmlCount count;
+   volatile long added;
+ #else
+   gmlMutex mutex;
+@@ -368,7 +404,7 @@
+ class gmlVector {
+   T *data;
+ #if GML_ORDERED_VOLATILE
+-  boost::detail::atomic_count count;
++  gmlCount count;
+   volatile long added;
+ #else
+   gmlMutex mutex;
+@@ -625,14 +661,14 @@
+   typedef void (*delitemseqfun)(T, S);
+   C genfun;
+   delitemseqfun delfun;
+-  boost::detail::atomic_count req;
+-  boost::detail::atomic_count avail;
++  gmlCount req;
++  gmlCount avail;
+   int pregen;
+   int arr_size;
+   T *item_arr;
+-  boost::detail::atomic_count req_large;
+-  boost::detail::atomic_count avail_large;
+-  boost::detail::atomic_count size_large;
++  gmlCount req_large;
++  gmlCount avail_large;
++  gmlCount size_large;
+   int pregen_large;	
+   int large_arr_size;
+   T *large_item_arr;
+@@ -726,8 +762,8 @@
+ template&lt;class T, class C&gt;
+ class gmlSingleItemServer {
+   C genfun;
+-  boost::detail::atomic_count req;
+-  boost::detail::atomic_count avail;
++  gmlCount req;
++  gmlCount avail;
+   int pregen;
+   int arr_size;
+   T *arr;
+@@ -776,8 +812,8 @@
+ template&lt;class T, class S, class C&gt;
+ class gmlMultiItemServer {
+   C genfun;
+-  boost::detail::atomic_count req;
+-  boost::detail::atomic_count avail;
++  gmlCount req;
++  gmlCount avail;
+   int pregen;
+   int arr_size;
+   T *arr;
+
+Modified: branches/gml/rts/lib/gml/gmlsrv.h
+===================================================================
+--- branches/gml/rts/lib/gml/gmlsrv.h	2008-05-26 18:20:44 UTC (rev 5954)
++++ branches/gml/rts/lib/gml/gmlsrv.h	2008-05-26 19:19:43 UTC (rev 5955)
+@@ -29,7 +29,7 @@
+ 	BOOL serverwork;
+ 	void (*serverfun)(void *);
+ 
+-	boost::detail::atomic_count UnitCounter;
++	gmlCount UnitCounter;
+ 	gmlExecState(R (*wrk)(void *)=NULL,R (*wrka)(void *,A)=NULL,R (*wrki)(void *,U)=NULL,
+ 		void* cls=NULL,int mt=0,BOOL sm=FALSE,int nu=0,GML_TYPENAME std::list&lt;U&gt; *it=NULL,int l1=1,int l2=1,BOOL sw=FALSE,void (*swf)(void *)=NULL):
+ 	worker(wrk),workerarg(wrka),workeriter(wrki),workerclass(cls),maxthreads(mt),
+@@ -93,8 +93,8 @@
+   boost::barrier Barrier; 
+ 	boost::thread *threads[GML_MAX_NUM_THREADS];
+ 	BOOL inited;
+-	boost::detail::atomic_count threadcnt;
+-	boost::detail::atomic_count ClientsReady;
++	gmlCount threadcnt;
++	gmlCount ClientsReady;
+ 	BOOL newwork;
+ 
+ 	gmlClientServer():threadcnt(0),ClientsReady(0),Barrier(GML_CPU_COUNT),ExecDepth(0),newwork(FALSE) {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000734.html">[Taspring-linux-commit] r5954 - trunk/rts/Game/StartScripts
+</A></li>
+	<LI>Next message: <A HREF="000736.html">[Taspring-linux-commit] r5956 - trunk/rts/Rendering/Textures
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#735">[ date ]</a>
+              <a href="thread.html#735">[ thread ]</a>
+              <a href="subject.html#735">[ subject ]</a>
+              <a href="author.html#735">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

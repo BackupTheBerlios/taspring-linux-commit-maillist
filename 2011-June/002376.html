@@ -1,0 +1,1402 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7606 - in Lobby/TASClient: . Python
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2011-June/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7606%20-%20in%20Lobby/TASClient%3A%20.%20Python&In-Reply-To=%3C20110602115141.8B1E0312FE%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002377.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7606 - in Lobby/TASClient: . Python</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7606%20-%20in%20Lobby/TASClient%3A%20.%20Python&In-Reply-To=%3C20110602115141.8B1E0312FE%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7606 - in Lobby/TASClient: . Python">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Jun  2 13:51:41 CEST 2011</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002377.html">[Taspring-linux-commit] r7607 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2376">[ date ]</a>
+              <a href="thread.html#2376">[ thread ]</a>
+              <a href="subject.html#2376">[ subject ]</a>
+              <a href="author.html#2376">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2011-06-02 13:51:32 +0200 (Thu, 02 Jun 2011)
+New Revision: 7606
+
+Modified:
+   Lobby/TASClient/BattleFormUnit.dfm
+   Lobby/TASClient/BattleFormUnit.pas
+   Lobby/TASClient/HighlightingUnit.dfm
+   Lobby/TASClient/HighlightingUnit.pas
+   Lobby/TASClient/HostBattleFormUnit.pas
+   Lobby/TASClient/LobbyScriptUnit.pas
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/NotificationsUnit.pas
+   Lobby/TASClient/PerformFormUnit.pas
+   Lobby/TASClient/PreferencesFormUnit.pas
+   Lobby/TASClient/Python/api.txt
+   Lobby/TASClient/SpringSettingsProfileFormUnit.dfm
+   Lobby/TASClient/SpringSettingsProfileFormUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+   Lobby/TASClient/Utility.pas
+Log:
+* PYTHON : api.SetSettings added
+* 'Main Options' renamed to 'Other options' (section for options without sections)
+
+Modified: Lobby/TASClient/BattleFormUnit.dfm
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.dfm	2011-05-28 12:58:33 UTC (rev 7605)
++++ Lobby/TASClient/BattleFormUnit.dfm	2011-06-02 11:51:32 UTC (rev 7606)
+@@ -1,6 +1,6 @@
+ object BattleForm: TBattleForm
+-  Left = 733
+-  Top = 383
++  Left = 702
++  Top = 185
+   Width = 923
+   Height = 638
+   Caption = 'Battle window'
+
+Modified: Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.pas	2011-05-28 12:58:33 UTC (rev 7605)
++++ Lobby/TASClient/BattleFormUnit.pas	2011-06-02 11:51:32 UTC (rev 7606)
+@@ -1018,13 +1018,52 @@
+ var
+   i: Integer;
+   scriptLines: TStringList;
++  cumulativeDataSent10sBeforeStartTime: Int64;
++  startTime : TDateTime;
++  nextScriptLine : string;
++  sendSpeed: Extended;
+ begin
+   scriptLines := TStringList.Create;
+   ParseDelimited(scriptLines,BattleReplayInfo.Script.Script,EOL,'');
++
++  StartProgressBar.Left := StartButton.Left;
++  StartProgressBar.Top := StartButton.Top;
++  StartProgressBar.Width := StartButton.Width;
++  StartProgressBar.Height := StartButton.Height;
++  StartProgressBar.Min := 0;
++  StartProgressBar.Max := scriptLines.Count-1;
++  StartButton.Visible := False;
++  StartProgressBar.Visible := True;
++
++  if HostBattleForm.relayHoster &lt;&gt; nil then
++  begin
++    startTime := Now;
++    cumulativeDataSent10sBeforeStartTime := Status.CumulativeDataSentHistory.Items[0];
++  end;
++
++  AddTextToChat(_('Sending replay script to relay host ...'),Colors.Info,0);
++
+   MainForm.TryToSendCommand('SCRIPTSTART');
+   for i := 0 to scriptLines.Count-1 do
++  begin
++    StartProgressBar.Position := i;
++    StartProgressBar.Refresh;
++
++    nextScriptLine := 'SCRIPT '+scriptLines[i];
++    while (Status.CumulativeDataSent+Length(nextScriptLine)-cumulativeDataSent10sBeforeStartTime)/(10+(Now-startTime)*86400) &gt; 500 do // 5kB/10s max
++    begin
++      Application.ProcessMessages;
++      Sleep(10);
++    end;
++    Application.ProcessMessages;
+     MainForm.TryToSendCommand('SCRIPT', scriptLines[i]);
++  end;
+   MainForm.TryToSendCommand('SCRIPTEND');
++
++  StartButton.Visible := True;
++  StartProgressBar.Visible := False;
++
++  AddTextToChat(_('Sending replay script to relay host ... done'),Colors.Info,0);
+ end;
+ 
+ procedure TBattleForm.SendBattleDetailsToServer; // call it each time you update some of the battle's inside parameters
+@@ -4386,6 +4425,7 @@
+ procedure TBattleForm.GetNodeClient(index : integer;var realindex : integer;var nodetype : TClientNodeType);
+ var
+   i,j,k : integer;
++  originalClientIndex: integer;
+ begin
+   if index &lt; SortedClientList.Count then begin
+     realindex := BattleState.Battle.Clients.IndexOf(SortedClientList[index]);
+@@ -4397,7 +4437,11 @@
+     nodetype := NormalBot;
+     Exit;
+   end;
+-  realindex := BattleReplayInfo.OriginalClients.IndexOf(SortedOriginalList[index - SortedClientList.Count - SortedBotList.Count]);
++  originalClientIndex := index - SortedClientList.Count - SortedBotList.Count;
++  if originalClientIndex &lt; SortedOriginalList.Count then
++    realindex := BattleReplayInfo.OriginalClients.IndexOf(SortedOriginalList[originalClientIndex])
++  else
++    realindex := -1;
+   nodetype := OriginalClient;
+   realindex := Max(0,realindex);
+ end;
+
+Modified: Lobby/TASClient/HighlightingUnit.dfm
+===================================================================
+--- Lobby/TASClient/HighlightingUnit.dfm	2011-05-28 12:58:33 UTC (rev 7605)
++++ Lobby/TASClient/HighlightingUnit.dfm	2011-06-02 11:51:32 UTC (rev 7606)
+@@ -1,6 +1,6 @@
+ object HighlightingForm: THighlightingForm
+-  Left = 623
+-  Top = 169
++  Left = 841
++  Top = 473
+   Width = 404
+   Height = 396
+   Caption = 'Highlights manager'
+
+Modified: Lobby/TASClient/HighlightingUnit.pas
+===================================================================
+--- Lobby/TASClient/HighlightingUnit.pas	2011-05-28 12:58:33 UTC (rev 7605)
++++ Lobby/TASClient/HighlightingUnit.pas	2011-06-02 11:51:32 UTC (rev 7606)
+@@ -48,6 +48,8 @@
+     { Private declarations }
+   public
+     function getHighlights: TList;
++    procedure addHighlight(keyword: string; caseSensitive: Boolean);
++    procedure clearHighlights;
+   end;
+ 
+ var
+@@ -289,4 +291,15 @@
+   end;
+ end;
+ 
++procedure THighlightingForm.addHighlight(keyword: string; caseSensitive: Boolean);
++begin
++  HighlightsCheckListBox.Items.Add(keyword);
++  HighlightsCheckListBox.Checked[HighlightsCheckListBox.Count-1] := caseSensitive;
++end;
++
++procedure THighlightingForm.clearHighlights;
++begin
++  HighlightsCheckListBox.Clear;
++end;
++
+ end.
+
+Modified: Lobby/TASClient/HostBattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/HostBattleFormUnit.pas	2011-05-28 12:58:33 UTC (rev 7605)
++++ Lobby/TASClient/HostBattleFormUnit.pas	2011-06-02 11:51:32 UTC (rev 7606)
+@@ -185,48 +185,6 @@
+     DisableUnitsForm.PopulateUnitList;
+   end;
+ 
+-  {*with BattleForm do begin
+-    MetalTracker.Minimum := 0;
+-    MetalTracker.Maximum := 10000;
+-    EnergyTracker.Minimum := 0;
+-    EnergyTracker.Maximum := 10000;
+-    UnitsTracker.Minimum := 0;
+-    UnitsTracker.Maximum := 5000;
+-    if ladderIndex &gt;= 0 then
+-    begin
+-      with TLadder(LadderList[LadderComboBox.ItemIndex]) do begin
+-        if StartPos &lt;&gt; 255 then
+-          StartPosRadioGroup.ItemIndex := StartPos;
+-        if GameMode &lt;&gt; 255 then
+-          GameEndRadioGroup.ItemIndex := GameMode;
+-        if MetalMin &lt;&gt; -1 then
+-          if MetalMin = MetalMax then
+-            MetalTracker.Value := MetalMin
+-          else
+-          begin
+-            MetalTracker.Minimum := MetalMin;
+-            MetalTracker.Maximum := MetalMax;
+-          end;
+-        if EnergyMin &lt;&gt; -1 then
+-          if EnergyMin = EnergyMax then
+-            EnergyTracker.Value := EnergyMin
+-          else
+-          begin
+-            EnergyTracker.Minimum := EnergyMin;
+-            EnergyTracker.Maximum := EnergyMax;
+-          end;
+-        if UnitsMin &lt;&gt; -1 then
+-          if UnitsMin = UnitsMax then
+-            UnitsTracker.Value := UnitsMin
+-          else
+-          begin
+-            UnitsTracker.Minimum := UnitsMin;
+-            UnitsTracker.Maximum := UnitsMax;
+-          end;
+-        end;
+-      end;
+-  end; *}
+-
+   s := '';
+   // type:
+   s := s + '0' + ' ';
+@@ -239,27 +197,6 @@
+   else s := s + Trim(PortEdit.Text) + ' ';
+   // max. players:
+   s := s + IntToStr(PlayersTracker.SpinOptions.ValueAsInteger) + ' ';
+-  
+-
+-  // the old system UPDATEBATTLEDETAILS
+-  {// metal:
+-  s := s + IntToStr(BattleForm.MetalTracker.Value) + ' ';
+-  // energy:
+-  s := s + IntToStr(BattleForm.EnergyTracker.Value) + ' ';
+-  // max. units:
+-  s := s + IntToStr(BattleForm.UnitsTracker.Value) + ' ';
+-  // start pos.:
+-  s := s + IntToStr(BattleForm.StartPosRadioGroup.ItemIndex) + ' ';
+-  // game end condition:
+-  s := s + IntToStr(BattleForm.GameEndRadioGroup.ItemIndex) + ' ';
+-  // limit d-gun to startpos:
+-  s := s + IntToStr(BoolToInt(BattleForm.LimitDGunCheckBox.Checked)) + ' ';
+-  // diminishing metal maker returns:
+-  s := s + IntToStr(BoolToInt(BattleForm.DiminishingMMsCheckBox.Checked)) + ' ';
+-  // ghosted buildings:
+-  s := s + IntToStr(BoolToInt(BattleForm.GhostedBuildingsCheckBox.Checked)) + ' ';}
+-
+-
+   // hash code:
+   s := s + IntToStr(GetModHash(ModsComboBox.Items[ModsComboBox.ItemIndex])) + ' ';
+   // rank limit:
+@@ -361,13 +298,6 @@
+     if BattleForm.CurrentMapIndex &lt;&gt; i then BattleForm.ChangeMap(i);
+   end;
+ 
+-  BattleForm.MetalTracker.Min := 0;
+-  BattleForm.MetalTracker.Max := 10000;
+-  BattleForm.EnergyTracker.Min := 0;
+-  BattleForm.EnergyTracker.Max := 10000;
+-  BattleForm.UnitsTracker.Min := 0;
+-  BattleForm.UnitsTracker.Max := 5000;
+-
+   s := '';
+   // type:
+   s := s + '1' + ' ';
+@@ -380,26 +310,6 @@
+   else s := s + Trim(PortEdit.Text) + ' ';
+   // max. players:
+   s := s + IntToStr(PlayersTracker.SpinOptions.ValueAsInteger) + ' ';
+-
+-  {
+-  // metal:
+-  s := s + IntToStr(BattleForm.MetalTracker.Value) + ' ';
+-  // energy:
+-  s := s + IntToStr(BattleForm.EnergyTracker.Value) + ' ';
+-  // max. units:
+-  s := s + IntToStr(BattleForm.UnitsTracker.Value) + ' ';
+-  // start pos.:
+-  s := s + IntToStr(BattleForm.StartPosRadioGroup.ItemIndex) + ' ';
+-  // game end condition:
+-  s := s + IntToStr(BattleForm.GameEndRadioGroup.ItemIndex) + ' ';
+-  // limit d-gun to startpos:
+-  s := s + IntToStr(BoolToInt(BattleForm.LimitDGunCheckBox.Checked)) + ' ';
+-  // diminishing metal maker returns:
+-  s := s + IntToStr(BoolToInt(BattleForm.DiminishingMMsCheckBox.Checked)) + ' ';
+-  // ghosted buildings:
+-  s := s + IntToStr(BoolToInt(BattleForm.GhostedBuildingsCheckBox.Checked)) + ' ';
+-  }
+-
+   // hash code:
+   s := s + IntToStr(GetModHash(ModsComboBox.Items[ModsComboBox.ItemIndex])) + ' ';
+   // rank limit:
+@@ -419,14 +329,33 @@
+   BattleState.LadderIndex := -1;
+ 
+   // send the command:
+-  MainForm.TryToSendCommand('OPENBATTLE', s);
+-
+-  if WaitForAckForm.ShowModal = mrOK then
+-  begin // success
+-    Close;
++  if false and RelayHostCheckBox.Checked then // relay replay hosting not supported yet by spring
++  begin
++    relayHostOpenBattleCmd := '!openbattle '+s;
++    relayHostPassword := PasswordEdit.Text;
++    BattleState.AutoSendDescription := AutoSendDescCheckbox.Checked;
++    BattleState.AutoKickRankLimit := BattleForm.mnuLimitRankAutoKick.Checked;
++    if MainForm.GetClient('RelayHostManagerList') = nil then
++      MessageDlg(_('RelayHostManager offline, you can''t relay host until it gets back online'),mtError,[mbOk],0)
++    else
++    begin
++      MainForm.TryToSendCommand('SAYPRIVATE','RelayHostManagerList !listmanagers');
++      Close;
++    end;
+   end
+   else
+-  begin // failure
++  begin
++    MainForm.TryToSendCommand('OPENBATTLE', s);
++
++    if WaitForAckForm.ShowModal = mrOK then
++    begin // success
++      BattleState.AutoSendDescription := AutoSendDescCheckbox.Checked;
++      BattleState.AutoKickRankLimit := BattleForm.mnuLimitRankAutoKick.Checked;
++      Close;
++    end
++    else
++    begin // failure
++    end;
+   end;
+ end;
+ 
+
+Modified: Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- Lobby/TASClient/LobbyScriptUnit.pas	2011-05-28 12:58:33 UTC (rev 7605)
++++ Lobby/TASClient/LobbyScriptUnit.pas	2011-06-02 11:51:32 UTC (rev 7606)
+@@ -8,7 +8,8 @@
+   OverbyteIcsWSocket,MainUnit, class_TIntegerList, RichEdit2, ExRichEdit,
+   SyncObjs,SpTBXItem, TB2Item, JvDesktopAlert, GR32,
+   SpTBXControls, SpTBXTabs,Forms, ComCtrls, pngimage,
+-  Jpeg, Math, Dockpanel, RichEdit, SpTBXSkins,ActiveX,JclUnicode;
++  Jpeg, Math, Dockpanel, RichEdit, SpTBXSkins,ActiveX,JclUnicode,
++  ColorsPreferenceUnit;
+ 
+ type
+   TScriptForm = class(TForm)
+@@ -226,6 +227,7 @@
+       function ChangeMap(mapName: string): Boolean;
+       function GetSpringExe: String;
+       function GetSettings: Variant;
++      function SetSettings(newSettings: Variant): Boolean;
+ 
+       procedure DownloadMap(mapName: string; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string);
+       procedure DownloadMap2(mapName: string; callbackArgs: Variant; callbackFunction: Variant);
+@@ -292,6 +294,7 @@
+   procedure PyList_AppendDecRef(list: PPyObject; const item : Variant);
+   procedure PyDict_SetItemStringIncRef(dp: PPyObject; Key: PAnsiChar; o : PPyObject);
+   procedure PyDict_SetItemIncRef(dp: PPyObject; Key: PPyObject; o : PPyObject);
++  function PyDict_GetVariantItemString(dict: PPyObject; key: PAnsiChar; defaultValue: Variant): Variant;
+   procedure SafeDecRef(var o : PPyObject);
+   procedure PostMsgs;
+   procedure HostBattle;
+@@ -1271,7 +1274,7 @@
+     PyDict_SetItemStringDecRef( pySettings, 'AdvancedSkinning', Preferences.AdvancedSkinning );
+     PyDict_SetItemStringDecRef( pySettings, 'SkinnedTitlebars', Preferences.SkinnedTitlebars );
+     PyDict_SetItemStringDecRef( pySettings, 'DisableAllSounds', Preferences.DisableAllSounds );
+-    PyDict_SetItemStringDecRef( pySettings, 'UploadReplay', Preferences.UploadReplay );
++    PyDict_SetItemStringDecRef( pySettings, 'ShowReplayUploadFormWhenGameEnd', Preferences.UploadReplay );
+     PyDict_SetItemStringDecRef( pySettings, 'SortLocal', Preferences.SortLocal );
+     PyDict_SetItemStringDecRef( pySettings, 'DisplayQuickJoinPanel', Preferences.DisplayQuickJoinPanel );
+     PyDict_SetItemStringDecRef( pySettings, 'LimitChatLogs', Preferences.LimitChatLogs );
+@@ -1354,6 +1357,11 @@
+     PyDict_SetItemStringDecRef(pyColors,'BotText',Colors.BotText);
+     PyDict_SetItemStringDecRef(pyColors,'MyText',Colors.MyText);
+     PyDict_SetItemStringDecRef(pyColors,'AdminText',Colors.AdminText);
++    PyDict_SetItemStringDecRef(pyColors,'OldMsgs',Colors.OldMsgs);
++    PyDict_SetItemStringDecRef(pyColors,'BattleDetailsNonDefault',Colors.BattleDetailsNonDefault);
++    PyDict_SetItemStringDecRef(pyColors,'BattleDetailsChanged',Colors.BattleDetailsChanged);
++    PyDict_SetItemStringDecRef(pyColors,'ClientIngame',Colors.ClientIngame);
++    PyDict_SetItemStringDecRef(pyColors,'ReplayWinningTeam',Colors.ReplayWinningTeam);
+     PyDict_SetItemString( pySettings, 'Colors', pyColors );
+     Py_XDECREF(pyColors);
+ 
+@@ -1368,8 +1376,8 @@
+ 
+     // profiles
+     pyProfiles := PyDict_New();
+-    PyDict_SetItemStringDecRef(pyProfiles,'Playing',SpringSettingsProfileForm.getSettingsFile(False,False,''));
+-    PyDict_SetItemStringDecRef(pyProfiles,'Spectator',SpringSettingsProfileForm.getSettingsFile(True,False,''));
++    PyDict_SetItemStringDecRef(pyProfiles,'Playing',SpringSettingsProfileForm.getPlayingProfile);
++    PyDict_SetItemStringDecRef(pyProfiles,'Spectator',SpringSettingsProfileForm.getSpectatorProfile);
+     PyDict_SetItemStringDecRef(pyProfiles,'CustomSpringExe',SpringSettingsProfileForm.getCustomSpringExe);
+     pyCustomProfiles := PyList_New(0);
+     for i:=0 to SpringSettingsProfileForm.countCustomProfile-1 do
+@@ -1394,6 +1402,292 @@
+   UnlockCallback;
+ end;
+ 
++function TCallback.SetSettings(newSettings: Variant): Boolean;
++var
++  i: integer;
++  pyNewSettings: PPyObject;
++  newPref: TPreferences;
++  pyPerformCommands: PPyObject;
++  pyHighlights: PPyObject;
++  pyHighlight: PPyObject;
++  sl: TStringList;
++  highlightKeyword: string;
++  highlightCaseSensitive: boolean;
++  pyNotifications: PPyObject;
++  pyNotification: PPyObject;
++  pyNotificationArgs: PPyObject;
++  notificationArgs: TStringList;
++  notificationTypeStr: string;
++  notificationTypeInt: integer;
++  notificationType: TNotificationType;
++  pyColors: PPyObject;
++  pyFont: PPyObject;
++  pyProfiles: PPyObject;
++  pyCustomProfiles: PPyObject;
++  pyCustomProfile: PPyObject;
++  customProfileName: string;
++  customProfilePath: string;
++begin
++  Result := False;
++  with GetPythonEngine do
++  begin
++    pyNewSettings := VariantAsPyObject(newSettings);
++    if not PyDict_Check(pyNewSettings) then
++    begin
++      Print('SetSettings error : first parameter is not a valid python dict.');
++      Exit;
++    end;
++
++    // load preferences
++    newPref := Preferences;
++    newPref.ServerIP := PyDict_GetVariantItemString(pyNewSettings,'ServerIP',newPref.ServerIP);
++    newPref.ServerPort := PyDict_GetVariantItemString(pyNewSettings,'ServerPort',newPref.ServerPort);
++    newPref.TabStyle := PyDict_GetVariantItemString(pyNewSettings,'TabStyle',newPref.TabStyle);
++    newPref.TimeStamps := PyDict_GetVariantItemString(pyNewSettings,'TimeStamps',newPref.TimeStamps);
++    newPref.Username := PyDict_GetVariantItemString(pyNewSettings,'Username',newPref.Username);
++    newPref.Password := PyDict_GetVariantItemString(pyNewSettings,'Password',newPref.Password);
++    newPref.RememberPasswords := PyDict_GetVariantItemString(pyNewSettings,'RememberPasswords',newPref.RememberPasswords);
++    newPref.ConnectOnStartup := PyDict_GetVariantItemString(pyNewSettings,'ConnectOnStartup',newPref.ConnectOnStartup);
++    newPref.FilterJoinLeftMessages := PyDict_GetVariantItemString(pyNewSettings,'FilterJoinLeftMessages',newPref.FilterJoinLeftMessages);
++    newPref.FilterBattleJoinLeftMessages := PyDict_GetVariantItemString(pyNewSettings,'FilterBattleJoinLeftMessages',newPref.FilterBattleJoinLeftMessages);
++    newPref.ShowFlags := PyDict_GetVariantItemString(pyNewSettings,'ShowFlags',newPref.ShowFlags);
++    newPref.MarkUnknownMaps := PyDict_GetVariantItemString(pyNewSettings,'MarkUnknownMaps',newPref.MarkUnknownMaps);
++    newPref.TaskbarButtons := PyDict_GetVariantItemString(pyNewSettings,'TaskbarButtons',newPref.TaskbarButtons);
++    newPref.JoinMainChannel := PyDict_GetVariantItemString(pyNewSettings,'JoinMainChannel',newPref.JoinMainChannel);
++    newPref.ReconnectToBackup := PyDict_GetVariantItemString(pyNewSettings,'ReconnectToBackup',newPref.ReconnectToBackup);
++    newPref.SaveLogs := PyDict_GetVariantItemString(pyNewSettings,'SaveLogs',newPref.SaveLogs);
++    newPref.UseSoundNotifications := PyDict_GetVariantItemString(pyNewSettings,'UseSoundNotifications',newPref.UseSoundNotifications);
++    newPref.AutoCompletionFromCurrentChannel := PyDict_GetVariantItemString(pyNewSettings,'AutoCompletionFromCurrentChannel',newPref.AutoCompletionFromCurrentChannel);
++    newPref.AutoUpdateToBeta := PyDict_GetVariantItemString(pyNewSettings,'AutoUpdateToBeta',newPref.AutoUpdateToBeta);
++    newPref.DisplayUnitsIconsAndNames := PyDict_GetVariantItemString(pyNewSettings,'DisplayUnitsIconsAndNames',newPref.DisplayUnitsIconsAndNames);
++    newPref.DisplayAutohostInterface := PyDict_GetVariantItemString(pyNewSettings,'DisplayAutohostInterface',newPref.DisplayAutohostInterface);
++    newPref.AutoSaveChanSession := PyDict_GetVariantItemString(pyNewSettings,'AutoSaveChanSession',newPref.AutoSaveChanSession);
++    newPref.UseProxy := PyDict_GetVariantItemString(pyNewSettings,'UseProxy',newPref.UseProxy);
++    newPref.ProxyAddress := PyDict_GetVariantItemString(pyNewSettings,'ProxyAddress',newPref.ProxyAddress);
++    newPref.ProxyPort := PyDict_GetVariantItemString(pyNewSettings,'ProxyPort',newPref.ProxyPort);
++    newPref.ProxyUsername := PyDict_GetVariantItemString(pyNewSettings,'ProxyUsername',newPref.ProxyUsername);
++    newPref.ProxyPassword := PyDict_GetVariantItemString(pyNewSettings,'ProxyPassword',newPref.ProxyPassword);
++    newPref.HighlightColor := PyDict_GetVariantItemString(pyNewSettings,'HighlightColor',newPref.HighlightColor);
++    newPref.UseNotificationsForHighlights := PyDict_GetVariantItemString(pyNewSettings,'UseNotificationsForHighlights',newPref.UseNotificationsForHighlights);
++    newPref.UseIgnoreList := PyDict_GetVariantItemString(pyNewSettings,'UseIgnoreList',newPref.UseIgnoreList);
++    newPref.WarnIfUsingNATTraversing := PyDict_GetVariantItemString(pyNewSettings,'WarnIfUsingNATTraversing',newPref.WarnIfUsingNATTraversing);
++    newPref.AutoFocusOnPM := PyDict_GetVariantItemString(pyNewSettings,'AutoFocusOnPM',newPref.AutoFocusOnPM);
++    newPref.ThemeType := PyDict_GetVariantItemString(pyNewSettings,'ThemeType',newPref.ThemeType);
++    newPref.Theme := PyDict_GetVariantItemString(pyNewSettings,'Theme',newPref.Theme);
++    newPref.AdvancedSkinning := PyDict_GetVariantItemString(pyNewSettings,'AdvancedSkinning',newPref.AdvancedSkinning);
++    newPref.SkinnedTitlebars := PyDict_GetVariantItemString(pyNewSettings,'SkinnedTitlebars',newPref.SkinnedTitlebars);
++    newPref.DisableAllSounds := PyDict_GetVariantItemString(pyNewSettings,'DisableAllSounds',newPref.DisableAllSounds);
++    newPref.UploadReplay := PyDict_GetVariantItemString(pyNewSettings,'ShowReplayUploadFormWhenGameEnd',newPref.UploadReplay);
++    newPref.SortLocal := PyDict_GetVariantItemString(pyNewSettings,'SortLocal',newPref.SortLocal);
++    newPref.DisplayQuickJoinPanel := PyDict_GetVariantItemString(pyNewSettings,'DisplayQuickJoinPanel',newPref.DisplayQuickJoinPanel);
++    newPref.LimitChatLogs := PyDict_GetVariantItemString(pyNewSettings,'LimitChatLogs',newPref.LimitChatLogs);
++    newPref.ChatLogsLimit := PyDict_GetVariantItemString(pyNewSettings,'ChatLogsLimit',newPref.ChatLogsLimit);
++    newPref.ChatLogLoadLoading := PyDict_GetVariantItemString(pyNewSettings,'ChatLogLoadLoading',newPref.ChatLogLoadLoading);
++    newPref.ChatLogLoadLines := PyDict_GetVariantItemString(pyNewSettings,'ChatLogLoadLines',newPref.ChatLogLoadLines);
++    newPref.SPSkin := PyDict_GetVariantItemString(pyNewSettings,'SPSkin',newPref.SPSkin);
++    newPref.EnableScripts := PyDict_GetVariantItemString(pyNewSettings,'EnableScripts',newPref.EnableScripts);
++    newPref.EnableSpringDownloader := PyDict_GetVariantItemString(pyNewSettings,'EnableSpringDownloader',newPref.EnableSpringDownloader);
++    newPref.UseLogonForm := PyDict_GetVariantItemString(pyNewSettings,'UseLogonForm',newPref.UseLogonForm);
++    newPref.DisableNews := PyDict_GetVariantItemString(pyNewSettings,'DisableNews',newPref.DisableNews);
++    newPref.LanguageCode := PyDict_GetVariantItemString(pyNewSettings,'LanguageCode',newPref.LanguageCode);
++    newPref.DisableMapDetailsLoading := PyDict_GetVariantItemString(pyNewSettings,'DisableMapDetailsLoading',newPref.DisableMapDetailsLoading);
++    newPref.LoadMetalHeightMinimaps := PyDict_GetVariantItemString(pyNewSettings,'LoadMetalHeightMinimaps',newPref.LoadMetalHeightMinimaps);
++
++    PreferencesForm.applyPreferences(newPref,true);
++    try if not Preferences.ScriptsDisabled then handlers.onSettingsChanged(); except end;
++
++    // perform commands
++    pyPerformCommands := PyDict_GetItemString(pyNewSettings,'PerformCommands');
++    if pyPerformCommands &lt;&gt; nil then
++    if not PyList_Check(pyPerformCommands) then
++    begin
++      Print('SetSettings warning : &quot;PerformCommands&quot; ignored because it is not a valid list');
++    end
++    else
++    begin
++      sl := TStringList.Create;
++      pyListToStrings(pyPerformCommands,sl);
++      PerformForm.setPerformList(sl);
++      sl.Free;
++    end;
++
++    // highlights
++    pyHighlights := PyDict_GetItemString(pyNewSettings,'Highlights');
++    if pyHighlights &lt;&gt; nil then
++    if not PyList_Check(pyHighlights) then
++    begin
++      Print('SetSettings warning : &quot;Highlights&quot; ignored because it is not a valid list');
++    end
++    else
++    begin
++      HighlightingForm.clearHighlights;
++      for i:=0 to PyList_Size(pyHighlights)-1 do
++      begin
++        pyHighlight := PyList_GetItem(pyHighlights,i);
++        if not PyDict_Check(pyHighlight) then
++        begin
++          Print('SetSettings warning : &quot;Highlights['+IntToStr(i)+']&quot; ignored because it is not a valid dict');
++        end
++        else
++        begin
++          highlightKeyword := PyDict_GetVariantItemString(pyHighlight,'Keyword','');
++          highlightCaseSensitive := PyDict_GetVariantItemString(pyHighlight,'CaseSensitive',False);
++          if highlightKeyword = '' then
++          begin
++            Print('SetSettings warning : &quot;Highlights['+IntToStr(i)+'][''Keyword'']&quot; not found, highlight ignored');
++          end
++          else
++          begin
++            HighlightingForm.addHighlight(highlightKeyword,highlightCaseSensitive);
++          end;
++        end;
++      end;
++    end;
++
++    // notifications
++    pyNotifications := PyDict_GetItemString(pyNewSettings,'Notifications');
++    if pyNotifications &lt;&gt; nil then
++    if not PyList_Check(pyNotifications) then
++    begin
++      Print('SetSettings warning : &quot;Notifications&quot; ignored because it is not a valid list');
++    end
++    else
++    begin
++      NotificationsForm.ClearNotifications;
++      for i:=0 to PyList_Size(pyNotifications)-1 do
++      begin
++        pyNotification := PyList_GetItem(pyNotifications,i);
++        if not PyDict_Check(pyNotification) then
++        begin
++          Print('SetSettings warning : &quot;Notifications['+IntToStr(i)+']&quot; ignored because it is not a valid dict');
++        end
++        else
++        begin
++          notificationTypeStr := PyDict_GetVariantItemString(pyNotification,'Type','');
++          pyNotificationArgs := PyDict_GetItemString(pyNotification,'Args');
++          notificationArgs := TStringList.Create;
++          PyListToStrings(pyNotificationArgs,notificationArgs);
++          if notificationTypeStr = '' then
++          begin
++            Print('SetSettings warning : &quot;Notifications['+IntToStr(i)+'][''Type'']&quot; not found, notification ignored');
++          end
++          else
++          begin
++            notificationTypeInt := GetEnumValue(TypeInfo(TNotificationType),notificationTypeStr);
++            if notificationTypeInt = -1 then
++            begin
++              Print('SetSettings warning : &quot;Notifications['+IntToStr(i)+'][''Type'']&quot; is not a valid notification type, notification ignored');
++            end
++            else
++            begin
++              notificationType := TNotificationType(notificationTypeInt);
++              if not NotificationsForm.AddNotification(notificationType,notificationArgs) then
++              begin
++                Print('SetSettings warning : &quot;Notifications['+IntToStr(i)+'][''Args'']&quot; doesn''t fit the notification type, notification ignored');
++              end;
++            end;
++          end;
++          notificationArgs.Free;
++        end;
++      end;
++      NotificationsForm.UpdateNotificationList;
++    end;
++
++    // colors
++    pyColors := PyDict_GetItemString(pyNewSettings,'Colors');
++    if pyColors &lt;&gt; nil then
++    if not PyDict_Check(pyColors) then
++    begin
++      Print('SetSettings warning : &quot;Colors&quot; ignored because it is not a valid dict');
++    end
++    else
++    begin
++      Colors.Normal := PyDict_GetVariantItemString(pyColors,'Normal',Colors.Normal);
++      Colors.Data := PyDict_GetVariantItemString(pyColors,'Data',Colors.Data);
++      Colors.Error := PyDict_GetVariantItemString(pyColors,'Error',Colors.Error);
++      Colors.Info := PyDict_GetVariantItemString(pyColors,'Info',Colors.Info);
++      Colors.MinorInfo := PyDict_GetVariantItemString(pyColors,'MinorInfo',Colors.MinorInfo);
++      Colors.ChanJoin := PyDict_GetVariantItemString(pyColors,'ChanJoin',Colors.ChanJoin);
++      Colors.ChanLeft := PyDict_GetVariantItemString(pyColors,'ChanLeft',Colors.ChanLeft);
++      Colors.MOTD := PyDict_GetVariantItemString(pyColors,'MOTD',Colors.MOTD);
++      Colors.SayEx := PyDict_GetVariantItemString(pyColors,'SayEx',Colors.SayEx);
++      Colors.Topic := PyDict_GetVariantItemString(pyColors,'Topic',Colors.Topic);
++      Colors.ClientAway := PyDict_GetVariantItemString(pyColors,'ClientAway',Colors.ClientAway);
++      Colors.MapModUnavailable := PyDict_GetVariantItemString(pyColors,'MapModUnavailable',Colors.MapModUnavailable);
++      Colors.BotText := PyDict_GetVariantItemString(pyColors,'BotText',Colors.BotText);
++      Colors.MyText := PyDict_GetVariantItemString(pyColors,'MyText',Colors.MyText);
++      Colors.AdminText := PyDict_GetVariantItemString(pyColors,'AdminText',Colors.AdminText);
++      Colors.OldMsgs := PyDict_GetVariantItemString(pyColors,'OldMsgs',Colors.OldMsgs);
++      Colors.BattleDetailsNonDefault := PyDict_GetVariantItemString(pyColors,'BattleDetailsNonDefault',Colors.BattleDetailsNonDefault);
++      Colors.BattleDetailsChanged := PyDict_GetVariantItemString(pyColors,'BattleDetailsChanged',Colors.BattleDetailsChanged);
++      Colors.ClientIngame := PyDict_GetVariantItemString(pyColors,'ClientIngame',Colors.ClientIngame);
++      Colors.ReplayWinningTeam := PyDict_GetVariantItemString(pyColors,'ReplayWinningTeam',Colors.ReplayWinningTeam);
++    end;
++
++    // font
++    pyFont := PyDict_GetItemString(pyNewSettings,'Font');
++    if pyFont &lt;&gt; nil then
++    if not PyDict_Check(pyFont) then
++    begin
++      Print('SetSettings warning : &quot;Font&quot; ignored because it is not a valid dict');
++    end
++    else
++    begin
++      CommonFont.Name := PyDict_GetVariantItemString(pyFont,'Name',CommonFont.Name);
++      CommonFont.Size := PyDict_GetVariantItemString(pyFont,'Size',CommonFont.Size);
++      ColorsPreference.ApplyFont;
++    end;
++
++    // groups : available with SetGroups
++
++    // profiles
++    pyProfiles := PyDict_GetItemString(pyNewSettings,'SpringProfiles');
++    if pyProfiles &lt;&gt; nil then
++    if not PyDict_Check(pyProfiles) then
++    begin
++      Print('SetSettings warning : &quot;SpringProfiles&quot; ignored because it is not a valid dict');
++    end
++    else
++    begin
++      SpringSettingsProfileForm.setPlayingProfile(PyDict_GetVariantItemString(pyProfiles,'Playing',SpringSettingsProfileForm.getPlayingProfile));
++      SpringSettingsProfileForm.setSpectatorProfile(PyDict_GetVariantItemString(pyProfiles,'Spectator',SpringSettingsProfileForm.getSpectatorProfile));
++      SpringSettingsProfileForm.setCustomSpringExe(PyDict_GetVariantItemString(pyProfiles,'CustomSpringExe',SpringSettingsProfileForm.getCustomSpringExe));
++
++      pyCustomProfiles := PyDict_GetItemString(pyProfiles,'Custom');
++      if pyCustomProfiles &lt;&gt; nil then
++      if not PyList_Check(pyCustomProfiles) then
++      begin
++        Print('SetSettings warning : &quot;SpringProfiles[''Custom'']&quot; ignored because it is not a valid list');
++      end
++      else
++      begin
++        SpringSettingsProfileForm.clearCustomProfiles;
++        for i:=0 to PyList_Size(pyCustomProfiles)-1 do
++        begin
++          pyCustomProfile := PyList_GetItem(pyCustomProfiles,i);
++          if (pyCustomProfile = nil) or not PyDict_Check(pyCustomProfile) then
++          begin
++            Print('SetSettings warning : &quot;SpringProfiles[''Custom'']['+IntToStr(i)+']&quot; is not a valid dict, custom profile ignored');
++          end
++          else
++          begin
++            customProfileName := PyDict_GetVariantItemString(pyCustomProfile,'Name','');
++            customProfilePath := PyDict_GetVariantItemString(pyCustomProfile,'SettingsFile','');
++            if (customProfileName = '') or (customProfilePath = '') then
++            begin
++              Print('SetSettings warning : &quot;SpringProfiles[''Custom'']['+IntToStr(i)+'][''Name'' and/or ''SettingsFile'']&quot; is missing, custom profile ignored');
++            end
++            else
++            begin
++              SpringSettingsProfileForm.addCustomProfile(customProfileName,customProfilePath);
++            end;
++          end;
++        end;
++      end;
++    end;
++  end;
++end;
++
+ function TCallback.GetMaps: Variant;
+ var
+   pyMap: PPyObject;
+@@ -3532,6 +3826,19 @@
+   ReleaseMainThread;
+ end;
+ 
++function PyDict_GetVariantItemString(dict: PPyObject; key: PAnsiChar; defaultValue: Variant): Variant;
++var
++  pyDictValue: PPyObject;
++begin
++  with GetPythonEngine do
++  begin
++    Assert(PyDict_Check(dict));
++    pyDictValue := PyDict_GetItemString(dict,key);
++    if pyDictValue = nil then
++      Result := defaultValue
++    else
++      Result := PyObjectAsVariant(pyDictValue);
++  end;
++end;
+ 
+-
+ end.
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2011-05-28 12:58:33 UTC (rev 7605)
++++ Lobby/TASClient/MainUnit.dfm	2011-06-02 11:51:32 UTC (rev 7606)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 284
+-  Top = 575
++  Left = 600
++  Top = 301
+   Width = 883
+   Height = 553
+   Caption = 'TASClient'
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2011-05-28 12:58:33 UTC (rev 7605)
++++ Lobby/TASClient/MainUnit.pas	2011-06-02 11:51:32 UTC (rev 7606)
+@@ -38,7 +38,7 @@
+       'spring'
+     );
+ 
+-  RelayedCommands : array[0..17] of string =
++  RelayedCommands : array[0..20] of string =
+    (
+       'UPDATEBATTLEINFO',
+       'SETSCRIPTTAGS',
+@@ -57,7 +57,10 @@
+       'HANDICAP',
+       'REMOVEBOT',
+       'UPDATEBOT',
+-      'RING'
++      'RING',
++      'SCRIPTSTART',
++      'SCRIPT',
++      'SCRIPTEND'
+     );
+   CommandList : array[0..45] of string =
+    (
+@@ -498,6 +501,7 @@
+   WM_UNLOCK_WINDOW = WM_USER + 15; // used to unlock the menu form display to avoid white flashes
+   WM_REFRESHMAINLOG = WM_USER + 16; // used to avoid richedit problems
+   WM_SPRINGSOCKETMSG = WM_USER + 17; // used to display chat msg ingame
++  WM_ASYNCPREFUPDATE = WM_USER + 18; // used to update the preferences in the main thread (from python)
+ 
+   QUEUE_LENGTH = 4096;
+ 
+@@ -1618,6 +1622,7 @@
+     procedure WMAfterCreate(var AMsg: TMessage); message WM_AFTERCREATE; // we will do some post-initialization here
+     procedure RefreshMainLog(var AMsg: TMessage); message WM_REFRESHMAINLOG;
+     procedure OnSpringSocketMsg(var AMsg: TMessage); message WM_SPRINGSOCKETMSG;
++    procedure OnAsyncPreferencesUpdate(var Msg: TMessage); message WM_ASYNCPREFUPDATE;
+ 
+     function LoadImagesDynamically: Boolean;
+ 
+@@ -2203,6 +2208,15 @@
+       ConnectButton.OnClick(nil);
+ end;
+ 
++procedure TMainForm.OnAsyncPreferencesUpdate(var Msg: TMessage); // responds to WM_ASYNCPREFUPDATE message
++var
++  oldPref: PPreferences;
++begin
++  oldPref := PPreferences(Msg.WParam);
++  PreferencesForm.asyncApplyPreferences(oldPref^);
++  FreeMemory(oldPref);
++end;
++
+ procedure TMainForm.OnForceReconnectMessage(var Msg: TMessage); // responds to WM_FORCERECONNECT message
+ begin
+   if Status.ConnectionState &lt;&gt; Disconnected then
+@@ -5124,7 +5138,6 @@
+   else
+     cList := lastActiveTab.Clients;
+ 
+-
+   for i:=0 to cList.Count-1 do
+   begin
+     try
+@@ -5135,7 +5148,6 @@
+     if TClient(cList[i]).Visible then Inc(c);
+   end;
+ 
+-
+   LastIndex := ClientsListBox.TopIndex;
+   TempItemIndex := ClientsListBox.ItemIndex;
+   TempCount := ClientsListBox.Items.Count;
+@@ -7170,20 +7182,30 @@
+ 
+       tmpBool := False;
+       Misc.ShowAndSetFocus(BattleForm.InputEdit);
+-      if Battle.BattleType = 0 then
+-        if (HostBattleForm.relayHoster &lt;&gt; nil) and (TClient(Battle.Clients[0]) = HostBattleForm.relayHoster) then
+-        begin
+-          BattleState.JoiningComplete := False;
+-          tmpBool := BattleForm.HostBattle(i);
+-        end                                   
++
++      if (HostBattleForm.relayHoster &lt;&gt; nil) and (TClient(Battle.Clients[0]) = HostBattleForm.relayHoster) then
++      begin
++        BattleState.JoiningComplete := False;
++        if Battle.BattleType = 0 then
++          tmpBool := BattleForm.HostBattle(i)
+         else
++          tmpBool := BattleForm.HostBattleReplay(i);
++      end
++      else
++      begin
++        if Battle.BattleType = 0 then
+           tmpBool := BattleForm.JoinBattle(i)
+-      else
+-        tmpBool := BattleForm.JoinBattleReplay(i);
++        else
++          tmpBool := BattleForm.JoinBattleReplay(i);
++      end;
++
+       if tmpBool then
+       begin
+-        Status.BattleStatusRequestReceived := False;
+-        Status.BattleStatusRequestSent := False;
++        if (HostBattleForm.relayHoster = nil) then
++        begin
++          Status.BattleStatusRequestReceived := False;
++          Status.BattleStatusRequestSent := False;
++        end;
+ 
+         // update battle parameters:
+         Battle.HashCode := t;
+@@ -8305,6 +8327,10 @@
+         Exit;
+       end;
+ 
++      // we are hosting with a relay host, no need to apply the script again
++      if HostBattleForm.relayHoster &lt;&gt; nil then
++        Exit;
++
+       if not BattleForm.IsBattleActive then
+       begin
+         // not a big problem. This can happen because of lag (we could get this command just after we left the battle)
+
+Modified: Lobby/TASClient/NotificationsUnit.pas
+===================================================================
+--- Lobby/TASClient/NotificationsUnit.pas	2011-05-28 12:58:33 UTC (rev 7605)
++++ Lobby/TASClient/NotificationsUnit.pas	2011-06-02 11:51:32 UTC (rev 7606)
+@@ -42,14 +42,6 @@
+ 
+     procedure CreateParams(var Params: TCreateParams); override;
+ 
+-    function AddNotification(NfType: TNotificationType; const Args: array of const): Boolean;
+-    function FindNotification(NfType: TNotificationType; const Args: array of const): Boolean;
+-    function countNotifications: integer;
+-    function getNotification(index: integer; var NfType: TNotificationType; var Args: TStringList): Boolean;
+-    procedure UpdateNotificationList;
+-    procedure SaveNotificationListToFile(FileName: string);
+-    procedure LoadNotificationListFromFile(FileName: string);
+-
+     procedure Button1Click(Sender: TObject);
+     procedure FormCreate(Sender: TObject);
+     procedure FormDestroy(Sender: TObject);
+@@ -59,7 +51,17 @@
+   private
+     { Private declarations }
+   public
+-    { Public declarations }
++  
++    function AddNotification(NfType: TNotificationType; const Args: array of const): Boolean; overload;
++    function AddNotification(NfType: TNotificationType; const Args: TStringList): Boolean; overload;
++    function FindNotification(NfType: TNotificationType; const Args: array of const): Boolean; overload;
++    function FindNotification(NfType: TNotificationType; const Args: TStringList): Boolean; overload;
++    function countNotifications: integer;
++    function getNotification(index: integer; var NfType: TNotificationType; var Args: TStringList): Boolean;
++    procedure UpdateNotificationList;
++    procedure SaveNotificationListToFile(FileName: string);
++    procedure LoadNotificationListFromFile(FileName: string);
++    procedure ClearNotifications;
+   end;
+ 
+ 
+@@ -87,6 +89,61 @@
+   end;
+ end;
+ 
++function TNotificationsForm.AddNotification(NfType: TNotificationType; const Args: TStringList): Boolean;
++var
++  Name1, Name2: string;
++begin
++  Result := False;
++
++  if FindNotification(NfType, Args) then Exit; // no need to add it, since equivalent notification already exists
++
++  try
++    case NfType of
++      nfJoinedChannel:
++      begin
++        if Args.Count &lt;&gt; 2 then Exit;
++        Name1 := Args[0]; // player
++        Name2 := Args[1]; // channel
++      end;
++
++      nfJoinedBattle:
++      begin
++        if Args.Count &lt;&gt; 0 then Exit;
++      end;
++
++      nfJoinedMyHostedBattle:
++      begin
++        if Args.Count &lt;&gt; 0 then Exit;
++      end;
++
++      nfStatusInBattle:
++      begin
++        if Args.Count &lt;&gt; 1 then Exit;
++        Name1 := Args[0]; // player
++      end;
++
++      nfModHosted:
++      begin
++        if Args.Count &lt;&gt; 1 then Exit;
++        Name1 := Args[0]; // mod
++      end;
++    end; // of case sentence
++  except
++    Exit;
++  end;
++
++  // add it:
++  case NfType of
++    nfJoinedChannel: Notifications[NfType].Add(Name1 + '|' + Name2);
++    nfJoinedBattle: Notifications[NfType].Add('');
++    nfJoinedMyHostedBattle: Notifications[NfType].Add('');
++    nfStatusInBattle: Notifications[NfType].Add(Name1);
++    nfModHosted: Notifications[NfType].Add(Name1);
++  end;
++
++  Result := True;
++end;
++
+ // returns True if notification exists
+ function TNotificationsForm.AddNotification(NfType: TNotificationType; const Args: array of const): Boolean;
+ var
+@@ -142,6 +199,107 @@
+   Result := True;
+ end;
+ 
++function TNotificationsForm.FindNotification(NfType: TNotificationType; const Args: TStringList): Boolean;
++var
++  i: Integer;
++  Name1, Name2: string;
++  sl: TStringList;
++begin
++  Result := False;
++
++  try
++    case NfType of
++      nfJoinedChannel:
++      begin
++        if sl.Count &lt;&gt; 2 then Exit;
++        Name1 := Args[0]; // player
++        Name2 := Args[1]; // channel
++      end;
++
++      nfJoinedBattle:
++      begin
++        if sl.Count &lt;&gt; 0 then Exit;
++      end;
++
++      nfJoinedMyHostedBattle:
++      begin
++        if sl.Count &lt;&gt; 0 then Exit;
++      end;
++
++      nfStatusInBattle:
++      begin
++        if sl.Count &lt;&gt; 1 then Exit;
++        Name1 := Args[0]; // player
++      end;
++
++      nfModHosted:
++      begin
++        if sl.Count &lt;&gt; 1 then Exit;
++        Name1 := Args[0]; // player
++      end;
++    end; // of case sentence
++  except
++    Exit;
++  end;
++
++  for i := 0 to Notifications[NfType].Count-1 do
++  try
++    try
++      sl := ParseString(Notifications[NfType][i], '|');
++
++      case NfType of
++        nfJoinedChannel:
++        begin
++          if sl.Count &lt;&gt; 2 then Exit;
++          if sl[0] &lt;&gt; Name1 then Continue;
++          if sl[1] &lt;&gt; Name2 then Continue;
++          // else:
++          Result := True;
++          Exit;
++        end;
++
++        nfJoinedBattle:
++        begin
++          if sl.Count &lt;&gt; 0 then Exit;
++          // else:
++          Result := True;
++          Exit;
++        end;
++
++        nfJoinedMyHostedBattle:
++        begin
++          if sl.Count &lt;&gt; 0 then Exit;
++          // else:
++          Result := True;
++          Exit;
++        end;
++
++        nfStatusInBattle:
++        begin
++          if sl.Count &lt;&gt; 1 then Exit;
++          if sl[0] &lt;&gt; Name1 then Continue;
++          // else:
++          Result := True;
++          Exit;
++        end;
++
++        nfModHosted:
++        begin
++          if sl.Count &lt;&gt; 1 then Exit;
++          if Pos(UpperCase(sl[0]),UpperCase(Name1)) = 0 then Continue;
++          // else:
++          Result := True;
++          Exit;
++        end;
++      end; // of case sentence
++    except
++      Exit;
++    end;
++  finally
++    sl.Free;
++  end;
++end;
++
+ // returns True if notification exists
+ function TNotificationsForm.FindNotification(NfType: TNotificationType; const Args: array of const): Boolean;
+ var
+@@ -383,7 +541,8 @@
+ begin
+   TranslateComponent(self);
+   
+-  for i := 0 to Length(Notifications)-1 do Notifications[TNotificationType(i)] := TStringList.Create;
++  for i := 0 to Length(Notifications)-1 do
++    Notifications[TNotificationType(i)] := TStringList.Create;
+ end;
+ 
+ procedure TNotificationsForm.FormDestroy(Sender: TObject);
+@@ -446,4 +605,12 @@
+   UpdateNotificationList;
+ end;
+ 
++procedure TNotificationsForm.ClearNotifications;
++var
++  i: integer;
++begin
++  for i := 0 to Length(Notifications)-1 do
++    Notifications[TNotificationType(i)].Clear;
++end;
++
+ end.
+
+Modified: Lobby/TASClient/PerformFormUnit.pas
+===================================================================
+--- Lobby/TASClient/PerformFormUnit.pas	2011-05-28 12:58:33 UTC (rev 7605)
++++ Lobby/TASClient/PerformFormUnit.pas	2011-06-02 11:51:32 UTC (rev 7606)
+@@ -42,6 +42,7 @@
+     procedure addAutoJoinChannel(channelName: string);
+     procedure removeAutoJoinChannel(channelName: string);
+     function getPerformList:TStringList;
++    procedure setPerformList(performList: TStringList);
+   end;
+ 
+ var
+@@ -241,4 +242,10 @@
+   Result.AddStrings(CommandsListBox.Items.AnsiStrings);
+ end;
+ 
++procedure TPerformForm.setPerformList(performList: TStringList);
++begin
++  CommandsListBox.Items.Clear;
++  CommandsListBox.Items.AddStrings(performList);
++end;
++
+ end.
+
+Modified: Lobby/TASClient/PreferencesFormUnit.pas
+===================================================================
+--- Lobby/TASClient/PreferencesFormUnit.pas	2011-05-28 12:58:33 UTC (rev 7605)
++++ Lobby/TASClient/PreferencesFormUnit.pas	2011-06-02 11:51:32 UTC (rev 7606)
+@@ -113,6 +113,7 @@
+     DisableMapDetailsLoading: Boolean;
+     LoadMetalHeightMinimaps: Boolean;
+   end;
++  PPreferences = ^TPreferences;
+ 
+   TPreferencesForm = class(TForm)
+     AddressPopupMenu: TSpTBXPopupMenu;
+@@ -293,6 +294,8 @@
+     
+     procedure PopulateServerListMenu;
+     function isLoggedOnOfficialServer: Boolean;
++    procedure applyPreferences(newPref: TPreferences; async: boolean);
++    procedure asyncApplyPreferences(oldPref: TPreferences);
+   end;
+ 
+   TServerListItem =
+@@ -1565,31 +1568,10 @@
+   SaveOnClose := False;
+ end;
+ 
+-procedure TPreferencesForm.FormClose(Sender: TObject;
+-  var Action: TCloseAction);
++procedure TPreferencesForm.asyncApplyPreferences(oldPref: TPreferences);
+ var
+-  oldPref : TPreferences;
+   mapIndex : integer;
+-  i: integer;
+ begin
+-  ActiveControl := ApplyAndCloseButton;
+-  { Wonder why we need ActiveControl := ApplyAndCloseButton ? We need it in this case: if focus was on
+-    the radio button when we closed the form (by clicking the 'X' so that focus remained on radio button),
+-    then that same radio button would get automatically selected when form is shown and so ignoring any
+-    changes we made in OnShow event to Checked properties of any of the radio buttons. If you call
+-    TRadioButton.SetFocus, it will automatically set it's Checked property to true.
+-
+-    Note (01x05x06): With 0.23 and older version I used to do ActiveControl := nil,
+-    which actually seemed to work with normal TRadioButton-s, but it didn't work
+-    anymore with TSpTBXRadioButton, so I changed it to ActiveControl := ApplyAndCloseButton
+-    (doesn't really matter what control, as long as it is not a radio button). }
+-
+-  if SaveOnClose then
+-  begin
+-    oldPref := Preferences;
+-    UpdatePreferencesTo(Preferences); // save changes to p
+-    UpdatePreferencesFrom(Preferences); // update changes from p
+-
+     if not oldPref.LoadMetalHeightMinimaps and Preferences.LoadMetalHeightMinimaps then
+     begin
+       mapIndex := BattleForm.CurrentMapIndex;
+@@ -1613,7 +1595,52 @@
+       DisableUnitsForm.PopulateUnitList;
+       BattleForm.PopulateDisabledUnitsVDT;
+     end;
++end;
+ 
++procedure TPreferencesForm.applyPreferences(newPref: TPreferences; async: boolean);
++var
++  oldPref: PPreferences;
++begin
++  New(oldPref);
++  oldPref^ := Preferences;
++  Preferences := newPref;
++  UpdatePreferencesFrom(Preferences); // update changes from p
++
++  if async then
++  begin
++    PostMessage(MainForm.Handle,WM_ASYNCPREFUPDATE,Integer(oldPref),0);
++  end
++  else
++  begin
++    asyncApplyPreferences(oldPref^);
++    FreeMemory(oldPref);
++  end;
++end;
++
++procedure TPreferencesForm.FormClose(Sender: TObject;
++  var Action: TCloseAction);
++var
++  newPref: TPreferences;
++begin
++  ActiveControl := ApplyAndCloseButton;
++  { Wonder why we need ActiveControl := ApplyAndCloseButton ? We need it in this case: if focus was on
++    the radio button when we closed the form (by clicking the 'X' so that focus remained on radio button),
++    then that same radio button would get automatically selected when form is shown and so ignoring any
++    changes we made in OnShow event to Checked properties of any of the radio buttons. If you call
++    TRadioButton.SetFocus, it will automatically set it's Checked property to true.
++
++    Note (01x05x06): With 0.23 and older version I used to do ActiveControl := nil,
++    which actually seemed to work with normal TRadioButton-s, but it didn't work
++    anymore with TSpTBXRadioButton, so I changed it to ActiveControl := ApplyAndCloseButton
++    (doesn't really matter what control, as long as it is not a radio button). }
++
++  if SaveOnClose then
++  begin
++    newPref := Preferences;
++    UpdatePreferencesTo(newPref); // save changes to p
++
++    applyPreferences(newPref,false);
++
+     AcquireMainThread;
+     try if not Preferences.ScriptsDisabled then handlers.onSettingsChanged(); except end;
+     ReleaseMainThread;
+
+Modified: Lobby/TASClient/Python/api.txt
+===================================================================
+--- Lobby/TASClient/Python/api.txt	2011-05-28 12:58:33 UTC (rev 7605)
++++ Lobby/TASClient/Python/api.txt	2011-06-02 11:51:32 UTC (rev 7606)
+@@ -94,6 +94,8 @@
+ 	Threaded function retreiving the Rapid tags. When the download is finished, it calls the callback function and insert the tags list as first argument
+ - GetSpringExe 
+ 	return the full spring exe path
++- GetSettings
++- SetSettings(settings)
+ 
+ GUI Class
+ ---------
+
+Modified: Lobby/TASClient/SpringSettingsProfileFormUnit.dfm
+===================================================================
+--- Lobby/TASClient/SpringSettingsProfileFormUnit.dfm	2011-05-28 12:58:33 UTC (rev 7605)
++++ Lobby/TASClient/SpringSettingsProfileFormUnit.dfm	2011-06-02 11:51:32 UTC (rev 7606)
+@@ -1,6 +1,6 @@
+ object SpringSettingsProfileForm: TSpringSettingsProfileForm
+-  Left = 316
+-  Top = 369
++  Left = 489
++  Top = 110
+   BorderIcons = [biSystemMenu, biMinimize]
+   BorderStyle = bsSingle
+   Caption = 'Spring settings profiles'
+
+Modified: Lobby/TASClient/SpringSettingsProfileFormUnit.pas
+===================================================================
+--- Lobby/TASClient/SpringSettingsProfileFormUnit.pas	2011-05-28 12:58:33 UTC (rev 7605)
++++ Lobby/TASClient/SpringSettingsProfileFormUnit.pas	2011-06-02 11:51:32 UTC (rev 7606)
+@@ -43,10 +43,17 @@
+     function countCustomProfile: integer;
+     procedure getCustomProfile(index: integer; var name: string; var settingsFile: string);
+     function getSettingsFile(spectator: boolean;custom: boolean; customProfileName: string):string;
++    function getPlayingProfile: string;
++    function getSpectatorProfile: string;
++    procedure setPlayingProfile(filePath: string);
++    procedure setSpectatorProfile(filePath: string);
+     procedure SaveProfiles;
+     procedure LoadProfiles;
+     function getSpringExe:string;
+     function getCustomSpringExe: string;
++    procedure setCustomSpringExe(filePath: string);
++    procedure clearCustomProfiles;
++    procedure addCustomProfile(name: string; filePath: string);
+   end;
+ 
+ var
+@@ -241,4 +248,43 @@
+   Result := beCustomSpringExe.Text;
+ end;
+ 
++procedure TSpringSettingsProfileForm.setPlayingProfile(filePath: string);
++begin
++  bePlaying.Text := filePath;
++end;
++
++procedure TSpringSettingsProfileForm.setSpectatorProfile(filePath: string);
++begin
++  beSpectator.Text := filePath;
++end;
++
++function TSpringSettingsProfileForm.getPlayingProfile: string;
++begin
++  Result := bePlaying.Text;
++end;
++
++function TSpringSettingsProfileForm.getSpectatorProfile: string;
++begin
++  Result := beSpectator.Text;
++end;
++
++procedure TSpringSettingsProfileForm.setCustomSpringExe(filePath: string);
++begin
++  beCustomSpringExe.Text := filePath;
++end;
++
++procedure TSpringSettingsProfileForm.clearCustomProfiles;
++begin
++  cpNames.Clear;
++  cpFiles.Clear;
++  lstCustom.Clear;
++end;
++
++procedure TSpringSettingsProfileForm.addCustomProfile(name: string; filePath: string);
++begin
++  cpNames.Add(name);
++  cpFiles.Add(filePath);
++  lstCustom.Items.Add(name + ' =&gt; ' + filePath);
++end;
++
+ end.
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2011-05-28 12:58:33 UTC (rev 7605)
++++ Lobby/TASClient/TASClient.dof	2011-06-02 11:51:32 UTC (rev 7606)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=89
+ Release=0
+-Build=1302
++Build=1304
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.89.0.1302
++FileVersion=0.89.0.1304
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+Modified: Lobby/TASClient/Utility.pas
+===================================================================
+--- Lobby/TASClient/Utility.pas	2011-05-28 12:58:33 UTC (rev 7605)
++++ Lobby/TASClient/Utility.pas	2011-06-02 11:51:32 UTC (rev 7606)
+@@ -965,7 +965,7 @@
+   New(defaultSection);
+   defaultSection^ := TLuaOptionSection.Create;
+   defaultSection^.Key := '__defaultSection__';
+-  defaultSection^.Name := _('Main Options');
++  defaultSection^.Name := _('Other Options');
+   defaultSection^.Description := '';
+   defaultSection^.Section := '';
+   defaultSection^.hasChanged := False;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002377.html">[Taspring-linux-commit] r7607 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2376">[ date ]</a>
+              <a href="thread.html#2376">[ thread ]</a>
+              <a href="subject.html#2376">[ subject ]</a>
+              <a href="author.html#2376">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

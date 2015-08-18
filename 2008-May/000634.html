@@ -1,0 +1,724 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5854 - trunk/Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5854%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080508143523.63F5746D2%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000633.html">
+   <LINK REL="Next"  HREF="000635.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5854 - trunk/Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5854%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080508143523.63F5746D2%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5854 - trunk/Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu May  8 16:35:23 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000633.html">[Taspring-linux-commit] r5853 - trunk/rts/Lua
+</A></li>
+        <LI>Next message: <A HREF="000635.html">[Taspring-linux-commit] r5855 - in trunk: AI/Global/AAI game/AI/AAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#634">[ date ]</a>
+              <a href="thread.html#634">[ thread ]</a>
+              <a href="subject.html#634">[ subject ]</a>
+              <a href="author.html#634">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2008-05-08 16:35:22 +0200 (Thu, 08 May 2008)
+New Revision: 5854
+
+Modified:
+   trunk/Lobby/TASClient/BattleFormUnit.dfm
+   trunk/Lobby/TASClient/BattleFormUnit.pas
+   trunk/Lobby/TASClient/MainUnit.dfm
+   trunk/Lobby/TASClient/MainUnit.pas
+   trunk/Lobby/TASClient/Misc.pas
+   trunk/Lobby/TASClient/PreferencesFormUnit.dfm
+   trunk/Lobby/TASClient/PreferencesFormUnit.pas
+   trunk/Lobby/TASClient/TASClient.dof
+   trunk/Lobby/TASClient/TASClient.res
+   trunk/Lobby/TASClient/Utility.pas
+Log:
+- filter battle join/left msgs option added
+- url-auto detection reenabled everytimes you get a new msgs to fix the bug
+- TLadderMapThread : lot of synchronize added (it should fix the map size bug)
+- TLadderMapThread now use the PopulatePopupMenuMapList
+- PopulatePopupMenuMapList doesn't reload the mod each time, but the valids maps are stored once you change the mod
+- successfully reporting a ladder game should tell other people that it worked
+- if you just ended your battle and you get one success reporting msg from one player it should reload ranks and cups but only once per battle end + msg
+
+Modified: trunk/Lobby/TASClient/BattleFormUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/BattleFormUnit.dfm	2008-05-07 16:06:27 UTC (rev 5853)
++++ trunk/Lobby/TASClient/BattleFormUnit.dfm	2008-05-08 14:35:22 UTC (rev 5854)
+@@ -1,6 +1,6 @@
+ object BattleForm: TBattleForm
+-  Left = 747
+-  Top = 95
++  Left = 1194
++  Top = 127
+   Width = 748
+   Height = 586
+   Caption = 'Battle window'
+@@ -5134,7 +5134,7 @@
+   end
+   object AdminPopupMenu: TSpTBXPopupMenu
+     Left = 316
+-    Top = 497
++    Top = 489
+     object mnuRingAllNotRdy: TSpTBXItem
+       Caption = 'Ring all not ready'
+       OnClick = mnuRingAllNotRdyClick
+@@ -5250,8 +5250,8 @@
+     Top = 427
+   end
+   object LadderPopupMenu: TSpTBXPopupMenu
+-    Left = 692
+-    Top = 459
++    Left = 676
++    Top = 483
+     object SpTBXItem9: TSpTBXItem
+       Caption = 'Rules'
+       OnClick = SpTBXItem9Click
+
+Modified: trunk/Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/BattleFormUnit.pas	2008-05-07 16:06:27 UTC (rev 5853)
++++ trunk/Lobby/TASClient/BattleFormUnit.pas	2008-05-08 14:35:22 UTC (rev 5854)
+@@ -546,6 +546,14 @@
+ 
+   TLadderMapThread = class(TDialogThread)
+   private
++    StatusMsg : string;
++    StartButtonEnabled: boolean;
++
++    procedure Initialize;
++    procedure Finalize(sbe : boolean);
++    procedure Finalizer;
++    procedure ShowMessageStatus;
++    procedure UpdateMessageStatus(msg : string);
+     procedure Refresh;
+     procedure OnTerminateProcedure(Sender : TObject);
+ 
+@@ -1154,13 +1162,10 @@
+     Exit;
+   end;
+ 
+-  ReInitLib;
+-  LoadMod(Utility.ModArchiveList[Utility.ModList.IndexOf(BattleState.Battle.ModName)]);
+-  validMaps := GetModValidMapList;
+   if BattleState.LadderIndex &gt; -1 then
+   begin
+     for i:=0 to Utility.MapList.Count-1 do
+-      if (TLadder(LadderList[BattleState.LadderIndex]).Maps.IndexOf(Utility.MapList[i]) &gt;= 0) and ((validMaps.Count =0) or (validMaps.IndexOf(Utility.MapList[i]) &gt;= 0)) then
++      if (TLadder(LadderList[BattleState.LadderIndex]).Maps.IndexOf(Utility.MapList[i]) &gt;= 0) and ((Utility.ModValidMaps.Count =0) or (Utility.ModValidMaps.IndexOf(Utility.MapList[i]) &gt;= 0)) then
+         MapsPopupStringList.Strings.Add(Utility.MapList[i]);
+   end
+   else
+@@ -1169,8 +1174,8 @@
+       MapsPopupStringList.Strings.Assign(Utility.MapList)
+     else
+       for i:=0 to validMaps.Count-1 do
+-        if Utility.MapList.IndexOf(validMaps[i]) &gt;= 0 then
+-          MapsPopupStringList.Strings.Add(validMaps[i]);
++        if Utility.MapList.IndexOf(Utility.ModValidMaps[i]) &gt;= 0 then
++          MapsPopupStringList.Strings.Add(Utility.ModValidMaps[i]);
+   end;
+ end;
+ 
+@@ -3032,6 +3037,8 @@
+     else
+     begin
+       AddTextToChat('Back from the game', Colors.Info, 1);
++      if BattleState.Battle &lt;&gt; nil then
++        BattleState.Battle.RefreshRanksNCupsOnSuccessReport := True;
+       Status.AmIInGame := False;
+       MainForm.TryToSendCommand('MYSTATUS', '0'); // let's tell the server we returned from the game
+ 
+@@ -3041,6 +3048,8 @@
+   else
+   begin
+     AddTextToChat('Back from the game', Colors.Info, 1);
++    if BattleState.Battle &lt;&gt; nil then
++        BattleState.Battle.RefreshRanksNCupsOnSuccessReport := True;
+     Status.AmIInGame := False;
+     MainForm.TryToSendCommand('MYSTATUS', '0'); // let's tell the server we returned from the game
+ 
+@@ -3207,6 +3216,7 @@
+   Misc.ParseDelimited(ResponseStrList,ResponseStr,' ','');
+   if (ResponseStrList.Count &gt; 0) and (ResponseStrList[0] = 'notice') then begin
+     ResponseStrList.Delete(0);
++    MainForm.TryToSendCommand('SAYBATTLEEX', 'has successfully reported the game.');
+     MessageDlgThread(Misc.JoinStringList(ResponseStrList,' '), mtInformation,[mbOk], 0);
+   end
+   else
+@@ -5520,17 +5530,44 @@
+   Refresh;
+ end;
+ 
++procedure TLadderMapThread.Initialize;
++begin
++    BattleForm.MapsPopupStringList.Enabled := false;
++    BattleForm.MapsPopupStringList.Strings.Clear;
++    BattleForm.MapsPopupStringList.Strings.Add('Loading ladder map list ...');
++    BattleForm.StartButton.Enabled := False;
++end;
++
++procedure TLadderMapThread.Finalize(sbe : boolean);
++begin
++    StartButtonEnabled := sbe;
++    Synchronize(Finalizer);
++end;
++
++procedure TLadderMapThread.Finalizer;
++begin
++    BattleForm.StartButton.Enabled := StartButtonEnabled;
++end;
++
++procedure TLadderMapThread.ShowMessageStatus;
++begin
++  BattleForm.MapsPopupStringList.Strings.Strings[0] := StatusMsg;
++end;
++
++procedure TLadderMapThread.UpdateMessageStatus(msg : string);
++begin
++  StatusMsg := msg;
++  Synchronize(ShowMessageStatus);
++end;
++
+ procedure TLadderMapThread.Refresh;
+ var
+   html:string;
+   i: integer;
++  sl : TStringList;
+ begin
+   with BattleForm do begin
+-    MapsPopupStringList.Enabled := false;
+-    MapsPopupStringList.Strings.Clear;
+-    MapsPopupStringList.Strings.Add('Loading ladder map list ...');
+-    StartButton.Enabled := False;
+-
++    Synchronize(Initialize);
+     // get the html result
+ 
+     if Preferences.UseProxy then
+@@ -5551,11 +5588,10 @@
+         HttpCli2.Get;
+       except
+         //MainForm.AddMainLog('Error: Ladder map list unavailable :'+IntToStr(TLadder(LadderList[BattleState.LadderIndex]).id), Colors.Error);
+-        MapsPopupStringList.Strings.Strings[0] := 'Error: Ladder server unavailable.';
+-        StartButton.Enabled := BattleState.Battle.AreAllClientsReady and BattleState.Battle.AreAllClientsSynced and BattleForm.LadderTeamReady;
++        UpdateMessageStatus('Error: Ladder server unavailable.');
++        Finalize(BattleState.Battle.AreAllClientsReady and BattleState.Battle.AreAllClientsSynced and BattleForm.LadderTeamReady);
+         MessageDlgThread('The ladder server is unavailable, if the ladder url has changed you may fix this by updating your lobby.',mtError,[mbOk],0);
+         Synchronize(BattleForm.DisconnectButtonClick);
+-        MapsPopupStringList.Enabled := True;
+         Exit;
+       end;
+     end;
+@@ -5563,30 +5599,25 @@
+     SetLength(html, HttpCli2.RcvdStream.Size);
+     HttpCli2.RcvdStream.ReadBuffer(Pointer(html)^, HttpCli2.RcvdStream.Size);
+ 
+-    if html = '' then begin
+-      MapsPopupStringList.Strings.Strings[0] := 'Error: Empty map list.';
++    if html = '' then
++    begin
++      UpdateMessageStatus('Error: Empty map list.');
+       Exit;
+     end;
+ 
+     if LowerCase(LeftStr(html,6)) = 'error' then
+     begin
+-      MapsPopupStringList.Strings.Strings[0] := 'Error: Ladder not found.';
++      //UpdateMessageStatus('Error: Ladder not found.');
+       MessageDlgThread('The ladder you joined does not exist, if the ladder url has changed you may fix this by updating your lobby.',mtError,[mbOk],0);
+       Synchronize(BattleForm.DisconnectButtonClick);
+-      MapsPopupStringList.Enabled := True;
++      Finalize(false);
+       Exit;
+     end;
+ 
+     Misc.ParseDelimited(TLadder(LadderList[BattleState.LadderIndex]).Maps,html,#$A,'');
+ 
+-    MapsPopupStringList.Strings.Clear;
++    Synchronize(BattleForm.PopulatePopupMenuMapList);
+ 
+-    for i:=0 to Utility.MapList.Count-1 do
+-      if TLadder(LadderList[BattleState.LadderIndex]).Maps.IndexOf(Utility.MapList[i]) &gt;= 0 then
+-        MapsPopupStringList.Strings.Add(Utility.MapList[i]);
+-
+-    MapsPopupStringList.Enabled := True;
+-
+     if BattleState.Status = Hosting then
+       if MapsPopupStringList.Strings.Count &gt; 0 then
+       begin
+@@ -5597,10 +5628,25 @@
+       else
+       begin
+         DisconnectButtonClick(nil);
+-        MessageDlgThread('To host this ladder battle, you need at least one of the following map :'+EOL+Misc.JoinStringList(TLadder(LadderList[BattleState.LadderIndex]).Maps,' ; '), mtWarning, [mbOK], 0);
+-        MapsPopupStringList.Enabled := True;
++        sl := TStringList.Create;
++        if Utility.ModValidMaps.Count = 0 then
++          sl.Assign(TLadder(LadderList[BattleState.LadderIndex]).Maps)
++        else
++        begin
++          for i:=0 to Utility.ModValidMaps.Count-1 do
++          begin
++            if TLadder(LadderList[BattleState.LadderIndex]).Maps.IndexOf(Utility.ModValidMaps[i]) &gt; -1 then
++              sl.Add(Utility.ModValidMaps[i]);
++          end;
++        end;
++        if sl.Count = 0 then
++          MessageDlgThread('You can''t play this ladder with that mod because no map from the ladder is valid for this mod.', mtWarning, [mbOK], 0)
++        else
++          MessageDlgThread('To host this ladder battle, you need at least one of the following map :'+EOL+Misc.JoinStringList(sl,' ; '), mtWarning, [mbOK], 0);
+         Exit;
+       end;
++
++    Finalize(BattleState.Battle.AreAllClientsReady and BattleState.Battle.AreAllClientsSynced and BattleForm.LadderTeamReady);
+   end;
+ 
+ end;
+
+Modified: trunk/Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.dfm	2008-05-07 16:06:27 UTC (rev 5853)
++++ trunk/Lobby/TASClient/MainUnit.dfm	2008-05-08 14:35:22 UTC (rev 5854)
+@@ -716,8 +716,8 @@
+                 Width = 45
+                 WideText = 'Avg Players rank'
+                 WideHint = 
+-                  'The average player rank tells you how experienced the players ar' +
+-                  'e in the battle.'
++                  'The average players rank tells you how experienced the players a' +
++                  're in the battle.'
+               end
+               item
+                 Position = 7
+
+Modified: trunk/Lobby/TASClient/MainUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.pas	2008-05-07 16:06:27 UTC (rev 5853)
++++ trunk/Lobby/TASClient/MainUnit.pas	2008-05-08 14:35:22 UTC (rev 5854)
+@@ -510,7 +510,7 @@
+ 
+ const
+   VERSION_NUMBER = '0.37'; // Must be float value! (with a period as a decimal seperator)
+-  BETA_NUMBER = 302;
++  BETA_NUMBER = 303;
+   CHECK_BETA_LOBBY_URL = '<A HREF="http://tasclient.no-ip.org/TASClient.txt">http://tasclient.no-ip.org/TASClient.txt</A>';
+   PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER + ' beta';
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+@@ -794,6 +794,7 @@
+     Bots: TList; // bots in this battle.
+     RankLimit: Shortint; // if 0, no rank limit is set. If 1 or higher, only players with this rank (or higher) can join the battle (Note: rank index 1 means seconds rank, not the first one, since you can't limit game to players of the first rank because that means game is open to all players and you don't have to limit it in that case)
+     Visible : boolean;
++    RefreshRanksNCupsOnSuccessReport: boolean;
+ 
+     Description: WideString;
+     Map: String; // .smf file name, not archive file name!
+@@ -2523,6 +2524,7 @@
+   Clients := TList.Create;
+   Bots := TList.Create;
+   CurrentHighLightGroup := -1;
++  RefreshRanksNCupsOnSuccessReport := False;
+ end;
+ 
+ destructor TBattle.Destroy;
+@@ -3473,9 +3475,9 @@
+     ReplaysUnit.TReadReplaysThrd.Create(False); // start reading replays from disk
+ 
+     // reenable auto URL detection for $local because it's doesn't work the first time
+-    mask := SendMessage(((PageControl1.Pages[0] as TMyTabSheet).Controls[1] as TTntRichEdit).Handle, EM_GETEVENTMASK, 0, 0);
+-    SendMessage(((PageControl1.Pages[0] as TMyTabSheet).Controls[1] as TTntRichEdit).Handle, EM_SETEVENTMASK, 0, mask or ENM_LINK);
+-    SendMessage(((PageControl1.Pages[0] as TMyTabSheet).Controls[1] as TTntRichEdit).Handle, EM_AUTOURLDETECT, Integer(True), 0);
++    //mask := SendMessage(((PageControl1.Pages[0] as TMyTabSheet).Controls[1] as TTntRichEdit).Handle, EM_GETEVENTMASK, 0, 0);
++    //SendMessage(((PageControl1.Pages[0] as TMyTabSheet).Controls[1] as TTntRichEdit).Handle, EM_SETEVENTMASK, 0, mask or ENM_LINK);
++    //SendMessage(((PageControl1.Pages[0] as TMyTabSheet).Controls[1] as TTntRichEdit).Handle, EM_AUTOURLDETECT, Integer(True), 0);
+ 
+     ReplaysForm.LoadReplayFiltersFromFile;
+     ReplaysForm.UpdateReplayFilters;
+@@ -5128,7 +5130,13 @@
+         AddMainLog('Error: Server sent ambiguous command!', Colors.Error);
+         Exit;
+       end;
+-
++      tmp := MakeSentenceWS(sl, 2);
++      if (tmp = 'has successfully reported the game.') and BattleState.Battle.IsLadderBattle and BattleState.Battle.RefreshRanksNCupsOnSuccessReport then
++      begin
++        BattleForm.RefreshLadderRanks;
++        LadderCupsRefreshTimer(nil);
++        BattleState.Battle.RefreshRanksNCupsOnSuccessReport := false;
++      end;
+       BattleForm.AddTextToChat('* ' + sl[1] + ' ' + MakeSentenceWS(sl, 2), Colors.SayEx, 1);
+     end
+     else if sl[0] = 'REQUESTBATTLESTATUS' then
+@@ -5513,7 +5521,7 @@
+       if BattleForm.IsBattleActive then
+         if Battle.ID = BattleFormUnit.BattleState.Battle.ID then
+         begin
+-          if not Preferences.FilterJoinLeftMessages then
++          if not Preferences.FilterBattleJoinLeftMessages then
+             BattleForm.AddTextToChat('* ' + Client.Name + ' has joined battle', Colors.ChanJoin, 1);
+           BattleForm.SortClientList(Preferences.BattleClientSortStyle,Preferences.BattleClientSortDirection,False);
+           BattleForm.UpdateClientsListBox;
+@@ -5609,7 +5617,7 @@
+       if BattleForm.IsBattleActive then
+         if Battle.ID = BattleFormUnit.BattleState.Battle.ID then
+         begin
+-          if not Preferences.FilterJoinLeftMessages then
++          if not Preferences.FilterBattleJoinLeftMessages then
+             BattleForm.AddTextToChat('* ' + Client.Name + ' has left battle', Colors.ChanLeft, 1);
+           BattleForm.SortClientList(Preferences.BattleClientSortStyle,Preferences.BattleClientSortDirection,True);
+           BattleForm.UpdateClientsListBox;
+@@ -7921,7 +7929,7 @@
+ var
+   Battle: TBattle;
+   i : integer;
+-
++  tmpStr : string;
+ begin
+   R := Rect(0, 0, 0, 0);
+   Battle := GetBattleFromNode(Node);
+@@ -7932,6 +7940,9 @@
+     else if Header.Columns[Column].Text = 'Mod' then
+       R := Rect(0, 0, Canvas.TextWidth(Battle.ModName) + 20, 18)
+     else if Header.Columns[Column].Text = 'State' then
++    begin
++      if Battle.NATType &gt; 0 then
++        tmpStr := ' NAT Traversal enabled, you may not be able to join this battle.';
+       if Battle.IsBattleInProgress then
+         R := Rect(0, 0, Canvas.TextWidth('Battle in progress, you can''t join it.') + 20, 18)
+       else if Battle.Locked then
+@@ -7939,14 +7950,14 @@
+       else if Battle.Password and not Battle.IsLadderBattle then
+         R := Rect(0, 0, Canvas.TextWidth('You need the password to join that battle.') + 20, 18)
+       else if Battle.IsBattleFull then
+-        R := Rect(0, 0, Canvas.TextWidth('The battle is full, you can join but you will be spectator.') + 20, 18)
++        R := Rect(0, 0, Canvas.TextWidth('The battle is full, you can join but you will be spectator.'+tmpStr) + 20, 18)
+       else if Battle.RankLimit &gt; Status.Me.GetRank then
+-        R := Rect(0, 0, Canvas.TextWidth('You don''t have the rank required to join that battle. However you can still try to join it if you think you are good enough.') + 20, 18)
++        R := Rect(0, 0, Canvas.TextWidth('You don''t have the rank required to join that battle. However you can still try to join it if you think you are good enough.'+tmpStr) + 20, 18)
+       else if Battle.IsLadderBattle then
+-        R := Rect(0, 0, Canvas.TextWidth('This is a ladder battle, you can join it. Read the help(F1) for further information.') + 20, 18)
++        R := Rect(0, 0, Canvas.TextWidth('This is a ladder battle, you can join it. Read the help(F1) for further information.'+tmpStr) + 20, 18)
+       else
+-        R := Rect(0, 0, Canvas.TextWidth('Battle opened.') + 20, 18)
+-
++        R := Rect(0, 0, Canvas.TextWidth('Battle opened.'+tmpStr) + 20, 18);
++    end
+     else if Header.Columns[Column].Text = 'Map' then
+     begin
+       if Utility.MapList.IndexOf(Battle.Map) &gt; -1 then
+@@ -7967,6 +7978,7 @@
+ var
+   Battle : TBattle;
+   i:integer;
++  tmpStr : string;
+ begin
+   with Sender as TVirtualDrawTree, HintCanvas do
+   begin
+@@ -7982,6 +7994,9 @@
+     else if Header.Columns[Column].Text = 'Mod' then
+       TextOut(5, 2, Battle.ModName)
+     else if Header.Columns[Column].Text = 'State' then
++    begin
++      if Battle.NATType &gt; 0 then
++        tmpStr := ' NAT Traversal enabled, you may not be able to join this battle.';
+       if Battle.IsBattleInProgress then
+         TextOut(5, 2, 'Battle in progress, you can''t join it.')
+       else if Battle.Locked then
+@@ -7989,13 +8004,14 @@
+       else if Battle.Password and not Battle.IsLadderBattle then
+         TextOut(5, 2, 'You need the password to join that battle.')
+       else if Battle.IsBattleFull then
+-        TextOut(5, 2, 'The battle is full, you can join but you will be spectator.')
++        TextOut(5, 2, 'The battle is full, you can join but you will be spectator.'+tmpStr)
+       else if Battle.RankLimit &gt; Status.Me.GetRank then
+-        TextOut(5, 2, 'You don''t have the rank required to join that battle. However you can still try to join it if you think you are good enough.')
++        TextOut(5, 2, 'You don''t have the rank required to join that battle. However you can still try to join it if you think you are good enough.'+tmpStr)
+       else if Battle.IsLadderBattle then
+-        TextOut(5, 2, 'This is a ladder battle, you can join it. Read the help(F1) for further information.')
++        TextOut(5, 2, 'This is a ladder battle, you can join it. Read the help(F1) for further information.'+tmpStr)
+       else
+-        TextOut(5, 2, 'Battle opened.')
++        TextOut(5, 2, 'Battle opened.'+tmpStr);
++    end
+     else if Header.Columns[Column].Text = 'Map' then
+     begin
+       if Utility.MapList.IndexOf(Battle.Map) &gt; -1 then
+
+Modified: trunk/Lobby/TASClient/Misc.pas
+===================================================================
+--- trunk/Lobby/TASClient/Misc.pas	2008-05-07 16:06:27 UTC (rev 5853)
++++ trunk/Lobby/TASClient/Misc.pas	2008-05-08 14:35:22 UTC (rev 5854)
+@@ -374,7 +374,13 @@
+   SelStart, SelLength: Integer;
+   p: TPoint;
+   pMax: TPoint;
++  mask : Word;
+ begin
++  // enable auto URL detection each time because sometimes the links disapears
++  mask := SendMessage(RichEdit.Handle, EM_GETEVENTMASK, 0, 0);
++  SendMessage(RichEdit.Handle, EM_SETEVENTMASK, 0, mask or ENM_LINK);
++  SendMessage(RichEdit.Handle, EM_AUTOURLDETECT, Integer(True), 0);
++
+   Text := Tnt_WideStringReplace(Text,#$0B,' ',[rfReplaceAll]);
+ 
+   RichEdit.Lines.BeginUpdate;
+
+Modified: trunk/Lobby/TASClient/PreferencesFormUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/PreferencesFormUnit.dfm	2008-05-07 16:06:27 UTC (rev 5853)
++++ trunk/Lobby/TASClient/PreferencesFormUnit.dfm	2008-05-08 14:35:22 UTC (rev 5854)
+@@ -727,7 +727,7 @@
+           end
+           object CheckBox4: TSpTBXCheckBox
+             Left = 24
+-            Top = 72
++            Top = 88
+             Width = 108
+             Height = 15
+             Caption = 'Show country flags'
+@@ -737,7 +737,7 @@
+           end
+           object CheckBox5: TSpTBXCheckBox
+             Left = 24
+-            Top = 88
++            Top = 104
+             Width = 147
+             Height = 15
+             Caption = 'Mark unknown maps/mods'
+@@ -747,7 +747,7 @@
+           end
+           object CheckBox6: TSpTBXCheckBox
+             Left = 24
+-            Top = 104
++            Top = 120
+             Width = 251
+             Height = 15
+             Caption = 'Use taskbar button for each form (requires restart)'
+@@ -755,7 +755,7 @@
+           end
+           object WarnNATCheckBox: TSpTBXCheckBox
+             Left = 24
+-            Top = 120
++            Top = 136
+             Width = 271
+             Height = 15
+             Caption = 'Display warning icons on battles using NAT traversing'
+@@ -765,7 +765,7 @@
+           end
+           object AutoFocusOnPMCheckBox: TSpTBXCheckBox
+             Left = 24
+-            Top = 136
++            Top = 152
+             Width = 262
+             Height = 15
+             Caption = 'Automatically switch focus to new private messages'
+@@ -775,7 +775,7 @@
+           end
+           object DisableAllSoundsCheckBox: TSpTBXCheckBox
+             Left = 24
+-            Top = 152
++            Top = 168
+             Width = 103
+             Height = 15
+             Caption = 'Disable all sounds'
+@@ -783,7 +783,7 @@
+           end
+           object UploadReplayCheckBox: TSpTBXCheckBox
+             Left = 24
+-            Top = 200
++            Top = 216
+             Width = 245
+             Height = 15
+             Caption = 'Ask to upload replay after the end of each battle'
+@@ -792,7 +792,7 @@
+           end
+           object SortLocalCheckBox: TSpTBXCheckBox
+             Left = 24
+-            Top = 168
++            Top = 184
+             Width = 132
+             Height = 15
+             Caption = 'Sort the $local player list'
+@@ -800,12 +800,20 @@
+           end
+           object DisplayQuickJoinPanelCheckBox: TSpTBXCheckBox
+             Left = 24
+-            Top = 184
++            Top = 200
+             Width = 131
+             Height = 15
+             Caption = 'Display Quick join panel'
+             TabOrder = 10
+           end
++          object FilterBattleJoinLeftCheckBox: TSpTBXCheckBox
++            Left = 24
++            Top = 72
++            Width = 157
++            Height = 15
++            Caption = 'Filter battle join/left messages'
++            TabOrder = 11
++          end
+         end
+       end
+     end
+
+Modified: trunk/Lobby/TASClient/PreferencesFormUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/PreferencesFormUnit.pas	2008-05-07 16:06:27 UTC (rev 5853)
++++ trunk/Lobby/TASClient/PreferencesFormUnit.pas	2008-05-08 14:35:22 UTC (rev 5854)
+@@ -39,6 +39,7 @@
+     BattleClientSortStyle : Byte; // tab index
+     BattleClientSortDirection : Boolean; // 0 - ASCENDING, 1 - DESCDENDING
+     FilterJoinLeftMessages: Boolean;
++    FilterBattleJoinLeftMessages: Boolean;
+     ShowFlags: Boolean;
+     MarkUnknownMaps: Boolean; // if true, all maps which you don't have will be marked in the battle list with red color
+     TaskbarButtons: Boolean; // if true, each form has its own taskbar button
+@@ -155,6 +156,7 @@
+     ManageGroupsButton: TSpTBXButton;
+     SortLocalCheckBox: TSpTBXCheckBox;
+     DisplayQuickJoinPanelCheckBox: TSpTBXCheckBox;
++    FilterBattleJoinLeftCheckBox: TSpTBXCheckBox;
+ 
+     function BattleSortStyleToColumn(SortStyle: Integer): Integer;
+     function ColumnToBattleSortStyle(Column: Integer): Integer;
+@@ -239,13 +241,13 @@
+     procedure OnTerminateProcedure(Sender : TObject);
+   protected
+     procedure Execute; override;
+-    
++
+   public
+     constructor Create(Suspended : Boolean;newUserName : string);
+   end;
+ 
+ const
+-  DEFAULT_PREFERENCES: TPreferences = (ServerIP:'taspringmaster.clan-sy.com'; ServerPort:'8200'; TabStyle:0; TimeStamps: True; Username:''; Password:''; ConnectOnStartup: False; SortStyle: 1; BattleSortStyle: 1; BattleSortDirection: 0; BattleClientSortStyle: 2;FilterJoinLeftMessages: False; ShowFlags: True; MarkUnknownMaps: True; TaskbarButtons: True; JoinMainChannel: True; ReconnectToBackup: True; SaveLogs: True; UseSoundNotifications: True;CheckForNewVersion: False; UseProxy: False; HighlightColor: 'Green'; UseNotificationsForHighlights: True; UseIgnoreList: False; WarnIfUsingNATTraversing: True; AutoFocusOnPM: True; MapSortStyle: 1; ThemeType: thtTBX; Theme: 'Miranda'; DisableAllSounds: False; SortLocal: False; DisplayQuickJoinPanel : True);
++  DEFAULT_PREFERENCES: TPreferences = (ServerIP:'taspringmaster.clan-sy.com'; ServerPort:'8200'; TabStyle:0; TimeStamps: True; Username:''; Password:''; ConnectOnStartup: False; SortStyle: 1; BattleSortStyle: 1; BattleSortDirection: 0; BattleClientSortStyle: 2;FilterJoinLeftMessages: False;FilterBattleJoinLeftMessages: False; ShowFlags: True; MarkUnknownMaps: True; TaskbarButtons: True; JoinMainChannel: True; ReconnectToBackup: True; SaveLogs: True; UseSoundNotifications: True;CheckForNewVersion: False; UseProxy: False; HighlightColor: 'Green'; UseNotificationsForHighlights: True; UseIgnoreList: False; WarnIfUsingNATTraversing: True; AutoFocusOnPM: True; MapSortStyle: 1; ThemeType: thtTBX; Theme: 'Miranda'; DisableAllSounds: False; SortLocal: False; DisplayQuickJoinPanel : True);
+ 
+ var
+   PreferencesForm: TPreferencesForm;
+@@ -298,6 +300,7 @@
+     try Preferences.BattleClientSortStyle := Misc.GetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'BattleClientSortStyle'); except end;
+     try Preferences.BattleClientSortDirection := Misc.GetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'BattleClientSortDirection'); except end;
+     try Preferences.FilterJoinLeftMessages := Misc.GetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'FilterJoinLeftMessages'); except end;
++    try Preferences.FilterBattleJoinLeftMessages := Misc.GetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'FilterBattleJoinLeftMessages'); except end;
+     try Preferences.ShowFlags := Misc.GetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'ShowFlags'); except end;
+     try Preferences.MarkUnknownMaps := Misc.GetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'MarkUnknownMaps'); except end;
+     try Preferences.TaskbarButtons := Misc.GetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'TaskbarButtons'); except end;
+@@ -556,6 +559,7 @@
+     Misc.SetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'BattleClientSortStyle', rdInteger, Preferences.BattleClientSortStyle);
+     Misc.SetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'BattleClientSortDirection', rdInteger, Preferences.BattleClientSortDirection);
+     Misc.SetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'FilterJoinLeftMessages', rdInteger, Misc.BoolToInt(Preferences.FilterJoinLeftMessages));
++    Misc.SetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'FilterBattleJoinLeftMessages', rdInteger, Misc.BoolToInt(Preferences.FilterBattleJoinLeftMessages));
+     Misc.SetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'ShowFlags', rdInteger, Misc.BoolToInt(Preferences.ShowFlags));
+     Misc.SetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'MarkUnknownMaps', rdInteger, Misc.BoolToInt(Preferences.MarkUnknownMaps));
+     Misc.SetRegistryData(HKEY_CURRENT_USER, '\Software\TASClient\Preferences', 'TaskbarButtons', rdInteger, Misc.BoolToInt(Preferences.TaskbarButtons));
+@@ -734,6 +738,7 @@
+   // SortStyle and BattleSortStyle get updated automatically (in Preferences) when we select certain sorting sytle
+ 
+   p.FilterJoinLeftMessages := CheckBox3.Checked;
++  p.FilterBattleJoinLeftMessages := FilterBattleJoinLeftCheckBox.Checked;
+   p.ShowFlags := CheckBox4.Checked;
+   p.MarkUnknownMaps := CheckBox5.Checked;
+   p.TaskbarButtons := CheckBox6.Checked;
+@@ -799,6 +804,7 @@
+   if p.BattleSortDirection = 0 then MainForm.VDTBattles.Header.SortDirection := sdAscending else MainForm.VDTBattles.Header.SortDirection := sdDescending;
+ 
+   CheckBox3.Checked := p.FilterJoinLeftMessages;
++  FilterBattleJoinLeftCheckBox.Checked := p.FilterBattleJoinLeftMessages;
+   CheckBox4.Checked := p.ShowFlags;
+   CheckBox5.Checked := p.MarkUnknownMaps;
+   CheckBox6.Checked := p.TaskbarButtons;
+
+Modified: trunk/Lobby/TASClient/TASClient.dof
+===================================================================
+--- trunk/Lobby/TASClient/TASClient.dof	2008-05-07 16:06:27 UTC (rev 5853)
++++ trunk/Lobby/TASClient/TASClient.dof	2008-05-08 14:35:22 UTC (rev 5854)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=3
+ Release=0
+-Build=302
++Build=303
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TA Spring lobby client
+-FileVersion=0.3.0.302
++FileVersion=0.3.0.303
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: trunk/Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+Modified: trunk/Lobby/TASClient/Utility.pas
+===================================================================
+--- trunk/Lobby/TASClient/Utility.pas	2008-05-07 16:06:27 UTC (rev 5853)
++++ trunk/Lobby/TASClient/Utility.pas	2008-05-08 14:35:22 UTC (rev 5854)
+@@ -70,6 +70,8 @@
+   UnitNames: TStrings; // list of unit names
+   UnitList: TStrings; // list of &quot;code names&quot; of units
+ 
++  ModValidMaps: TStringList; //
++
+   SideList: TStringList; // list of mod's sides, like &quot;Arm&quot;, &quot;Core&quot;, etc.
+   SideImageList: TImageList; // images of sides. Also see SideList
+ 
+@@ -419,6 +421,7 @@
+ procedure LoadMod(ModName: string);
+ begin
+   AddAllArchives(PChar(ModName));
++  ModValidMaps := GetModValidMapList;
+ end;
+ 
+ { ------------------------------------------------------------------------ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000633.html">[Taspring-linux-commit] r5853 - trunk/rts/Lua
+</A></li>
+	<LI>Next message: <A HREF="000635.html">[Taspring-linux-commit] r5855 - in trunk: AI/Global/AAI game/AI/AAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#634">[ date ]</a>
+              <a href="thread.html#634">[ thread ]</a>
+              <a href="subject.html#634">[ subject ]</a>
+              <a href="author.html#634">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

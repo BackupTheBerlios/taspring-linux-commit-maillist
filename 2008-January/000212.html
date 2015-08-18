@@ -1,0 +1,201 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5405 - trunk/rts/Lua
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5405%20-%20trunk/rts/Lua&In-Reply-To=%3CE1JJ298-000475-F9%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000211.html">
+   <LINK REL="Next"  HREF="000213.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5405 - trunk/rts/Lua</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5405%20-%20trunk/rts/Lua&In-Reply-To=%3CE1JJ298-000475-F9%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5405 - trunk/rts/Lua">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Jan 27 08:41:42 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000211.html">[Taspring-linux-commit] r5404 - trunk/rts/Lua
+</A></li>
+        <LI>Next message: <A HREF="000213.html">[Taspring-linux-commit] r5406 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#212">[ date ]</a>
+              <a href="thread.html#212">[ thread ]</a>
+              <a href="subject.html#212">[ subject ]</a>
+              <a href="author.html#212">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: trepan
+Date: 2008-01-27 08:41:42 +0100 (Sun, 27 Jan 2008)
+New Revision: 5405
+
+Modified:
+   trunk/rts/Lua/LuaOpenGL.cpp
+   trunk/rts/Lua/LuaOpenGL.h
+Log:
+* Added  gl.BlendEquation()
+* Added  gl.BlendEquationSeparate()
+* Added  gl.BlendFunc()  -- redundant
+* Added  gl.BlendFuncSeparate()
+
+
+Modified: trunk/rts/Lua/LuaOpenGL.cpp
+===================================================================
+--- trunk/rts/Lua/LuaOpenGL.cpp	2008-01-27 07:10:10 UTC (rev 5404)
++++ trunk/rts/Lua/LuaOpenGL.cpp	2008-01-27 07:41:42 UTC (rev 5405)
+@@ -181,10 +181,16 @@
+ 	REGISTER_LUA_CFUNC(Culling);
+ 	REGISTER_LUA_CFUNC(LogicOp);
+ 	REGISTER_LUA_CFUNC(Fog);
+-	REGISTER_LUA_CFUNC(Blending);
+ 	REGISTER_LUA_CFUNC(Smoothing);
+ 	REGISTER_LUA_CFUNC(AlphaTest);
+ 	REGISTER_LUA_CFUNC(LineStipple);
++	REGISTER_LUA_CFUNC(Blending);
++	REGISTER_LUA_CFUNC(BlendEquation);
++	REGISTER_LUA_CFUNC(BlendFunc);
++	if (haveGL20) {
++		REGISTER_LUA_CFUNC(BlendEquationSeparate);
++		REGISTER_LUA_CFUNC(BlendFuncSeparate);
++	}
+ 
+ 	REGISTER_LUA_CFUNC(Material);
+ 	REGISTER_LUA_CFUNC(Color);
+@@ -342,6 +348,7 @@
+ 	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+ 
+ 	glEnable(GL_BLEND);
++	glBlendEquation(GL_FUNC_ADD);
+ 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+ 
+ 	glDisable(GL_ALPHA_TEST);
+@@ -2806,9 +2813,7 @@
+ 
+ 	const int args = lua_gettop(L); // number of arguments
+ 	if (args == 1) {
+-		if (!lua_isboolean(L, 1)) {
+-			luaL_error(L, &quot;Incorrect arguments to gl.Blending()&quot;);
+-		}
++		luaL_checktype(L, 1, LUA_TBOOLEAN);
+ 		if (lua_toboolean(L, 1)) {
+ 			glEnable(GL_BLEND);
+ 		} else {
+@@ -2816,11 +2821,10 @@
+ 		}
+ 	}
+ 	else if (args == 2) {
+-		if (!lua_isnumber(L, 1) || !lua_isnumber(L, 2)) {
+-			luaL_error(L, &quot;Incorrect arguments to gl.Blending()&quot;);
+-		}
++		const GLenum src = (GLenum)luaL_checkint(L, 1);
++		const GLenum dst = (GLenum)luaL_checkint(L, 2);
++		glBlendFunc(src, dst);
+ 		glEnable(GL_BLEND);
+-		glBlendFunc((GLenum)lua_tonumber(L, 1), (GLenum)lua_tonumber(L, 2));
+ 	}
+ 	else {
+ 		luaL_error(L, &quot;Incorrect arguments to gl.Blending()&quot;);
+@@ -2829,6 +2833,47 @@
+ }
+ 
+ 
++int LuaOpenGL::BlendEquation(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	const GLenum mode = (GLenum)luaL_checkint(L, 1);
++	glBlendEquation(mode);
++	return 0;
++}
++
++
++int LuaOpenGL::BlendFunc(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	const GLenum src = (GLenum)luaL_checkint(L, 1);
++	const GLenum dst = (GLenum)luaL_checkint(L, 2);
++	glBlendFunc(src, dst);
++	return 0;
++}
++
++
++int LuaOpenGL::BlendEquationSeparate(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	const GLenum modeRGB   = (GLenum)luaL_checkint(L, 1);
++	const GLenum modeAlpha = (GLenum)luaL_checkint(L, 2);
++	glBlendEquationSeparate(modeRGB, modeAlpha);
++	return 0;
++}
++
++
++int LuaOpenGL::BlendFuncSeparate(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	const GLenum srcRGB   = (GLenum)luaL_checkint(L, 1);
++	const GLenum dstRGB   = (GLenum)luaL_checkint(L, 2);
++	const GLenum srcAlpha = (GLenum)luaL_checkint(L, 3);
++	const GLenum dstAlpha = (GLenum)luaL_checkint(L, 4);
++	glBlendFuncSeparate(srcRGB, dstRGB, srcAlpha, dstAlpha);
++	return 0;
++}
++
++
+ int LuaOpenGL::Smoothing(lua_State* L)
+ {
+ 	CheckDrawingEnabled(L, __FUNCTION__);
+
+Modified: trunk/rts/Lua/LuaOpenGL.h
+===================================================================
+--- trunk/rts/Lua/LuaOpenGL.h	2008-01-27 07:10:10 UTC (rev 5404)
++++ trunk/rts/Lua/LuaOpenGL.h	2008-01-27 07:41:42 UTC (rev 5405)
+@@ -143,10 +143,14 @@
+ 		static int Culling(lua_State* L);
+ 		static int LogicOp(lua_State* L);
+ 		static int Fog(lua_State* L);
+-		static int Blending(lua_State* L);
+ 		static int Smoothing(lua_State* L);
+ 		static int AlphaTest(lua_State* L);
+ 		static int LineStipple(lua_State* L);
++		static int Blending(lua_State* L);
++		static int BlendEquation(lua_State* L);
++		static int BlendFunc(lua_State* L);
++		static int BlendEquationSeparate(lua_State* L);
++		static int BlendFuncSeparate(lua_State* L);
+ 
+ 		static int Material(lua_State* L);
+ 		static int Color(lua_State* L);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000211.html">[Taspring-linux-commit] r5404 - trunk/rts/Lua
+</A></li>
+	<LI>Next message: <A HREF="000213.html">[Taspring-linux-commit] r5406 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#212">[ date ]</a>
+              <a href="thread.html#212">[ thread ]</a>
+              <a href="subject.html#212">[ subject ]</a>
+              <a href="author.html#212">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

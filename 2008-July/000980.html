@@ -1,0 +1,266 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6200 - in trunk/Lobby/TASClient: . Python	Python/engine Python/scripts
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6200%20-%20in%20trunk/Lobby/TASClient%3A%20.%20Python%0A%09Python/engine%20Python/scripts&In-Reply-To=%3C20080718170922.BE291442E%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000979.html">
+   <LINK REL="Next"  HREF="000981.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6200 - in trunk/Lobby/TASClient: . Python	Python/engine Python/scripts</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6200%20-%20in%20trunk/Lobby/TASClient%3A%20.%20Python%0A%09Python/engine%20Python/scripts&In-Reply-To=%3C20080718170922.BE291442E%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6200 - in trunk/Lobby/TASClient: . Python	Python/engine Python/scripts">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Jul 18 19:09:22 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000979.html">[Taspring-linux-commit] r6199 - trunk/rts/Sim/Weapons
+</A></li>
+        <LI>Next message: <A HREF="000981.html">[Taspring-linux-commit] r6201 - trunk/rts/ExternalAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#980">[ date ]</a>
+              <a href="thread.html#980">[ thread ]</a>
+              <a href="subject.html#980">[ subject ]</a>
+              <a href="author.html#980">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2008-07-18 19:09:18 +0200 (Fri, 18 Jul 2008)
+New Revision: 6200
+
+Modified:
+   trunk/Lobby/TASClient/LobbyScriptUnit.pas
+   trunk/Lobby/TASClient/MainUnit.pas
+   trunk/Lobby/TASClient/Python/api.txt
+   trunk/Lobby/TASClient/Python/engine/handlers.py
+   trunk/Lobby/TASClient/Python/scripts/stick.py
+   trunk/Lobby/TASClient/TASClient.dof
+   trunk/Lobby/TASClient/TASClient.res
+Log:
+* debug script window not shown by default
+* api.JoinBattle now have a password parameter (stick.py updated to support it)
+
+Modified: trunk/Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/LobbyScriptUnit.pas	2008-07-18 14:05:40 UTC (rev 6199)
++++ trunk/Lobby/TASClient/LobbyScriptUnit.pas	2008-07-18 17:09:18 UTC (rev 6200)
+@@ -59,7 +59,7 @@
+       function GetMods: Variant;
+       function HostBattle(nbPlayers: integer; RankLimit: Integer; ModName: string; Description: string; Password: string; UDPHostPort: integer; NatTraversal: integer) : Boolean;
+       function HostReplay(replayFile: string; nbPlayers: integer; RankLimit: Integer; Description: string; Password: string; UDPHostPort: integer; NatTraversal: integer) : Boolean;
+-      function JoinBattle(battleId: integer) : Boolean;
++      function JoinBattle(battleId: integer; Password: String) : Boolean;
+       procedure LeaveBattle;
+       function StartBattle: Boolean;
+       function SetMyReadyStatus(b: Boolean): Boolean;
+@@ -690,7 +690,7 @@
+   end;
+ end;
+ 
+-function TCallback.JoinBattle(battleId: integer) : Boolean;
++function TCallback.JoinBattle(battleId: integer; Password: String) : Boolean;
+ begin
+   Result := True;
+ 
+@@ -702,7 +702,7 @@
+     Exit;
+   end;
+ 
+-  MainForm.JoinBattle(MainForm.GetBattle(battleId));
++  MainForm.JoinBattle(MainForm.GetBattle(battleId),false,Password);
+ 
+   Result := BattleState.Status = Joined;
+   AcquireMainThread;
+
+Modified: trunk/Lobby/TASClient/MainUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.pas	2008-07-18 14:05:40 UTC (rev 6199)
++++ trunk/Lobby/TASClient/MainUnit.pas	2008-07-18 17:09:18 UTC (rev 6200)
+@@ -1413,7 +1413,7 @@
+       var NodeWidth: Integer);
+     procedure VDTBattlesChecked(Sender: TBaseVirtualTree;
+       Node: PVirtualNode);
+-    procedure JoinBattle(Battle: TBattle; SpecatorMode: Boolean = False);
++    procedure JoinBattle(Battle: TBattle; SpecatorMode: Boolean = False; Password: string = '');
+     procedure VDTBattlesDblClick(Sender: TObject);
+     procedure FormClose(Sender: TObject; var Action: TCloseAction);
+     procedure HelpButtonClick(Sender: TObject);
+@@ -5559,7 +5559,7 @@
+       if not Status.ReceivingLoginInfo then UpdateClientsListBox;
+ 
+       if not Status.ReceivingLoginInfo and (Client.GetGroup &gt; -1) and TClientGroup(ClientGroups[Client.GetGroup]).NotifyOnHost then begin
+-        AddNotification('Player host', '&lt;' + Client.Name + '&gt; is hosting a new battle.', 4000,true,Battle.ID);
++        AddNotification('Player host', '&lt;' + Client.Name + '&gt; is hosting a new battle.', 5000,true,Battle.ID);
+       end;
+ 
+       if (Status.ReceivingLoginInfo) and (Status.LastCommandReceived = 'ADDUSER') then LoginProgressForm.UpdateCaption('Receiving battle list ...');
+@@ -5698,7 +5698,7 @@
+       if ((not Application.Active) or (not BattleForm.Active)) and not Status.ReceivingLoginInfo then
+         if (not ((BattleForm.IsBattleActive) and (Battle.ID = BattleState.Battle.ID))) then
+           if NotificationsForm.FindNotification(nfStatusInBattle, [Client.Name]) or ((Client.GetGroup &gt; -1) and TClientGroup(ClientGroups[Client.GetGroup]).NotifyOnHost and (Battle.ID &lt;&gt; Status.Me.GetBattleId)) then
+-            AddNotification('Player joined battle', '&lt;' + Client.Name + '&gt; has joined ' + TClient(Battle.Clients[0]).Name + '''s battle.' , 4000,true,Battle.ID);
++            AddNotification('Player joined battle', '&lt;' + Client.Name + '&gt; has joined ' + TClient(Battle.Clients[0]).Name + '''s battle.' , 5000,true,Battle.ID);
+ 
+ 
+           //or (not ((BattleForm.IsBattleActive) and (Battle.ID = BattleState.Battle.ID)) and (Client.GetGroup &gt; -1) and TClientGroup(ClientGroups[Client.GetGroup]).NotifyOnHost)
+@@ -7620,9 +7620,9 @@
+   JoinBattle(GetBattleFromNode(Node));
+ end;
+ 
+-procedure TMainForm.JoinBattle(Battle: TBattle; SpecatorMode: Boolean = False);
++procedure TMainForm.JoinBattle(Battle: TBattle; SpecatorMode: Boolean = False; Password: string = '');
+ var
+-  s, pass: string;
++  s: string;
+   res: Integer;
+   url: string;
+   s1: TStrings;
+@@ -7683,13 +7683,12 @@
+                   'It is impolite to join a battle which requires a rank which you don''t have.' +#13+#13+
+                   'Do you wish to attempt to join this battle anyway?', mtWarning, [mbNo, mbYes], 0) = mrNo then Exit;
+ 
+-  pass := '';
+-  if Battle.Password then
++  if Battle.Password and (Password = '') then
+   begin
+     if Battle.IsLadderBattle then
+-      pass := LADDER_BATTLE_PASSWORD
++      Password := LADDER_BATTLE_PASSWORD
+     else
+-      if not InputQuery('Password', 'Password:', pass) then Exit;
++      if not InputQuery('Password', 'Password:', Password) then Exit;
+   end;
+ 
+   JoinAsSpectator := SpecatorMode;
+@@ -7709,7 +7708,7 @@
+   end;
+   BattleState.TryingToJoinLadderBattle := Battle.IsLadderBattle;
+   BattleState.LadderIndex := -1;
+-  TryToSendCommand('JOINBATTLE', IntToStr(Battle.ID) + IFF(pass &lt;&gt; '', ' ' + pass, ''));
++  TryToSendCommand('JOINBATTLE', IntToStr(Battle.ID) + IFF(Password &lt;&gt; '', ' ' + Password, ''));
+ end;
+ 
+ procedure TMainForm.VDTBattlesDblClick(Sender: TObject);
+
+Modified: trunk/Lobby/TASClient/Python/api.txt
+===================================================================
+--- trunk/Lobby/TASClient/Python/api.txt	2008-07-18 14:05:40 UTC (rev 6199)
++++ trunk/Lobby/TASClient/Python/api.txt	2008-07-18 17:09:18 UTC (rev 6200)
+@@ -18,7 +18,7 @@
+ - ShowDebugWindow
+ - SocketConnect(ip,port)
+ - HostBattle(nbPlayers, RankLimit, ModName, Description, Password, UDPHostPort, NatTraversal) return true if success
+-- JoinBattle(BattleId)
++- JoinBattle(BattleId,PassWord)
+ - GetReplays
+ - HostReplay(replayFile, nbPlayers, RankLimit, Description, Password, UDPHostPort, NatTraversal) return true if success
+ - LeaveBattle
+
+Modified: trunk/Lobby/TASClient/Python/engine/handlers.py
+===================================================================
+--- trunk/Lobby/TASClient/Python/engine/handlers.py	2008-07-18 14:05:40 UTC (rev 6199)
++++ trunk/Lobby/TASClient/Python/engine/handlers.py	2008-07-18 17:09:18 UTC (rev 6200)
+@@ -1,8 +1,6 @@
+ import lobbyscript
+ api = lobbyscript.Callback()
+ 
+-api.ShowDebugWindow()
+-
+ import sys, os
+ basepath = sys.path[-1]
+ sys.path.insert(1, os.path.join(basepath, '..', 'modules'))
+
+Modified: trunk/Lobby/TASClient/Python/scripts/stick.py
+===================================================================
+--- trunk/Lobby/TASClient/Python/scripts/stick.py	2008-07-18 14:05:40 UTC (rev 6199)
++++ trunk/Lobby/TASClient/Python/scripts/stick.py	2008-07-18 17:09:18 UTC (rev 6200)
+@@ -29,7 +29,7 @@
+       api.LeaveBattle()
+     global stickJoin
+     stickJoin = 1
+-    api.JoinBattle(battleId)
++    api.JoinBattle(battleId,'')
+ 
+ def in_JOINEDBATTLE(battleId, nick):
+   if stickingNick == nick:
+@@ -37,7 +37,7 @@
+       api.LeaveBattle()
+     global stickJoin
+     stickJoin = 1
+-    api.JoinBattle(battleId)
++    api.JoinBattle(battleId,'')
+     
+ def in_LEFTBATTLE(battleId, nick):
+   if stickingNick == nick:
+@@ -65,7 +65,7 @@
+     if 'Battle' in users[nick]:
+       if api.GetCurrentBattle() != None:
+         api.LeaveBattle()
+-      api.JoinBattle(users[nick]['Battle']['Id'])
++      api.JoinBattle(users[nick]['Battle']['Id'],'')
+   else:
+     stickingNick = ''
+     print 'User does not exist.'
+
+Modified: trunk/Lobby/TASClient/TASClient.dof
+===================================================================
+--- trunk/Lobby/TASClient/TASClient.dof	2008-07-18 14:05:40 UTC (rev 6199)
++++ trunk/Lobby/TASClient/TASClient.dof	2008-07-18 17:09:18 UTC (rev 6200)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=3
+ Release=0
+-Build=365
++Build=366
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TA Spring lobby client
+-FileVersion=0.3.0.365
++FileVersion=0.3.0.366
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: trunk/Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000979.html">[Taspring-linux-commit] r6199 - trunk/rts/Sim/Weapons
+</A></li>
+	<LI>Next message: <A HREF="000981.html">[Taspring-linux-commit] r6201 - trunk/rts/ExternalAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#980">[ date ]</a>
+              <a href="thread.html#980">[ thread ]</a>
+              <a href="subject.html#980">[ subject ]</a>
+              <a href="author.html#980">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

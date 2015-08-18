@@ -1,0 +1,179 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6933 - trunk/rts/Sim/Projectiles
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6933%20-%20trunk/rts/Sim/Projectiles&In-Reply-To=%3C20081029182734.B54E246E9%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001701.html">
+   <LINK REL="Next"  HREF="001703.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6933 - trunk/rts/Sim/Projectiles</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6933%20-%20trunk/rts/Sim/Projectiles&In-Reply-To=%3C20081029182734.B54E246E9%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6933 - trunk/rts/Sim/Projectiles">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Oct 29 19:27:34 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001701.html">[Taspring-linux-commit] r6932 - trunk/rts/Sim/MoveTypes
+</A></li>
+        <LI>Next message: <A HREF="001703.html">[Taspring-linux-commit] r6934 - in trunk/rts/System/Platform: Linux	Win
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1702">[ date ]</a>
+              <a href="thread.html#1702">[ thread ]</a>
+              <a href="subject.html#1702">[ subject ]</a>
+              <a href="author.html#1702">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-10-29 19:27:34 +0100 (Wed, 29 Oct 2008)
+New Revision: 6933
+
+Modified:
+   trunk/rts/Sim/Projectiles/ExplosionGenerator.cpp
+   trunk/rts/Sim/Projectiles/ExplosionGenerator.h
+Log:
+rewrite CCustomExplosionGenerator::{Load, Explosion} to use a sounder pattern for caching CEGs
+
+Modified: trunk/rts/Sim/Projectiles/ExplosionGenerator.cpp
+===================================================================
+--- trunk/rts/Sim/Projectiles/ExplosionGenerator.cpp	2008-10-28 09:36:13 UTC (rev 6932)
++++ trunk/rts/Sim/Projectiles/ExplosionGenerator.cpp	2008-10-29 18:27:34 UTC (rev 6933)
+@@ -311,7 +311,7 @@
+ 
+ CCustomExplosionGenerator::CCustomExplosionGenerator()
+ {
+-	currentCEG = 0;
++	currentCEG = cachedCEGs.end();
+ }
+ 
+ CCustomExplosionGenerator::~CCustomExplosionGenerator()
+@@ -606,9 +606,11 @@
+ 
+ void CCustomExplosionGenerator::Load(CExplosionGeneratorHandler* h, const string&amp; tag)
+ {
+-	static std::map&lt;string, CEGData&gt; cachedCEGs;
+-	std::map&lt;string, CEGData&gt;::iterator it = cachedCEGs.find(tag);
++	typedef std::map&lt;string, CEGData&gt; CEGMap;
++	typedef std::map&lt;string, CEGData&gt;::iterator CEGMapIt;
+ 
++	CEGMapIt it = cachedCEGs.find(tag);
++
+ 	if (it == cachedCEGs.end()) {
+ 		CEGData cegData;
+ 
+@@ -686,19 +688,18 @@
+ 		}
+ 
+ 		cegData.useDefaultExplosions = expTable.GetBool(&quot;useDefaultExplosions&quot;, false);
++		it = cachedCEGs.insert(std::make_pair(tag, cegData)).first;
++	}
+ 
+-		cachedCEGs[tag] = cegData;
+-		currentCEG = &amp;cachedCEGs[tag];
+-	} else {
+-		currentCEG = &amp;(it-&gt;second);
+-	}
++	currentCEG = it;
+ }
+ 
+ 
+ void CCustomExplosionGenerator::Explosion(const float3&amp; pos, float damage, float radius, CUnit* owner, float gfxMod, CUnit* hit, const float3&amp; dir)
+ {
+-	if (currentCEG == 0) {
+-		// Explosion() called before Load()'ing a CEG
++	if (currentCEG == cachedCEGs.end()) {
++		// Explosion() called before Load()'ing a CEG (after
++		// constructing a CCustomExplosionGenerator object)
+ 		return;
+ 	}
+ 
+@@ -713,29 +714,29 @@
+ 	if (hit) flags |= SPW_UNIT;
+ 	else     flags |= SPW_NO_UNIT;
+ 
+-	for (int a = 0; a &lt; currentCEG-&gt;projectileSpawn.size(); a++) {
+-		ProjectileSpawnInfo* psi = &amp;currentCEG-&gt;projectileSpawn[a];
++	for (int a = 0; a &lt; (currentCEG-&gt;second).projectileSpawn.size(); a++) {
++		ProjectileSpawnInfo&amp; psi = (currentCEG-&gt;second).projectileSpawn[a];
+ 
+-		if (!(psi-&gt;flags &amp; flags)) {
++		if (!(psi.flags &amp; flags)) {
+ 			continue;
+ 		}
+ 
+-		for (int c = 0; c &lt; psi-&gt;count; c++) {
+-			CExpGenSpawnable* projectile = (CExpGenSpawnable*) psi-&gt;projectileClass-&gt;CreateInstance();
++		for (int c = 0; c &lt; psi.count; c++) {
++			CExpGenSpawnable* projectile = (CExpGenSpawnable*) (psi.projectileClass)-&gt;CreateInstance();
+ 
+-			ExecuteExplosionCode(&amp;psi-&gt;code[0], damage, (char*) projectile, c, dir);
++			ExecuteExplosionCode(&amp;psi.code[0], damage, (char*) projectile, c, dir);
+ 			projectile-&gt;Init(pos, owner);
+ 		}
+ 	}
+ 
+-	const GroundFlashInfo&amp; groundFlash = currentCEG-&gt;groundFlash;
++	const GroundFlashInfo&amp; groundFlash = (currentCEG-&gt;second).groundFlash;
+ 
+ 	if ((flags &amp; SPW_GROUND) &amp;&amp; groundFlash.ttl &gt; 0) {
+ 		SAFE_NEW CStandardGroundFlash(pos, groundFlash.circleAlpha, groundFlash.flashAlpha,
+ 			groundFlash.flashSize, groundFlash.circleGrowth, groundFlash.ttl, groundFlash.color);
+ 	}
+ 
+-	if (currentCEG-&gt;useDefaultExplosions) {
++	if ((currentCEG-&gt;second).useDefaultExplosions) {
+ 		CStdExplosionGenerator::Explosion(pos, damage, radius, owner, gfxMod, hit, dir);
+ 	}
+ }
+
+Modified: trunk/rts/Sim/Projectiles/ExplosionGenerator.h
+===================================================================
+--- trunk/rts/Sim/Projectiles/ExplosionGenerator.h	2008-10-28 09:36:13 UTC (rev 6932)
++++ trunk/rts/Sim/Projectiles/ExplosionGenerator.h	2008-10-29 18:27:34 UTC (rev 6933)
+@@ -111,7 +111,9 @@
+ 		bool useDefaultExplosions;
+ 	};
+ 
+-	CEGData* currentCEG;
++	std::map&lt;string, CEGData&gt; cachedCEGs;
++	std::map&lt;string, CEGData&gt;::iterator currentCEG;
++
+ 	void ParseExplosionCode(ProjectileSpawnInfo* psi, int baseOffset, boost::shared_ptr&lt;creg::IType&gt; type, const std::string&amp; script, std::string&amp; code);
+ 	void ExecuteExplosionCode (const char* code, float damage, char* instance, int spawnIndex, const float3&amp; dir);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001701.html">[Taspring-linux-commit] r6932 - trunk/rts/Sim/MoveTypes
+</A></li>
+	<LI>Next message: <A HREF="001703.html">[Taspring-linux-commit] r6934 - in trunk/rts/System/Platform: Linux	Win
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1702">[ date ]</a>
+              <a href="thread.html#1702">[ thread ]</a>
+              <a href="subject.html#1702">[ subject ]</a>
+              <a href="author.html#1702">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

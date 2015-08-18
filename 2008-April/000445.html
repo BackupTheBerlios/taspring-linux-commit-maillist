@@ -1,0 +1,441 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5664 - in trunk/rts: Game System/Net
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5664%20-%20in%20trunk/rts%3A%20Game%20System/Net&In-Reply-To=%3C20080404200943.A81024696%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000444.html">
+   <LINK REL="Next"  HREF="000446.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5664 - in trunk/rts: Game System/Net</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5664%20-%20in%20trunk/rts%3A%20Game%20System/Net&In-Reply-To=%3C20080404200943.A81024696%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5664 - in trunk/rts: Game System/Net">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Apr  4 22:09:43 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000444.html">[Taspring-linux-commit] r5663 - trunk/Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="000446.html">[Taspring-linux-commit] r5665 - in trunk/rts/System: . Net
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#445">[ date ]</a>
+              <a href="thread.html#445">[ thread ]</a>
+              <a href="subject.html#445">[ subject ]</a>
+              <a href="author.html#445">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-04-04 22:09:42 +0200 (Fri, 04 Apr 2008)
+New Revision: 5664
+
+Modified:
+   trunk/rts/Game/ChatMessage.cpp
+   trunk/rts/Game/ChatMessage.h
+   trunk/rts/Game/CommandMessage.cpp
+   trunk/rts/Game/CommandMessage.h
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/GameData.cpp
+   trunk/rts/Game/GameData.h
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/PreGame.cpp
+   trunk/rts/System/Net/Net.cpp
+   trunk/rts/System/Net/UDPConnection.cpp
+   trunk/rts/System/Net/UnpackPacket.cpp
+   trunk/rts/System/Net/UnpackPacket.h
+Log:
+* fix a small memory leak and some invalid reads/writes
+
+
+Modified: trunk/rts/Game/ChatMessage.cpp
+===================================================================
+--- trunk/rts/Game/ChatMessage.cpp	2008-04-04 19:49:26 UTC (rev 5663)
++++ trunk/rts/Game/ChatMessage.cpp	2008-04-04 20:09:42 UTC (rev 5664)
+@@ -1,8 +1,8 @@
+ #include &quot;ChatMessage.h&quot;
+ 
+ #include &quot;BaseNetProtocol.h&quot;
+-#include &quot;Net/RawPacket.h&quot;
+ #include &quot;Net/PackPacket.h&quot;
++#include &quot;Net/UnpackPacket.h&quot;
+ 
+ using namespace netcode;
+ 
+@@ -10,19 +10,19 @@
+ {
+ }
+ 
+-ChatMessage::ChatMessage(UnpackPacket* packet)
++ChatMessage::ChatMessage(const netcode::RawPacket&amp; data)
+ {
+-	packet-&gt;Reset();
++	UnpackPacket packet(data);
+ 	unsigned char ID;
+ 	unsigned char length;
+ 	unsigned char from;
+ 	unsigned char dest;
+-	*packet &gt;&gt; ID;
++	packet &gt;&gt; ID;
+ 	assert(ID == NETMSG_CHAT);
+-	*packet &gt;&gt; length;
+-	*packet &gt;&gt; from;
+-	*packet &gt;&gt; dest;
+-	*packet &gt;&gt; msg;
++	packet &gt;&gt; length;
++	packet &gt;&gt; from;
++	packet &gt;&gt; dest;
++	packet &gt;&gt; msg;
+ 	fromPlayer = from;
+ 	destination = dest;
+ }
+
+Modified: trunk/rts/Game/ChatMessage.h
+===================================================================
+--- trunk/rts/Game/ChatMessage.h	2008-04-04 19:49:26 UTC (rev 5663)
++++ trunk/rts/Game/ChatMessage.h	2008-04-04 20:09:42 UTC (rev 5664)
+@@ -1,7 +1,6 @@
+ #ifndef CHAT_MESSAGE_H
+ #define CHAT_MESSAGE_H
+ 
+-#include &quot;Net/UnpackPacket.h&quot;
+ #include &quot;Action.h&quot;
+ 
+ namespace netcode {
+@@ -12,7 +11,7 @@
+ {
+ public:
+ 	ChatMessage(int fromP, int dest, const std::string&amp; chat);
+-	ChatMessage(netcode::UnpackPacket* packet);
++	ChatMessage(const netcode::RawPacket&amp; packet);
+ 
+ 	const netcode::RawPacket* Pack() const;
+ 
+
+Modified: trunk/rts/Game/CommandMessage.cpp
+===================================================================
+--- trunk/rts/Game/CommandMessage.cpp	2008-04-04 19:49:26 UTC (rev 5663)
++++ trunk/rts/Game/CommandMessage.cpp	2008-04-04 20:09:42 UTC (rev 5664)
+@@ -3,8 +3,8 @@
+ #include &lt;assert.h&gt;
+ 
+ #include &quot;BaseNetProtocol.h&quot;
+-#include &quot;Net/RawPacket.h&quot;
+ #include &quot;Net/PackPacket.h&quot;
++#include &quot;Net/UnpackPacket.h&quot;
+ 
+ using namespace netcode;
+ 
+@@ -20,17 +20,17 @@
+ 	player = playernum;
+ }
+ 
+-CommandMessage::CommandMessage(UnpackPacket* packet)
++CommandMessage::CommandMessage(const netcode::RawPacket&amp; pckt)
+ {
+-	packet-&gt;Reset();
++	UnpackPacket packet(pckt);
+ 	unsigned char ID;
+ 	unsigned short length;
+-	*packet &gt;&gt; ID;
++	packet &gt;&gt; ID;
+ 	assert(ID == NETMSG_CCOMMAND);
+-	*packet &gt;&gt; length;
+-	*packet &gt;&gt; player;
+-	*packet &gt;&gt; action.command;
+-	*packet &gt;&gt; action.extra;
++	packet &gt;&gt; length;
++	packet &gt;&gt; player;
++	packet &gt;&gt; action.command;
++	packet &gt;&gt; action.extra;
+ }
+ 
+ const netcode::RawPacket* CommandMessage::Pack() const
+
+Modified: trunk/rts/Game/CommandMessage.h
+===================================================================
+--- trunk/rts/Game/CommandMessage.h	2008-04-04 19:49:26 UTC (rev 5663)
++++ trunk/rts/Game/CommandMessage.h	2008-04-04 20:09:42 UTC (rev 5664)
+@@ -3,7 +3,6 @@
+ 
+ #include &lt;string&gt;
+ 
+-#include &quot;Net/UnpackPacket.h&quot;
+ #include &quot;Action.h&quot;
+ 
+ namespace netcode {
+@@ -16,7 +15,7 @@
+ public:
+ 	CommandMessage(const std::string&amp; cmd, int playernum);
+ 	CommandMessage(const Action&amp; action, int playernum);
+-	CommandMessage(netcode::UnpackPacket* packet);
++	CommandMessage(const netcode::RawPacket&amp; packet);
+ 
+ 	const netcode::RawPacket* Pack() const;
+ 
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-04-04 19:49:26 UTC (rev 5663)
++++ trunk/rts/Game/Game.cpp	2008-04-04 20:09:42 UTC (rev 5664)
+@@ -3229,7 +3229,7 @@
+ 			}
+ 
+ 			case NETMSG_CHAT: {
+-				ChatMessage msg((netcode::UnpackPacket*)packet);
++				ChatMessage msg(*packet);
+ 				HandleChatMsg(msg);
+ 				AddTraffic(msg.fromPlayer, packetCode, dataLength);
+ 				break;
+@@ -3583,7 +3583,7 @@
+ 				break;
+ 			}
+ 			case NETMSG_CCOMMAND: {
+-				CommandMessage msg((netcode::UnpackPacket*)(packet));
++				CommandMessage msg(*packet);
+ 				ActionRecieved(msg.action, msg.player);
+ 				break;
+ 			}
+
+Modified: trunk/rts/Game/GameData.cpp
+===================================================================
+--- trunk/rts/Game/GameData.cpp	2008-04-04 19:49:26 UTC (rev 5663)
++++ trunk/rts/Game/GameData.cpp	2008-04-04 20:09:42 UTC (rev 5664)
+@@ -3,8 +3,8 @@
+ #include &lt;assert.h&gt;
+ 
+ #include &quot;BaseNetProtocol.h&quot;
+-#include &quot;Net/RawPacket.h&quot;
+ #include &quot;Net/PackPacket.h&quot;
++#include &quot;Net/UnpackPacket.h&quot;
+ 
+ using namespace netcode;
+ 
+@@ -14,19 +14,19 @@
+ 	modChecksum = 0;
+ }
+ 
+-GameData::GameData(UnpackPacket* packet)
++GameData::GameData(const netcode::RawPacket&amp; pckt)
+ {
+-	packet-&gt;Reset();
++	UnpackPacket packet(pckt);
+ 	unsigned char ID;
+ 	unsigned short length;
+-	*packet &gt;&gt; ID;
++	packet &gt;&gt; ID;
+ 	assert(ID == NETMSG_GAMEDATA);
+-	*packet &gt;&gt; length;
+-	*packet &gt;&gt; script;
+-	*packet &gt;&gt; map;
+-	*packet &gt;&gt; mapChecksum;
+-	*packet &gt;&gt; mod;
+-	*packet &gt;&gt; modChecksum;
++	packet &gt;&gt; length;
++	packet &gt;&gt; script;
++	packet &gt;&gt; map;
++	packet &gt;&gt; mapChecksum;
++	packet &gt;&gt; mod;
++	packet &gt;&gt; modChecksum;
+ }
+ 
+ const netcode::RawPacket* GameData::Pack() const
+
+Modified: trunk/rts/Game/GameData.h
+===================================================================
+--- trunk/rts/Game/GameData.h	2008-04-04 19:49:26 UTC (rev 5663)
++++ trunk/rts/Game/GameData.h	2008-04-04 20:09:42 UTC (rev 5664)
+@@ -3,7 +3,6 @@
+ 
+ #include &lt;string&gt;
+ 
+-#include &quot;Net/UnpackPacket.h&quot;
+ namespace netcode {
+ 	class RawPacket;
+ }
+@@ -12,7 +11,7 @@
+ {
+ public:
+ 	GameData();
+-	GameData(netcode::UnpackPacket* packet);
++	GameData(const netcode::RawPacket&amp; packet);
+ 	
+ 	const netcode::RawPacket* Pack() const;
+ 	
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-04-04 19:49:26 UTC (rev 5663)
++++ trunk/rts/Game/GameServer.cpp	2008-04-04 20:09:42 UTC (rev 5664)
+@@ -572,8 +572,8 @@
+ 					}
+ 
+ 					case NETMSG_CHAT: {
+-						ChatMessage msg((netcode::UnpackPacket*)packet);
+-						if (msg.fromPlayer != a ) {
++						ChatMessage msg(*packet);
++						if (static_cast&lt;unsigned&gt;(msg.fromPlayer) != a ) {
+ 							log.Warning(format(WrongPlayer) %(unsigned)NETMSG_CHAT %a %(unsigned)msg.fromPlayer);
+ 						} else {
+ 							GotChatMessage(msg);
+@@ -831,7 +831,7 @@
+ 						break;
+ 					}
+ 					case NETMSG_CCOMMAND: {
+-						CommandMessage msg(static_cast&lt;netcode::UnpackPacket*&gt;(packet));
++						CommandMessage msg(*packet);
+ 						if (msg.player == a)
+ 						{
+ 							if ((commandBlacklist.find(msg.action.command) != commandBlacklist.end()) &amp;&amp; players[a]-&gt;hasRights)
+@@ -1340,7 +1340,7 @@
+ void CGameServer::GotChatMessage(const ChatMessage&amp; msg)
+ {
+ 	serverNet-&gt;SendData(msg.Pack());
+-	if (hostif &amp;&amp; msg.fromPlayer != SERVER_PLAYER) {
++	if (hostif &amp;&amp; static_cast&lt;unsigned&gt;(msg.fromPlayer) != SERVER_PLAYER) {
+ 		// don't echo packets to autohost
+ 		hostif-&gt;SendPlayerChat(msg.fromPlayer, msg.msg);
+ 	}
+
+Modified: trunk/rts/Game/PreGame.cpp
+===================================================================
+--- trunk/rts/Game/PreGame.cpp	2008-04-04 19:49:26 UTC (rev 5663)
++++ trunk/rts/Game/PreGame.cpp	2008-04-04 20:09:42 UTC (rev 5664)
+@@ -11,7 +11,6 @@
+ #include &quot;GameServer.h&quot;
+ #include &quot;GameSetup.h&quot;
+ #include &quot;NetProtocol.h&quot;
+-#include &quot;Net/UnpackPacket.h&quot;
+ #include &quot;DemoRecorder.h&quot;
+ #include &quot;DemoReader.h&quot;
+ #include &quot;LoadSaveHandler.h&quot;
+@@ -495,7 +494,7 @@
+ 		if (demobuffer[0] == NETMSG_GAMEDATA)
+ 		{
+ 			const RawPacket packet(demobuffer, length);
+-			serverStartupData = new GameData((netcode::UnpackPacket*)(&amp;packet));
++			serverStartupData = new GameData(packet);
+ 			break;
+ 		}
+ 		if (scanner.ReachedEnd())
+@@ -656,7 +655,7 @@
+ 
+ void CPreGame::GameDataRecieved(RawPacket* packet)
+ {
+-	gameData = new GameData((netcode::UnpackPacket*)packet);
++	gameData = new GameData(*packet);
+ 	logOutput &lt;&lt; &quot;Using script &quot; &lt;&lt; gameData-&gt;GetScript() &lt;&lt; &quot;\n&quot;;
+ 	CScriptHandler::SelectScript(gameData-&gt;GetScript());
+ 	
+
+Modified: trunk/rts/System/Net/Net.cpp
+===================================================================
+--- trunk/rts/System/Net/Net.cpp	2008-04-04 19:49:26 UTC (rev 5663)
++++ trunk/rts/System/Net/Net.cpp	2008-04-04 20:09:42 UTC (rev 5664)
+@@ -191,6 +191,7 @@
+ void CNet::SendData(const RawPacket* data)
+ {
+ 	SendData(data-&gt;data, data-&gt;length);
++	delete data;
+ }
+ 
+ void CNet::SendData(const unsigned char* data,const unsigned length, const unsigned playerNum)
+@@ -213,6 +214,7 @@
+ 	}
+ 	else
+ 	{
++		delete data;
+ 		throw network_error(&quot;Cant send data (wrong connection number)&quot;);
+ 	}
+ }
+
+Modified: trunk/rts/System/Net/UDPConnection.cpp
+===================================================================
+--- trunk/rts/System/Net/UDPConnection.cpp	2008-04-04 19:49:26 UTC (rev 5663)
++++ trunk/rts/System/Net/UDPConnection.cpp	2008-04-04 20:09:42 UTC (rev 5664)
+@@ -64,6 +64,7 @@
+ {
+ 	//TODO make UDPConnection completely packet-based
+ 	SendData(data-&gt;data, data-&gt;length);
++	delete data;
+ }
+ 
+ const RawPacket* UDPConnection::Peek(unsigned ahead) const
+
+Modified: trunk/rts/System/Net/UnpackPacket.cpp
+===================================================================
+--- trunk/rts/System/Net/UnpackPacket.cpp	2008-04-04 19:49:26 UTC (rev 5663)
++++ trunk/rts/System/Net/UnpackPacket.cpp	2008-04-04 20:09:42 UTC (rev 5664)
+@@ -3,9 +3,8 @@
+ namespace netcode
+ {
+ 
+-UnpackPacket::UnpackPacket(const unsigned char* const data, const unsigned length) : RawPacket(data, length), pos(0)
++UnpackPacket::UnpackPacket(const RawPacket&amp; packet) : pckt(packet), pos(0)
+ {
+ }
+ 
+ }
+-
+
+Modified: trunk/rts/System/Net/UnpackPacket.h
+===================================================================
+--- trunk/rts/System/Net/UnpackPacket.h	2008-04-04 19:49:26 UTC (rev 5663)
++++ trunk/rts/System/Net/UnpackPacket.h	2008-04-04 20:09:42 UTC (rev 5664)
+@@ -8,17 +8,17 @@
+ namespace netcode
+ {
+ 
+-class UnpackPacket : public RawPacket
++class UnpackPacket
+ {
+ public:
+-	UnpackPacket(const unsigned char* const data, const unsigned length);
+-	void Reset() {pos = 0;};
++	UnpackPacket(const RawPacket&amp;);
+ 	
+ 	template &lt;typename T&gt;
+-	void operator&gt;&gt;(T&amp; t) {t = *(T*)(data+pos); pos += sizeof(T);};
+-	void operator&gt;&gt;(std::string&amp; text) {text = std::string((char*)(data + pos)); pos += text.size()+1;};
++	void operator&gt;&gt;(T&amp; t) {t = *(T*)(pckt.data+pos); pos += sizeof(T);};
++	void operator&gt;&gt;(std::string&amp; text) {text = std::string((char*)(pckt.data + pos)); pos += text.size()+1;};
+ 	
+ private:
++	const RawPacket&amp; pckt;
+ 	unsigned pos;
+ };
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000444.html">[Taspring-linux-commit] r5663 - trunk/Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="000446.html">[Taspring-linux-commit] r5665 - in trunk/rts/System: . Net
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#445">[ date ]</a>
+              <a href="thread.html#445">[ thread ]</a>
+              <a href="subject.html#445">[ subject ]</a>
+              <a href="author.html#445">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

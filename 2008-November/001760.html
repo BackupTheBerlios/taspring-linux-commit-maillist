@@ -1,0 +1,374 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6991 - in trunk/rts: Game Game/UI System
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-November/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6991%20-%20in%20trunk/rts%3A%20Game%20Game/UI%20System&In-Reply-To=%3C20081107225345.C312F46DD%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001759.html">
+   <LINK REL="Next"  HREF="001761.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6991 - in trunk/rts: Game Game/UI System</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6991%20-%20in%20trunk/rts%3A%20Game%20Game/UI%20System&In-Reply-To=%3C20081107225345.C312F46DD%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6991 - in trunk/rts: Game Game/UI System">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Nov  7 23:53:44 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001759.html">[Taspring-linux-commit] r6990 - in branches/gmltest/rts: Game/UI Lua
+</A></li>
+        <LI>Next message: <A HREF="001761.html">[Taspring-linux-commit] r6992 - in trunk/rts: Game Lua Sim/Units
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1760">[ date ]</a>
+              <a href="thread.html#1760">[ thread ]</a>
+              <a href="subject.html#1760">[ subject ]</a>
+              <a href="author.html#1760">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-11-07 23:53:43 +0100 (Fri, 07 Nov 2008)
+New Revision: 6991
+
+Modified:
+   trunk/rts/Game/GameSetup.cpp
+   trunk/rts/Game/GameSetup.h
+   trunk/rts/Game/GlobalSynced.cpp
+   trunk/rts/Game/PreGame.cpp
+   trunk/rts/Game/PreGame.h
+   trunk/rts/Game/UI/InputReceiver.cpp
+   trunk/rts/System/LoadSaveHandler.cpp
+   trunk/rts/System/TdfParser.cpp
+   trunk/rts/System/TdfParser.h
+Log:
+* actually modify the setupscript and not only gameSetup when loading a demo (much less hack)
+
+
+Modified: trunk/rts/Game/GameSetup.cpp
+===================================================================
+--- trunk/rts/Game/GameSetup.cpp	2008-11-07 21:46:32 UTC (rev 6990)
++++ trunk/rts/Game/GameSetup.cpp	2008-11-07 22:53:43 UTC (rev 6991)
+@@ -34,8 +34,7 @@
+ 
+ void LocalSetup::Init(const std::string&amp; setup)
+ {
+-	TdfParser file;
+-	file.LoadBuffer(setup.c_str(), setup.length());
++	TdfParser file(setup.c_str(), setup.length());
+ 	
+ 	if(!file.SectionExist(&quot;GAME&quot;))
+ 		throw content_error(&quot;GAME-section didn't exist in setupscript&quot;);
+@@ -110,11 +109,6 @@
+ {
+ }
+ 
+-bool CGameSetup::Init(std::string script)
+-{
+-	return Init(script.c_str(), script.size());
+-}
+-
+ /**
+ @brief Load unit restrictions
+ @post restrictedUnits initialized
+@@ -161,8 +155,7 @@
+  */
+ void CGameSetup::LoadStartPositions()
+ {
+-	TdfParser file;
+-	file.LoadBuffer(gameSetupText.c_str(), gameSetupText.length());
++	TdfParser file(gameSetupText.c_str(), gameSetupText.length());
+ 
+ 	if (startPosType == StartPos_Random) {
+ 		// Server syncs these later, so we can use unsynced rng
+@@ -416,14 +409,13 @@
+ 	}
+ }
+ 
+-bool CGameSetup::Init(const char* buf, int size)
++bool CGameSetup::Init(const std::string&amp; buf)
+ {
+ 	// Copy buffer contents
+-	gameSetupText.assign(buf,size);
++	gameSetupText = buf;
+ 
+ 	// Parse
+-	TdfParser file;
+-	file.LoadBuffer(buf, size);
++	TdfParser file(buf.c_str(),buf.size());
+ 
+ 	if(!file.SectionExist(&quot;GAME&quot;))
+ 		return false;
+
+Modified: trunk/rts/Game/GameSetup.h
+===================================================================
+--- trunk/rts/Game/GameSetup.h	2008-11-07 21:46:32 UTC (rev 6990)
++++ trunk/rts/Game/GameSetup.h	2008-11-07 22:53:43 UTC (rev 6991)
+@@ -34,8 +34,7 @@
+ public:
+ 	CGameSetup();
+ 	~CGameSetup();
+-	bool Init(std::string script);
+-	bool Init(const char* buf, int size);
++	bool Init(const std::string&amp; script);
+ 	void LoadStartPositions();
+ 	
+ 	enum StartPosType
+
+Modified: trunk/rts/Game/GlobalSynced.cpp
+===================================================================
+--- trunk/rts/Game/GlobalSynced.cpp	2008-11-07 21:46:32 UTC (rev 6990)
++++ trunk/rts/Game/GlobalSynced.cpp	2008-11-07 22:53:43 UTC (rev 6991)
+@@ -173,7 +173,6 @@
+ 	}
+ 
+ 	if (useLuaGaia) {
+-		//TODO duplicated in SpringApp::Startup()
+ 		// Gaia adjustments
+ 		gaiaTeamID = activeTeams;
+ 		gaiaAllyTeamID = activeAllyTeams;
+
+Modified: trunk/rts/Game/PreGame.cpp
+===================================================================
+--- trunk/rts/Game/PreGame.cpp	2008-11-07 21:46:32 UTC (rev 6990)
++++ trunk/rts/Game/PreGame.cpp	2008-11-07 22:53:43 UTC (rev 6991)
+@@ -23,6 +23,7 @@
+ #include &quot;DemoRecorder.h&quot;
+ #include &quot;DemoReader.h&quot;
+ #include &quot;LoadSaveHandler.h&quot;
++#include &quot;System/TdfParser.h&quot;
+ #include &quot;FileSystem/ArchiveScanner.h&quot;
+ #include &quot;FileSystem/FileHandler.h&quot;
+ #include &quot;FileSystem/VFSHandler.h&quot;
+@@ -50,7 +51,6 @@
+ 		settings(setup),
+ 		savefile(NULL)
+ {
+-	localDemoHack = false;
+ 	infoConsole = SAFE_NEW CInfoConsole;
+ 
+ 	net = SAFE_NEW CNetProtocol();
+@@ -259,7 +259,6 @@
+ 	}
+ }
+ 
+-
+ void CPreGame::ReadDataFromDemo(const std::string&amp; demoName)
+ {
+ 	assert(!gameServer);
+@@ -272,33 +271,43 @@
+ 		if (buf-&gt;data[0] == NETMSG_GAMEDATA)
+ 		{
+ 			GameData *data = new GameData(boost::shared_ptr&lt;const RawPacket&gt;(buf));
++			
++			// modify the startscriptscript so it can be used to watch the demo
++			TdfParser script(data-&gt;GetSetup().c_str(), data-&gt;GetSetup().size());
++			TdfParser::TdfSection* tgame = script.GetRootSection()-&gt;sections[&quot;game&quot;];
++			
++			tgame-&gt;AddPair(&quot;ScriptName&quot;, data-&gt;GetScript());
++			tgame-&gt;AddPair(&quot;MapName&quot;, data-&gt;GetMap());
++			tgame-&gt;AddPair(&quot;Gametype&quot;, data-&gt;GetMod());
++			
++			tgame-&gt;AddPair(&quot;Demofile&quot;, demoName);
++			int a = 0;
++			for (a = 0; a &lt; MAX_PLAYERS; ++a) {
++				char section[50];
++				sprintf(section, &quot;PLAYER%i&quot;, a);
++				string s(section);
++				std::map&lt;std::string, TdfParser::TdfSection*&gt;::iterator player = tgame-&gt;sections.find(s);
++				if (player != tgame-&gt;sections.end())
++					player-&gt;second-&gt;AddPair(&quot;isfromdemo&quot;, 1);
++			}
++			
++			// add local spectator (and assert we didn't already have MAX_PLAYERS players)
++			char section[50];
++			sprintf(section, &quot;PLAYER%i&quot;, MAX_PLAYERS);
++			string s(section);
++			TdfParser::TdfSection* me = tgame-&gt;construct_subsection(s);
++			me-&gt;AddPair(&quot;name&quot;, settings-&gt;myPlayerName);
++			me-&gt;AddPair(&quot;spectator&quot;, 1);
++			
++			std::ostringstream buf;
++			script.print(buf);
++			data-&gt;SetSetup(buf.str());
+ 			CGameSetup* tempSetup = new CGameSetup();
+-			if (tempSetup-&gt;Init(data-&gt;GetSetup()))
++			
++			if (!tempSetup-&gt;Init(buf.str()))
+ 			{
+-				tempSetup-&gt;scriptName = data-&gt;GetScript();
+-				tempSetup-&gt;mapName = data-&gt;GetMap();
+-				tempSetup-&gt;baseMod = data-&gt;GetMod();
+-				tempSetup-&gt;hostDemo = true;
+-				tempSetup-&gt;demoName = demoName;
+-				
+-				// all players in the setupscript are from demo
+-				for (std::vector&lt;PlayerBase&gt;::iterator it = tempSetup-&gt;playerStartingData.begin(); it != tempSetup-&gt;playerStartingData.end(); ++it)
+-					it-&gt;isFromDemo = true;
+-				
+-				// add myself to the script
+-				PlayerBase myPlayer;
+-				myPlayer.name = settings-&gt;myPlayerName;
+-				myPlayer.spectator = true;
+-				tempSetup-&gt;playerStartingData.push_back(myPlayer);
+-				tempSetup-&gt;numDemoPlayers = std::max(scanner.GetFileHeader().maxPlayerNum+1, tempSetup-&gt;numPlayers);
+-				tempSetup-&gt;numPlayers = tempSetup-&gt;numDemoPlayers+1;
+-				tempSetup-&gt;maxSpeed = 10;
+-				localDemoHack = true;
++				throw content_error(&quot;Demo contains incorrect script&quot;);
+ 			}
+-			else
+-			{
+-				throw content_error(&quot;Server sent us incorrect script&quot;);
+-			}
+ 			good_fpu_control_registers(&quot;before CGameServer creation&quot;);
+ 			gameServer = new CGameServer(settings.get(), true, data, tempSetup);
+ 			gameServer-&gt;AddLocalClient(settings-&gt;myPlayerName, std::string(VERSION_STRING_DETAILED));
+@@ -360,7 +369,7 @@
+ 		alreadyLoaded = true;
+ 	}
+ }
+-
++#include &lt;iostream&gt;
+ void CPreGame::GameDataReceived(boost::shared_ptr&lt;const netcode::RawPacket&gt; packet)
+ {
+ 	gameData.reset(new GameData(packet));
+@@ -372,24 +381,8 @@
+ 		temp-&gt;mapName = gameData-&gt;GetMap();
+ 		temp-&gt;baseMod = gameData-&gt;GetMod();
+ 		
+-		if (localDemoHack)
+-		{
+-			temp-&gt;hostDemo = true;
+-				
+-				// all players in the setupscript are from demo
+-			for (std::vector&lt;PlayerBase&gt;::iterator it = temp-&gt;playerStartingData.begin(); it != temp-&gt;playerStartingData.end(); ++it)
+-				it-&gt;isFromDemo = true;
+-				
+-			// add myself to the script
+-			PlayerBase myPlayer;
+-			myPlayer.name = settings-&gt;myPlayerName;
+-			myPlayer.spectator = true;
+-			temp-&gt;playerStartingData.push_back(myPlayer);
+-			temp-&gt;numDemoPlayers = temp-&gt;numPlayers;
+-			temp-&gt;numPlayers = temp-&gt;numDemoPlayers+1;
+-			temp-&gt;maxSpeed = 10;
+-		}
+ 		gameSetup = const_cast&lt;const CGameSetup*&gt;(temp);
++		std::cout &lt;&lt; gameSetup &lt;&lt; std::endl;
+ 		gs-&gt;LoadFromSetup(gameSetup);
+ 	}
+ 	else
+
+Modified: trunk/rts/Game/PreGame.h
+===================================================================
+--- trunk/rts/Game/PreGame.h	2008-11-07 21:46:32 UTC (rev 6990)
++++ trunk/rts/Game/PreGame.h	2008-11-07 22:53:43 UTC (rev 6991)
+@@ -72,8 +72,6 @@
+ 	boost::scoped_ptr&lt;const LocalSetup&gt; settings;
+ 	std::string modArchive;
+ 	CLoadSaveHandler *savefile;
+-	
+-	bool localDemoHack;
+ };
+ 
+ extern CPreGame* pregame;
+
+Modified: trunk/rts/Game/UI/InputReceiver.cpp
+===================================================================
+--- trunk/rts/Game/UI/InputReceiver.cpp	2008-11-07 21:46:32 UTC (rev 6990)
++++ trunk/rts/Game/UI/InputReceiver.cpp	2008-11-07 22:53:43 UTC (rev 6991)
+@@ -90,8 +90,8 @@
+ 
+ CInputReceiver::ContainerBox::ContainerBox()
+ : x1(0),
++	y1(0),
+ 	x2(0),
+-	y1(0),
+ 	y2(0)
+ {
+ }
+
+Modified: trunk/rts/System/LoadSaveHandler.cpp
+===================================================================
+--- trunk/rts/System/LoadSaveHandler.cpp	2008-11-07 21:46:32 UTC (rev 6990)
++++ trunk/rts/System/LoadSaveHandler.cpp	2008-11-07 22:53:43 UTC (rev 6991)
+@@ -173,7 +173,7 @@
+ 	ReadString(*ifs, scriptText);
+ 	if (!scriptText.empty() &amp;&amp; !gameSetup) {
+ 		CGameSetup* temp = SAFE_NEW CGameSetup();
+-		if (!temp-&gt;Init(scriptText.c_str(),scriptText.size())) {
++		if (!temp-&gt;Init(scriptText)) {
+ 			delete temp;
+ 			temp = 0;
+ 		} else {
+
+Modified: trunk/rts/System/TdfParser.cpp
+===================================================================
+--- trunk/rts/System/TdfParser.cpp	2008-11-07 21:46:32 UTC (rev 6990)
++++ trunk/rts/System/TdfParser.cpp	2008-11-07 22:53:43 UTC (rev 6991)
+@@ -106,8 +106,6 @@
+     delete it-&gt;second;
+ }
+ 
+-TdfParser::TdfParser() {
+-}
+ void TdfParser::print( std::ostream &amp; out ) const {
+   root_section.print( out );
+ }
+
+Modified: trunk/rts/System/TdfParser.h
+===================================================================
+--- trunk/rts/System/TdfParser.h	2008-11-07 21:46:32 UTC (rev 6990)
++++ trunk/rts/System/TdfParser.h	2008-11-07 22:53:43 UTC (rev 6991)
+@@ -46,7 +46,7 @@
+ 		}
+ 	};
+ 
+-	TdfParser();
++	TdfParser() {};
+ 	TdfParser( std::string const&amp; filename );
+ 	TdfParser( const char* buffer, std::size_t size );
+ 
+@@ -147,7 +147,7 @@
+ 		stream &gt;&gt; value;
+ 	}
+ 	
+-	TdfSection&amp; GetRootSection() {return root_section; };
++	TdfSection* GetRootSection() {return &amp;root_section; };
+ 
+ private:
+ 	TdfSection root_section;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001759.html">[Taspring-linux-commit] r6990 - in branches/gmltest/rts: Game/UI Lua
+</A></li>
+	<LI>Next message: <A HREF="001761.html">[Taspring-linux-commit] r6992 - in trunk/rts: Game Lua Sim/Units
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1760">[ date ]</a>
+              <a href="thread.html#1760">[ thread ]</a>
+              <a href="subject.html#1760">[ subject ]</a>
+              <a href="author.html#1760">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

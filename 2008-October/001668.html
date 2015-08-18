@@ -1,0 +1,245 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6899 - in trunk: Documentation rts/Game
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6899%20-%20in%20trunk%3A%20Documentation%20rts/Game&In-Reply-To=%3C20081026123659.EA9B84751%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001667.html">
+   <LINK REL="Next"  HREF="001669.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6899 - in trunk: Documentation rts/Game</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6899%20-%20in%20trunk%3A%20Documentation%20rts/Game&In-Reply-To=%3C20081026123659.EA9B84751%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6899 - in trunk: Documentation rts/Game">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Oct 26 13:36:55 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001667.html">[Taspring-linux-commit] r6898 - in trunk/rts: Game Game/UI Lua	Sim/Misc
+</A></li>
+        <LI>Next message: <A HREF="001669.html">[Taspring-linux-commit] r6900 - in branches/gmltest/rts: ExternalAI	Game Game/UI Rendering Sim/MoveTypes Sim/Path Sim/Units System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1668">[ date ]</a>
+              <a href="thread.html#1668">[ thread ]</a>
+              <a href="subject.html#1668">[ subject ]</a>
+              <a href="author.html#1668">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-10-26 13:36:51 +0100 (Sun, 26 Oct 2008)
+New Revision: 6899
+
+Modified:
+   trunk/Documentation/changelog.txt
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameServer.h
+Log:
+* remove code duplication from GameServer speed change code
+* don't allow maxUserSpeed to be set below minUserSpeed (and vice versa)
+* changelog update
+
+
+Modified: trunk/Documentation/changelog.txt
+===================================================================
+--- trunk/Documentation/changelog.txt	2008-10-26 10:59:52 UTC (rev 6898)
++++ trunk/Documentation/changelog.txt	2008-10-26 12:36:51 UTC (rev 6899)
+@@ -3,18 +3,22 @@
+ 0.77b6:
+ 
+ Crashes:
+- - fix crash on windows resizing
++ - fix crash on window resizing
++ - do not force useFPShadows to true unless they are supported (to prevent crashes during map-loading)
+ 
+ Engine:
+  - if in Choose ingame startposition mode its possible to play a map with more players than startpositions
+  - fix the aircraft hovering / drifting
+  - fix random start positions not beeing random
+  - fix area-attack for aircraft (#1144 again)
++ - GenerateTargets no longer has much information that the team requesting targets doesn't have
+ 
+ User Interface:
+  - enable startboxes by default
+  - decreased CPU laod and increase drawing speed lines
+  - fix small memleak when resizing the window
++ - The protection ring shows up for non-stockpile interceptors
++ - fix detection of units under mouse for spectators
+ 
+ Lua:
+  - added Spring.GetLastMessagePositions() (returns the 10 last message positions)
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-10-26 10:59:52 UTC (rev 6898)
++++ trunk/rts/Game/GameServer.cpp	2008-10-26 12:36:51 UTC (rev 6899)
+@@ -437,10 +437,7 @@
+ 				if(newSpeed&lt;0.1f)
+ 					newSpeed=0.1f;
+ 				if(newSpeed!=internalSpeed)
+-				{
+-					internalSpeed = newSpeed;
+-					Broadcast(CBaseNetProtocol::Get().SendInternalSpeed(newSpeed));
+-				}
++					InternalSpeedChange(newSpeed);
+ 			}
+ 		}
+ 	}
+@@ -525,22 +522,7 @@
+ 		case NETMSG_USER_SPEED: {
+ 			unsigned char playerNum = inbuf[1];
+ 			float speed = *((float*) &amp;inbuf[2]);
+-
+-			if (speed &gt; maxUserSpeed)
+-				speed = maxUserSpeed;
+-			if (speed &lt; minUserSpeed)
+-				speed = minUserSpeed;
+-			if (userSpeedFactor != speed)
+-			{
+-				if (internalSpeed == userSpeedFactor || internalSpeed&gt;speed)
+-				{
+-					Broadcast(CBaseNetProtocol::Get().SendInternalSpeed(speed));
+-					internalSpeed = speed;
+-				}
+-				// forward data
+-				Broadcast(CBaseNetProtocol::Get().SendUserSpeed(playerNum, speed));
+-				userSpeedFactor = speed;
+-			}
++			UserSpeedChange(speed, playerNum);
+ 		} break;
+ 
+ 		case NETMSG_CPU_USAGE:
+@@ -1045,17 +1027,8 @@
+ 	}
+ 
+ 	// make sure initial game speed is within allowed range and sent a new speed if not
+-	if(userSpeedFactor&gt;maxUserSpeed)
+-	{
+-		Broadcast(CBaseNetProtocol::Get().SendUserSpeed(SERVER_PLAYER, maxUserSpeed));
+-		userSpeedFactor = maxUserSpeed;
+-	}
+-	else if(userSpeedFactor&lt;minUserSpeed)
+-	{
+-		Broadcast(CBaseNetProtocol::Get().SendUserSpeed(SERVER_PLAYER, minUserSpeed));
+-		userSpeedFactor = minUserSpeed;
+-	}
+-
++	UserSpeedChange(userSpeedFactor, SERVER_PLAYER);
++	
+ 	if (demoReader) {
+ 		// the client told us to start a demo
+ 		// no need to send startpos and startplaying since its in the demo
+@@ -1133,31 +1106,17 @@
+ 	}
+ 	else if (action.command == &quot;setmaxspeed&quot; &amp;&amp; !action.extra.empty())
+ 	{
+-		float newUserSpeed = atof(action.extra.c_str());
++		float newUserSpeed = std::max(static_cast&lt;float&gt;(atof(action.extra.c_str())), minUserSpeed);
+ 		if (newUserSpeed &gt; 0.2)
+ 		{
+-			maxUserSpeed = atof(action.extra.c_str());
+-			if (userSpeedFactor &gt; maxUserSpeed) {
+-				Broadcast(CBaseNetProtocol::Get().SendUserSpeed(SERVER_PLAYER, maxUserSpeed));
+-				userSpeedFactor = maxUserSpeed;
+-				if (internalSpeed &gt; maxUserSpeed) {
+-					Broadcast(CBaseNetProtocol::Get().SendInternalSpeed(userSpeedFactor));
+-					internalSpeed = userSpeedFactor;
+-				}
+-			}
++			maxUserSpeed = newUserSpeed;
++			UserSpeedChange(userSpeedFactor, SERVER_PLAYER);
+ 		}
+ 	}
+ 	else if (action.command == &quot;setminspeed&quot; &amp;&amp; !action.extra.empty())
+ 	{
+-		minUserSpeed = atof(action.extra.c_str());
+-		if (userSpeedFactor &lt; minUserSpeed) {
+-			Broadcast(CBaseNetProtocol::Get().SendUserSpeed(SERVER_PLAYER, minUserSpeed));
+-			userSpeedFactor = minUserSpeed;
+-			if (internalSpeed &lt; minUserSpeed) {
+-				Broadcast(CBaseNetProtocol::Get().SendInternalSpeed(userSpeedFactor));
+-				internalSpeed = userSpeedFactor;
+-			}
+-		}
++		minUserSpeed = std::min(static_cast&lt;float&gt;(atof(action.extra.c_str())), maxUserSpeed);
++		UserSpeedChange(userSpeedFactor, SERVER_PLAYER);
+ 	}
+ 	else if (action.command == &quot;forcestart&quot;)
+ 	{
+@@ -1479,6 +1438,28 @@
+ 	}
+ }
+ 
++void CGameServer::InternalSpeedChange(float newSpeed)
++{
++	if (internalSpeed == newSpeed)
++		; //TODO some error here
++	Broadcast(CBaseNetProtocol::Get().SendInternalSpeed(newSpeed));
++	internalSpeed = newSpeed;
++}
++
++void CGameServer::UserSpeedChange(float newSpeed, int player)
++{
++	newSpeed = std::min(maxUserSpeed, std::max(newSpeed, minUserSpeed));
++	
++	if (userSpeedFactor != newSpeed)
++	{
++		if (internalSpeed &gt; newSpeed || internalSpeed == userSpeedFactor) // insta-raise speed when not slowed down
++			InternalSpeedChange(newSpeed);
++
++		Broadcast(CBaseNetProtocol::Get().SendUserSpeed(player, newSpeed));
++		userSpeedFactor = newSpeed;
++	}
++}
++
+ void CGameServer::RestrictedAction(const std::string&amp; action)
+ {
+ 	RegisterAction(action);
+
+Modified: trunk/rts/Game/GameServer.h
+===================================================================
+--- trunk/rts/Game/GameServer.h	2008-10-26 10:59:52 UTC (rev 6898)
++++ trunk/rts/Game/GameServer.h	2008-10-26 12:36:51 UTC (rev 6899)
+@@ -182,6 +182,8 @@
+ 	int delayedSyncResponseFrame;
+ 
+ 	///////////////// internal stuff //////////////////
++	void InternalSpeedChange(float newSpeed);
++	void UserSpeedChange(float newSpeed, int player);
+ 
+ 	bool hasLocalClient;
+ 	unsigned localClientNumber;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001667.html">[Taspring-linux-commit] r6898 - in trunk/rts: Game Game/UI Lua	Sim/Misc
+</A></li>
+	<LI>Next message: <A HREF="001669.html">[Taspring-linux-commit] r6900 - in branches/gmltest/rts: ExternalAI	Game Game/UI Rendering Sim/MoveTypes Sim/Path Sim/Units System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1668">[ date ]</a>
+              <a href="thread.html#1668">[ thread ]</a>
+              <a href="subject.html#1668">[ subject ]</a>
+              <a href="author.html#1668">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

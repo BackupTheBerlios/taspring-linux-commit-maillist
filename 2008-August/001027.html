@@ -1,0 +1,164 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6257 - in branches/0.77-branch/rts: Game	Game/StartScripts Sim/Misc Sim/MoveTypes/MoveMath
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6257%20-%20in%20branches/0.77-branch/rts%3A%20Game%0A%09Game/StartScripts%20Sim/Misc%20Sim/MoveTypes/MoveMath&In-Reply-To=%3C20080814163926.704B04960%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001026.html">
+   <LINK REL="Next"  HREF="001036.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6257 - in branches/0.77-branch/rts: Game	Game/StartScripts Sim/Misc Sim/MoveTypes/MoveMath</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6257%20-%20in%20branches/0.77-branch/rts%3A%20Game%0A%09Game/StartScripts%20Sim/Misc%20Sim/MoveTypes/MoveMath&In-Reply-To=%3C20080814163926.704B04960%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6257 - in branches/0.77-branch/rts: Game	Game/StartScripts Sim/Misc Sim/MoveTypes/MoveMath">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Aug 14 18:39:26 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001026.html">[Taspring-linux-commit] r6256 - in trunk/Lobby/TASClient: . Python	Python/engine
+</A></li>
+        <LI>Next message: <A HREF="001036.html">[Taspring-linux-commit] r6258 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1027">[ date ]</a>
+              <a href="thread.html#1027">[ thread ]</a>
+              <a href="subject.html#1027">[ subject ]</a>
+              <a href="author.html#1027">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-08-14 18:39:25 +0200 (Thu, 14 Aug 2008)
+New Revision: 6257
+
+Modified:
+   branches/0.77-branch/rts/Game/GameServer.cpp
+   branches/0.77-branch/rts/Game/StartScripts/CommanderScript.cpp
+   branches/0.77-branch/rts/Sim/Misc/GroundBlockingObjectMap.h
+   branches/0.77-branch/rts/Sim/MoveTypes/MoveMath/MoveMath.cpp
+Log:
+* apply r6254 + 6255
+
+
+Modified: branches/0.77-branch/rts/Game/GameServer.cpp
+===================================================================
+--- branches/0.77-branch/rts/Game/GameServer.cpp	2008-08-14 13:21:58 UTC (rev 6256)
++++ branches/0.77-branch/rts/Game/GameServer.cpp	2008-08-14 16:39:25 UTC (rev 6257)
+@@ -1366,7 +1366,7 @@
+ 		}
+ 	}
+ 
+-	if (setup &amp;&amp; hisNewNumber &gt;= static_cast&lt;unsigned&gt;(setup-&gt;numPlayers))
++	if (setup &amp;&amp; hisNewNumber &gt;= static_cast&lt;unsigned&gt;(setup-&gt;numPlayers) &amp;&amp; !demoReader)
+ 	{
+ 		// number not in setup, drop connection
+ 		Message(str(format(&quot;Connection rejected because of number %i not in setup (wanted number %i).&quot;) %hisNewNumber %wantedNumber));
+@@ -1383,7 +1383,7 @@
+ 			Broadcast(CBaseNetProtocol::Get().SendPlayerName(a, players[a]-&gt;name));
+ 	}
+ 
+-	if (setup)
++	if (setup &amp;&amp; (!demoReader || setup-&gt;demoName.empty()) /* gamesetup from demo? */)
+ 	{
+ 		unsigned hisTeam = setup-&gt;playerStartingData[hisNewNumber].team;
+ 		if (!teams[hisTeam]) // create new team
+
+Modified: branches/0.77-branch/rts/Game/StartScripts/CommanderScript.cpp
+===================================================================
+--- branches/0.77-branch/rts/Game/StartScripts/CommanderScript.cpp	2008-08-14 13:21:58 UTC (rev 6256)
++++ branches/0.77-branch/rts/Game/StartScripts/CommanderScript.cpp	2008-08-14 16:39:25 UTC (rev 6257)
+@@ -59,10 +59,16 @@
+ 			}
+ 
+ 			// get the team startup info
+-			const std::string&amp; side = team-&gt;side;
+-			const std::string&amp; startUnit = sideParser.GetStartUnit(side);
++			// NOTE: team-&gt;side isn't set when playing GameSetup-type demos
++			// (CGlobalStuff::LoadFromSetup() doesn't get called for them),
++			// this needs to be sorted out properly
++			const std::string&amp; tside = team-&gt;side;
++			const std::string&amp; gside = gameSetup-&gt;teamStartingData[a].side;
++			const std::string&amp; rside = (tside == gside)? tside: gside;
++			const std::string&amp; startUnit = sideParser.GetStartUnit(rside);
++
+ 			if (startUnit.empty()) {
+-				throw content_error( &quot;Unable to load a commander for side: &quot; + side);
++				throw content_error( &quot;Unable to load a commander for side: &quot; + rside);
+ 			}
+ 
+ 			CUnit* unit =
+@@ -72,8 +78,7 @@
+ 
+ 			// FIXME this shouldn't be here, but no better place exists currently
+ 			if (a == gu-&gt;myTeam) {
+-				minimap-&gt;AddNotification(team-&gt;startPos,
+-																 float3(1.0f, 1.0f, 1.0f), 1.0f);
++				minimap-&gt;AddNotification(team-&gt;startPos, float3(1.0f, 1.0f, 1.0f), 1.0f);
+ 				game-&gt;infoConsole-&gt;SetLastMsgPos(team-&gt;startPos);
+ 			}
+ 		}
+
+Modified: branches/0.77-branch/rts/Sim/Misc/GroundBlockingObjectMap.h
+===================================================================
+--- branches/0.77-branch/rts/Sim/Misc/GroundBlockingObjectMap.h	2008-08-14 13:21:58 UTC (rev 6256)
++++ branches/0.77-branch/rts/Sim/Misc/GroundBlockingObjectMap.h	2008-08-14 16:39:25 UTC (rev 6257)
+@@ -7,7 +7,7 @@
+ 
+ class CSolidObject;
+ typedef std::set&lt;CSolidObject*&gt; BlockingMapCell;
+-typedef BlockingMapCell::iterator BlockingMapCellIt;
++typedef BlockingMapCell::const_iterator BlockingMapCellIt;
+ typedef std::vector&lt;BlockingMapCell&gt; BlockingMap;
+ 
+ class CGroundBlockingObjectMap
+
+Modified: branches/0.77-branch/rts/Sim/MoveTypes/MoveMath/MoveMath.cpp
+===================================================================
+--- branches/0.77-branch/rts/Sim/MoveTypes/MoveMath/MoveMath.cpp	2008-08-14 13:21:58 UTC (rev 6256)
++++ branches/0.77-branch/rts/Sim/MoveTypes/MoveMath/MoveMath.cpp	2008-08-14 16:39:25 UTC (rev 6257)
+@@ -174,8 +174,11 @@
+ 		const bool iss = moveData.subMarine;
+ 		const bool oss = (obstacle-&gt;mobility &amp;&amp; obstacle-&gt;mobility-&gt;subMarine);
+ 
++		// some objects appear to have negative model heights
++		// (the S3DO model parsers allow it for some reason),
++		// take the absolute value
+ 		const float oy = obstacle-&gt;pos.y;
+-		const float oh = obstacle-&gt;height;
++		const float oh = std::max(obstacle-&gt;height, -obstacle-&gt;height);
+ 		const float gy = readmap-&gt;mipHeightmap[1][i];
+ 
+ 		// note that these conditions can lead to
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001026.html">[Taspring-linux-commit] r6256 - in trunk/Lobby/TASClient: . Python	Python/engine
+</A></li>
+	<LI>Next message: <A HREF="001036.html">[Taspring-linux-commit] r6258 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1027">[ date ]</a>
+              <a href="thread.html#1027">[ thread ]</a>
+              <a href="subject.html#1027">[ subject ]</a>
+              <a href="author.html#1027">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

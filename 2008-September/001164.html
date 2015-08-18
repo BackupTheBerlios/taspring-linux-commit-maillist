@@ -1,0 +1,808 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6394 - trunk/rts/lib/gml
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6394%20-%20trunk/rts/lib/gml&In-Reply-To=%3C20080909212046.45EA74A30%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001163.html">
+   <LINK REL="Next"  HREF="001165.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6394 - trunk/rts/lib/gml</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6394%20-%20trunk/rts/lib/gml&In-Reply-To=%3C20080909212046.45EA74A30%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6394 - trunk/rts/lib/gml">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Sep  9 23:20:46 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001163.html">[Taspring-linux-commit] r6393 - in trunk/Lobby/TASClient: .	lobby/var
+</A></li>
+        <LI>Next message: <A HREF="001165.html">[Taspring-linux-commit] r6395 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1164">[ date ]</a>
+              <a href="thread.html#1164">[ thread ]</a>
+              <a href="subject.html#1164">[ subject ]</a>
+              <a href="author.html#1164">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zerver
+Date: 2008-09-09 23:20:45 +0200 (Tue, 09 Sep 2008)
+New Revision: 6394
+
+Added:
+   trunk/rts/lib/gml/speedy-tls.cpp
+   trunk/rts/lib/gml/speedy-tls.h
+Modified:
+   trunk/rts/lib/gml/gml.cpp
+   trunk/rts/lib/gml/gmlcls.h
+Log:
+Added linux/mac library speedy_tls
+
+Modified: trunk/rts/lib/gml/gml.cpp
+===================================================================
+--- trunk/rts/lib/gml/gml.cpp	2008-09-09 15:53:50 UTC (rev 6393)
++++ trunk/rts/lib/gml/gml.cpp	2008-09-09 21:20:45 UTC (rev 6394)
+@@ -44,7 +44,7 @@
+ #	ifdef _MSC_VER
+ __declspec(thread) int gmlThreadNumber=0;
+ #	else
+-#		if !GML_GCC_TLS_FIX
++#		if !GML_GCC_TLS_FIX &amp;&amp; !GML_USE_SPEEDY_TLS
+ __thread int gmlThreadNumber=0;
+ #		endif
+ #	endif
+
+Modified: trunk/rts/lib/gml/gmlcls.h
+===================================================================
+--- trunk/rts/lib/gml/gmlcls.h	2008-09-09 15:53:50 UTC (rev 6393)
++++ trunk/rts/lib/gml/gmlcls.h	2008-09-09 21:20:45 UTC (rev 6394)
+@@ -12,13 +12,13 @@
+ #include &lt;GL/glew.h&gt;
+ 
+ #ifndef GML_COMPATIBLE_ATOMIC_COUNT
+-# ifdef BOOST_DETAIL_ATOMIC_COUNT_HPP_INCLUDED
+-#  error &quot;Please make sure StdAfx.h is included before anything that includes boost&quot;
+-# endif
+-# define GML_COMPATIBLE_ATOMIC_COUNT
+-# define private public
+-# include &lt;boost/detail/atomic_count.hpp&gt;
+-# undef private
++#	ifdef BOOST_DETAIL_ATOMIC_COUNT_HPP_INCLUDED
++#		error &quot;Please make sure StdAfx.h is included before anything that includes boost&quot;
++#	endif
++#	define GML_COMPATIBLE_ATOMIC_COUNT
++#	define private public
++#	include &lt;boost/detail/atomic_count.hpp&gt;
++#	undef private
+ #endif
+ 
+ #include &lt;boost/thread/mutex.hpp&gt;
+@@ -52,6 +52,7 @@
+ #define GML_LOCKED_GMLCOUNT_ASSIGNMENT 0 // experimental feature, probably not needed
+ //#define BOOST_AC_USE_PTHREADS
+ 
++// memory barriers for different platforms
+ #if defined(__APPLE__) || defined(__FreeBSD__)
+ #	include &lt;libkern/OSAtomic.h&gt;
+ #	define GML_MEMBAR OSMemoryBarrier()
+@@ -65,9 +66,9 @@
+ #	endif
+ #elif defined(_MSC_VER)
+ #	if (_MSC_VER &gt;= 1400) 
+-#		define GML_MEMBAR 
++#		define GML_MEMBAR // no barrier needed
+ #	else
+-#		define GML_MEMBAR MemoryBarrier()
++#		define GML_MEMBAR MemoryBarrier() // _asm {lock add [esp], 0}
+ #	endif
+ #elif defined(__BORLANDC__)
+ #	define GML_MEMBAR _asm {lock add [esp], 0}
+@@ -80,46 +81,70 @@
+ #	define GML_MEMBAR
+ #endif
+ // optimize by assuming volatile accesses are
+-// guaranteed not to be reordered (MSVS 2005 ONLY)
++// guaranteed not to be reordered (MSVS 2005 or memory barrier needed)
+ // <A HREF="http://msdn.microsoft.com/en-us/library/12a04hfd(VS.80">http://msdn.microsoft.com/en-us/library/12a04hfd(VS.80</A>).aspx
+ // <A HREF="http://msdn.microsoft.com/en-us/library/ms686355(VS.85">http://msdn.microsoft.com/en-us/library/ms686355(VS.85</A>).aspx
+ // <A HREF="http://msdn.microsoft.com/en-us/library/bb310595(VS.85">http://msdn.microsoft.com/en-us/library/bb310595(VS.85</A>).aspx
+ 
+ #if GML_ORDERED_VOLATILE
+-#define GML_VOLATILE(x) *(x volatile *)&amp;
+-#define GML_MUTEX
+-#define GML_MUTEX_LOCK()
+-#define GML_MUTEX_UNLOCK()
++#	define GML_VOLATILE(x) *(x volatile *)&amp;
++#	define GML_MUTEX
++#	define GML_MUTEX_LOCK()
++#	define GML_MUTEX_UNLOCK()
+ #else
+-#define GML_VOLATILE(x)
+-#define GML_MUTEX gmlMutex mutex
+-#define GML_MUTEX_LOCK() mutex.Lock()
+-#define GML_MUTEX_UNLOCK() mutex.Unlock()
++#	define GML_VOLATILE(x)
++#	define GML_MUTEX gmlMutex mutex
++#	define GML_MUTEX_LOCK() mutex.Lock()
++#	define GML_MUTEX_UNLOCK() mutex.Unlock()
+ #endif
+ 
+ #ifdef _MSC_VER
+-#define GML_TYPENAME typename
++#	define GML_TYPENAME typename
+ #else
+-#define GML_TYPENAME
++#	define GML_TYPENAME
+ #endif
+ 
++#define GML_USE_SPEEDY_TLS (!defined(WIN32) &amp;&amp; !defined(_WIN32) &amp;&amp; !defined(__WIN32__)) //defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__)
++#if GML_USE_SPEEDY_TLS
++#	include &quot;speedy-tls.h&quot;
++#endif
++
+ #define set_threadnum(val) gmlThreadNumber=val
+ 
+ #if GML_ENABLE
+ #	ifdef _MSC_VER
+ extern __declspec(thread) int gmlThreadNumber;
+ #	else
+-#		if GML_GCC_TLS_FIX
++#		if GML_GCC_TLS_FIX || GML_USE_SPEEDY_TLS
+ static inline unsigned long get_threadnum(void) {
+ 	unsigned long _v;
++#			if GML_GCC_TLS_FIX
++#				ifndef _WIN64
+ 	__asm__(&quot;mov %%fs:0x14, %0&quot;:&quot;=r&quot; (_v) : : );
++#				else
++	__asm__(&quot;mov %%gs:0x28, %0&quot;:&quot;=r&quot; (_v) : : );
++#				endif
++#			else
++	speedy_tls_get_int32(0, 0, sizeof(unsigned long), _v);
++#			endif
+ 	return _v;
+ }
+ #			undef set_threadnum
+ static inline void set_threadnum(unsigned long val) {
++#			if GML_GCC_TLS_FIX
++#				ifndef _WIN64
+ 	__asm__ __volatile__(&quot;mov %0,%%fs:0x14&quot; : : &quot;r&quot; (val));
++#				else
++	__asm__ __volatile__(&quot;mov %0,%%gs:0x28&quot; : : &quot;r&quot; (val));
++#				endif
++#			else
++	if (speedy_tls_init(sizeof(unsigned long))&lt;0) { // this works because we only set the thread number once per thread
++		handleerror(NULL, &quot;Failed to initialize Thread Local Storage&quot;, &quot;GML error:&quot;, MBF_OK | MBF_EXCL);
++	}
++	speedy_tls_put_int32(0, 0, sizeof(unsigned long), val);
++#			endif
+ }
+-#	define gmlThreadNumber get_threadnum()
++#			define gmlThreadNumber get_threadnum()
+ #		else
+ extern __thread int gmlThreadNumber;
+ #		endif
+
+Added: trunk/rts/lib/gml/speedy-tls.cpp
+===================================================================
+--- trunk/rts/lib/gml/speedy-tls.cpp	                        (rev 0)
++++ trunk/rts/lib/gml/speedy-tls.cpp	2008-09-09 21:20:45 UTC (rev 6394)
+@@ -0,0 +1,426 @@
++//Copyright (C) 2008 Kevin Hoffman. See LICENSE for use and warranty disclaimer.
++//Speedy TLS 1.0. Latest version at <A HREF="http://www.kevinjhoffman.com/">http://www.kevinjhoffman.com/</A>
++//Contains macros that can be used to very quickly (one instruction) access thread-local memory.
++
++#if !defined(WIN32) &amp;&amp; !defined(_WIN32) &amp;&amp; !defined(__WIN32__)
++
++#include &quot;speedy-tls.h&quot;
++#include &lt;stdlib.h&gt;
++#include &lt;stdio.h&gt;
++#include &lt;unistd.h&gt;
++#include &lt;string.h&gt;
++#include &lt;errno.h&gt;
++#include &lt;pthread.h&gt;
++#include &lt;sys/mman.h&gt;
++#include &lt;fcntl.h&gt;
++
++//============================================================================================================== INTEL =====================
++#ifdef __intel__
++
++//Useful reading:
++//  <A HREF="http://pdos.csail.mit.edu/6.828/2005/readings/i386/s05_01.htm">http://pdos.csail.mit.edu/6.828/2005/readings/i386/s05_01.htm</A>
++//  <A HREF="http://www.intel.com/products/processor/manuals/">http://www.intel.com/products/processor/manuals/</A> (especially volume 3A)
++//	Descriptor/Selector format for i386
++//
++//  <A HREF="http://en.wikipedia.org/wiki/X86_assembly_language#Segmented_addressing">http://en.wikipedia.org/wiki/X86_assembly_language#Segmented_addressing</A>
++//      More info on segmented addressing.
++//
++//  <A HREF="http://www.ibiblio.org/gferg/ldp/GCC-Inline-Assembly-HOWTO.html#s7">http://www.ibiblio.org/gferg/ldp/GCC-Inline-Assembly-HOWTO.html#s7</A>
++//  <A HREF="http://asm.sourceforge.net/articles/rmiyagi-inline-asm.txt">http://asm.sourceforge.net/articles/rmiyagi-inline-asm.txt</A>  
++//      Intros to inline assembly in GCC
++//
++//  <A HREF="http://www.microsoft.com/msj/archive/S2CE.aspx">http://www.microsoft.com/msj/archive/S2CE.aspx</A>
++//  <A HREF="http://en.wikipedia.org/wiki/Win32_Thread_Information_Block">http://en.wikipedia.org/wiki/Win32_Thread_Information_Block</A>
++//  <A HREF="http://younsi.blogspot.com/2007/05/show-tib-under-hood-from-matt-pietrek.html">http://younsi.blogspot.com/2007/05/show-tib-under-hood-from-matt-pietrek.html</A>
++//  
++//      Might be able to port this to Windows or maybe use compiler TLS storage class and it does it for us (__declspec(thread)).
++
++//NOTE: I don't use arch_prctl(ARCH_SET_GS, base) and instead use 32-bit segment selector because
++//if you set a 64-bit segment selector it makes context switches more expensive!
++
++//Generic representation of an x86 segment descriptor (32-bit mode and 64-bit mode w/ 32-bit syscall)
++typedef struct i386_descriptor {
++	unsigned int limit_0_15:16;
++	unsigned int base_0_15:16;
++	unsigned int base_16_23:8;
++	unsigned int accessed:1;
++	unsigned int contents:3;
++	unsigned int is_normal:1;
++	unsigned int protection:2;
++	unsigned int present:1;
++	unsigned int limit_16_19:4;
++	unsigned int avl:1;
++	unsigned int unknown_o:1;
++	unsigned int seg_32bit:1;
++	unsigned int limit_in_pages:1;
++	unsigned int base_24_31:8;
++};
++
++#ifdef linux
++
++#include &lt;linux/unistd.h&gt;
++#include &lt;asm/ldt.h&gt;
++#include &lt;asm/unistd.h&gt;
++
++//Define the modify_ldt function that will call this particular syscall.
++_syscall3(int, modify_ldt, int, func, void *, ptr, unsigned long, bytecount);
++
++#ifdef __x86_64__
++#include &lt;sys/prctl.h&gt;
++#include &lt;asm/prctl.h&gt;
++extern &quot;C&quot; {
++extern int arch_prctl(int code, unsigned long addr);
++};
++#endif
++
++#else
++
++#include &lt;architecture/i386/table.h&gt;
++#include &lt;i386/user_ldt.h&gt;
++
++//We still use this structure.
++typedef struct modify_ldt_ldt_s {
++	unsigned int  entry_number;
++	unsigned long base_addr;
++	unsigned int  limit;
++	unsigned int  seg_32bit:1;
++	unsigned int  contents:2;
++	unsigned int  read_exec_only:1;
++	unsigned int  limit_in_pages:1;
++	unsigned int  seg_not_present:1;
++	unsigned int  useable:1;
++} modify_ldt_t;
++
++#define MODIFY_LDT_CONTENTS_DATA	0
++#define MODIFY_LDT_CONTENTS_STACK	1
++#define MODIFY_LDT_CONTENTS_CODE	2
++
++#define LDT_ENTRIES			8192
++#define LDT_ENTRY_SIZE			8
++
++//Fake the Linux syscall by implementing use BSD-syscall
++int modify_ldt(int func, void *ptr, unsigned long bytecount)
++{
++	if (0 == func){
++		//reading LDT
++		int ret = i386_get_ldt(0, (union ldt_entry*)ptr, bytecount / LDT_ENTRY_SIZE);
++		if (ret &lt; 0){ return -1; }
++		int realRet = (bytecount/LDT_ENTRY_SIZE)*LDT_ENTRY_SIZE;
++		if (ret*LDT_ENTRY_SIZE &lt; realRet){ realRet = ret*LDT_ENTRY_SIZE; }
++		return realRet;
++	} else {
++		//writing one LDT
++		//have to form actual binary representation of LDT
++		modify_ldt_ldt_s* pLDT = (modify_ldt_ldt_s*)ptr;
++		union ldt_entry newLDT;
++		memset(&amp;newLDT, 0, sizeof(newLDT));
++
++		int ret=0;
++		if (pLDT-&gt;seg_not_present){
++			//Must use this other syntax to free the LDT entry.
++			ret = i386_set_ldt(pLDT-&gt;entry_number, NULL, 1);
++		} else {
++			newLDT.data.limit00 = pLDT-&gt;limit &amp; 0xFFFF;
++			newLDT.data.base00  = pLDT-&gt;base_addr &amp; 0xFFFF;
++			newLDT.data.base16  = (pLDT-&gt;base_addr &amp; 0xFF0000) &gt;&gt; 16;
++			newLDT.data.type    = (pLDT-&gt;read_exec_only ?  DESC_DATA_RONLY : DESC_DATA_WRITE);
++			newLDT.data.dpl     = 0x3;
++			newLDT.data.present = (pLDT-&gt;seg_not_present ? 0 : 1);
++			newLDT.data.limit16 = (pLDT-&gt;limit &amp; 0x0F0000) &gt;&gt; 16;
++			newLDT.data.stksz   = (pLDT-&gt;seg_32bit ? DESC_DATA_32B : DESC_DATA_16B);
++			newLDT.data.granular= (pLDT-&gt;limit_in_pages ? 1 : 0);
++			newLDT.data.base24  = (pLDT-&gt;base_addr &amp; 0xFF000000) &gt;&gt; 24;
++			//now do syscall
++			ret = i386_set_ldt(pLDT-&gt;entry_number, &amp;newLDT, 1);
++		}
++		if (ret &lt; 0){ return -1; }
++		if (pLDT-&gt;entry_number == LDT_AUTO_ALLOC){
++			pLDT-&gt;entry_number = ret;
++		}
++		//printf(&quot;ALLOCATED LDT NUMBER %d\n&quot;, pLDT-&gt;entry_number);
++		return 0;
++	}
++}
++
++#endif //linux
++
++#ifndef MAP_ANON
++#define MAP_ANON MAP_ANONYMOUS
++#endif //MAP_ANON
++
++//-------------------------------------------------------------------------------
++
++//Worker function to search for the next available ldt
++int speedy_tls_get_next_avail_ldt(){
++#ifdef linux
++	char temp[LDT_ENTRIES*LDT_ENTRY_SIZE];
++	int ret = modify_ldt(0, temp, sizeof(temp));
++	if (ret &lt; 0){
++		perror(&quot;failed to read ldt to find next free spot&quot;);
++		exit(-1);
++	}
++	int num=1;
++	struct i386_descriptor* entries = (i386_descriptor*)temp;
++	for (; entries[num].present; num++){}
++	return num;
++#else
++	//Let the kernel choose the next free spot (may be more efficient)
++	return LDT_AUTO_ALLOC;
++#endif
++}
++
++//Determine how many LDT entries are still free.
++int speedy_tls_get_number_ldt_entries(){  
++	char temp[LDT_ENTRIES*LDT_ENTRY_SIZE];
++	int ret = modify_ldt(0, temp, sizeof(temp));
++	if (ret &lt; 0){
++		perror(&quot;failed to read ldt to get # of entries&quot;);
++		exit(-1);
++	}
++	int maxToScan=ret / LDT_ENTRY_SIZE;
++	int num=0;
++	struct i386_descriptor* entries = (i386_descriptor*)temp;
++	for (int i=0; i&lt;maxToScan; i++){
++		if (entries[i].present){ num++; }
++	}
++	return num;
++}
++
++void speedy_tls_onthread_ending(void* arg);
++//Used to install a global hook when a pthread ends.
++class speedy_tls_threadhook {
++public:
++	pthread_key_t m_ldt;
++	pthread_key_t m_tlsbase;
++	pthread_key_t m_tlslength;
++	pthread_mutex_t m_lock;
++
++	//We need to make sure we free the thread's LDT when the thread is done.
++	static void onthread_ending(void* arg){
++		speedy_tls_onthread_ending(arg);
++	}
++
++	speedy_tls_threadhook(){
++		if (pthread_mutex_init(&amp;m_lock, NULL) &lt; 0){
++			perror(&quot;speedy_tls failed to create global thread speedy_tls mutex&quot;);
++			exit(-1);
++		}
++		if (pthread_key_create(&amp;m_ldt, onthread_ending) &lt; 0){
++			perror(&quot;speedy_tls failed to create global thread termination hook&quot;);
++			exit(-1);
++		}
++		if (pthread_key_create(&amp;m_tlsbase, NULL) &lt; 0){
++			perror(&quot;speedy_tls failed to create TLS slot for private-TLS base address&quot;);
++			exit(-1);
++		}
++		if (pthread_key_create(&amp;m_tlslength, NULL) &lt; 0){
++			perror(&quot;speedy_tls failed to create TLS slot for private-TLS base address&quot;);
++			exit(-1);
++		}
++	}
++};
++static speedy_tls_threadhook __speedy_tls_threadhook;
++
++void speedy_tls_onthread_ending(void* arg){
++	int ldt = speedy_tls_ptr_to_int32(arg);
++	struct modify_ldt_ldt_s freeLDT;
++	memset(&amp;freeLDT, 0, sizeof(freeLDT));
++
++	//Make sure we get base pointer to unmap memory as well.
++	void* tlsBase = pthread_getspecific(__speedy_tls_threadhook.m_tlsbase);
++	size_t tlsLength = (size_t)pthread_getspecific(__speedy_tls_threadhook.m_tlslength);
++
++#ifdef __x86_64__
++#ifdef __linux__
++	if (ldt == -1){
++		//We are using a 64-bit base, so reset it.
++		arch_prctl(ARCH_SET_GS, (unsigned long)0);
++	} else {
++#endif
++#endif
++	//Make sure that we clear the segment register before freeing the LDT entry!
++	__asm__ __volatile__
++	(
++		&quot;movl %0,%%eax\n\t&quot;
++		&quot;movw %%ax, &quot; __speedy_tls_reg__ &quot;\n\t&quot;
++		  : : &quot;r&quot;(0) : &quot;%eax&quot;
++	);
++#ifdef __x86_64__
++#ifdef __linux__
++	}
++#endif
++#endif
++
++	if (ldt != -1){
++		freeLDT.entry_number=ldt;
++		freeLDT.base_addr = 0;
++		freeLDT.limit = 0;
++		freeLDT.seg_32bit = 1;
++		freeLDT.contents = MODIFY_LDT_CONTENTS_DATA;
++		freeLDT.read_exec_only=0;
++		freeLDT.limit_in_pages=0;
++		freeLDT.seg_not_present=1;
++		freeLDT.useable = 0;
++		int ret = modify_ldt(1, &amp;freeLDT, sizeof(freeLDT));
++		if (ret &lt; 0){
++			perror(&quot;WARNING: speedy_tls_cleanup_ldt failed to free ldt&quot;);
++		}
++	}
++
++	//Finally, free the memory we used for the private TLS area.
++	if (NULL != tlsBase){
++		munmap(tlsBase, tlsLength);
++	}
++}
++
++//-------------------------------------------------------------------------------
++
++//Allocates specified amount of memory (rounded up to nearest page).
++//Results are undefined if you call this more than once on a thread.
++//Returns system error or 0 on success.
++int speedy_tls_init(int numBytes)
++{
++	//Round up to nearest page size if neccessary.
++	int pageSize = getpagesize();
++	int realNumBytes = (numBytes + (pageSize-1)) &amp; (~(pageSize-1)); 
++
++#ifdef __x86_64__
++  #ifdef __linux__
++	void* mmapBase=NULL;
++	int otherFlags = MAP_32BIT;
++  #else
++	//Have to try to allocate from lower 32-bits or TLS won't work.
++	void* mmapBase=(void*)0x100000;
++	int otherFlags = 0;
++  #endif
++#else
++	void* mmapBase=NULL;
++	int otherFlags = 0;
++#endif
++	void* tls=mmap(mmapBase, numBytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | otherFlags, -1, 0);
++#ifdef __x86_64__
++	//Retry malloc obtaining non-32bit address if we have to go that route (results in slower context switches)
++	if(tls==MAP_FAILED){
++		tls=mmap(NULL, numBytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
++	}
++#endif
++	if (tls==MAP_FAILED){
++		int err = errno;
++		perror(&quot;ERROR: fast-tls couldn't allocate memory for private-TLS segment&quot;);
++		printf(&quot;       fast-tls failed to allocate %d bytes with mmap (errno=%d)\n&quot;, numBytes, err);
++		return -1;
++	}
++
++	return speedy_tls_init_foraddr(tls, realNumBytes);
++}
++
++//Initializes the thread-local storage area to the memory region indicated. Size must be a multiple of the page size.
++//Results are undefined if you call this more than once on a thread.
++//Returns system error or 0 on success.
++int speedy_tls_init_foraddr(void* addr, int numBytes)
++{
++	unsigned char* base = (unsigned char*)addr;
++	struct modify_ldt_ldt_s newLDT;
++	memset(&amp;newLDT, 0, sizeof(newLDT));
++
++#ifdef __x86_64__
++	//if base address is not 32-bit, then have to use arch_prctl instead.
++	if (addr &gt; (void*)0xFFFFFFFF){
++  #ifdef __linux__
++		int ret = arch_prctl(ARCH_SET_GS, (unsigned long)addr);
++		if (0 != ret){
++			perror(&quot;speedy_tls_init_foraddr: failed to set 64-bit base address in GS register!&quot;);
++			return -1;
++		}
++		pthread_setspecific(__speedy_tls_threadhook.m_ldt, speedy_tls_int32_to_ptr(-1));
++		pthread_setspecific(__speedy_tls_threadhook.m_tlsbase, addr);
++		pthread_setspecific(__speedy_tls_threadhook.m_tlslength, speedy_tls_int32_to_ptr(numBytes));
++		return 0;
++  #else
++		printf(&quot;speedy_tls_init_foraddr: base address is 64-bit. Non-Linux OSes do not support this. Out of 32-bit TLS memory. Must fail!!!\n&quot;);
++		errno = EFAULT;
++		return -1;
++  #endif
++	}
++#endif
++
++	pthread_mutex_lock(&amp;__speedy_tls_threadhook.m_lock);
++
++	int newEntryNumber = speedy_tls_get_next_avail_ldt();
++	newLDT.entry_number=newEntryNumber;
++	newLDT.base_addr = (speedy_tls_ptr_to_int32(base) + (getpagesize()-1)) &amp; (~(getpagesize()-1));
++	newLDT.limit = numBytes / getpagesize();
++	newLDT.seg_32bit = 1;
++	newLDT.contents = MODIFY_LDT_CONTENTS_DATA;
++	newLDT.read_exec_only=0;
++	newLDT.limit_in_pages=1;
++	newLDT.seg_not_present=0;
++	newLDT.useable = 1;
++	int ret = modify_ldt(1, &amp;newLDT, sizeof(newLDT));
++	pthread_mutex_unlock(&amp;__speedy_tls_threadhook.m_lock);
++	if (ret &lt; 0){
++		perror(&quot;speedy_tls_init_foraddr failed to set ldt&quot;);
++		return -1;
++	}
++
++	__asm__ __volatile__
++	(
++		&quot;movl %0,%%eax\n\t&quot;
++		&quot;movw %%ax, &quot; __speedy_tls_reg__ &quot;\n\t&quot;
++		  : : &quot;r&quot;((newLDT.entry_number&lt;&lt;3) | (1 &lt;&lt; 2) | 0x3) : &quot;%eax&quot;
++	);
++
++	//Make sure that we will deallocate this LDT when the thread ends
++	pthread_setspecific(__speedy_tls_threadhook.m_ldt, speedy_tls_int32_to_ptr(newLDT.entry_number));
++	//Remember the base address for our private TLS for this thread.
++	pthread_setspecific(__speedy_tls_threadhook.m_tlsbase, speedy_tls_int32_to_ptr(newLDT.base_addr));
++	pthread_setspecific(__speedy_tls_threadhook.m_tlslength, speedy_tls_int32_to_ptr(numBytes));
++
++	return 0;
++}
++
++//Returns the base address of the thread-local storage area or NULL if not initialized.
++void* speedy_tls_get_base()
++{
++	void* baseAddr=NULL;
++	baseAddr = pthread_getspecific(__speedy_tls_threadhook.m_tlsbase);
++	return baseAddr;
++/**************************************** the old way was to get the selector, but doesn't work if we have a 64-bit base.
++	//Get the current selector.
++	unsigned int curSelector=0;
++	__asm__ __volatile__
++	(
++		&quot;xor %%eax,%%eax\n\t&quot;
++		&quot;movw &quot; __speedy_tls_reg__ &quot;, %%ax\n\t&quot;
++		&quot;movl %%eax, %0\n\t&quot;
++		  : &quot;=r&quot;(curSelector) : : &quot;%eax&quot;
++	);
++	//Make sure it's not into the GDT instead of the LDT.
++	//(if it is, that means we didn't set it, so don't use it)
++	if (!(curSelector &amp; (1&lt;&lt;2))){
++		return NULL;
++	}
++	//Get the index into the LDT.
++	int idx = (curSelector &gt;&gt; 3);
++	if (idx &lt; 0 || idx &gt;= LDT_ENTRIES){ return NULL; }
++	
++	char temp[LDT_ENTRIES*LDT_ENTRY_SIZE];
++	int ret = modify_ldt(0, temp, sizeof(temp));
++	if (ret &lt; 0){
++		perror(&quot;speedy_tls_get_base: failed to read ldt&quot;);
++		return NULL;
++	}
++	struct i386_descriptor* entries = (i386_descriptor*)temp;
++	if (!entries[idx].present){ return NULL; }
++	unsigned int realBase = entries[idx].base_0_15 | (entries[idx].base_16_23 &lt;&lt; 16) | (entries[idx].base_24_31 &lt;&lt; 24);
++	return (void*)realBase;	
++*****************************************/
++}
++
++#else //__intel__
++
++#error Implementation is not defined for non-Intel architecture right now.
++
++#endif
++
++#endif
+\ No newline at end of file
+
+Added: trunk/rts/lib/gml/speedy-tls.h
+===================================================================
+--- trunk/rts/lib/gml/speedy-tls.h	                        (rev 0)
++++ trunk/rts/lib/gml/speedy-tls.h	2008-09-09 21:20:45 UTC (rev 6394)
+@@ -0,0 +1,151 @@
++//Copyright (C) 2008 Kevin Hoffman. See LICENSE for use and warranty disclaimer.
++//Speedy TLS 1.0. Latest version at <A HREF="http://www.kevinjhoffman.com/">http://www.kevinjhoffman.com/</A>
++//Contains macros that can be used to very quickly (one instruction) access thread-local memory.
++
++#ifndef __SPEEDY_TLS_H__
++#define __SPEEDY_TLS_H__
++
++//Allocates specified amount of memory (rounded up to nearest page).
++//Results are undefined if you call this more than once on a thread.
++//Returns system error or 0 on success.
++int speedy_tls_init(int numBytes);
++
++//Initializes the thread-local storage area to the memory region indicated. Size must be a multiple of the page size.
++//Results are undefined if you call this more than once on a thread.
++//Returns system error or 0 on success.
++int speedy_tls_init_foraddr(void* addr, int numBytes);
++
++//Returns the base address of the thread-local storage area or NULL if not initialized.
++void* speedy_tls_get_base();
++
++#if defined(__i386__)
++
++#define __intel__
++#define __speedy_tls_reg__ &quot;%%fs&quot;
++
++#define speedy_tls_ptr_to_int32(x) ((int)(x))
++#define speedy_tls_int32_to_ptr(x) ((void*)(x))
++
++#elif defined(__x86_64__)
++
++#define __intel__
++#define __speedy_tls_reg__ &quot;%%gs&quot;
++
++#define speedy_tls_ptr_to_int32(x) ((int)(long long int)(x))
++#define speedy_tls_int32_to_ptr(x) ((void*)(long long int)(x))
++
++#else
++#error Fast TLS operations have not yet been implemented for this architecture. Please contribute.
++#endif
++
++//We can have a common assembly implementation for x86 architecture (uses fs on x86 and gs on x64).
++#ifdef __intel__
++
++//Use for information only on Intel only.
++int speedy_tls_get_number_ldt_entries();
++
++//-------------------------------------------------------------------------------------------------------------------------------------
++//MACROS TO GET AND SET TLS VALUES (SAFE FOR SMP)
++//-------------------------------------------------------------------------------------------------------------------------------------
++
++#define speedy_tls_get_int8(base, index, scale, output) \
++	__asm__ __volatile__ ( &quot;movb &quot; __speedy_tls_reg__ &quot;:(%1,%2,&quot; #scale &quot;), %0&quot; : &quot;=r&quot;(output) : &quot;r&quot;(base), &quot;r&quot;(index) );
++#define speedy_tls_get_int16(base, index, scale, output) \
++	__asm__ __volatile__ ( &quot;movw &quot; __speedy_tls_reg__ &quot;:(%1,%2,&quot; #scale &quot;), %0&quot; : &quot;=r&quot;(output) : &quot;r&quot;(base), &quot;r&quot;(index) );
++#define speedy_tls_get_int32(base, index, scale, output) \
++	__asm__ __volatile__ ( &quot;movl &quot; __speedy_tls_reg__ &quot;:(%1,%2,&quot; #scale &quot;), %0&quot; : &quot;=r&quot;(output) : &quot;r&quot;(base), &quot;r&quot;(index) );
++
++#define speedy_tls_put_int8(base, index, scale, input) \
++	__asm__ __volatile__ ( &quot;movb %0, &quot; __speedy_tls_reg__ &quot;:(%1,%2,&quot; #scale &quot;)&quot; : : &quot;r&quot;(input), &quot;r&quot;(base), &quot;r&quot;(index) );
++#define speedy_tls_put_int16(base, index, scale, input) \
++	__asm__ __volatile__ ( &quot;movw %0, &quot; __speedy_tls_reg__ &quot;:(%1,%2,&quot; #scale &quot;)&quot; : : &quot;r&quot;(input), &quot;r&quot;(base), &quot;r&quot;(index) );
++#define speedy_tls_put_int32(base, index, scale, input) \
++	__asm__ __volatile__ ( &quot;movl %0, &quot; __speedy_tls_reg__ &quot;:(%1,%2,&quot; #scale &quot;)&quot; : : &quot;r&quot;(input), &quot;r&quot;(base), &quot;r&quot;(index) );
++
++//-------------------------------------------------------------------------------------------------------------------------------------
++//MACROS THAT USE TLS VALUES (NOT SAFE FOR SMP)
++//-------------------------------------------------------------------------------------------------------------------------------------
++
++#define speedy_tls_add_int8(base, index, scale, input) \
++	__asm__ __volatile__ ( &quot;addb %0, &quot; __speedy_tls_reg__ &quot;:(%1,%2,&quot; #scale &quot;)&quot; : : &quot;r&quot;(input), &quot;r&quot;(base), &quot;r&quot;(index) );
++#define speedy_tls_add_int16(base, index, scale, input) \
++	__asm__ __volatile__ ( &quot;addw %0, &quot; __speedy_tls_reg__ &quot;:(%1,%2,&quot; #scale &quot;)&quot; : : &quot;r&quot;(input), &quot;r&quot;(base), &quot;r&quot;(index) );
++#define speedy_tls_add_int32(base, index, scale, input) \
++	__asm__ __volatile__ ( &quot;addl %0, &quot; __speedy_tls_reg__ &quot;:(%1,%2,&quot; #scale &quot;)&quot; : : &quot;r&quot;(input), &quot;r&quot;(base), &quot;r&quot;(index) );
++
++#define speedy_tls_inc_int8(base, index, scale) \
++	__asm__ __volatile__ ( &quot;incb &quot; __speedy_tls_reg__ &quot;:(%0,%1,&quot; #scale &quot;)&quot; : : &quot;r&quot;(base), &quot;r&quot;(index) );
++#define speedy_tls_inc_int16(base, index, scale) \
++	__asm__ __volatile__ ( &quot;incw &quot; __speedy_tls_reg__ &quot;:(%0,%1,&quot; #scale &quot;)&quot; : : &quot;r&quot;(base), &quot;r&quot;(index) );
++#define speedy_tls_inc_int32(base, index, scale) \
++	__asm__ __volatile__ ( &quot;incl &quot; __speedy_tls_reg__ &quot;:(%0,%1,&quot; #scale &quot;)&quot; : : &quot;r&quot;(base), &quot;r&quot;(index) );
++
++#define speedy_tls_dec_int8(base, index, scale) \
++	__asm__ __volatile__ ( &quot;decb &quot; __speedy_tls_reg__ &quot;:(%0,%1,&quot; #scale &quot;)&quot; : : &quot;r&quot;(base), &quot;r&quot;(index) );
++#define speedy_tls_dec_int16(base, index, scale) \
++	__asm__ __volatile__ ( &quot;decw &quot; __speedy_tls_reg__ &quot;:(%0,%1,&quot; #scale &quot;)&quot; : : &quot;r&quot;(base), &quot;r&quot;(index) );
++#define speedy_tls_dec_int32(base, index, scale) \
++	__asm__ __volatile__ ( &quot;decl &quot; __speedy_tls_reg__ &quot;:(%0,%1,&quot; #scale &quot;)&quot; : : &quot;r&quot;(base), &quot;r&quot;(index) );
++
++//-------------------------------------------------------------------------------------------------------------------------------------
++//MACROS THAT USE TLS VALUES (SAFE FOR SMP)
++//-------------------------------------------------------------------------------------------------------------------------------------
++
++#define speedy_tls_atomic_add_int8(base, index, scale, input) \
++	__asm__ __volatile__ ( &quot;lock; addb %0, &quot; __speedy_tls_reg__ &quot;:(%1,%2,&quot; #scale &quot;)&quot; : : &quot;r&quot;(input), &quot;r&quot;(base), &quot;r&quot;(index) );
++#define speedy_tls_atomic_add_int16(base, index, scale, input) \
++	__asm__ __volatile__ ( &quot;lock; addw %0, &quot; __speedy_tls_reg__ &quot;:(%1,%2,&quot; #scale &quot;)&quot; : : &quot;r&quot;(input), &quot;r&quot;(base), &quot;r&quot;(index) );
++#define speedy_tls_atomic_add_int32(base, index, scale, input) \
++	__asm__ __volatile__ ( &quot;lock; addl %0, &quot; __speedy_tls_reg__ &quot;:(%1,%2,&quot; #scale &quot;)&quot; : : &quot;r&quot;(input), &quot;r&quot;(base), &quot;r&quot;(index) );
++
++#define speedy_tls_atomic_inc_int8(base, index, scale) \
++	__asm__ __volatile__ ( &quot;lock; incb &quot; __speedy_tls_reg__ &quot;:(%0,%1,&quot; #scale &quot;)&quot; : : &quot;r&quot;(base), &quot;r&quot;(index) );
++#define speedy_tls_atomic_inc_int16(base, index, scale) \
++	__asm__ __volatile__ ( &quot;lock; incw &quot; __speedy_tls_reg__ &quot;:(%0,%1,&quot; #scale &quot;)&quot; : : &quot;r&quot;(base), &quot;r&quot;(index) );
++#define speedy_tls_atomic_inc_int32(base, index, scale) \
++	__asm__ __volatile__ ( &quot;lock; incl &quot; __speedy_tls_reg__ &quot;:(%0,%1,&quot; #scale &quot;)&quot; : : &quot;r&quot;(base), &quot;r&quot;(index) );
++
++#define speedy_tls_atomic_dec_int8(base, index, scale) \
++	__asm__ __volatile__ ( &quot;lock; decb &quot; __speedy_tls_reg__ &quot;:(%0,%1,&quot; #scale &quot;)&quot; : : &quot;r&quot;(base), &quot;r&quot;(index) );
++#define speedy_tls_atomic_dec_int16(base, index, scale) \
++	__asm__ __volatile__ ( &quot;lock; decw &quot; __speedy_tls_reg__ &quot;:(%0,%1,&quot; #scale &quot;)&quot; : : &quot;r&quot;(base), &quot;r&quot;(index) );
++#define speedy_tls_atomic_dec_int32(base, index, scale) \
++	__asm__ __volatile__ ( &quot;lock; decl &quot; __speedy_tls_reg__ &quot;:(%0,%1,&quot; #scale &quot;)&quot; : : &quot;r&quot;(base), &quot;r&quot;(index) );
++
++//Gets value of TLS integer and saves in original_value, and then adds input to the TLS integer.
++#define speedy_tls_atomic_get_and_add_int8(base, index, scale, input, original_value) \
++	__asm__ __volatile__ ( &quot;lock; xaddb %0, &quot; __speedy_tls_reg__ &quot;:(%2,%3,&quot; #scale &quot;)&quot; : &quot;=r&quot;(original_value) : &quot;0&quot;(input), &quot;r&quot;(base), &quot;r&quot;(index) );
++#define speedy_tls_atomic_get_and_add_int16(base, index, scale, input, original_value) \
++	__asm__ __volatile__ ( &quot;lock; xaddw %0, &quot; __speedy_tls_reg__ &quot;:(%2,%3,&quot; #scale &quot;)&quot; : &quot;=r&quot;(original_value) : &quot;0&quot;(input), &quot;r&quot;(base), &quot;r&quot;(index) );
++#define speedy_tls_atomic_get_and_add_int32(base, index, scale, input, original_value) \
++	__asm__ __volatile__ ( &quot;lock; xaddl %0, &quot; __speedy_tls_reg__ &quot;:(%2,%3,&quot; #scale &quot;)&quot; : &quot;=r&quot;(original_value) : &quot;0&quot;(input), &quot;r&quot;(base), &quot;r&quot;(index) );
++
++//-------------------------------------------------------------------------------------------------------------------------------------
++//MACROS THAT USE LOCAL VARIABLES INSTEAD OF TLS (NOT SMP SAFE)
++//-------------------------------------------------------------------------------------------------------------------------------------
++
++//Saves value of var in original_value and then adds num to var and saves in var.
++#define speedy_local_get_and_add_int8(var, num, original_value) \
++        __asm__ __volatile__ ( &quot;xaddb %0,%1&quot; : &quot;=r&quot; (original_value), &quot;+m&quot; (var) : &quot;0&quot; (num) : &quot;memory&quot; );
++#define speedy_local_get_and_add_int16(var, num, original_value) \
++        __asm__ __volatile__ ( &quot;xaddw %0,%1&quot; : &quot;=r&quot; (original_value), &quot;+m&quot; (var) : &quot;0&quot; (num) : &quot;memory&quot; );
++#define speedy_local_get_and_add_int32(var, num, original_value) \
++        __asm__ __volatile__ ( &quot;xaddl %0,%1&quot; : &quot;=r&quot; (original_value), &quot;+m&quot; (var) : &quot;0&quot; (num) : &quot;memory&quot; );
++
++//-------------------------------------------------------------------------------------------------------------------------------------
++//MACROS THAT USE LOCAL VARIABLES INSTEAD OF TLS (SMP SAFE)
++//-------------------------------------------------------------------------------------------------------------------------------------
++
++//Saves value of var in original_value and then adds num to var and saves in var.
++#define speedy_local_atomic_get_and_add_int8(var, num, original_value) \
++        __asm__ __volatile__ ( &quot;lock; xaddb %0,%1&quot; : &quot;=r&quot; (original_value), &quot;+m&quot; (var) : &quot;0&quot; (num) : &quot;memory&quot; );
++#define speedy_local_atomic_get_and_add_int16(var, num, original_value) \
++        __asm__ __volatile__ ( &quot;lock; xaddw %0,%1&quot; : &quot;=r&quot; (original_value), &quot;+m&quot; (var) : &quot;0&quot; (num) : &quot;memory&quot; );
++#define speedy_local_atomic_get_and_add_int32(var, num, original_value) \
++        __asm__ __volatile__ ( &quot;lock; xaddl %0,%1&quot; : &quot;=r&quot; (original_value), &quot;+m&quot; (var) : &quot;0&quot; (num) : &quot;memory&quot; );
++
++
++#endif //__intel__
++
++#endif //__SPEEDY_TLS_H__
++
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001163.html">[Taspring-linux-commit] r6393 - in trunk/Lobby/TASClient: .	lobby/var
+</A></li>
+	<LI>Next message: <A HREF="001165.html">[Taspring-linux-commit] r6395 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1164">[ date ]</a>
+              <a href="thread.html#1164">[ thread ]</a>
+              <a href="subject.html#1164">[ subject ]</a>
+              <a href="author.html#1164">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

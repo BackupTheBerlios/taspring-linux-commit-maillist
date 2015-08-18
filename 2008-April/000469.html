@@ -1,0 +1,330 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5688 - trunk/rts/Game
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5688%20-%20trunk/rts/Game&In-Reply-To=%3C20080409184647.DC0F546AE%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000468.html">
+   <LINK REL="Next"  HREF="000470.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5688 - trunk/rts/Game</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5688%20-%20trunk/rts/Game&In-Reply-To=%3C20080409184647.DC0F546AE%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5688 - trunk/rts/Game">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Apr  9 20:46:47 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000468.html">[Taspring-linux-commit] r5687 - trunk/rts/System/Net
+</A></li>
+        <LI>Next message: <A HREF="000470.html">[Taspring-linux-commit] r5689 - branches
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#469">[ date ]</a>
+              <a href="thread.html#469">[ thread ]</a>
+              <a href="subject.html#469">[ subject ]</a>
+              <a href="author.html#469">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-04-09 20:46:46 +0200 (Wed, 09 Apr 2008)
+New Revision: 5688
+
+Modified:
+   trunk/rts/Game/GameHelper.cpp
+   trunk/rts/Game/GameHelper.h
+Log:
+* Removed code duplication:
+  - TestAllyCone and TestNeutralCone now both use shared code in TestConeHelper
+  - TestTrajectoryAllyCone and TestTrajectoryNeutralCone both use TestTrajectoryConeHelper
+
+
+Modified: trunk/rts/Game/GameHelper.cpp
+===================================================================
+--- trunk/rts/Game/GameHelper.cpp	2008-04-09 17:46:59 UTC (rev 5687)
++++ trunk/rts/Game/GameHelper.cpp	2008-04-09 18:46:46 UTC (rev 5688)
+@@ -815,8 +815,8 @@
+ 
+ 
+ 
+-// return true if there is an allied unit within
+-// the firing cone of &lt;owner&gt; (that might be hit)
++/** @return true if there is an allied unit within
++    the firing cone of &lt;owner&gt; (that might be hit) */
+ bool CGameHelper::TestAllyCone(const float3&amp; from, const float3&amp; dir, float length, float spread, int allyteam, CUnit* owner)
+ {
+ 	int quads[1000];
+@@ -831,26 +831,16 @@
+ 			if (u == owner)
+ 				continue;
+ 
+-			float3 dif = u-&gt;midPos - from;
+-			float closeLength = dif.dot(dir);
+-
+-			if (closeLength &lt;= 0)
+-				continue;
+-			if (closeLength &gt; length)
+-				closeLength = length;
+-
+-			float3 closeVect = dif - dir * closeLength;
+-			float r = u-&gt;radius + spread * closeLength + 1;
+-
+-			if (closeVect.SqLength() &lt; r * r) {
++			if (TestConeHelper(from, dir, length, spread, u))
+ 				return true;
+-			}
+ 		}
+ 	}
+ 	return false;
+ }
+ 
+-// same as TestAllyCone, but looks for neutral units
++
++
++/** same as TestAllyCone, but looks for neutral units */
+ bool CGameHelper::TestNeutralCone(const float3&amp; from, const float3&amp; dir, float length, float spread, CUnit* owner)
+ {
+ 	int quads[1000];
+@@ -867,20 +857,8 @@
+ 				continue;
+ 
+ 			if (u-&gt;neutral || (gs-&gt;useLuaGaia &amp;&amp; u-&gt;team == gs-&gt;gaiaTeamID) || (u-&gt;team == MAX_TEAMS - 1)) {
+-				float3 dif = u-&gt;midPos - from;
+-				float closeLength = dif.dot(dir);
+-
+-				if (closeLength &lt;= 0)
+-					continue;
+-				if (closeLength &gt; length)
+-					closeLength = length;
+-
+-				float3 closeVect = dif - dir * closeLength;
+-				float r = u-&gt;radius + spread * closeLength + 1;
+-
+-				if (closeVect.SqLength() &lt; r * r) {
++				if (TestConeHelper(from, dir, length, spread, u))
+ 					return true;
+-				}
+ 			}
+ 		}
+ 	}
+@@ -889,9 +867,31 @@
+ 
+ 
+ 
+-// return true if there is an allied unit within
+-// the firing trajectory of &lt;owner&gt; (that might
+-// be hit)
++/** helper for TestAllyCone and TestNeutralCone
++    @return true if the unit u is in the firing cone, false otherwise */
++bool CGameHelper::TestConeHelper(const float3&amp; from, const float3&amp; dir, float length, float spread, const CUnit* u)
++{
++	float3 dif = u-&gt;midPos - from;
++	float closeLength = dif.dot(dir);
++
++	if (closeLength &lt;= 0)
++		return false;
++	if (closeLength &gt; length)
++		closeLength = length;
++
++	float3 closeVect = dif - dir * closeLength;
++	float r = u-&gt;radius + spread * closeLength + 1;
++
++	if (closeVect.SqLength() &lt; r * r) {
++		return true;
++	}
++	return false;
++}
++
++
++
++/** @return true if there is an allied unit within
++    the firing trajectory of &lt;owner&gt; (that might be hit) */
+ bool CGameHelper::TestTrajectoryAllyCone(const float3&amp; from, const float3&amp; flatdir, float length, float linear, float quadratic, float spread, float baseSize, int allyteam, CUnit* owner)
+ {
+ 	int quads[1000];
+@@ -906,46 +906,16 @@
+ 			if (u == owner)
+ 				continue;
+ 
+-			float3 dif = u-&gt;midPos-from;
+-			float3 flatdif(dif.x, 0, dif.z);
+-			float closeFlatLength = flatdif.dot(flatdir);
+-
+-			if (closeFlatLength &lt;= 0)
+-				continue;
+-			if (closeFlatLength &gt; length)
+-				closeFlatLength = length;
+-
+-			if (fabs(linear - quadratic * closeFlatLength) &lt; 0.15f) {
+-				// relatively flat region -&gt; use approximation
+-				dif.y -= (linear + quadratic * closeFlatLength) * closeFlatLength;
+-
+-				float3 closeVect = dif - flatdir * closeFlatLength;
+-				float r = u-&gt;radius + spread * closeFlatLength + baseSize;
+-				if (closeVect.SqLength() &lt; r * r) {
+-					return true;
+-				}
+-			} else {
+-				float3 newfrom = from + flatdir * closeFlatLength;
+-				newfrom.y += (linear + quadratic * closeFlatLength) * closeFlatLength;
+-				float3 dir = flatdir;
+-				dir.y = linear + quadratic * closeFlatLength;
+-				dir.Normalize();
+-
+-				dif = u-&gt;midPos - newfrom;
+-				float closeLength = dif.dot(dir);
+-
+-				float3 closeVect = dif - dir * closeLength;
+-				float r = u-&gt;radius + spread * closeFlatLength + baseSize;
+-				if (closeVect.SqLength() &lt; r * r) {
+-					return true;
+-				}
+-			}
++			if (TestTrajectoryConeHelper(from, flatdir, length, linear, quadratic, spread, baseSize, u))
++				return true;
+ 		}
+ 	}
+ 	return false;
+ }
+ 
+-// same as TestTrajectoryAllyCone, but looks for neutral units
++
++
++/** same as TestTrajectoryAllyCone, but looks for neutral units */
+ bool CGameHelper::TestTrajectoryNeutralCone(const float3&amp; from, const float3&amp; flatdir, float length, float linear, float quadratic, float spread, float baseSize, CUnit* owner)
+ {
+ 	int quads[1000];
+@@ -961,42 +931,53 @@
+ 				continue;
+ 
+ 			if (u-&gt;neutral || (gs-&gt;useLuaGaia &amp;&amp; u-&gt;team == gs-&gt;gaiaTeamID) || (u-&gt;team == MAX_TEAMS - 1)) {
+-				float3 dif = u-&gt;midPos - from;
+-				float3 flatdif(dif.x, 0, dif.z);
+-				float closeFlatLength = flatdif.dot(flatdir);
++				if (TestTrajectoryConeHelper(from, flatdir, length, linear, quadratic, spread, baseSize, u))
++					return true;
++			}
++		}
++	}
++	return false;
++}
+ 
+-				if (closeFlatLength &lt;= 0)
+-					continue;
+-				if (closeFlatLength &gt; length)
+-					closeFlatLength = length;
+ 
+-				if (fabs(linear - quadratic * closeFlatLength) &lt; 0.15f) {
+-					// relatively flat region -&gt; use approximation
+-					dif.y -= (linear + quadratic * closeFlatLength) * closeFlatLength;
+ 
+-					float3 closeVect = dif - flatdir * closeFlatLength;
+-					float r = u-&gt;radius + spread * closeFlatLength + baseSize;
+-					if (closeVect.SqLength() &lt; r * r) {
+-						return true;
+-					}
+-				} else {
+-					float3 newfrom = from + flatdir * closeFlatLength;
+-					newfrom.y += (linear + quadratic * closeFlatLength) * closeFlatLength;
+-					float3 dir = flatdir;
+-					dir.y = linear + quadratic * closeFlatLength;
+-					dir.Normalize();
++/** helper for TestTrajectoryAllyCone and TestTrajectoryNeutralCone
++    @return true if the unit u is in the firing cone, false otherwise */
++bool CGameHelper::TestTrajectoryConeHelper(const float3&amp; from, const float3&amp; flatdir, float length, float linear, float quadratic, float spread, float baseSize, const CUnit* u)
++{
++	float3 dif = u-&gt;midPos - from;
++	float3 flatdif(dif.x, 0, dif.z);
++	float closeFlatLength = flatdif.dot(flatdir);
+ 
+-					dif = u-&gt;midPos - newfrom;
+-					float closeLength = dif.dot(dir);
++	if (closeFlatLength &lt;= 0)
++		return false;
++	if (closeFlatLength &gt; length)
++		closeFlatLength = length;
+ 
+-					float3 closeVect = dif - dir * closeLength;
+-					float r = u-&gt;radius + spread * closeFlatLength + baseSize;
+-					if (closeVect.SqLength() &lt; r * r) {
+-						return true;
+-					}
+-				}
+-			}
++	if (fabs(linear - quadratic * closeFlatLength) &lt; 0.15f) {
++		// relatively flat region -&gt; use approximation
++		dif.y -= (linear + quadratic * closeFlatLength) * closeFlatLength;
++
++		float3 closeVect = dif - flatdir * closeFlatLength;
++		float r = u-&gt;radius + spread * closeFlatLength + baseSize;
++		if (closeVect.SqLength() &lt; r * r) {
++			return true;
+ 		}
++	} else {
++		float3 newfrom = from + flatdir * closeFlatLength;
++		newfrom.y += (linear + quadratic * closeFlatLength) * closeFlatLength;
++		float3 dir = flatdir;
++		dir.y = linear + quadratic * closeFlatLength;
++		dir.Normalize();
++
++		dif = u-&gt;midPos - newfrom;
++		float closeLength = dif.dot(dir);
++
++		float3 closeVect = dif - dir * closeLength;
++		float r = u-&gt;radius + spread * closeFlatLength + baseSize;
++		if (closeVect.SqLength() &lt; r * r) {
++			return true;
++		}
+ 	}
+ 	return false;
+ }
+
+Modified: trunk/rts/Game/GameHelper.h
+===================================================================
+--- trunk/rts/Game/GameHelper.h	2008-04-09 17:46:59 UTC (rev 5687)
++++ trunk/rts/Game/GameHelper.h	2008-04-09 18:46:46 UTC (rev 5688)
+@@ -81,6 +81,10 @@
+ 	};
+ 
+ 	std::list&lt;WaitingDamage*&gt; waitingDamages[128];		//probably a symptom of some other problems but im getting paranoid about putting whole classes into high trafic stl containers instead of pointers to them
++
++private:
++	bool CGameHelper::TestConeHelper(const float3&amp; from, const float3&amp; dir, float length, float spread, const CUnit* u);
++	bool CGameHelper::TestTrajectoryConeHelper(const float3&amp; from, const float3&amp; flatdir, float length, float linear, float quadratic, float spread, float baseSize, const CUnit* u);
+ };
+ 
+ extern CGameHelper* helper;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000468.html">[Taspring-linux-commit] r5687 - trunk/rts/System/Net
+</A></li>
+	<LI>Next message: <A HREF="000470.html">[Taspring-linux-commit] r5689 - branches
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#469">[ date ]</a>
+              <a href="thread.html#469">[ thread ]</a>
+              <a href="subject.html#469">[ subject ]</a>
+              <a href="author.html#469">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

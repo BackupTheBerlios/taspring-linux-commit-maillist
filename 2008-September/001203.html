@@ -1,0 +1,817 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6433 - in trunk/rts: Map/SMF	Rendering/Textures lib/gml
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6433%20-%20in%20trunk/rts%3A%20Map/SMF%0A%09Rendering/Textures%20lib/gml&In-Reply-To=%3C20080918003029.291CD4A54%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001202.html">
+   <LINK REL="Next"  HREF="001204.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6433 - in trunk/rts: Map/SMF	Rendering/Textures lib/gml</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6433%20-%20in%20trunk/rts%3A%20Map/SMF%0A%09Rendering/Textures%20lib/gml&In-Reply-To=%3C20080918003029.291CD4A54%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6433 - in trunk/rts: Map/SMF	Rendering/Textures lib/gml">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Sep 18 02:30:29 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001202.html">[Taspring-linux-commit] r6432 - in trunk/Lobby/TASClient: . Python	Python/scripts/subf
+</A></li>
+        <LI>Next message: <A HREF="001204.html">[Taspring-linux-commit] r6434 - in trunk/tools/SpringInstaller: .	debian
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1203">[ date ]</a>
+              <a href="thread.html#1203">[ thread ]</a>
+              <a href="subject.html#1203">[ subject ]</a>
+              <a href="author.html#1203">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zerver
+Date: 2008-09-18 02:30:28 +0200 (Thu, 18 Sep 2008)
+New Revision: 6433
+
+Modified:
+   trunk/rts/Map/SMF/BFGroundDrawer.cpp
+   trunk/rts/Rendering/Textures/nv_dds.cpp
+   trunk/rts/lib/gml/gml.cpp
+   trunk/rts/lib/gml/gml.h
+   trunk/rts/lib/gml/gmldef.h
+   trunk/rts/lib/gml/gmlfun.h
+Log:
+Fixed shader/texture problems in GML.
+Optimized BFGroundDrawer.
+
+Modified: trunk/rts/Map/SMF/BFGroundDrawer.cpp
+===================================================================
+--- trunk/rts/Map/SMF/BFGroundDrawer.cpp	2008-09-17 17:06:29 UTC (rev 6432)
++++ trunk/rts/Map/SMF/BFGroundDrawer.cpp	2008-09-18 00:30:28 UTC (rev 6433)
+@@ -269,7 +269,6 @@
+ 			ex = (int) x0;
+ 	}
+ 
+-
+ 	float cx2 = cam2-&gt;pos.x / SQUARE_SIZE;
+ 	float cy2 = cam2-&gt;pos.z / SQUARE_SIZE;
+ 
+@@ -316,6 +315,22 @@
+ 			float camxpart = (cx2 - ((cx / dlod) * dlod)) / dlod;
+ 			float camypart = (cy2 - ((cy / dlod) * dlod)) / dlod;
+ 
++			float mcxp=1.0f-camxpart;
++			float hcxp=0.5f*camxpart;
++			float hmcxp=0.5f*mcxp;
++
++			float mcyp=1.0f-camypart;
++			float hcyp=0.5f*camypart;
++			float hmcyp=0.5f*mcyp;
++
++			float mocxp=1.0f-oldcamxpart;
++			float hocxp=0.5f*oldcamxpart;
++			float hmocxp=0.5f*mocxp;
++
++			float mocyp=1.0f-oldcamypart;
++			float hocyp=0.5f*oldcamypart;
++			float hmocyp=0.5f*mocyp;
++
+ 			int minty = bty * bigSquareSize;
+ 			int maxty = minty + bigSquareSize;
+ 			int mintx = btx * bigSquareSize;
+@@ -331,6 +346,8 @@
+ 			int ystart = max(minly, minty);
+ 			int yend   = min(maxly, maxty);
+ 
++			int vrhlod = viewRadius * hlod;
++
+ 			for (y = ystart; y &lt; yend; y += lod) {
+ 				int xs = xstart;
+ 				int xe = xend;
+@@ -339,11 +356,15 @@
+ 				int nloop=(xe-xs)/lod+1;
+ 				ma-&gt;EnlargeArrays(52*nloop, 14*nloop+1); //! includes one extra for final endstrip
+ 
++				int yhdx = y * heightDataX;
++				int ylhdx = yhdx + lod * heightDataX;
++				int yhhdx = yhdx + hlod * heightDataX;
++
+ 				for (x = xs; x &lt; xe; x += lod) {
+ 					//! info: all triangle quads start in the top left corner
+ 					if ((lod == 1) ||
+-						(x &gt; cx + viewRadius * hlod) || (x &lt; cx - viewRadius * hlod) ||
+-						(y &gt; cy + viewRadius * hlod) || (y &lt; cy - viewRadius * hlod)) {
++						(x &gt; cx + vrhlod) || (x &lt; cx - vrhlod) ||
++						(y &gt; cy + vrhlod) || (y &lt; cy - vrhlod)) {
+ 						//! normal terrain (all vertices in one LOD)
+ 						if (!inStrip) {
+ 							DrawVertexAQ(ma, x, y      );
+@@ -353,17 +374,18 @@
+ 
+ 						DrawVertexAQ(ma, x + lod, y      );
+ 						DrawVertexAQ(ma, x + lod, y + lod);
+-					} else {
++					}
++					else {
+ 						//! border between 2 different LODs
+-						if ((x &gt;= (cx) + viewRadius * hlod)) {
++						if ((x &gt;= cx + vrhlod)) {
+ 							//! lower LOD to the right
+-							int idx1 = CLAMP((y       ) * heightDataX + x), idx1LOD = CLAMP(idx1 + lod), idx1HLOD = CLAMP(idx1 + hlod);
+-							int idx2 = CLAMP((y +  lod) * heightDataX + x), idx2LOD = CLAMP(idx2 + lod), idx2HLOD = CLAMP(idx2 + hlod);
+-							int idx3 = CLAMP((y + hlod) * heightDataX + x),                              idx3HLOD = CLAMP(idx3 + hlod);
+-							float h1 = (heightData[idx1] + heightData[idx2   ]) * 0.5f * (1 - oldcamxpart) + heightData[idx3    ] * (oldcamxpart);
+-							float h2 = (heightData[idx1] + heightData[idx1LOD]) * 0.5f * (1 - oldcamxpart) + heightData[idx1HLOD] * (oldcamxpart);
+-							float h3 = (heightData[idx2] + heightData[idx1LOD]) * 0.5f * (1 - oldcamxpart) + heightData[idx3HLOD] * (oldcamxpart);
+-							float h4 = (heightData[idx2] + heightData[idx2LOD]) * 0.5f * (1 - oldcamxpart) + heightData[idx2HLOD] * (oldcamxpart);
++							int idx1 = CLAMP(yhdx + x),  idx1LOD = CLAMP(idx1 + lod), idx1HLOD = CLAMP(idx1 + hlod);
++							int idx2 = CLAMP(ylhdx + x), idx2LOD = CLAMP(idx2 + lod), idx2HLOD = CLAMP(idx2 + hlod);
++							int idx3 = CLAMP(yhhdx + x),                              idx3HLOD = CLAMP(idx3 + hlod);
++							float h1 = (heightData[idx1] + heightData[idx2   ]) * hmocxp + heightData[idx3    ] * oldcamxpart;
++							float h2 = (heightData[idx1] + heightData[idx1LOD]) * hmocxp + heightData[idx1HLOD] * oldcamxpart;
++							float h3 = (heightData[idx2] + heightData[idx1LOD]) * hmocxp + heightData[idx3HLOD] * oldcamxpart;
++							float h4 = (heightData[idx2] + heightData[idx2LOD]) * hmocxp + heightData[idx2HLOD] * oldcamxpart;
+ 
+ 							if (inStrip) {
+ 								EndStripQ(ma);
+@@ -386,17 +408,16 @@
+ 							DrawVertexAQ(ma, x +  lod, y           );
+ 							DrawVertexAQ(ma, x + hlod, y,        h2);
+ 							EndStripQ(ma);
+-						}else
+-
+-						if ((x &lt;= (cx) - viewRadius * hlod)) {
++						}
++						else if ((x &lt;= cx - vrhlod)) {
+ 							//! lower LOD to the left
+-							int idx1 = CLAMP((y       ) * heightDataX + x), idx1LOD = CLAMP(idx1 + lod), idx1HLOD = CLAMP(idx1 + hlod);
+-							int idx2 = CLAMP((y +  lod) * heightDataX + x), idx2LOD = CLAMP(idx2 + lod), idx2HLOD = CLAMP(idx2 + hlod);
+-							int idx3 = CLAMP((y + hlod) * heightDataX + x), idx3LOD = CLAMP(idx3 + lod), idx3HLOD = CLAMP(idx3 + hlod);
+-							float h1 = (heightData[idx1LOD] + heightData[idx2LOD]) * 0.5f * (oldcamxpart) + heightData[idx3LOD ] * (1 - oldcamxpart);
+-							float h2 = (heightData[idx1   ] + heightData[idx1LOD]) * 0.5f * (oldcamxpart) + heightData[idx1HLOD] * (1 - oldcamxpart);
+-							float h3 = (heightData[idx2   ] + heightData[idx1LOD]) * 0.5f * (oldcamxpart) + heightData[idx3HLOD] * (1 - oldcamxpart);
+-							float h4 = (heightData[idx2   ] + heightData[idx2LOD]) * 0.5f * (oldcamxpart) + heightData[idx2HLOD] * (1 - oldcamxpart);
++							int idx1 = CLAMP(yhdx + x),  idx1LOD = CLAMP(idx1 + lod), idx1HLOD = CLAMP(idx1 + hlod);
++							int idx2 = CLAMP(ylhdx + x), idx2LOD = CLAMP(idx2 + lod), idx2HLOD = CLAMP(idx2 + hlod);
++							int idx3 = CLAMP(yhhdx + x), idx3LOD = CLAMP(idx3 + lod), idx3HLOD = CLAMP(idx3 + hlod);
++							float h1 = (heightData[idx1LOD] + heightData[idx2LOD]) * hocxp + heightData[idx3LOD ] * mocxp;
++							float h2 = (heightData[idx1   ] + heightData[idx1LOD]) * hocxp + heightData[idx1HLOD] * mocxp;
++							float h3 = (heightData[idx2   ] + heightData[idx1LOD]) * hocxp + heightData[idx3HLOD] * mocxp;
++							float h4 = (heightData[idx2   ] + heightData[idx2LOD]) * hocxp + heightData[idx2HLOD] * mocxp;
+ 
+ 							if (inStrip) {
+ 								EndStripQ(ma);
+@@ -421,15 +442,15 @@
+ 							EndStripQ(ma);
+ 						}
+ 
+-						if ((y &gt;= (cy) + viewRadius * hlod)) {
++						if ((y &gt;= cy + vrhlod)) {
+ 							//! lower LOD above
+-							int idx1 = (y       ) * heightDataX + x, idx1LOD = CLAMP(idx1 + lod), idx1HLOD = CLAMP(idx1 + hlod);
+-							int idx2 = (y +  lod) * heightDataX + x, idx2LOD = CLAMP(idx2 + lod);
+-							int idx3 = (y + hlod) * heightDataX + x, idx3LOD = CLAMP(idx3 + lod), idx3HLOD = CLAMP(idx3 + hlod);
+-							float h1 = (heightData[idx1   ] + heightData[idx1LOD]) * 0.5f * (1 - oldcamypart) + heightData[idx1HLOD] * (oldcamypart);
+-							float h2 = (heightData[idx1   ] + heightData[idx2   ]) * 0.5f * (1 - oldcamypart) + heightData[idx3    ] * (oldcamypart);
+-							float h3 = (heightData[idx2   ] + heightData[idx1LOD]) * 0.5f * (1 - oldcamypart) + heightData[idx3HLOD] * (oldcamypart);
+-							float h4 = (heightData[idx2LOD] + heightData[idx1LOD]) * 0.5f * (1 - oldcamypart) + heightData[idx3LOD ] * (oldcamypart);
++							int idx1 = yhdx + x,  idx1LOD = CLAMP(idx1 + lod), idx1HLOD = CLAMP(idx1 + hlod);
++							int idx2 = ylhdx + x, idx2LOD = CLAMP(idx2 + lod);
++							int idx3 = yhhdx + x, idx3LOD = CLAMP(idx3 + lod), idx3HLOD = CLAMP(idx3 + hlod);
++							float h1 = (heightData[idx1   ] + heightData[idx1LOD]) * hmocyp + heightData[idx1HLOD] * oldcamypart;
++							float h2 = (heightData[idx1   ] + heightData[idx2   ]) * hmocyp + heightData[idx3    ] * oldcamypart;
++							float h3 = (heightData[idx2   ] + heightData[idx1LOD]) * hmocyp + heightData[idx3HLOD] * oldcamypart;
++							float h4 = (heightData[idx2LOD] + heightData[idx1LOD]) * hmocyp + heightData[idx3LOD ] * oldcamypart;
+ 
+ 							if (inStrip) {
+ 								EndStripQ(ma);
+@@ -449,17 +470,16 @@
+ 							DrawVertexAQ(ma, x +  lod, y +  lod    );
+ 							DrawVertexAQ(ma, x +  lod, y + hlod, h4);
+ 							EndStripQ(ma);
+-						}else
+-
+-						if ((y &lt;= (cy) - viewRadius * hlod)) {
++						}
++						else if ((y &lt;= cy - vrhlod)) {
+ 							//! lower LOD beneath
+-							int idx1 = CLAMP((y       ) * heightDataX + x), idx1LOD = CLAMP(idx1 + lod);
+-							int idx2 = CLAMP((y +  lod) * heightDataX + x), idx2LOD = CLAMP(idx2 + lod), idx2HLOD = CLAMP(idx2 + hlod);
+-							int idx3 = CLAMP((y + hlod) * heightDataX + x), idx3LOD = CLAMP(idx3 + lod), idx3HLOD = CLAMP(idx3 + hlod);
+-							float h1 = (heightData[idx2   ] + heightData[idx2LOD]) * 0.5f * (oldcamypart) + heightData[idx2HLOD] * (1 - oldcamypart);
+-							float h2 = (heightData[idx1   ] + heightData[idx2   ]) * 0.5f * (oldcamypart) + heightData[idx3    ] * (1 - oldcamypart);
+-							float h3 = (heightData[idx2   ] + heightData[idx1LOD]) * 0.5f * (oldcamypart) + heightData[idx3HLOD] * (1 - oldcamypart);
+-							float h4 = (heightData[idx2LOD] + heightData[idx1LOD]) * 0.5f * (oldcamypart) + heightData[idx3LOD ] * (1 - oldcamypart);
++							int idx1 = CLAMP(yhdx + x),  idx1LOD = CLAMP(idx1 + lod);
++							int idx2 = CLAMP(ylhdx + x), idx2LOD = CLAMP(idx2 + lod), idx2HLOD = CLAMP(idx2 + hlod);
++							int idx3 = CLAMP(yhhdx + x), idx3LOD = CLAMP(idx3 + lod), idx3HLOD = CLAMP(idx3 + hlod);
++							float h1 = (heightData[idx2   ] + heightData[idx2LOD]) * hocyp + heightData[idx2HLOD] * mocyp;
++							float h2 = (heightData[idx1   ] + heightData[idx2   ]) * hocyp + heightData[idx3    ] * mocyp;
++							float h3 = (heightData[idx2   ] + heightData[idx1LOD]) * hocyp + heightData[idx3HLOD] * mocyp;
++							float h4 = (heightData[idx2LOD] + heightData[idx1LOD]) * hocyp + heightData[idx3LOD ] * mocyp;
+ 
+ 							if (inStrip) {
+ 								EndStripQ(ma);
+@@ -505,19 +525,16 @@
+ 						int idx1 = CLAMP((y      ) * heightDataX + x), idx1LOD = CLAMP(idx1 + lod);
+ 						int idx2 = CLAMP((y + lod) * heightDataX + x), idx2LOD = CLAMP(idx2 + lod);
+ 						int idx3 = CLAMP((y - lod) * heightDataX + x), idx3LOD = CLAMP(idx3 + lod);
+-						float h = ((heightData[idx3LOD] +
+-							heightData[idx2LOD]) * 0.5f) * (1 - camxpart) +
+-							heightData[idx1LOD] * (camxpart);
++						float h = (heightData[idx3LOD] + heightData[idx2LOD]) * hmcxp +	heightData[idx1LOD] * camxpart;
+ 
+ 						DrawVertexAQ(ma, x + lod, y,       h);
+ 						DrawVertexAQ(ma, x + lod, y + lod   );
+-					} else {
++					}
++					else {
+ 						int idx1 = CLAMP((y       ) * heightDataX + x), idx1LOD = CLAMP(idx1 + lod);
+ 						int idx2 = CLAMP((y +  lod) * heightDataX + x), idx2LOD = CLAMP(idx2 + lod);
+ 						int idx3 = CLAMP((y + dlod) * heightDataX + x), idx3LOD = CLAMP(idx3 + lod);
+-						float h = (heightData[idx1LOD] +
+-							heightData[idx3LOD]) * 0.5f * (1 - camxpart) +
+-							heightData[idx2LOD] * (camxpart);
++						float h = (heightData[idx1LOD] + heightData[idx3LOD]) * hmcxp + heightData[idx2LOD] * camxpart;
+ 
+ 						DrawVertexAQ(ma, x + lod, y);
+ 						DrawVertexAQ(ma, x + lod, y + lod, h);
+@@ -533,19 +550,16 @@
+ 						int idx1 = CLAMP((y      ) * heightDataX + x);
+ 						int idx2 = CLAMP((y + lod) * heightDataX + x);
+ 						int idx3 = CLAMP((y - lod) * heightDataX + x);
+-						float h = ((heightData[idx3] +
+-							heightData[idx2]) * 0.5f) * (camxpart) +
+-							heightData[idx1] * (1 - camxpart);
++						float h = (heightData[idx3] + heightData[idx2]) * hcxp + heightData[idx1] * mcxp;
+ 
+ 						DrawVertexAQ(ma, x, y,       h);
+ 						DrawVertexAQ(ma, x, y + lod   );
+-					} else {
++					}
++					else {
+ 						int idx1 = CLAMP((y       ) * heightDataX + x);
+ 						int idx2 = CLAMP((y +  lod) * heightDataX + x);
+ 						int idx3 = CLAMP((y + dlod) * heightDataX + x);
+-						float h = (heightData[idx1] +
+-							heightData[idx3]) * 0.5f * (camxpart) +
+-							heightData[idx2] * (1 - camxpart);
++						float h = (heightData[idx1] + heightData[idx3]) * hcxp + heightData[idx2] * mcxp;
+ 
+ 						DrawVertexAQ(ma, x, y);
+ 						DrawVertexAQ(ma, x, y + lod, h);
+@@ -566,17 +580,15 @@
+ 					x = xs;
+ 					int nloop=(xe-xs)/lod+2; // one extra for if statment
+ 					ma-&gt;EnlargeArrays(2*nloop, 1);
++					int ylhdx=(y + lod) * heightDataX;
+ 					if (x % dlod) {
+-						int idx2     = CLAMP((y + lod) * heightDataX + x),
+-							idx2PLOD = CLAMP(idx2 + lod),
+-							idx2MLOD = CLAMP(idx2 - lod);
+-						float h = ((heightData[idx2MLOD] +
+-							heightData[idx2PLOD]) * 0.5f) * (1 - camypart) +
+-							heightData[idx2    ] * (camypart);
++						int idx2 = CLAMP(ylhdx + x), idx2PLOD = CLAMP(idx2 + lod), idx2MLOD = CLAMP(idx2 - lod);
++						float h = (heightData[idx2MLOD] + heightData[idx2PLOD]) * hmcyp + heightData[idx2] * camypart;
+ 
+ 						DrawVertexAQ(ma, x, y);
+ 						DrawVertexAQ(ma, x, y + lod, h);
+-					} else {
++					}
++					else {
+ 						DrawVertexAQ(ma, x, y      );
+ 						DrawVertexAQ(ma, x, y + lod);
+ 					}
+@@ -584,13 +596,10 @@
+ 						if (x % dlod) {
+ 							DrawVertexAQ(ma, x + lod, y      );
+ 							DrawVertexAQ(ma, x + lod, y + lod);
+-						} else {
+-							int idx2      = CLAMP((y + lod) * heightDataX + x),
+-								idx2PLOD  = CLAMP(idx2 +  lod),
+-								idx2PLOD2 = CLAMP(idx2 + dlod);
+-							float h = (heightData[idx2PLOD2] +
+-								heightData[idx2     ]) * 0.5f * (1 - camypart) +
+-								heightData[idx2PLOD ] * (camypart);
++						}
++						else {
++							int idx2 = CLAMP(ylhdx + x), idx2PLOD  = CLAMP(idx2 +  lod), idx2PLOD2 = CLAMP(idx2 + dlod);
++							float h = (heightData[idx2PLOD2] + heightData[idx2]) * hmcyp + heightData[idx2PLOD] * camypart;
+ 
+ 							DrawVertexAQ(ma, x + lod, y);
+ 							DrawVertexAQ(ma, x + lod, y + lod, h);
+@@ -610,17 +619,15 @@
+ 					x = xs;
+ 					int nloop=(xe-xs)/lod+2; // one extra for if statment
+ 					ma-&gt;EnlargeArrays(2*nloop, 1);
++					int yhdx=y * heightDataX;
+ 					if (x % dlod) {
+-						int idx1     = CLAMP((y) * heightDataX + x),
+-							idx1PLOD = CLAMP(idx1 + lod),
+-							idx1MLOD = CLAMP(idx1 - lod);
+-						float h = ((heightData[idx1MLOD] +
+-							heightData[idx1PLOD]) * 0.5f) * (camypart) +
+-							heightData[idx1    ] * (1 - camypart);
++						int idx1 = CLAMP(yhdx + x), idx1PLOD = CLAMP(idx1 + lod), idx1MLOD = CLAMP(idx1 - lod);
++						float h = (heightData[idx1MLOD] + heightData[idx1PLOD]) * hcyp + heightData[idx1] * mcyp;
+ 
+ 						DrawVertexAQ(ma, x, y,       h);
+ 						DrawVertexAQ(ma, x, y + lod   );
+-					} else {
++					}
++					else {
+ 						DrawVertexAQ(ma, x, y      );
+ 						DrawVertexAQ(ma, x, y + lod);
+ 					}
+@@ -629,13 +636,10 @@
+ 						if (x % dlod) {
+ 							DrawVertexAQ(ma, x + lod, y      );
+ 							DrawVertexAQ(ma, x + lod, y + lod);
+-						} else {
+-							int idx1      = CLAMP((y) * heightDataX + x),
+-								idx1PLOD  = CLAMP(idx1 +  lod),
+-								idx1PLOD2 = CLAMP(idx1 + dlod);
+-							float h = (heightData[idx1PLOD2] +
+-								heightData[idx1     ]) * 0.5f * (camypart) +
+-								heightData[idx1PLOD ] * (1 - camypart);
++						}
++						else {
++							int idx1 = CLAMP(yhdx + x), idx1PLOD  = CLAMP(idx1 +  lod), idx1PLOD2 = CLAMP(idx1 + dlod);
++							float h = (heightData[idx1PLOD2] + heightData[idx1]) * hcyp + heightData[idx1PLOD] * mcyp;
+ 
+ 							DrawVertexAQ(ma, x + lod, y,       h);
+ 							DrawVertexAQ(ma, x + lod, y + lod   );
+@@ -649,7 +653,6 @@
+ 	}
+ }
+ 
+-
+ void CBFGroundDrawer::Draw(bool drawWaterReflection, bool drawUnitReflection, unsigned int overrideVP)
+ {
+ 	if (wireframe) {
+@@ -820,16 +823,39 @@
+ 	int ystart = max(minly, minty);
+ 	int yend   = min(maxly, maxty);
+ 
++	int lhdx=lod*heightDataX;
++	int hhdx=hlod*heightDataX;
++	int dhdx=dlod*heightDataX;
++
++	float mcxp=1.0f-camxpart;
++	float hcxp=0.5f*camxpart;
++	float hmcxp=0.5f*mcxp;
++
++	float mcyp=1.0f-camypart;
++	float hcyp=0.5f*camypart;
++	float hmcyp=0.5f*mcyp;
++
++	float mocxp=1.0f-oldcamxpart;
++	float hocxp=0.5f*oldcamxpart;
++	float hmocxp=0.5f*mocxp;
++
++	float mocyp=1.0f-oldcamypart;
++	float hocyp=0.5f*oldcamypart;
++	float hmocyp=0.5f*mocyp;
++
++	int vrhlod = viewRadius * hlod;
++
+ 	for (y = ystart; y &lt; yend; y += lod) {
+ 		int xs = xstart;
+ 		int xe = xend;
+ 
+ 		int nloop=(xe-xs)/lod+1;
+-		ma-&gt;EnlargeArrays(52*nloop, 14*nloop+1); // includes one extra for final endstrip
++		ma-&gt;EnlargeArrays(52*nloop, 14*nloop+1); //! includes one extra for final endstrip
++		int ydx=y*heightDataX;
+ 		for (x = xs; x &lt; xe; x += lod) {
+ 			if ((lod == 1) ||
+-				(x &gt; (cx) + viewRadius * hlod) || (x &lt; (cx) - viewRadius * hlod) ||
+-				(y &gt; (cy) + viewRadius * hlod) || (y &lt; (cy) - viewRadius * hlod)) {
++				(x &gt; cx + vrhlod) || (x &lt; cx - vrhlod) ||
++				(y &gt; cy + vrhlod) || (y &lt; cy - vrhlod)) {
+ 					if (!inStrip) {
+ 						DrawVertexAQ(ma, x, y      );
+ 						DrawVertexAQ(ma, x, y + lod);
+@@ -837,13 +863,18 @@
+ 					}
+ 					DrawVertexAQ(ma, x + lod, y      );
+ 					DrawVertexAQ(ma, x + lod, y + lod);
+-			} else {  //inre begr?sning mot f?eg?nde lod
+-				if((x&gt;=(cx)+viewRadius*hlod)){
+-					float h1=(heightData[(y)*heightDataX+x    ]+heightData[(y+lod)*heightDataX+x])    *0.5f*(1-oldcamxpart)+heightData[(y+hlod)*heightDataX+x     ]*(oldcamxpart);
+-					float h2=(heightData[(y)*heightDataX+x    ]+heightData[(y)*heightDataX+x+lod])    *0.5f*(1-oldcamxpart)+heightData[(y)*heightDataX+x+hlod     ]*(oldcamxpart);
+-					float h3=(heightData[(y+lod)*heightDataX+x]+heightData[(y)*heightDataX+x+lod])    *0.5f*(1-oldcamxpart)+heightData[(y+hlod)*heightDataX+x+hlod]*(oldcamxpart);
+-					float h4=(heightData[(y+lod)*heightDataX+x]+heightData[(y+lod)*heightDataX+x+lod])*0.5f*(1-oldcamxpart)+heightData[(y+lod)*heightDataX+x+hlod ]*(oldcamxpart);
++			} 
++			else {  //! inre begr?sning mot f?eg?nde lod
++				int yhdx=ydx+x;
++				int ylhdx=yhdx+lhdx;
++				int yhhdx=yhdx+hhdx;
+ 
++				if(x&gt;=cx+vrhlod){
++					float h1=(heightData[yhdx ] + heightData[ylhdx    ]) * hmocxp + heightData[yhhdx     ] * oldcamxpart;
++					float h2=(heightData[yhdx ] + heightData[yhdx+lod ]) * hmocxp + heightData[yhdx+hlod ] * oldcamxpart;
++					float h3=(heightData[ylhdx] + heightData[yhdx+lod ]) * hmocxp + heightData[yhhdx+hlod] * oldcamxpart;
++					float h4=(heightData[ylhdx] + heightData[ylhdx+lod]) * hmocxp + heightData[ylhdx+hlod] * oldcamxpart;
++
+ 					if(inStrip){
+ 						EndStripQ(ma);
+ 						inStrip=false;
+@@ -865,11 +896,11 @@
+ 					DrawVertexAQ(ma, x+hlod,y,h2);
+ 					EndStripQ(ma);
+ 				}
+-				if((x&lt;=(cx)-viewRadius*hlod)){
+-					float h1=(heightData[(y)*heightDataX+x+lod]+heightData[(y+lod)*heightDataX+x+lod])*0.5f*(oldcamxpart)+heightData[(y+hlod)*heightDataX+x+lod ]*(1-oldcamxpart);
+-					float h2=(heightData[(y)*heightDataX+x    ]+heightData[(y)*heightDataX+x+lod])    *0.5f*(oldcamxpart)+heightData[(y)*heightDataX+x+hlod     ]*(1-oldcamxpart);
+-					float h3=(heightData[(y+lod)*heightDataX+x]+heightData[(y)*heightDataX+x+lod])    *0.5f*(oldcamxpart)+heightData[(y+hlod)*heightDataX+x+hlod]*(1-oldcamxpart);
+-					float h4=(heightData[(y+lod)*heightDataX+x]+heightData[(y+lod)*heightDataX+x+lod])*0.5f*(oldcamxpart)+heightData[(y+lod)*heightDataX+x+hlod ]*(1-oldcamxpart);
++				if(x&lt;=cx-vrhlod){
++					float h1=(heightData[yhdx+lod] + heightData[ylhdx+lod]) * hocxp + heightData[yhhdx+lod ] * mocxp;
++					float h2=(heightData[yhdx    ] + heightData[yhdx+lod ]) * hocxp + heightData[yhdx+hlod ] * mocxp;
++					float h3=(heightData[ylhdx   ] + heightData[yhdx+lod ]) * hocxp + heightData[yhhdx+hlod] * mocxp;
++					float h4=(heightData[ylhdx   ] + heightData[ylhdx+lod]) * hocxp + heightData[ylhdx+hlod] * mocxp;
+ 
+ 					if(inStrip){
+ 						EndStripQ(ma);
+@@ -892,11 +923,11 @@
+ 					DrawVertexAQ(ma, x+hlod,y+lod,h4);
+ 					EndStripQ(ma);
+ 				}
+-				if((y&gt;=(cy)+viewRadius*hlod)){
+-					float h1=(heightData[(y)*heightDataX+x        ]+heightData[(y)*heightDataX+x+lod])*0.5f*(1-oldcamypart)+heightData[(y)*heightDataX+x+hlod     ]*(oldcamypart);
+-					float h2=(heightData[(y)*heightDataX+x        ]+heightData[(y+lod)*heightDataX+x])*0.5f*(1-oldcamypart)+heightData[(y+hlod)*heightDataX+x     ]*(oldcamypart);
+-					float h3=(heightData[(y+lod)*heightDataX+x    ]+heightData[(y)*heightDataX+x+lod])*0.5f*(1-oldcamypart)+heightData[(y+hlod)*heightDataX+x+hlod]*(oldcamypart);
+-					float h4=(heightData[(y+lod)*heightDataX+x+lod]+heightData[(y)*heightDataX+x+lod])*0.5f*(1-oldcamypart)+heightData[(y+hlod)*heightDataX+x+lod ]*(oldcamypart);
++				if(y&gt;=cy+vrhlod){
++					float h1=(heightData[yhdx     ] + heightData[yhdx+lod]) * hmocyp + heightData[yhdx+hlod ] * oldcamypart;
++					float h2=(heightData[yhdx     ] + heightData[ylhdx   ]) * hmocyp + heightData[yhhdx     ] * oldcamypart;
++					float h3=(heightData[ylhdx    ] + heightData[yhdx+lod]) * hmocyp + heightData[yhhdx+hlod] * oldcamypart;
++					float h4=(heightData[ylhdx+lod] + heightData[yhdx+lod]) * hmocyp + heightData[yhhdx+lod ] * oldcamypart;
+ 
+ 					if(inStrip){
+ 						EndStripQ(ma);
+@@ -916,11 +947,11 @@
+ 					DrawVertexAQ(ma, x+lod,y+hlod,h4);
+ 					EndStripQ(ma);
+ 				}
+-				if((y&lt;=(cy)-viewRadius*hlod)){
+-					float h1=(heightData[(y+lod)*heightDataX+x    ]+heightData[(y+lod)*heightDataX+x+lod])*0.5f*(oldcamypart)+heightData[(y+lod)*heightDataX+x+hlod ]*(1-oldcamypart);
+-					float h2=(heightData[(y)*heightDataX+x        ]+heightData[(y+lod)*heightDataX+x])    *0.5f*(oldcamypart)+heightData[(y+hlod)*heightDataX+x     ]*(1-oldcamypart);
+-					float h3=(heightData[(y+lod)*heightDataX+x    ]+heightData[(y)*heightDataX+x+lod])    *0.5f*(oldcamypart)+heightData[(y+hlod)*heightDataX+x+hlod]*(1-oldcamypart);
+-					float h4=(heightData[(y+lod)*heightDataX+x+lod]+heightData[(y)*heightDataX+x+lod])    *0.5f*(oldcamypart)+heightData[(y+hlod)*heightDataX+x+lod ]*(1-oldcamypart);
++				if(y&lt;=cy-vrhlod){
++					float h1=(heightData[ylhdx    ] + heightData[ylhdx+lod]) * hocyp + heightData[ylhdx+hlod] * mocyp;
++					float h2=(heightData[yhdx     ] + heightData[ylhdx    ]) * hocyp + heightData[yhhdx     ] * mocyp;
++					float h3=(heightData[ylhdx    ] + heightData[yhdx+lod ]) * hocyp + heightData[yhhdx+hlod] * mocyp;
++					float h4=(heightData[ylhdx+lod] + heightData[yhdx+lod ]) * hocyp + heightData[yhhdx+lod ] * mocyp;
+ 
+ 					if(inStrip){
+ 						EndStripQ(ma);
+@@ -952,19 +983,22 @@
+ 	int yed=min(yend + lod, maxty);
+ 	int nloop=(yed-yst)/lod+1;
+ 	ma-&gt;EnlargeArrays(8*nloop, 2*nloop);
+-	//rita yttre begr?snings yta mot n?ta lod
++
++	//!rita yttre begr?snings yta mot n?ta lod
+ 	if(maxlx&lt;maxtx &amp;&amp; maxlx&gt;=mintx){
+ 		x=maxlx;
+ 		for(y=yst;y&lt;yed;y+=lod){
+ 			DrawVertexAQ(ma, x,y);
+ 			DrawVertexAQ(ma, x,y+lod);
++			int yhdx=y*heightDataX+x; 
+ 			if(y%dlod){
+-				float h=((heightData[(y-lod)*heightDataX+x+lod]+heightData[(y+lod)*heightDataX+x+lod])  *0.5f)*(1-camxpart)+heightData[(y)*heightDataX+x+lod    ]*(camxpart);
++				float h=(heightData[yhdx-lhdx+lod]+heightData[yhdx+lhdx+lod]) * hmcxp + heightData[yhdx+lod] * camxpart;
+ 				DrawVertexAQ(ma, x+lod,y,h);
+ 				DrawVertexAQ(ma, x+lod,y+lod);
+-			} else {
++			} 
++			else {
+ 				DrawVertexAQ(ma, x+lod,y);
+-				float h= (heightData[(y)*heightDataX+x+lod    ]+heightData[(y+lod*2)*heightDataX+x+lod])*0.5f *(1-camxpart)+heightData[(y+lod)*heightDataX+x+lod]*(camxpart);
++				float h=(heightData[yhdx+lod]+heightData[yhdx+dhdx+lod]) * hmcxp + heightData[yhdx+lhdx+lod] * camxpart;
+ 				DrawVertexAQ(ma, x+lod,y+lod,h);
+ 			}
+ 			EndStripQ(ma);
+@@ -973,13 +1007,15 @@
+ 	if(minlx&gt;mintx &amp;&amp; minlx&lt;maxtx){
+ 		x=minlx-lod;
+ 		for(y=yst;y&lt;yed;y+=lod){
++			int yhdx=y*heightDataX+x; 
+ 			if(y%dlod){
+-				float h=((heightData[(y-lod)*heightDataX+x]+heightData[(y+lod)*heightDataX+x] )*0.5f)*(camxpart)+heightData[(y)*heightDataX+x    ]*(1-camxpart);
++				float h=(heightData[yhdx-lhdx]+heightData[yhdx+lhdx]) * hcxp + heightData[yhdx] * mcxp;
+ 				DrawVertexAQ(ma, x,y,h);
+ 				DrawVertexAQ(ma, x,y+lod);
+-			} else {
++			} 
++			else {
+ 				DrawVertexAQ(ma, x,y);
+-				float h= (heightData[(y)*heightDataX+x    ]+heightData[(y+dlod)*heightDataX+x])*0.5f *(camxpart)+heightData[(y+lod)*heightDataX+x]*(1-camxpart);
++				float h=(heightData[yhdx]+heightData[yhdx+dhdx]) * hcxp + heightData[yhdx+lhdx] * mcxp;
+ 				DrawVertexAQ(ma, x,y+lod,h);
+ 			}
+ 			DrawVertexAQ(ma, x+lod,y);
+@@ -993,13 +1029,16 @@
+ 		int xe=min(xend+lod,maxtx);
+ 		if(xs&lt;xe){
+ 			x=xs;
+-			int nloop=(xe-xs)/lod+2; // one extra for if statment
++			int nloop=(xe-xs)/lod+2; //! one extra for if statment
+ 			ma-&gt;EnlargeArrays(2*nloop, 1);
++			int ydx=y*heightDataX;
+ 			if(x%dlod){
+ 				DrawVertexAQ(ma, x,y);
+-				float h=((heightData[(y+lod)*heightDataX+x-lod]+heightData[(y+lod)*heightDataX+x+lod])*0.5f)*(1-camypart)+heightData[(y+lod)*heightDataX+x]*(camypart);
++				int ylhdx=ydx+x+lhdx; 
++				float h=(heightData[ylhdx-lod]+heightData[ylhdx+lod]) * hmcyp + heightData[ylhdx] * camypart;
+ 				DrawVertexAQ(ma, x,y+lod,h);
+-			} else {
++			} 
++			else {
+ 				DrawVertexAQ(ma, x,y);
+ 				DrawVertexAQ(ma, x,y+lod);
+ 			}
+@@ -1007,9 +1046,11 @@
+ 				if(x%dlod){
+ 					DrawVertexAQ(ma, x+lod,y);
+ 					DrawVertexAQ(ma, x+lod,y+lod);
+-				} else {
++				} 
++				else {
+ 					DrawVertexAQ(ma, x+lod,y);
+-					float h=(heightData[(y+lod)*heightDataX+x+2*lod]+heightData[(y+lod)*heightDataX+x])*0.5f*(1-camypart)+heightData[(y+lod)*heightDataX+x+lod]*(camypart);
++					int ylhdx=ydx+x+lhdx; 
++					float h=(heightData[ylhdx+dlod]+heightData[ylhdx]) * hmcyp + heightData[ylhdx+lod] * camypart;
+ 					DrawVertexAQ(ma, x+lod,y+lod,h);
+ 				}
+ 			}
+@@ -1024,11 +1065,14 @@
+ 			x=xs;
+ 			int nloop=(xe-xs)/lod+2; // one extra for if statment
+ 			ma-&gt;EnlargeArrays(2*nloop, 1);
++			int ydx=y*heightDataX;
+ 			if(x%dlod){
+-				float h=((heightData[(y)*heightDataX+x-lod]+heightData[(y)*heightDataX+x+lod])*0.5f)*(camypart)+heightData[(y)*heightDataX+x]*(1-camypart);
++				int yhdx=ydx+x;
++				float h=(heightData[yhdx-lod]+heightData[yhdx+lod]) * hcyp + heightData[yhdx] * mcyp;
+ 				DrawVertexAQ(ma, x,y,h);
+ 				DrawVertexAQ(ma, x,y+lod);
+-			} else {
++			} 
++			else {
+ 				DrawVertexAQ(ma, x,y);
+ 				DrawVertexAQ(ma, x,y+lod);
+ 			}
+@@ -1036,8 +1080,10 @@
+ 				if(x%dlod){
+ 					DrawVertexAQ(ma, x+lod,y);
+ 					DrawVertexAQ(ma, x+lod,y+lod);
+-				} else {
+-					float h=(heightData[(y)*heightDataX+x+2*lod]+heightData[(y)*heightDataX+x])*0.5f*(camypart)+heightData[(y)*heightDataX+x+lod]*(1-camypart);
++				} 
++				else {
++					int yhdx=ydx+x;
++					float h=(heightData[yhdx+dlod]+heightData[yhdx]) * hcyp + heightData[yhdx+lod] * mcyp;
+ 					DrawVertexAQ(ma, x+lod,y,h);
+ 					DrawVertexAQ(ma, x+lod,y+lod);
+ 				}
+@@ -1045,7 +1091,6 @@
+ 			EndStripQ(ma);
+ 		}
+ 	}
+-
+ 	DrawGroundVertexArrayQ(ma);
+ }
+ 
+
+Modified: trunk/rts/Rendering/Textures/nv_dds.cpp
+===================================================================
+--- trunk/rts/Rendering/Textures/nv_dds.cpp	2008-09-17 17:06:29 UTC (rev 6432)
++++ trunk/rts/Rendering/Textures/nv_dds.cpp	2008-09-18 00:30:28 UTC (rev 6433)
+@@ -690,15 +690,18 @@
+     if (is_compressed())
+     {
+         // get function pointer if needed
++#ifndef USE_GML
+         if (glCompressedTexImage1DARB == NULL)
+         {
+             GET_EXT_POINTER(glCompressedTexImage1DARB, 
+                             PFNGLCOMPRESSEDTEXIMAGE1DARBPROC);
+         }
+-        
++
+         if (glCompressedTexImage1DARB == NULL)
+             return false;
+-        
++#else
++        ::
++#endif                
+         glCompressedTexImage1DARB(GL_TEXTURE_1D, 0, m_format, 
+             baseImage.get_width(), 0, baseImage.get_size(), baseImage);
+         
+@@ -706,6 +709,9 @@
+         for (unsigned int i = 0; i &lt; baseImage.get_num_mipmaps(); i++)
+         {
+             const CSurface &amp;mipmap = baseImage.get_mipmap(i);
++#ifdef USE_GML
++            ::
++#endif
+             glCompressedTexImage1DARB(GL_TEXTURE_1D, i+1, m_format, 
+                 mipmap.get_width(), 0, mipmap.get_size(), mipmap);
+         }
+@@ -769,6 +775,7 @@
+     if (is_compressed())
+     {
+         // load function pointer if needed
++#ifndef USE_GML
+         if (glCompressedTexImage2DARB == NULL)
+         {
+             GET_EXT_POINTER(glCompressedTexImage2DARB, 
+@@ -777,7 +784,9 @@
+         
+         if (glCompressedTexImage2DARB == NULL)
+             return false;
+-        
++#else
++        ::
++#endif
+         glCompressedTexImage2DARB(target, 0, m_format, image.get_width(), 
+             image.get_height(), 0, image.get_size(), image);
+         
+@@ -785,7 +794,9 @@
+         for (unsigned int i = 0; i &lt; image.get_num_mipmaps(); i++)
+         {
+             const CSurface &amp;mipmap = image.get_mipmap(i);
+-
++#ifdef USE_GML
++            ::
++#endif
+             glCompressedTexImage2DARB(target, i+1, m_format, 
+                 mipmap.get_width(), mipmap.get_height(), 0, 
+                 mipmap.get_size(), mipmap);
+@@ -835,6 +846,7 @@
+     if (is_compressed())
+     {
+         // retrieve function pointer if needed
++#ifndef USE_GML
+         if (glCompressedTexImage3DARB == NULL)
+         {
+             GET_EXT_POINTER(glCompressedTexImage3DARB, 
+@@ -843,7 +855,9 @@
+ 
+         if (glCompressedTexImage3DARB == NULL)
+             return false;
+-
++#else
++        ::
++#endif
+         glCompressedTexImage3DARB(GL_TEXTURE_3D, 0, m_format,  
+             baseImage.get_width(), baseImage.get_height(), baseImage.get_depth(),
+             0, baseImage.get_size(), baseImage);
+@@ -852,7 +866,9 @@
+         for (unsigned int i = 0; i &lt; baseImage.get_num_mipmaps(); i++)
+         {
+             const CSurface &amp;mipmap = baseImage.get_mipmap(i);
+-
++#ifdef USE_GML
++            ::
++#endif
+             glCompressedTexImage3DARB(GL_TEXTURE_3D, i+1, m_format, 
+                 mipmap.get_width(), mipmap.get_height(), mipmap.get_depth(), 
+                 0, mipmap.get_size(), mipmap);
+
+Modified: trunk/rts/lib/gml/gml.cpp
+===================================================================
+--- trunk/rts/lib/gml/gml.cpp	2008-09-17 17:06:29 UTC (rev 6432)
++++ trunk/rts/lib/gml/gml.cpp	2008-09-18 00:30:28 UTC (rev 6433)
+@@ -134,12 +134,18 @@
+ EXTERN inline GLhandleARB glCreateShader_FRAGMENT() {
+ 	return glCreateShader(GL_FRAGMENT_SHADER);
+ }
++EXTERN inline GLhandleARB glCreateShader_GEOMETRY_EXT() {
++	return glCreateShader(GL_GEOMETRY_SHADER_EXT);
++}
+ EXTERN inline GLhandleARB glCreateShaderObjectARB_VERTEX() {
+ 	return glCreateShaderObjectARB(GL_VERTEX_SHADER_ARB);
+ }
+ EXTERN inline GLhandleARB glCreateShaderObjectARB_FRAGMENT() {
+ 	return glCreateShaderObjectARB(GL_FRAGMENT_SHADER_ARB);
+ }
++EXTERN inline GLhandleARB glCreateShaderObjectARB_GEOMETRY_EXT() {
++	return glCreateShaderObjectARB(GL_GEOMETRY_SHADER_EXT);
++}
+ gmlQueue gmlQueues[GML_MAX_NUM_THREADS];
+ 
+ boost::thread *gmlThreads[GML_MAX_NUM_THREADS];
+@@ -150,9 +156,11 @@
+ 
+ gmlSingleItemServer&lt;GLhandleARB, GLhandleARB (*)(void)&gt; gmlShaderServer_VERTEX(&amp;glCreateShader_VERTEX, 2, 0);
+ gmlSingleItemServer&lt;GLhandleARB, GLhandleARB (*)(void)&gt; gmlShaderServer_FRAGMENT(&amp;glCreateShader_FRAGMENT, 2, 0);
++gmlSingleItemServer&lt;GLhandleARB, GLhandleARB (*)(void)&gt; gmlShaderServer_GEOMETRY_EXT(&amp;glCreateShader_GEOMETRY_EXT, 2, 0);
+ 
+ gmlSingleItemServer&lt;GLhandleARB, GLhandleARB (*)(void)&gt; gmlShaderObjectARBServer_VERTEX(&amp;glCreateShaderObjectARB_VERTEX, 2, 0);
+ gmlSingleItemServer&lt;GLhandleARB, GLhandleARB (*)(void)&gt; gmlShaderObjectARBServer_FRAGMENT(&amp;glCreateShaderObjectARB_FRAGMENT, 2, 0);
++gmlSingleItemServer&lt;GLhandleARB, GLhandleARB (*)(void)&gt; gmlShaderObjectARBServer_GEOMETRY_EXT(&amp;glCreateShaderObjectARB_GEOMETRY_EXT, 2, 0);
+ gmlSingleItemServer&lt;GLUquadric *, GLUquadric *(GML_GLAPIENTRY *)(void)&gt; gmlQuadricServer(&amp;gluNewQuadric, 100, 25);
+ 
+ gmlMultiItemServer&lt;GLuint, GLsizei, void (GML_GLAPIENTRY *)(GLsizei,GLuint *)&gt; gmlTextureServer(&amp;glGenTextures, 100, 25);
+
+Modified: trunk/rts/lib/gml/gml.h
+===================================================================
+--- trunk/rts/lib/gml/gml.h	2008-09-17 17:06:29 UTC (rev 6432)
++++ trunk/rts/lib/gml/gml.h	2008-09-18 00:30:28 UTC (rev 6433)
+@@ -69,9 +69,11 @@
+ 
+ extern gmlSingleItemServer&lt;GLhandleARB, GLhandleARB (*)(void)&gt; gmlShaderServer_VERTEX;
+ extern gmlSingleItemServer&lt;GLhandleARB, GLhandleARB (*)(void)&gt; gmlShaderServer_FRAGMENT;
++extern gmlSingleItemServer&lt;GLhandleARB, GLhandleARB (*)(void)&gt; gmlShaderServer_GEOMETRY_EXT;
+ 
+ extern gmlSingleItemServer&lt;GLhandleARB, GLhandleARB (*)(void)&gt; gmlShaderObjectARBServer_VERTEX;
+ extern gmlSingleItemServer&lt;GLhandleARB, GLhandleARB (*)(void)&gt; gmlShaderObjectARBServer_FRAGMENT;
++extern gmlSingleItemServer&lt;GLhandleARB, GLhandleARB (*)(void)&gt; gmlShaderObjectARBServer_GEOMETRY_EXT;
+ 
+ extern void gmlInit();
+ 
+@@ -86,6 +88,8 @@
+ 		return gmlShaderServer_VERTEX.GetItems();
+ 	if(type==GL_FRAGMENT_SHADER)
+ 		return gmlShaderServer_FRAGMENT.GetItems();
++	if(type==GL_GEOMETRY_SHADER_EXT)
++		return gmlShaderServer_GEOMETRY_EXT.GetItems();
+ 	return 0;
+ }
+ EXTERN inline GLhandleARB gmlCreateShaderObjectARB(GLenum type) {
+@@ -93,6 +97,8 @@
+ 		return gmlShaderObjectARBServer_VERTEX.GetItems();
+ 	if(type==GL_FRAGMENT_SHADER_ARB)
+ 		return gmlShaderObjectARBServer_FRAGMENT.GetItems();
++	if(type==GL_GEOMETRY_SHADER_EXT)
++		return gmlShaderObjectARBServer_GEOMETRY_EXT.GetItems();
+ 	return 0;
+ }
+ EXTERN inline GLUquadric *gmluNewQuadric() {
+
+Modified: trunk/rts/lib/gml/gmldef.h
+===================================================================
+--- trunk/rts/lib/gml/gmldef.h	2008-09-17 17:06:29 UTC (rev 6432)
++++ trunk/rts/lib/gml/gmldef.h	2008-09-18 00:30:28 UTC (rev 6433)
+@@ -459,8 +459,8 @@
+ #define glRasterPos2i gmlRasterPos2i
+ #define glReadBuffer gmlReadBuffer
+ #define glScissor gmlScissor
+-#define glShaderSource
+-#define glShaderSourceARB
++#define glShaderSource gmlShaderSource
++#define glShaderSourceARB gmlShaderSourceARB
+ #define glTexCoord2fv gmlTexCoord2fv
+ #define glTexParameterfv gmlTexParameterfv
+ #define glTranslated gmlTranslated
+
+Modified: trunk/rts/lib/gml/gmlfun.h
+===================================================================
+--- trunk/rts/lib/gml/gmlfun.h	2008-09-17 17:06:29 UTC (rev 6432)
++++ trunk/rts/lib/gml/gmlfun.h	2008-09-18 00:30:28 UTC (rev 6433)
+@@ -663,7 +663,7 @@
+ 		GLint sl=(len?strlen(C[i]):D[i])+1;\
+ 		datasize+=sl;\
+ 		((intptr_t *)&amp;(p-&gt;C))[i]=sl;\
+-			--sl;\
++		--sl;\
+ 		while(qd-&gt;WritePos+datasize&gt;=qd-&gt;WriteSize)\
+ 			p=(gml##name##Data *)qd-&gt;WaitRealloc(&amp;e);\
+ 		memcpy(e,C[i],sl);\
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001202.html">[Taspring-linux-commit] r6432 - in trunk/Lobby/TASClient: . Python	Python/scripts/subf
+</A></li>
+	<LI>Next message: <A HREF="001204.html">[Taspring-linux-commit] r6434 - in trunk/tools/SpringInstaller: .	debian
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1203">[ date ]</a>
+              <a href="thread.html#1203">[ thread ]</a>
+              <a href="subject.html#1203">[ subject ]</a>
+              <a href="author.html#1203">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

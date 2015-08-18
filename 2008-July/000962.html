@@ -1,0 +1,1046 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6182 - in trunk: game/LuaUI/Widgets	installer/builddata/springcontent/gamedata rts/ExternalAI	rts/Game rts/Game/UI rts/Lua rts/Rendering rts/System	rts/System/FileSystem
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6182%20-%20in%20trunk%3A%20game/LuaUI/Widgets%0A%09installer/builddata/springcontent/gamedata%20rts/ExternalAI%0A%09rts/Game%20rts/Game/UI%20rts/Lua%20rts/Rendering%20rts/System%0A%09rts/System/FileSystem&In-Reply-To=%3C20080715224249.EB27F492E%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000961.html">
+   <LINK REL="Next"  HREF="000963.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6182 - in trunk: game/LuaUI/Widgets	installer/builddata/springcontent/gamedata rts/ExternalAI	rts/Game rts/Game/UI rts/Lua rts/Rendering rts/System	rts/System/FileSystem</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6182%20-%20in%20trunk%3A%20game/LuaUI/Widgets%0A%09installer/builddata/springcontent/gamedata%20rts/ExternalAI%0A%09rts/Game%20rts/Game/UI%20rts/Lua%20rts/Rendering%20rts/System%0A%09rts/System/FileSystem&In-Reply-To=%3C20080715224249.EB27F492E%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6182 - in trunk: game/LuaUI/Widgets	installer/builddata/springcontent/gamedata rts/ExternalAI	rts/Game rts/Game/UI rts/Lua rts/Rendering rts/System	rts/System/FileSystem">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Jul 16 00:42:49 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000961.html">[Taspring-linux-commit] r6181 - in trunk/rts/Sim: Misc MoveTypes	MoveTypes/MoveMath Path Projectiles Units Weapons
+</A></li>
+        <LI>Next message: <A HREF="000963.html">[Taspring-linux-commit] r6183 - in trunk/rts: Game Sim/Misc System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#962">[ date ]</a>
+              <a href="thread.html#962">[ thread ]</a>
+              <a href="subject.html#962">[ subject ]</a>
+              <a href="author.html#962">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: trepan
+Date: 2008-07-16 00:42:48 +0200 (Wed, 16 Jul 2008)
+New Revision: 6182
+
+Modified:
+   trunk/game/LuaUI/Widgets/camera_smooth_move.lua
+   trunk/installer/builddata/springcontent/gamedata/unitdefs.lua
+   trunk/rts/ExternalAI/Group.cpp
+   trunk/rts/Game/SelectedUnits.cpp
+   trunk/rts/Game/UI/MouseHandler.cpp
+   trunk/rts/Lua/LuaOpenGL.cpp
+   trunk/rts/Lua/LuaOpenGL.h
+   trunk/rts/Lua/LuaSyncedCtrl.cpp
+   trunk/rts/Lua/LuaUnsyncedRead.cpp
+   trunk/rts/Lua/LuaUnsyncedRead.h
+   trunk/rts/Lua/LuaUtils.cpp
+   trunk/rts/Lua/LuaUtils.h
+   trunk/rts/Rendering/InMapDraw.cpp
+   trunk/rts/System/EventHandler.cpp
+   trunk/rts/System/EventHandler.h
+   trunk/rts/System/FileSystem/ArchiveScanner.cpp
+Log:
+
+- lua scripts now get first crack at all mouse events
+  (ex: the MMB used to be sent to the minimap UI element first)
+
+- lua scripts now get mouse events while Spring.IsGUIHidden() is true
+
+- added the GL evaluator functions to the lua GL interface
+  (note the gl.EvalEnable() and gl.EvalDisable() can only be
+   called in a gl.Eval(func) block). I've only tested the calls
+  required to get the gl.EvalMesh2() functionality working.
+
+- changed Spring.AddHeightMap() to return the final height
+  (makes it more like Spring.SetHeightMap(), and it might be useful)
+
+- added Spring.IsAboveMiniMap(x, y) -&gt; boolean  (convenience function)
+
+- started adding  isbool(), isstring(), istable(), etc...
+
+
+
+Modified: trunk/game/LuaUI/Widgets/camera_smooth_move.lua
+===================================================================
+--- trunk/game/LuaUI/Widgets/camera_smooth_move.lua	2008-07-14 18:48:32 UTC (rev 6181)
++++ trunk/game/LuaUI/Widgets/camera_smooth_move.lua	2008-07-15 22:42:48 UTC (rev 6182)
+@@ -28,17 +28,20 @@
+ 
+ -- Automatically generated local definitions
+ 
+-local GL_LINES           = GL.LINES
+-local GL_POINTS          = GL.POINTS
+-local glBeginEnd         = gl.BeginEnd
+-local glColor            = gl.Color
+-local glLineWidth        = gl.LineWidth
+-local glPointSize        = gl.PointSize
+-local glVertex           = gl.Vertex
++local GL_LINES    = GL.LINES
++local GL_POINTS   = GL.POINTS
++
++local glBeginEnd  = gl.BeginEnd
++local glColor     = gl.Color
++local glLineWidth = gl.LineWidth
++local glPointSize = gl.PointSize
++local glVertex    = gl.Vertex
++
+ local spGetCameraState   = Spring.GetCameraState
+ local spGetCameraVectors = Spring.GetCameraVectors
+ local spGetModKeyState   = Spring.GetModKeyState
+ local spGetMouseState    = Spring.GetMouseState
++local spIsAboveMiniMap   = Spring.IsAboveMiniMap
+ local spSendCommands     = Spring.SendCommands
+ local spSetCameraState   = Spring.SetCameraState
+ local spSetMouseCursor   = Spring.SetMouseCursor
+@@ -57,9 +60,6 @@
+ local blockModeSwitching = true
+ 
+ 
+-local gl = gl
+-
+-
+ local vsx, vsy = widgetHandler:GetViewSizes()
+ function widget:ViewResize(viewSizeX, viewSizeY)
+   vsx = viewSizeX
+@@ -130,6 +130,9 @@
+   if (button ~= 2) then
+     return false
+   end
++  if (spIsAboveMiniMap(x, y)) then
++    return false
++  end
+   local cs = spGetCameraState()
+   if (blockModeSwitching and (cs.name ~= 'ta') and (cs.name ~= 'free')) then
+     local a,c,m,s = spGetModKeyState()
+
+Modified: trunk/installer/builddata/springcontent/gamedata/unitdefs.lua
+===================================================================
+--- trunk/installer/builddata/springcontent/gamedata/unitdefs.lua	2008-07-14 18:48:32 UTC (rev 6181)
++++ trunk/installer/builddata/springcontent/gamedata/unitdefs.lua	2008-07-15 22:42:48 UTC (rev 6182)
+@@ -140,7 +140,7 @@
+     Spring.Echo('WARNING: removed ' .. name .. ' unitDef, missing cob script')
+   end
+ 
+-  local obj = def.objectname
++  local obj = def.objectName or def.objectname
+   if (obj == nil) then
+     unitDefs[name] = nil
+     Spring.Echo('WARNING: removed ' .. name ..
+@@ -161,7 +161,7 @@
+ 
+ for name, def in pairs(unitDefs) do
+   local badOptions = {}
+-  local buildOptions = def.buildoptions
++  local buildOptions = def.buildOptions or def.buildoptions
+   if (buildOptions) then
+     for i, option in ipairs(buildOptions) do
+       if (unitDefs[option] == nil) then
+
+Modified: trunk/rts/ExternalAI/Group.cpp
+===================================================================
+--- trunk/rts/ExternalAI/Group.cpp	2008-07-14 18:48:32 UTC (rev 6181)
++++ trunk/rts/ExternalAI/Group.cpp	2008-07-15 22:42:48 UTC (rev 6182)
+@@ -8,8 +8,8 @@
+ #include &quot;GroupAiCallback.h&quot;
+ #include &quot;GroupHandler.h&quot;
+ #include &quot;Game/SelectedUnits.h&quot;
+-#include &quot;Game/UI/LuaUI.h&quot;
+ #include &quot;Sim/Units/Unit.h&quot;
++#include &quot;System/EventHandler.h&quot;
+ #include &quot;LogOutput.h&quot;
+ #include &quot;Platform/errorhandler.h&quot;
+ #include &quot;mmgr.h&quot;
+@@ -142,9 +142,8 @@
+ 
+ bool CGroup::AddUnit(CUnit *unit)
+ {
+-	if (luaUI) {
+-		luaUI-&gt;GroupChanged(id);
+-	}
++	eventHandler.GroupChanged(id);
++
+ 	units.insert(unit);
+ 	if(ai)
+ 	{
+@@ -163,9 +162,7 @@
+ 
+ void CGroup::RemoveUnit(CUnit *unit)
+ {
+-	if (luaUI) {
+-		luaUI-&gt;GroupChanged(id);
+-	}
++	eventHandler.GroupChanged(id);
+ 	if(ai)
+ 		ai-&gt;RemoveUnit(unit-&gt;id);
+ 	units.erase(unit);
+@@ -173,9 +170,7 @@
+ 
+ void CGroup::SetNewAI(AIKey aiKey)
+ {
+-	if (luaUI) {
+-		luaUI-&gt;GroupChanged(id);
+-	}
++	eventHandler.GroupChanged(id);
+ 	if(ai) {
+ 		ReleaseAI(currentAiKey.aiNumber,ai);
+ 		ai = 0;
+@@ -346,9 +341,7 @@
+ 
+ void CGroup::ClearUnits(void)
+ {
+-	if (luaUI) {
+-		luaUI-&gt;GroupChanged(id);
+-	}
++	eventHandler.GroupChanged(id);
+ 	while(!units.empty()){
+ 		(*units.begin())-&gt;SetGroup(0);
+ 	}
+
+Modified: trunk/rts/Game/SelectedUnits.cpp
+===================================================================
+--- trunk/rts/Game/SelectedUnits.cpp	2008-07-14 18:48:32 UTC (rev 6181)
++++ trunk/rts/Game/SelectedUnits.cpp	2008-07-15 22:42:48 UTC (rev 6182)
+@@ -17,7 +17,6 @@
+ #include &quot;ExternalAI/GlobalAIHandler.h&quot;
+ #include &quot;UI/CommandColors.h&quot;
+ #include &quot;UI/GuiHandler.h&quot;
+-#include &quot;UI/LuaUI.h&quot;
+ #include &quot;UI/TooltipConsole.h&quot;
+ #include &quot;LogOutput.h&quot;
+ #include &quot;Rendering/UnitModels/3DOParser.h&quot;
+@@ -724,11 +723,9 @@
+ 		return s;
+ 	}
+ 
+-	if (luaUI) {
+-		string custom = luaUI-&gt;WorldTooltip(NULL, NULL, NULL);
+-		if (!custom.empty()) {
+-			return custom;
+-		}
++	const string custom = eventHandler.WorldTooltip(NULL, NULL, NULL);
++	if (!custom.empty()) {
++		return custom;
+ 	}
+ 
+ 	char tmp[500];
+
+Modified: trunk/rts/Game/UI/MouseHandler.cpp
+===================================================================
+--- trunk/rts/Game/UI/MouseHandler.cpp	2008-07-14 18:48:32 UTC (rev 6181)
++++ trunk/rts/Game/UI/MouseHandler.cpp	2008-07-15 22:42:48 UTC (rev 6182)
+@@ -241,18 +241,18 @@
+ 	// limited receivers for MMB
+ 	if (button == SDL_BUTTON_MIDDLE){
+ 		if (!locked) {
++			if (luaInputReceiver != NULL) {
++				if (luaInputReceiver-&gt;MousePress(x, y, button)) {
++					activeReceiver = luaInputReceiver;
++					return;
++				}
++			}
+ 			if ((minimap != NULL) &amp;&amp; minimap-&gt;FullProxy()) {
+ 				if (minimap-&gt;MousePress(x, y, button)) {
+ 					activeReceiver = minimap;
+ 					return;
+ 				}
+ 			}
+-			if (luaInputReceiver != NULL) {
+-				if (luaInputReceiver-&gt;MousePress(x, y, button)) {
+-					activeReceiver = luaInputReceiver;
+-					return;
+-				}
+-			}
+ 		}
+ 		return;
+ 	}
+@@ -266,9 +266,14 @@
+ 				return;
+ 			}
+ 		}
+-	} else if (guihandler) {
+-		if (guihandler-&gt;MousePress(x,y,button)) {
++	} else {
++		if (luaInputReceiver &amp;&amp; luaInputReceiver-&gt;MousePress(x, y, button)) {
++			activeReceiver = luaInputReceiver;
++			return;
++		}
++		if (guihandler &amp;&amp; guihandler-&gt;MousePress(x,y,button)) {
+ 			activeReceiver = guihandler; // for default (rmb) commands
++			return;
+ 		}
+ 	}
+ }
+
+Modified: trunk/rts/Lua/LuaOpenGL.cpp
+===================================================================
+--- trunk/rts/Lua/LuaOpenGL.cpp	2008-07-14 18:48:32 UTC (rev 6181)
++++ trunk/rts/Lua/LuaOpenGL.cpp	2008-07-15 22:42:48 UTC (rev 6182)
+@@ -252,6 +252,20 @@
+ 	REGISTER_LUA_CFUNC(Text);
+ 	REGISTER_LUA_CFUNC(GetTextWidth);
+ 
++	REGISTER_LUA_CFUNC(Map1);
++	REGISTER_LUA_CFUNC(Map2);
++	REGISTER_LUA_CFUNC(MapGrid1);
++	REGISTER_LUA_CFUNC(MapGrid2);
++	REGISTER_LUA_CFUNC(Eval);
++	REGISTER_LUA_CFUNC(EvalEnable);
++	REGISTER_LUA_CFUNC(EvalDisable);
++	REGISTER_LUA_CFUNC(EvalMesh1);
++	REGISTER_LUA_CFUNC(EvalMesh2);
++	REGISTER_LUA_CFUNC(EvalCoord1);
++	REGISTER_LUA_CFUNC(EvalCoord2);
++	REGISTER_LUA_CFUNC(EvalPoint1);
++	REGISTER_LUA_CFUNC(EvalPoint2);
++
+ 	REGISTER_LUA_CFUNC(Unit);
+ 	REGISTER_LUA_CFUNC(UnitRaw);
+ 	REGISTER_LUA_CFUNC(UnitShape);
+@@ -1032,6 +1046,26 @@
+ }
+ 
+ 
++static int ParseFloatArray(lua_State* L, float* array, int size)
++{
++	if (!lua_istable(L, -1)) {
++		return -1;
++	}
++	const int table = lua_gettop(L);
++	for (int i = 0; i &lt; size; i++) {
++		lua_rawgeti(L, table, (i + 1));
++		if (lua_isnumber(L, -1)) {
++			array[i] = lua_tofloat(L, -1);
++			lua_pop(L, 1);
++		} else {
++			lua_pop(L, 1);
++			return i;
++		}
++	}
++	return size;
++}
++
++
+ /******************************************************************************/
+ 
+ int LuaOpenGL::HasExtension(lua_State* L)
+@@ -1245,7 +1279,256 @@
+ 
+ /******************************************************************************/
+ /******************************************************************************/
++//
++//  GL evaluators
++//
+ 
++static int evalDepth = 0;
++
++
++static int GetMap1TargetDataSize(GLenum target)
++{
++	switch (target) {
++		case GL_MAP1_COLOR_4:         { return 4; }
++		case GL_MAP1_INDEX:           { return 1; }
++		case GL_MAP1_NORMAL:          { return 3; }
++		case GL_MAP1_VERTEX_3:        { return 3; }
++		case GL_MAP1_VERTEX_4:        { return 4; }
++		case GL_MAP1_TEXTURE_COORD_1: { return 1; }
++		case GL_MAP1_TEXTURE_COORD_2: { return 2; }
++		case GL_MAP1_TEXTURE_COORD_3: { return 3; }
++		case GL_MAP1_TEXTURE_COORD_4: { return 4; }
++		default:                      { break; }
++	}
++	return 0;
++}
++
++static int GetMap2TargetDataSize(GLenum target)
++{
++	switch (target) {
++		case GL_MAP2_COLOR_4:         { return 4; }
++		case GL_MAP2_INDEX:           { return 1; }
++		case GL_MAP2_NORMAL:          { return 3; }
++		case GL_MAP2_VERTEX_3:        { return 3; }
++		case GL_MAP2_VERTEX_4:        { return 4; }
++		case GL_MAP2_TEXTURE_COORD_1: { return 1; }
++		case GL_MAP2_TEXTURE_COORD_2: { return 2; }
++		case GL_MAP2_TEXTURE_COORD_3: { return 3; }
++		case GL_MAP2_TEXTURE_COORD_4: { return 4; }
++		default:                      { break; }
++	}
++	return 0;
++}
++
++
++
++int LuaOpenGL::Eval(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	if (!lua_isfunction(L, 1)) {
++		return 0;
++	}
++
++	if (evalDepth == 0) { glPushAttrib(GL_EVAL_BIT); }
++	evalDepth++;
++	const int error = lua_pcall(L, lua_gettop(L) - 1, 0, 0);
++	evalDepth--;
++	if (evalDepth == 0) { glPopAttrib(); }
++
++	if (error != 0) {
++		logOutput.Print(&quot;gl.Eval: error(%i) = %s&quot;,
++		                error, lua_tostring(L, -1));
++		lua_error(L);
++	}
++	return 0;
++}
++
++
++int LuaOpenGL::EvalEnable(lua_State* L)
++{
++	if (evalDepth &lt;= 0) {
++		luaL_error(L, &quot;EvalState can only be used in Eval() blocks&quot;);
++	}
++	const GLenum target = (GLenum)luaL_checkint(L, 1);
++	if ((GetMap1TargetDataSize(target) &gt; 0) ||
++	    (GetMap2TargetDataSize(target) &gt; 0) ||
++	    (target == GL_AUTO_NORMAL)) {
++		glEnable(target);
++	}
++	return 0;
++}
++
++
++int LuaOpenGL::EvalDisable(lua_State* L)
++{
++	if (evalDepth &lt;= 0) {
++		luaL_error(L, &quot;EvalState can only be used in Eval() blocks&quot;);
++	}
++	const GLenum target = (GLenum)luaL_checkint(L, 1);
++	if ((GetMap1TargetDataSize(target) &gt; 0) ||
++	    (GetMap2TargetDataSize(target) &gt; 0) ||
++	    (target == GL_AUTO_NORMAL)) {
++		glDisable(target);
++	}
++	return 0;
++}
++
++
++int LuaOpenGL::Map1(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	if (lua_gettop(L) != 6) { // NOTE: required for ParseFloatArray()
++		return 0;
++	}
++	const GLenum  target = (GLenum)luaL_checkint(L, 1);
++	const GLfloat u1     = luaL_checkfloat(L, 2);
++	const GLfloat u2     = luaL_checkfloat(L, 3);
++	const GLint   stride = luaL_checkint(L, 4);
++	const GLint   order  = luaL_checkint(L, 5);
++
++	const int dataSize = GetMap1TargetDataSize(target);
++	if (dataSize &lt;= 0) {
++		return 0;
++	}
++	if ((order &lt;= 0) || (stride != dataSize)) {
++		return 0;
++	}
++	const int fullSize = (order * dataSize);
++	float* points = SAFE_NEW float[fullSize];
++	if (ParseFloatArray(L, points, fullSize) == fullSize) {
++		glMap1f(target, u1, u2, stride, order, points);	
++	}
++	delete[] points;
++	return 0;
++}
++
++
++int LuaOpenGL::Map2(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	if (lua_gettop(L) != 10) { // NOTE: required for ParseFloatArray()
++		return 0;
++	}
++
++	const GLenum  target  = (GLenum)luaL_checkint(L, 1);
++	const GLfloat u1      = luaL_checkfloat(L, 2);
++	const GLfloat u2      = luaL_checkfloat(L, 3);
++	const GLint   ustride = luaL_checkint(L, 4);
++	const GLint   uorder  = luaL_checkint(L, 5);
++	const GLfloat v1      = luaL_checkfloat(L, 6);
++	const GLfloat v2      = luaL_checkfloat(L, 7);
++	const GLint   vstride = luaL_checkint(L, 8);
++	const GLint   vorder  = luaL_checkint(L, 9);
++
++	const int dataSize = GetMap2TargetDataSize(target);
++	if (dataSize &lt;= 0) {
++		return 0;
++	}
++	if ((uorder  &lt;= 0) || (vorder  &lt;= 0) ||
++	    (ustride != dataSize) || (vstride != (dataSize * uorder))) {
++		return 0;
++	}
++	const int fullSize = (uorder * vorder * dataSize);
++	float* points = SAFE_NEW float[fullSize];
++	if (ParseFloatArray(L, points, fullSize) == fullSize) {			
++		glMap2f(target, u1, u2, ustride, uorder,
++										v1, v2, vstride, vorder, points);	
++	}
++	delete[] points;
++	return 0;
++}
++
++
++int LuaOpenGL::MapGrid1(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	const GLint   un = luaL_checkint(L, 1);
++	const GLfloat u1 = luaL_checkfloat(L, 2);
++	const GLfloat u2 = luaL_checkfloat(L, 3);
++	glMapGrid1f(un, u1, u2);
++	return 0;
++}
++
++
++int LuaOpenGL::MapGrid2(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	const GLint   un = luaL_checkint(L, 1);
++	const GLfloat u1 = luaL_checkfloat(L, 2);
++	const GLfloat u2 = luaL_checkfloat(L, 3);
++	const GLint   vn = luaL_checkint(L, 4);
++	const GLfloat v1 = luaL_checkfloat(L, 5);
++	const GLfloat v2 = luaL_checkfloat(L, 6);
++	glMapGrid2f(un, u1, u2, vn, v1, v2);
++	return 0;
++}
++
++
++int LuaOpenGL::EvalMesh1(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	const GLenum mode = (GLenum)luaL_checkint(L, 1);
++	const GLint  i1   = luaL_checkint(L, 2);
++	const GLint  i2   = luaL_checkint(L, 3);
++	glEvalMesh1(mode, i1, i2);
++	return 0;
++}
++
++
++int LuaOpenGL::EvalMesh2(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	const GLenum mode = (GLenum)luaL_checkint(L, 1);
++	const GLint  i1   = luaL_checkint(L, 2);
++	const GLint  i2   = luaL_checkint(L, 3);
++	const GLint  j1   = luaL_checkint(L, 4);
++	const GLint  j2   = luaL_checkint(L, 5);
++	glEvalMesh2(mode, i1, i2, j1, j2);
++	return 0;
++}
++
++
++int LuaOpenGL::EvalCoord1(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	const GLfloat u = luaL_checkfloat(L, 1);
++	glEvalCoord1f(u);
++	return 0;
++}
++
++
++int LuaOpenGL::EvalCoord2(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	const GLfloat u = luaL_checkfloat(L, 1);
++	const GLfloat v = luaL_checkfloat(L, 2);
++	glEvalCoord2f(u, v);
++	return 0;
++}
++
++
++int LuaOpenGL::EvalPoint1(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	const GLint i = luaL_checkint(L, 1);
++	glEvalPoint1(i);
++	return 0;
++}
++
++
++int LuaOpenGL::EvalPoint2(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	const GLint i = luaL_checkint(L, 1);
++	const GLint j = luaL_checkint(L, 1);
++	glEvalPoint2(i, j);
++	return 0;
++}
++
++
++/******************************************************************************/
++/******************************************************************************/
++
+ static inline CUnit* ParseUnit(lua_State* L, const char* caller, int index)
+ {
+ 	if (!lua_isnumber(L, index)) {
+@@ -1886,26 +2169,6 @@
+ };
+ 
+ 
+-static int ParseFloatArray(lua_State* L, float* array, int size)
+-{
+-	if (!lua_istable(L, -1)) {
+-		return -1;
+-	}
+-	const int table = lua_gettop(L);
+-	for (int i = 0; i &lt; size; i++) {
+-		lua_rawgeti(L, table, (i + 1));
+-		if (lua_isnumber(L, -1)) {
+-			array[i] = lua_tofloat(L, -1);
+-			lua_pop(L, 1);
+-		} else {
+-			lua_pop(L, 1);
+-			return i;
+-		}
+-	}
+-	return size;
+-}
+-
+-
+ static bool ParseVertexData(lua_State* L, VertexData&amp; vd)
+ {
+ 	vd.hasVert = vd.hasNorm = vd.hasTxcd = vd.hasColor = false;
+
+Modified: trunk/rts/Lua/LuaOpenGL.h
+===================================================================
+--- trunk/rts/Lua/LuaOpenGL.h	2008-07-14 18:48:32 UTC (rev 6181)
++++ trunk/rts/Lua/LuaOpenGL.h	2008-07-15 22:42:48 UTC (rev 6182)
+@@ -202,16 +202,19 @@
+ 		static int Text(lua_State* L);
+ 		static int GetTextWidth(lua_State* L);
+ 
+-		//static int Map1(lua_State* L);
+-		//static int Map2(lua_State* L);
+-		//static int MapGrid1(lua_State* L);
+-		//static int MapGrid2(lua_State* L);
+-		//static int EvalMesh1(lua_State* L);
+-		//static int EvalMesh2(lua_State* L);
+-		//static int EvalCoord1(lua_State* L);
+-		//static int EvalCoord2(lua_State* L);
+-		//static int EvalPoint1(lua_State* L);
+-		//static int EvalPoint2(lua_State* L);
++		static int Map1(lua_State* L);
++		static int Map2(lua_State* L);
++		static int MapGrid1(lua_State* L);
++		static int MapGrid2(lua_State* L);
++		static int Eval(lua_State* L);
++		static int EvalEnable(lua_State* L);
++		static int EvalDisable(lua_State* L);
++		static int EvalMesh1(lua_State* L);
++		static int EvalMesh2(lua_State* L);
++		static int EvalCoord1(lua_State* L);
++		static int EvalCoord2(lua_State* L);
++		static int EvalPoint1(lua_State* L);
++		static int EvalPoint2(lua_State* L);
+ 
+ 		static int Unit(lua_State* L);
+ 		static int UnitRaw(lua_State* L);
+
+Modified: trunk/rts/Lua/LuaSyncedCtrl.cpp
+===================================================================
+--- trunk/rts/Lua/LuaSyncedCtrl.cpp	2008-07-14 18:48:32 UTC (rev 6181)
++++ trunk/rts/Lua/LuaSyncedCtrl.cpp	2008-07-15 22:42:48 UTC (rev 6182)
+@@ -2652,7 +2652,8 @@
+ 	}
+ 
+ 	const int index = (z * (gs-&gt;mapx + 1)) + x;
+-	readmap-&gt;GetHeightmap()[index] += h;
++	float&amp; heightMap = readmap-&gt;GetHeightmap()[index];
++	heightMap += h;
+ 	heightMapAmountChanged += streflop::fabsf(h);
+ 
+ 	// update RecalcArea()
+@@ -2661,7 +2662,8 @@
+ 	if (z &lt; heightMapz1) { heightMapz1 = z; }
+ 	if (z &gt; heightMapz2) { heightMapz2 = z; }
+ 
+-	return 0;
++	lua_pushnumber(L, heightMap);
++	return 1;
+ }
+ 
+ 
+@@ -2696,10 +2698,10 @@
+ 		heightMap = h;
+ 	}
+ 
+-	const float heightDiff = heightMap - oldHeight;
++	const float heightDiff = (heightMap - oldHeight);
+ 	heightMapAmountChanged += streflop::fabsf(heightDiff);
+ 
+-	//update RecalcArea()
++	// update RecalcArea()
+ 	if (x &lt; heightMapx1) { heightMapx1 = x; }
+ 	if (x &gt; heightMapx2) { heightMapx2 = x; }
+ 	if (z &lt; heightMapz1) { heightMapz1 = z; }
+
+Modified: trunk/rts/Lua/LuaUnsyncedRead.cpp
+===================================================================
+--- trunk/rts/Lua/LuaUnsyncedRead.cpp	2008-07-14 18:48:32 UTC (rev 6181)
++++ trunk/rts/Lua/LuaUnsyncedRead.cpp	2008-07-15 22:42:48 UTC (rev 6182)
+@@ -90,6 +90,7 @@
+ 	REGISTER_LUA_CFUNC(GetScreenGeometry);
+ 	REGISTER_LUA_CFUNC(GetMiniMapGeometry);
+ 	REGISTER_LUA_CFUNC(GetMiniMapDualScreen);
++	REGISTER_LUA_CFUNC(IsAboveMiniMap);
+ 
+ 	REGISTER_LUA_CFUNC(IsAABBInView);
+ 	REGISTER_LUA_CFUNC(IsSphereInView);
+@@ -332,6 +333,31 @@
+ }
+ 
+ 
++int LuaUnsyncedRead::IsAboveMiniMap(lua_State* L)
++{
++	if (minimap == NULL) {
++		return 0;
++	}
++
++	if (minimap-&gt;GetMinimized() || game-&gt;hideInterface) {
++		return false;
++	}
++
++	const int x = luaL_checkint(L, 1) + gu-&gt;viewPosX;
++	const int y = luaL_checkint(L, 2);
++
++	const int x0 = minimap-&gt;GetPosX();
++	const int y0 = minimap-&gt;GetPosY();
++	const int x1 = x0 + minimap-&gt;GetSizeX();
++	const int y1 = y0 + minimap-&gt;GetSizeY();
++
++	lua_pushboolean(L, (x &gt;= x0) &amp;&amp; (x &lt; x1) &amp;&amp;
++	                   (y &gt;= y0) &amp;&amp; (y &lt; y1));
++		
++	return 1;
++}
++
++
+ /******************************************************************************/
+ 
+ int LuaUnsyncedRead::GetDrawFrame(lua_State* L)
+
+Modified: trunk/rts/Lua/LuaUnsyncedRead.h
+===================================================================
+--- trunk/rts/Lua/LuaUnsyncedRead.h	2008-07-14 18:48:32 UTC (rev 6181)
++++ trunk/rts/Lua/LuaUnsyncedRead.h	2008-07-15 22:42:48 UTC (rev 6182)
+@@ -25,6 +25,7 @@
+ 		static int GetScreenGeometry(lua_State* L);
+ 		static int GetMiniMapGeometry(lua_State* L);
+ 		static int GetMiniMapDualScreen(lua_State* L);
++		static int IsAboveMiniMap(lua_State* L);
+ 
+ 		static int IsAABBInView(lua_State* L);
+ 		static int IsSphereInView(lua_State* L);
+
+Modified: trunk/rts/Lua/LuaUtils.cpp
+===================================================================
+--- trunk/rts/Lua/LuaUtils.cpp	2008-07-14 18:48:32 UTC (rev 6181)
++++ trunk/rts/Lua/LuaUtils.cpp	2008-07-15 22:42:48 UTC (rev 6182)
+@@ -174,7 +174,7 @@
+ 
+ static bool LowerKeysReal(lua_State* L, int depth)
+ {
+-	lua_checkstack(L, lowerKeysTable + (depth * 3) + 8);
++	lua_checkstack(L, lowerKeysTable + 8 + (depth * 3));
+ 
+ 	const int table = lua_gettop(L);
+ 	if (LowerKeysCheck(L, table)) {
+@@ -232,7 +232,7 @@
+ 
+ 	// table of processed tables
+ 	lowerKeysTable = lua_gettop(L) + 1;
+-	lua_checkstack(L, lowerKeysTable);
++	lua_checkstack(L, lowerKeysTable + 2);
+ 	lua_newtable(L);
+ 
+ 	lua_pushvalue(L, table); // push the table onto the top of the stack
+@@ -526,3 +526,70 @@
+ 
+ /******************************************************************************/
+ /******************************************************************************/
++
++int LuaUtils::tobool(lua_State* L)
++{
++	return 1;
++}
++
++
++int LuaUtils::isnil(lua_State* L)
++{
++	lua_pushboolean(L, lua_isnoneornil(L, 1));
++	return 1;
++}
++
++
++int LuaUtils::isbool(lua_State* L)
++{
++	lua_pushboolean(L, lua_type(L, 1) == LUA_TBOOLEAN);
++	return 1;
++}
++
++
++int LuaUtils::isnumber(lua_State* L)
++{
++	lua_pushboolean(L, lua_type(L, 1) == LUA_TNUMBER);
++	return 1;
++}
++
++
++int LuaUtils::isstring(lua_State* L)
++{
++	lua_pushboolean(L, lua_type(L, 1) == LUA_TSTRING);
++	return 1;
++}
++
++
++int LuaUtils::istable(lua_State* L)
++{
++	lua_pushboolean(L, lua_type(L, 1) == LUA_TTABLE);
++	return 1;
++}
++
++
++int LuaUtils::isthread(lua_State* L)
++{
++	lua_pushboolean(L, lua_type(L, 1) == LUA_TTHREAD);
++	return 1;
++}
++
++
++int LuaUtils::isfunction(lua_State* L)
++{
++	lua_pushboolean(L, lua_type(L, 1) == LUA_TFUNCTION);
++	return 1;
++}
++
++
++int LuaUtils::isuserdata(lua_State* L)
++{
++	const int type = lua_type(L, 1);
++	lua_pushboolean(L, (type == LUA_TUSERDATA) ||
++	                   (type == LUA_TLIGHTUSERDATA));
++	return 1;
++}
++
++
++/******************************************************************************/
++/******************************************************************************/
+
+Modified: trunk/rts/Lua/LuaUtils.h
+===================================================================
+--- trunk/rts/Lua/LuaUtils.h	2008-07-14 18:48:32 UTC (rev 6181)
++++ trunk/rts/Lua/LuaUtils.h	2008-07-15 22:42:48 UTC (rev 6182)
+@@ -45,6 +45,17 @@
+ 		// (implementation copied from lua/src/lib/lbaselib.c)
+ 		static int Echo(lua_State* L);
+ 
++		static bool PushCustomBaseFunctions(lua_State* L);
++		static int tobool(lua_State* L);
++		static int isnil(lua_State* L);
++		static int isbool(lua_State* L);
++		static int isnumber(lua_State* L);
++		static int isstring(lua_State* L);
++		static int istable(lua_State* L);
++		static int isthread(lua_State* L);
++		static int isfunction(lua_State* L);
++		static int isuserdata(lua_State* L);
++
+ 		// not implemented...		
+ 		static int ParseIntArray(lua_State* L, int tableIndex,
+ 		                         int* array, int arraySize);
+
+Modified: trunk/rts/Rendering/InMapDraw.cpp
+===================================================================
+--- trunk/rts/Rendering/InMapDraw.cpp	2008-07-14 18:48:32 UTC (rev 6181)
++++ trunk/rts/Rendering/InMapDraw.cpp	2008-07-15 22:42:48 UTC (rev 6182)
+@@ -1,24 +1,24 @@
+ #include &quot;StdAfx.h&quot;
+ #include &quot;InMapDraw.h&quot;
+-#include &quot;glFont.h&quot;
+-#include &quot;GL/myGL.h&quot;
+-#include &quot;GL/VertexArray.h&quot;
+ #include &quot;Game/Camera.h&quot;
+ #include &quot;Game/Game.h&quot;
+ #include &quot;Game/Player.h&quot;
+ #include &quot;Game/Team.h&quot;
+-#include &quot;Game/UI/LuaUI.h&quot;
+ #include &quot;Game/UI/MiniMap.h&quot;
+ #include &quot;Game/UI/MouseHandler.h&quot;
+ #include &quot;Map/BaseGroundDrawer.h&quot;
+ #include &quot;Map/Ground.h&quot;
+ #include &quot;Map/ReadMap.h&quot;
+-#include &quot;NetProtocol.h&quot;
+-#include &quot;LogOutput.h&quot;
+-#include &quot;Sound.h&quot;
++#include &quot;Rendering/glFont.h&quot;
++#include &quot;Rendering/GL/myGL.h&quot;
++#include &quot;Rendering/GL/VertexArray.h&quot;
++#include &quot;System/EventHandler.h&quot;
++#include &quot;System/NetProtocol.h&quot;
++#include &quot;System/LogOutput.h&quot;
++#include &quot;System/Sound.h&quot;
++#include &quot;creg/STL_List.h&quot;
+ #include &quot;SDL_mouse.h&quot;
+ #include &quot;SDL_keyboard.h&quot;
+-#include &quot;creg/STL_List.h&quot;
+ 
+ 
+ #define DRAW_QUAD_SIZE 32
+@@ -425,7 +425,7 @@
+ 	pos.CheckInBounds();
+ 	pos.y = ground-&gt;GetHeight(pos.x, pos.z) + 2.0f;
+ 
+-	if (luaUI &amp;&amp; luaUI-&gt;MapDrawCmd(playerID, NET_POINT, &amp;pos, NULL, &amp;label)) {
++	if (eventHandler.MapDrawCmd(playerID, NET_POINT, &amp;pos, NULL, &amp;label)) {
+ 		return;
+ 	}
+ 
+@@ -474,7 +474,7 @@
+ 	pos1.y = ground-&gt;GetHeight(pos1.x, pos1.z) + 2.0f;
+ 	pos2.y = ground-&gt;GetHeight(pos2.x, pos2.z) + 2.0f;
+ 
+-	if (luaUI &amp;&amp; luaUI-&gt;MapDrawCmd(playerID, NET_LINE, &amp;pos1, &amp;pos2, NULL)) {
++	if (eventHandler.MapDrawCmd(playerID, NET_LINE, &amp;pos1, &amp;pos2, NULL)) {
+ 		return;
+ 	}
+ 
+@@ -508,7 +508,7 @@
+ 	float3 pos = constPos;
+ 	pos.CheckInBounds();
+ 	pos.y = ground-&gt;GetHeight(pos.x, pos.z) + 2.0f;
+-	if (luaUI &amp;&amp; luaUI-&gt;MapDrawCmd(playerID, NET_ERASE, &amp;pos, NULL, NULL)) {
++	if (eventHandler.MapDrawCmd(playerID, NET_ERASE, &amp;pos, NULL, NULL)) {
+ 		return;
+ 	}
+ 
+
+Modified: trunk/rts/System/EventHandler.cpp
+===================================================================
+--- trunk/rts/System/EventHandler.cpp	2008-07-14 18:48:32 UTC (rev 6181)
++++ trunk/rts/System/EventHandler.cpp	2008-07-15 22:42:48 UTC (rev 6182)
+@@ -115,7 +115,9 @@
+ 	SETUP_EVENT(DrawInMiniMap,       MANAGED_BIT | UNSYNCED_BIT);
+ 
+ 	// unmanaged call-ins
+-	SetupEvent(&quot;AIEvent&quot;,  NULL, UNSYNCED_BIT);
++	SetupEvent(&quot;RecvLuaMsg&quot;, NULL, 0);
++
++	SetupEvent(&quot;AICallIn&quot;, NULL, UNSYNCED_BIT);
+ 	SetupEvent(&quot;DrawUnit&quot;, NULL, UNSYNCED_BIT);
+ 
+ 	// LuaRules
+
+Modified: trunk/rts/System/EventHandler.h
+===================================================================
+--- trunk/rts/System/EventHandler.h	2008-07-14 18:48:32 UTC (rev 6181)
++++ trunk/rts/System/EventHandler.h	2008-07-15 22:42:48 UTC (rev 6182)
+@@ -44,6 +44,7 @@
+ 		void GamePreload();
+ 		void GameStart();
+ 		void GameOver();
++
+ 		void TeamDied(int teamID);
+ 		void TeamChanged(int teamID);
+ 		void PlayerChanged(int playerID);
+
+Modified: trunk/rts/System/FileSystem/ArchiveScanner.cpp
+===================================================================
+--- trunk/rts/System/FileSystem/ArchiveScanner.cpp	2008-07-14 18:48:32 UTC (rev 6181)
++++ trunk/rts/System/FileSystem/ArchiveScanner.cpp	2008-07-15 22:42:48 UTC (rev 6182)
+@@ -21,6 +21,9 @@
+ using std::vector;
+ 
+ 
++static const int debugChecksums = false;
++
++
+ // fix for windows
+ #ifndef S_ISDIR
+ #define S_ISDIR(x) (((x) &amp; 0170000) == 0040000) /* directory */
+@@ -891,12 +894,13 @@
+ /** Get checksum of all required archives depending on selected mod. */
+ unsigned int CArchiveScanner::GetModChecksum(const string&amp; root)
+ {
++	const vector&lt;string&gt; ars = GetArchives(root);
+ 	unsigned int checksum = 0;
+-	vector&lt;string&gt; ars = GetArchives(root);
+-
+-	for (vector&lt;string&gt;::iterator i = ars.begin(); i != ars.end(); ++i) {
+-		unsigned tmp = GetArchiveChecksum(*i);
+-		logOutput.Print(&quot;mod checksum %s: %u/%d&quot;, i-&gt;c_str(), tmp, (int)tmp);
++	for (unsigned int a = 0; a &lt; ars.size(); a++) {
++		const unsigned int tmp = GetArchiveChecksum(ars[a]);
++		if (debugChecksums) {
++			logOutput.Print(&quot;mod checksum %s: %u/%d&quot;, ars[a].c_str(), tmp, (int)tmp);
++		}
+ 		checksum ^= tmp;
+ 	}
+ 	return checksum;
+@@ -906,12 +910,13 @@
+ /** Get checksum of all required archives depending on selected map. */
+ unsigned int CArchiveScanner::GetMapChecksum(const string&amp; mapName)
+ {
++	const vector&lt;string&gt; ars = GetArchivesForMap(mapName);
+ 	unsigned int checksum = 0;
+-	vector&lt;string&gt; ars = GetArchivesForMap(mapName);
+-
+-	for (vector&lt;string&gt;::iterator i = ars.begin(); i != ars.end(); ++i) {
+-		unsigned tmp = GetArchiveChecksum(*i);
+-		logOutput.Print(&quot;map checksum %s: %u/%d&quot;, i-&gt;c_str(), tmp, (int)tmp);
++	for (unsigned int a = 0; a &lt; ars.size(); a++) {
++		const unsigned int tmp = GetArchiveChecksum(ars[a]);
++		if (debugChecksums) {
++			logOutput.Print(&quot;map checksum %s: %u/%d&quot;, ars[a].c_str(), tmp, (int)tmp);
++		}
+ 		checksum ^= tmp;
+ 	}
+ 	return checksum;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000961.html">[Taspring-linux-commit] r6181 - in trunk/rts/Sim: Misc MoveTypes	MoveTypes/MoveMath Path Projectiles Units Weapons
+</A></li>
+	<LI>Next message: <A HREF="000963.html">[Taspring-linux-commit] r6183 - in trunk/rts: Game Sim/Misc System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#962">[ date ]</a>
+              <a href="thread.html#962">[ thread ]</a>
+              <a href="subject.html#962">[ subject ]</a>
+              <a href="author.html#962">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

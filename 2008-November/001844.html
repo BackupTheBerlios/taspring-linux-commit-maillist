@@ -1,0 +1,435 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7075 - in trunk/rts: Game Game/UI System	build/vstudio8 lib/gml
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-November/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7075%20-%20in%20trunk/rts%3A%20Game%20Game/UI%20System%0A%09build/vstudio8%20lib/gml&In-Reply-To=%3C20081120000419.22D77476B%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001843.html">
+   <LINK REL="Next"  HREF="001845.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7075 - in trunk/rts: Game Game/UI System	build/vstudio8 lib/gml</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7075%20-%20in%20trunk/rts%3A%20Game%20Game/UI%20System%0A%09build/vstudio8%20lib/gml&In-Reply-To=%3C20081120000419.22D77476B%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r7075 - in trunk/rts: Game Game/UI System	build/vstudio8 lib/gml">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Nov 20 01:04:19 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001843.html">[Taspring-linux-commit] r7074 - trunk/rts/System
+</A></li>
+        <LI>Next message: <A HREF="001845.html">[Taspring-linux-commit] r7076 - in trunk: rts/System tools/unitsync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1844">[ date ]</a>
+              <a href="thread.html#1844">[ thread ]</a>
+              <a href="subject.html#1844">[ subject ]</a>
+              <a href="author.html#1844">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zerver
+Date: 2008-11-20 01:04:18 +0100 (Thu, 20 Nov 2008)
+New Revision: 7075
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/Game.h
+   trunk/rts/Game/UI/ProfileDrawer.cpp
+   trunk/rts/System/ConfigHandler.cpp
+   trunk/rts/System/SpringApp.cpp
+   trunk/rts/System/SpringApp.h
+   trunk/rts/System/TimeProfiler.cpp
+   trunk/rts/System/TimeProfiler.h
+   trunk/rts/build/vstudio8/rts.vcproj
+   trunk/rts/lib/gml/gml.cpp
+   trunk/rts/lib/gml/gml.h
+   trunk/rts/lib/gml/gmlsrv.h
+Log:
+* Added new profile &quot;CPU load&quot; that includes Sim + mandatory Draw
+* &quot;CPU load&quot; profile sent over the net instead of &quot;Sim time&quot;
+* Profiler made thread safe
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-11-19 22:32:27 UTC (rev 7074)
++++ trunk/rts/Game/Game.cpp	2008-11-20 00:04:18 UTC (rev 7075)
+@@ -3130,6 +3130,8 @@
+ #else
+ void CGame::SimFrame() {
+ #endif
++	ScopedTimer cputimer(&quot;CPU load&quot;); // SimFrame
++
+ 	good_fpu_control_registers(&quot;CGame::SimFrame&quot;);
+ 	lastFrameTime = SDL_GetTicks();
+ 	ASSERT_SYNCED_MODE;
+@@ -3302,7 +3304,7 @@
+ {
+ 	if (gu-&gt;gameTime - lastCpuUsageTime &gt;= 1) {
+ 		lastCpuUsageTime = gu-&gt;gameTime;
+-		net-&gt;Send(CBaseNetProtocol::Get().SendCPUUsage(profiler.profile[&quot;Sim time&quot;].percent));
++		net-&gt;Send(CBaseNetProtocol::Get().SendCPUUsage(profiler.GetPercent(&quot;CPU load&quot;)));
+ 	}
+ 
+ 	PUSH_CODE_MODE;
+@@ -3353,7 +3355,7 @@
+ #endif
+ 		// make sure ClientReadNet returns at least every 15 game frames
+ 		// so CGame can process keyboard input, and render etc.
+-		timeLeft = 15.0f;
++		timeLeft = (float)MAX_CONSECUTIVE_SIMFRAMES;
+ 	}
+ 
+ 	// really process the messages
+@@ -3803,7 +3805,7 @@
+ 				if (frame != gs-&gt;frameNum) {
+ 					logOutput.Print(&quot;Sync request for wrong frame (%i instead of %i)&quot;, frame, gs-&gt;frameNum);
+ 				}
+-				net-&gt;Send(CBaseNetProtocol::Get().SendCPUUsage(profiler.profile[&quot;Sim time&quot;].percent));
++				net-&gt;Send(CBaseNetProtocol::Get().SendCPUUsage(profiler.GetPercent(&quot;CPU load&quot;)));
+ 				ENTER_SYNCED;
+ 				AddTraffic(-1, packetCode, dataLength);
+ 				break;
+
+Modified: trunk/rts/Game/Game.h
+===================================================================
+--- trunk/rts/Game/Game.h	2008-11-19 22:32:27 UTC (rev 7074)
++++ trunk/rts/Game/Game.h	2008-11-20 00:04:18 UTC (rev 7075)
+@@ -25,6 +25,7 @@
+ class Action;
+ class ChatMessage;
+ 
++const int MAX_CONSECUTIVE_SIMFRAMES = 15;
+ 
+ class CGame : public CGameController
+ {
+
+Modified: trunk/rts/Game/UI/ProfileDrawer.cpp
+===================================================================
+--- trunk/rts/Game/UI/ProfileDrawer.cpp	2008-11-19 22:32:27 UTC (rev 7074)
++++ trunk/rts/Game/UI/ProfileDrawer.cpp	2008-11-20 00:04:18 UTC (rev 7075)
+@@ -28,6 +28,8 @@
+ 
+ void ProfileDrawer::Draw()
+ {
++	GML_STDMUTEX_LOCK(time); // Draw
++
+ 	glPushMatrix();
+ 	glDisable(GL_TEXTURE_2D);
+ 	glColor4f(0,0,0.5f,0.5f);
+@@ -91,6 +93,8 @@
+ 
+ bool ProfileDrawer::MousePress(int x, int y, int button)
+ {
++	GML_STDMUTEX_LOCK(time); // MousePress
++
+ 	float mx=MouseX(x);
+ 	float my=MouseY(y);
+ 
+@@ -110,6 +114,8 @@
+ 
+ bool ProfileDrawer::IsAbove(int x, int y)
+ {
++	GML_STDMUTEX_LOCK(time); // IsAbove
++
+ 	const float mx=MouseX(x);
+ 	const float my=MouseY(y);
+ 
+
+Modified: trunk/rts/System/ConfigHandler.cpp
+===================================================================
+--- trunk/rts/System/ConfigHandler.cpp	2008-11-19 22:32:27 UTC (rev 7074)
++++ trunk/rts/System/ConfigHandler.cpp	2008-11-20 00:04:18 UTC (rev 7075)
+@@ -14,7 +14,9 @@
+ #include &lt;stdlib.h&gt;
+ #include &lt;string.h&gt;
+ #include &lt;stdexcept&gt;
++#ifndef WIN32
+ #include &lt;unistd.h&gt;
++#endif
+ 
+ #ifdef WIN32
+ 	#include &lt;io.h&gt;
+@@ -263,7 +265,11 @@
+ void ConfigHandler::Write(FILE* file)
+ {
+ 	rewind(file);
++#ifdef WIN32
++	_chsize(fileno(file), 0);
++#else
+ 	ftruncate(fileno(file), 0);
++#endif
+ 	for(std::map&lt;string,string&gt;::iterator iter = data.begin(); iter != data.end(); ++iter)
+ 		fprintf(file, &quot;%s=%s\n&quot;, iter-&gt;first.c_str(), iter-&gt;second.c_str());
+ }
+
+Modified: trunk/rts/System/SpringApp.cpp
+===================================================================
+--- trunk/rts/System/SpringApp.cpp	2008-11-19 22:32:27 UTC (rev 7074)
++++ trunk/rts/System/SpringApp.cpp	2008-11-20 00:04:18 UTC (rev 7075)
+@@ -43,6 +43,7 @@
+ #include &quot;GlobalUnsynced.h&quot;
+ #include &quot;Util.h&quot;
+ #include &quot;Exceptions.h&quot;
++#include &quot;System/TimeProfiler.h&quot;
+ 
+ #include &quot;mmgr.h&quot;
+ 
+@@ -102,6 +103,7 @@
+ 	cmdline = 0;
+ 	screenWidth = screenHeight = 0;
+ 	FSAA = false;
++	lastRequiredDraw=0;
+ 
+ 	signal(SIGABRT, SigAbrtHandler);
+ }
+@@ -941,8 +943,21 @@
+ 				if (gu-&gt;drawFrame == 0) {
+ 					gu-&gt;drawFrame++;
+ 				}
+-				ret = activeController-&gt;Draw();
++				if(
+ #if defined(USE_GML) &amp;&amp; GML_ENABLE_SIMLOOP
++					!multiThreadSim &amp;&amp;
++#endif
++					gs-&gt;frameNum-lastRequiredDraw &gt;= MAX_CONSECUTIVE_SIMFRAMES) {
++
++					ScopedTimer cputimer(&quot;CPU load&quot;); // Update
++
++					ret = activeController-&gt;Draw();
++					lastRequiredDraw=gs-&gt;frameNum;
++				}
++				else {
++					ret = activeController-&gt;Draw();
++				}
++#if defined(USE_GML) &amp;&amp; GML_ENABLE_SIMLOOP
+ 				gmlProcessor.PumpAux();
+ #endif
+ #if !defined(USE_GML) || !GML_ENABLE_SIMLOOP
+
+Modified: trunk/rts/System/SpringApp.h
+===================================================================
+--- trunk/rts/System/SpringApp.h	2008-11-19 22:32:27 UTC (rev 7074)
++++ trunk/rts/System/SpringApp.h	2008-11-20 00:04:18 UTC (rev 7075)
+@@ -98,6 +98,13 @@
+ 	 */
+ 	bool depthBufferBits;
+ 
++	/**
++	 * @brief last required draw
++	 *
++	 * sim frame after which the last required draw was conducted
++	 */
++	int lastRequiredDraw;
++
+ private:
+ 	static void SigAbrtHandler(int unused);
+ };
+
+Modified: trunk/rts/System/TimeProfiler.cpp
+===================================================================
+--- trunk/rts/System/TimeProfiler.cpp	2008-11-19 22:32:27 UTC (rev 7074)
++++ trunk/rts/System/TimeProfiler.cpp	2008-11-20 00:04:18 UTC (rev 7075)
+@@ -3,6 +3,7 @@
+ //////////////////////////////////////////////////////////////////////
+ #include &quot;TimeProfiler.h&quot;
+ 
++#include &quot;Rendering/GL/myGL.h&quot;
+ #include &lt;SDL_timer.h&gt;
+ #include &lt;cstring&gt;
+ 
+@@ -39,6 +40,8 @@
+ 
+ void CTimeProfiler::Update()
+ {
++	GML_STDMUTEX_LOCK(time); // Update
++
+ 	++currentPosition;
+ 	currentPosition &amp;= 127;
+ 	std::map&lt;std::string,TimeRecord&gt;::iterator pi;
+@@ -61,8 +64,16 @@
+ 	}
+ }
+ 
++float CTimeProfiler::GetPercent(const char *name) {
++	GML_STDMUTEX_LOCK(time); // GetTimePercent
++
++	return profile[name].percent;
++}
++
+ void CTimeProfiler::AddTime(const std::string&amp; name, unsigned time)
+ {
++	GML_STDMUTEX_LOCK(time); // AddTime
++
+ 	std::map&lt;std::string, TimeRecord&gt;::iterator pi;
+ 	if ( (pi = profile.find(name)) != profile.end() )
+ 	{
+
+Modified: trunk/rts/System/TimeProfiler.h
+===================================================================
+--- trunk/rts/System/TimeProfiler.h	2008-11-19 22:32:27 UTC (rev 7074)
++++ trunk/rts/System/TimeProfiler.h	2008-11-20 00:04:18 UTC (rev 7075)
+@@ -53,6 +53,7 @@
+ 	CTimeProfiler();
+ 	~CTimeProfiler();
+ 
++	float GetPercent(const char *name);
+ 	void AddTime(const std::string&amp; name, unsigned time);
+ 	void Update();
+ 	
+
+Modified: trunk/rts/build/vstudio8/rts.vcproj
+===================================================================
+--- trunk/rts/build/vstudio8/rts.vcproj	2008-11-19 22:32:27 UTC (rev 7074)
++++ trunk/rts/build/vstudio8/rts.vcproj	2008-11-20 00:04:18 UTC (rev 7075)
+@@ -3532,6 +3532,14 @@
+ 				&gt;
+ 			&lt;/File&gt;
+ 			&lt;File
++				RelativePath=&quot;..\..\System\ConfigHandler.cpp&quot;
++				&gt;
++			&lt;/File&gt;
++			&lt;File
++				RelativePath=&quot;..\..\System\ConfigHandler.h&quot;
++				&gt;
++			&lt;/File&gt;
++			&lt;File
+ 				RelativePath=&quot;..\..\System\Demo.cpp&quot;
+ 				&gt;
+ 				&lt;FileConfiguration
+@@ -5301,14 +5309,6 @@
+ 					&gt;
+ 				&lt;/File&gt;
+ 				&lt;File
+-					RelativePath=&quot;..\..\System\Platform\ConfigHandler.cpp&quot;
+-					&gt;
+-				&lt;/File&gt;
+-				&lt;File
+-					RelativePath=&quot;..\..\System\Platform\ConfigHandler.h&quot;
+-					&gt;
+-				&lt;/File&gt;
+-				&lt;File
+ 					RelativePath=&quot;..\..\System\Platform\errorhandler.cpp&quot;
+ 					&gt;
+ 				&lt;/File&gt;
+@@ -5444,46 +5444,6 @@
+ 						&gt;
+ 					&lt;/File&gt;
+ 					&lt;File
+-						RelativePath=&quot;..\..\System\Platform\Win\RegHandler.cpp&quot;
+-						&gt;
+-						&lt;FileConfiguration
+-							Name=&quot;No debug|Win32&quot;
+-							&gt;
+-							&lt;Tool
+-								Name=&quot;VCCLCompilerTool&quot;
+-								UsePrecompiledHeader=&quot;0&quot;
+-							/&gt;
+-						&lt;/FileConfiguration&gt;
+-						&lt;FileConfiguration
+-							Name=&quot;Release with error catching|Win32&quot;
+-							&gt;
+-							&lt;Tool
+-								Name=&quot;VCCLCompilerTool&quot;
+-								UsePrecompiledHeader=&quot;0&quot;
+-							/&gt;
+-						&lt;/FileConfiguration&gt;
+-						&lt;FileConfiguration
+-							Name=&quot;Syncdebug|Win32&quot;
+-							&gt;
+-							&lt;Tool
+-								Name=&quot;VCCLCompilerTool&quot;
+-								UsePrecompiledHeader=&quot;0&quot;
+-							/&gt;
+-						&lt;/FileConfiguration&gt;
+-						&lt;FileConfiguration
+-							Name=&quot;Release+MT with error catching|Win32&quot;
+-							&gt;
+-							&lt;Tool
+-								Name=&quot;VCCLCompilerTool&quot;
+-								UsePrecompiledHeader=&quot;0&quot;
+-							/&gt;
+-						&lt;/FileConfiguration&gt;
+-					&lt;/File&gt;
+-					&lt;File
+-						RelativePath=&quot;..\..\System\Platform\Win\RegHandler.h&quot;
+-						&gt;
+-					&lt;/File&gt;
+-					&lt;File
+ 						RelativePath=&quot;..\..\System\Platform\Win\seh.cpp&quot;
+ 						&gt;
+ 					&lt;/File&gt;
+
+Modified: trunk/rts/lib/gml/gml.cpp
+===================================================================
+--- trunk/rts/lib/gml/gml.cpp	2008-11-19 22:32:27 UTC (rev 7074)
++++ trunk/rts/lib/gml/gml.cpp	2008-11-20 00:04:18 UTC (rev 7075)
+@@ -204,6 +204,7 @@
+ boost::mutex netmutex;
+ boost::mutex histmutex;
+ boost::mutex logmutex;
++boost::mutex timemutex;
+ 
+ #include &lt;boost/thread/recursive_mutex.hpp&gt;
+ boost::recursive_mutex unitmutex;
+
+Modified: trunk/rts/lib/gml/gml.h
+===================================================================
+--- trunk/rts/lib/gml/gml.h	2008-11-19 22:32:27 UTC (rev 7074)
++++ trunk/rts/lib/gml/gml.h	2008-11-20 00:04:18 UTC (rev 7075)
+@@ -168,6 +168,7 @@
+ extern boost::mutex netmutex;
+ extern boost::mutex histmutex;
+ extern boost::mutex logmutex;
++extern boost::mutex timemutex;
+ 
+ #include &lt;boost/thread/recursive_mutex.hpp&gt;
+ extern boost::recursive_mutex unitmutex;
+
+Modified: trunk/rts/lib/gml/gmlsrv.h
+===================================================================
+--- trunk/rts/lib/gml/gmlsrv.h	2008-11-19 22:32:27 UTC (rev 7074)
++++ trunk/rts/lib/gml/gmlsrv.h	2008-11-20 00:04:18 UTC (rev 7075)
+@@ -22,8 +22,10 @@
+ 	gmlProgramObjectARBServer.GenerateItems();
+ 	gmlShaderServer_VERTEX.GenerateItems();
+ 	gmlShaderServer_FRAGMENT.GenerateItems();
++	gmlShaderServer_GEOMETRY_EXT.GenerateItems();
+ 	gmlShaderObjectARBServer_VERTEX.GenerateItems();
+ 	gmlShaderObjectARBServer_FRAGMENT.GenerateItems();
++	gmlShaderObjectARBServer_GEOMETRY_EXT.GenerateItems();
+ 	gmlQuadricServer.GenerateItems();
+ 
+ 	gmlTextureServer.GenerateItems();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001843.html">[Taspring-linux-commit] r7074 - trunk/rts/System
+</A></li>
+	<LI>Next message: <A HREF="001845.html">[Taspring-linux-commit] r7076 - in trunk: rts/System tools/unitsync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1844">[ date ]</a>
+              <a href="thread.html#1844">[ thread ]</a>
+              <a href="subject.html#1844">[ subject ]</a>
+              <a href="author.html#1844">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

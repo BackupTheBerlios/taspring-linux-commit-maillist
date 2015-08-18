@@ -1,0 +1,683 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7065 - trunk/rts/Game
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-November/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7065%20-%20trunk/rts/Game&In-Reply-To=%3C20081118184150.BFB804768%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001833.html">
+   <LINK REL="Next"  HREF="001835.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7065 - trunk/rts/Game</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7065%20-%20trunk/rts/Game&In-Reply-To=%3C20081118184150.BFB804768%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r7065 - trunk/rts/Game">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Nov 18 19:41:50 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001833.html">[Taspring-linux-commit] r7064 - in trunk: rts/System tools/unitsync
+</A></li>
+        <LI>Next message: <A HREF="001835.html">[Taspring-linux-commit] r7066 - in trunk/AI/Global/NTai/AI: .	ntai-xcode ntai-xcode/build ntai-xcode/build/ntai-xcode.build	ntai-xcode/build/ntai-xcode.build/ntai-xcode.pbxindex	ntai-xcode/build/ntai-xcode.build/ntai-xcode.pbxindex/strings.pbxstrings	ntai-xcode/ntai-xcode.xcodeproj
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1834">[ date ]</a>
+              <a href="thread.html#1834">[ thread ]</a>
+              <a href="subject.html#1834">[ subject ]</a>
+              <a href="author.html#1834">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-11-18 19:41:49 +0100 (Tue, 18 Nov 2008)
+New Revision: 7065
+
+Modified:
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameServer.h
+   trunk/rts/Game/Player.h
+   trunk/rts/Game/PlayerHandler.cpp
+Log:
+* some refactoring of CGameServer (should fix #1206)
+
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-11-18 18:40:13 UTC (rev 7064)
++++ trunk/rts/Game/GameServer.cpp	2008-11-18 18:41:49 UTC (rev 7065)
+@@ -72,11 +72,11 @@
+ 
+ using boost::format;
+ 
+-GameParticipant::GameParticipant(bool local)
+-: readyToStart(false)
++GameParticipant::GameParticipant()
++: myState(UNCONNECTED)
+ , cpuUsage (0.0f)
+ , ping (0)
+-, isLocal(local)
++, isLocal(false)
+ {
+ }
+ namespace {
+@@ -149,6 +149,9 @@
+ 		demoReader.reset(new CDemoReader(setup-&gt;demoName, modGameTime+0.1f));
+ 	}
+ 
++	players.resize(setup-&gt;playerStartingData.size());
++	std::copy(setup-&gt;playerStartingData.begin(), setup-&gt;playerStartingData.end(), players.begin());
++
+ 	RestrictedAction(&quot;kick&quot;);			RestrictedAction(&quot;kickbynum&quot;);
+ 	RestrictedAction(&quot;setminspeed&quot;);	RestrictedAction(&quot;setmaxspeed&quot;);
+ 	RestrictedAction(&quot;nopause&quot;);
+@@ -245,7 +248,7 @@
+ 	for (; p != indices.end(); ++p) {
+ 		if (!playerstring.empty())
+ 			playerstring += &quot;, &quot;;
+-		playerstring += players[*p]-&gt;name;
++		playerstring += players[*p].name;
+ 	}
+ 	return playerstring;
+ }
+@@ -289,10 +292,10 @@
+ 
+ void CGameServer::Broadcast(boost::shared_ptr&lt;const netcode::RawPacket&gt; packet)
+ {
+-	for (int p = 0; p &lt; MAX_PLAYERS; ++p)
++	for (unsigned p = 0; p &lt; players.size(); ++p)
+ 	{
+-		if (players[p])
+-			players[p]-&gt;link-&gt;SendData(packet);
++		if (players[p].link)
++			players[p].link-&gt;SendData(packet);
+ 	}
+ }
+ 
+@@ -323,11 +326,11 @@
+ 		bool bComplete = true;
+ 		bool bGotCorrectChecksum = false;
+ 		unsigned correctChecksum = 0;
+-		for (int a = 0; a &lt; MAX_PLAYERS; ++a) {
+-			if (!players[a])
++		for (unsigned a = 0; a &lt; players.size(); ++a) {
++			if (!players[a].link)
+ 				continue;
+-			std::map&lt;int, unsigned&gt;::iterator it = players[a]-&gt;syncResponse.find(*f);
+-			if (it == players[a]-&gt;syncResponse.end()) {
++			std::map&lt;int, unsigned&gt;::iterator it = players[a].syncResponse.find(*f);
++			if (it == players[a].syncResponse.end()) {
+ 				if (*f &gt;= serverframenum - SYNCCHECK_TIMEOUT)
+ 					bComplete = false;
+ 				else
+@@ -381,9 +384,9 @@
+ 		if (bComplete) {
+ // 			if (*f &gt;= serverframenum - SYNCCHECK_TIMEOUT)
+ // 				logOutput.Print(&quot;Succesfully purged outstanding sync frame %d from the deque&quot;, *f);
+-			for (int a = 0; a &lt; MAX_PLAYERS; ++a) {
+-				if (players[a])
+-					players[a]-&gt;syncResponse.erase(*f);
++			for (unsigned a = 0; a &lt; players.size(); ++a) {
++				if (players[a].myState &gt;= GameParticipant::DISCONNECTED)
++					players[a].syncResponse.erase(*f);
+ 			}
+ 			f = outstandingSyncFrames.erase(f);
+ 		} else
+@@ -412,11 +415,11 @@
+ 		if (serverframenum &gt; 0) {
+ 			//send info about the players
+ 			float maxCpu = 0.0f;
+-			for (int a = 0; a &lt; MAX_PLAYERS; ++a) {
+-				if (players[a]) {
+-					Broadcast(CBaseNetProtocol::Get().SendPlayerInfo(a, players[a]-&gt;cpuUsage, players[a]-&gt;ping));
+-					if (players[a]-&gt;cpuUsage &gt; maxCpu) {
+-						maxCpu = players[a]-&gt;cpuUsage;
++			for (unsigned a = 0; a &lt; players.size(); ++a) {
++				if (players[a].myState &gt;= GameParticipant::INGAME) {
++					Broadcast(CBaseNetProtocol::Get().SendPlayerInfo(a, players[a].cpuUsage, players[a].ping));
++					if (players[a].cpuUsage &gt; maxCpu) {
++						maxCpu = players[a].cpuUsage;
+ 					}
+ 				}
+ 			}
+@@ -471,12 +474,12 @@
+ 		}
+ 	}
+ 
+-	if ((SDL_GetTicks() - serverStartTime) &gt; serverTimeout)
++	if (SDL_GetTicks() &gt; serverTimeout + serverStartTime || gameStartTime)
+ 	{
+ 		bool hasPlayers = false;
+-		for (int i = 0; i &lt; MAX_PLAYERS; ++i)
++		for (unsigned i = 0; i &lt; players.size(); ++i)
+ 		{
+-			if (players[i])
++			if (players[i].link)
+ 				hasPlayers = true;
+ 		}
+ 
+@@ -495,7 +498,7 @@
+ 
+ 	switch (inbuf[0]){
+ 		case NETMSG_KEYFRAME:
+-			players[a]-&gt;ping = serverframenum-*(int*)&amp;inbuf[1];
++			players[a].ping = serverframenum-*(int*)&amp;inbuf[1];
+ 			break;
+ 
+ 		case NETMSG_PAUSE:
+@@ -504,7 +507,7 @@
+ 			} else {
+ 				if (!inbuf[2])  // reset sync checker
+ 					syncErrorFrame = 0;
+-				if(gamePausable || players[a]-&gt;isLocal) // allow host to pause even if nopause is set
++				if(gamePausable || players[a].isLocal) // allow host to pause even if nopause is set
+ 				{
+ 					timeLeft=0;
+ 					if (isPaused != !!inbuf[2]) {
+@@ -522,13 +525,14 @@
+ 		} break;
+ 
+ 		case NETMSG_CPU_USAGE:
+-			players[a]-&gt;cpuUsage = *((float*)&amp;inbuf[1]);
++			players[a].cpuUsage = *((float*)&amp;inbuf[1]);
+ 			break;
+ 
+ 		case NETMSG_QUIT: {
+-			Message(str(format(PlayerLeft) %players[a]-&gt;name %&quot; normal quit&quot;));
++			Message(str(format(PlayerLeft) %players[a].name %&quot; normal quit&quot;));
+ 			Broadcast(CBaseNetProtocol::Get().SendPlayerLeft(a, 1));
+-			players[a].reset();
++			players[a].myState = GameParticipant::DISCONNECTED;
++			players[a].link.reset();
+ 			if (hostif)
+ 			{
+ 				hostif-&gt;SendPlayerLeft(a, 1);
+@@ -541,13 +545,13 @@
+ 			if(playerNum!=a){
+ 				Warning(str(format(WrongPlayer) %(unsigned)inbuf[0] %a %playerNum));
+ 			} else {
+-				players[playerNum]-&gt;name = (std::string)((char*)inbuf+3);
+-				players[playerNum]-&gt;readyToStart = true;
+-				Message(str(format(PlayerJoined) %players[playerNum]-&gt;name));
+-				Broadcast(CBaseNetProtocol::Get().SendPlayerName(playerNum, players[playerNum]-&gt;name));
++				players[playerNum].name = (std::string)((char*)inbuf+3);
++				players[playerNum].myState = GameParticipant::INGAME;
++				Message(str(format(PlayerJoined) %players[playerNum].name));
++				Broadcast(CBaseNetProtocol::Get().SendPlayerName(playerNum, players[playerNum].name));
+ 				if (hostif)
+ 				{
+-					hostif-&gt;SendPlayerJoined(playerNum, players[playerNum]-&gt;name);
++					hostif-&gt;SendPlayerJoined(playerNum, players[playerNum].name);
+ 				}
+ 			}
+ 			break;
+@@ -580,7 +584,8 @@
+ 				if (teams[team])
+ 				{
+ 					teams[team]-&gt;startpos = SFloat3(*((float*)&amp;inbuf[4]), *((float*)&amp;inbuf[8]), *((float*)&amp;inbuf[12]));
+-					teams[team]-&gt;readyToStart = static_cast&lt;bool&gt;(inbuf[3]);
++					if (inbuf[3] == 1)
++						teams[team]-&gt;readyToStart = static_cast&lt;bool&gt;(inbuf[3]);
+ 				}
+ 				Broadcast(CBaseNetProtocol::Get().SendStartPos(inbuf[1],team, inbuf[3], *((float*)&amp;inbuf[4]), *((float*)&amp;inbuf[8]), *((float*)&amp;inbuf[12]))); //forward data
+ 				if (hostif)
+@@ -617,7 +622,7 @@
+ 				Warning(str(format(WrongPlayer) %(unsigned) inbuf[0]  %a  %(unsigned) inbuf[3]));
+ 			}
+ 			else if (noHelperAIs) {
+-				Warning(str(format(NoHelperAI) %players[a]-&gt;name %a));
++				Warning(str(format(NoHelperAI) %players[a].name %a));
+ 			}
+ 			else if (!demoReader) {
+ 				Broadcast(packet); //forward data
+@@ -629,7 +634,7 @@
+ 				Warning(str(format(WrongPlayer) %(unsigned) inbuf[0]  %a  %(unsigned) inbuf[3]));
+ 			}
+ 			else if (noHelperAIs) {
+-				Warning(str(format(NoHelperAI) %players[a]-&gt;name %a));
++				Warning(str(format(NoHelperAI) %players[a].name %a));
+ 			}
+ 			else if (!demoReader) {
+ 				Broadcast(packet); //forward data
+@@ -640,7 +645,7 @@
+ 			if (inbuf[3] != a) {
+ 				Warning(str(format(WrongPlayer) %(unsigned) inbuf[0]  %a  %(unsigned) inbuf[3]));
+ 			} else if (noHelperAIs) {
+-				Warning(str(format(NoHelperAI) %players[a]-&gt;name %a));
++				Warning(str(format(NoHelperAI) %players[a].name %a));
+ 			} else if (!demoReader) {
+ 				Broadcast(packet); //forward data
+ 			}
+@@ -662,13 +667,13 @@
+ 			} else {
+ 				int frameNum = *(int*)&amp;inbuf[2];
+ 				if (outstandingSyncFrames.empty() || frameNum &gt;= outstandingSyncFrames.front())
+-					players[a]-&gt;syncResponse[frameNum] = *(unsigned*)&amp;inbuf[6];
++					players[a].syncResponse[frameNum] = *(unsigned*)&amp;inbuf[6];
+ 				else if (serverframenum - delayedSyncResponseFrame &gt; SYNCCHECK_MSG_TIMEOUT) {
+ 					delayedSyncResponseFrame = serverframenum;
+-					Warning(str(format(DelayedSyncResponse) %players[a]-&gt;name %frameNum %serverframenum));
++					Warning(str(format(DelayedSyncResponse) %players[a].name %frameNum %serverframenum));
+ 				}
+-							// update players' ping (if !defined(SYNCCHECK) this is done in NETMSG_KEYFRAME)
+-				players[a]-&gt;ping = serverframenum - frameNum;
++				// update players' ping (if !defined(SYNCCHECK) this is done in NETMSG_KEYFRAME)
++				players[a].ping = serverframenum - frameNum;
+ 			}
+ #endif
+ 			break;
+@@ -725,7 +730,7 @@
+ 
+ 		case NETMSG_STARTPLAYING:
+ 		{
+-			if (players[a]-&gt;isLocal &amp;&amp; !gameStartTime)
++			if (players[a].isLocal &amp;&amp; !gameStartTime)
+ 				CheckForGameStart(true);
+ 			break;
+ 		}
+@@ -740,10 +745,10 @@
+ 			else
+ 			{
+ 				const unsigned action = inbuf[2];
+-				const unsigned fromTeam = players[player]-&gt;team;
++				const unsigned fromTeam = players[player].team;
+ 				unsigned numPlayersInTeam = 0;
+-				for (int a = 0; a &lt; MAX_PLAYERS; ++a)
+-					if (players[a] &amp;&amp; players[a]-&gt;team == fromTeam)
++				for (unsigned a = 0; a &lt; players.size(); ++a)
++					if (players[a].team == fromTeam)
+ 						++numPlayersInTeam;
+ 
+ 				switch (action)
+@@ -755,14 +760,14 @@
+ 						{
+ 							teams[fromTeam].reset();
+ 						}
+-						players[player]-&gt;team = 0;
+-						players[player]-&gt;spectator = true;
++						players[player].team = 0;
++						players[player].spectator = true;
+ 						break;
+ 					}
+ 					case TEAMMSG_RESIGN: {
+ 						Broadcast(CBaseNetProtocol::Get().SendResign(player));
+-						players[player]-&gt;team = 0;
+-						players[player]-&gt;spectator = true;
++						players[player].team = 0;
++						players[player].spectator = true;
+ 						break;
+ 					}
+ 					case TEAMMSG_JOIN_TEAM: {
+@@ -770,31 +775,31 @@
+ 						if (cheating)
+ 						{
+ 							Broadcast(CBaseNetProtocol::Get().SendJoinTeam(player, newTeam));
+-							players[player]-&gt;team = newTeam;
++							players[player].team = newTeam;
+ 							if (!teams[newTeam])
+ 								teams[newTeam].reset(new GameTeam);
+ 						}
+ 						else
+ 						{
+-							Warning(str(format(NoTeamChange) %players[player]-&gt;name %player));
++							Warning(str(format(NoTeamChange) %players[player].name %player));
+ 						}
+ 						break;
+ 					}
+ 					case TEAMMSG_TEAM_DIED: { // don't send to clients, they don't need it
+ 						unsigned char team = inbuf[3];
+ #ifndef DEDICATED
+-						if (teams[team] &amp;&amp; players[player]-&gt;isLocal) // currently only host is allowed
++						if (teams[team] &amp;&amp; players[player].isLocal) // currently only host is allowed
+ #else
+ 						if (teams[team])
+ #endif
+ 						{
+ 							teams[team].reset();
+-							for (int i = 0; i &lt; MAX_PLAYERS; ++i)
++							for (unsigned i = 0; i &lt; players.size(); ++i)
+ 							{
+-								if (players[i] &amp;&amp; players[i]-&gt;team == team)
++								if (players[i].team == team)
+ 								{
+-									players[i]-&gt;team = 0;
+-									players[i]-&gt;spectator = true;
++									players[i].team = 0;
++									players[i].spectator = true;
+ 								}
+ 							}
+ 						}
+@@ -824,7 +829,7 @@
+ 			CommandMessage msg(packet);
+ 			if (msg.player == a)
+ 			{
+-				if ((commandBlacklist.find(msg.action.command) != commandBlacklist.end()) &amp;&amp; players[a]-&gt;isLocal)
++				if ((commandBlacklist.find(msg.action.command) != commandBlacklist.end()) &amp;&amp; players[a].isLocal)
+ 				{
+ 								// command is restricted to server but player is allowed to execute it
+ 					PushAction(msg.action);
+@@ -900,27 +905,27 @@
+ 		}
+ 	}
+ 
+-	for(unsigned a=0; (int)a &lt; MAX_PLAYERS; a++)
++	for(unsigned a=0; (int)a &lt; players.size(); a++)
+ 	{
+-		if (players[a])
++		if (!players[a].link)
++			continue; // player not connected
++		if (players[a].link-&gt;CheckTimeout())
+ 		{
+-			if (players[a]-&gt;link-&gt;CheckTimeout())
++			Message(str(format(PlayerLeft) %players[a].name %&quot; timeout&quot;)); //this must happen BEFORE the reset!
++			players[a].myState = GameParticipant::DISCONNECTED;
++			players[a].link.reset();
++			Broadcast(CBaseNetProtocol::Get().SendPlayerLeft(a, 0));
++			if (hostif)
+ 			{
+-				Message(str(format(PlayerLeft) %players[a]-&gt;name %&quot; timeout&quot;)); //this must happen BEFORE the reset!
+-				players[a].reset();
+-				Broadcast(CBaseNetProtocol::Get().SendPlayerLeft(a, 0));
+-				if (hostif)
+-				{
+-					hostif-&gt;SendPlayerLeft(a, 0);
+-				}
+-				continue;
++				hostif-&gt;SendPlayerLeft(a, 0);
+ 			}
++			continue;
++		}
+ 
+-			boost::shared_ptr&lt;const RawPacket&gt; packet;
+-			while (players[a] &amp;&amp; (packet = players[a]-&gt;link-&gt;GetData()))
+-			{
+-				ProcessPacket(a, packet);
+-			}
++		boost::shared_ptr&lt;const RawPacket&gt; packet;
++		while (players[a].link &amp;&amp; (packet = players[a].link-&gt;GetData()))
++		{
++			ProcessPacket(a, packet);
+ 		}
+ 	}
+ 
+@@ -965,15 +970,15 @@
+ 	// Lobby-protocol doesn't support creating games without players inside
+ 	// so in dedicated mode there will always be the host-player in the script
+ 	// which doesn't exist and will never join, so skip it in this case
+-	for (int a = std::max(setup-&gt;numDemoPlayers,1); a &lt; setup-&gt;numPlayers; a++)
++	for (int a = std::max(setup-&gt;numDemoPlayers,1); a &lt; players.size(); a++)
+ #else
+-	for (int a = setup-&gt;numDemoPlayers; a &lt; setup-&gt;numPlayers; a++)
++	for (int a = setup-&gt;numDemoPlayers; a &lt; players.size(); a++)
+ #endif
+ 	{
+-		if (!players[a] || !players[a]-&gt;readyToStart) {
++		if (players[a].myState &lt; GameParticipant::INGAME) {
+ 			allReady = false;
+ 			break;
+-		} else if (teams[players[a]-&gt;team] &amp;&amp; !teams[players[a]-&gt;team]-&gt;readyToStart &amp;&amp; !demoReader)
++		} else if (teams[players[a].team] &amp;&amp; !teams[players[a].team]-&gt;readyToStart &amp;&amp; !demoReader)
+ 		{
+ 			allReady = false;
+ 			break;
+@@ -1001,11 +1006,6 @@
+ 	if (UDPNet)
+ 		UDPNet-&gt;Listen(false); // don't accept new connections
+ 
+-	for(int a=0; a &lt; MAX_PLAYERS; ++a) {
+-		if(players[a])
+-			Broadcast(CBaseNetProtocol::Get().SendPlayerName(a, players[a]-&gt;name));
+-	}
+-
+ 	// make sure initial game speed is within allowed range and sent a new speed if not
+ 	UserSpeedChange(userSpeedFactor, SERVER_PLAYER);
+ 
+@@ -1058,15 +1058,13 @@
+ 		{
+ 			std::string name = action.extra;
+ 			StringToLowerInPlace(name);
+-			for (int a=1; a &lt; MAX_PLAYERS;++a)
++			for (unsigned a=0; a &lt; players.size();++a)
+ 			{
+-				if (players[a])
+-				{
+-					std::string playerLower = StringToLower(players[a]-&gt;name);
+-					if (playerLower.find(name)==0)
+-					{	//can kick on substrings of name
++				std::string playerLower = StringToLower(players[a].name);
++				if (playerLower.find(name)==0)
++				{	//can kick on substrings of name
++					if (!players[a].isLocal) // don't kick host
+ 						KickPlayer(a);
+-					}
+ 				}
+ 			}
+ 		}
+@@ -1190,8 +1188,8 @@
+ 	for (int a = 0; a &lt; setup-&gt;numTeams; ++a)
+ 	{
+ 		bool hasPlayer = false;
+-		for (int b = 0; b &lt; MAX_PLAYERS; ++b) {
+-			if (players[b] &amp;&amp; !players[b]-&gt;spectator &amp;&amp; players[b]-&gt;team == a) {
++		for (unsigned b = 0; b &lt; players.size(); ++b) {
++			if (!players[b].spectator &amp;&amp; players[b].team == a) {
+ 				hasPlayer = true;
+ 			}
+ 		}
+@@ -1321,16 +1319,20 @@
+ 
+ void CGameServer::KickPlayer(const int playerNum)
+ {
+-	if (players[playerNum]) {
++	if (players[playerNum].link) // only kick connected players
++	{
+ 		Message(str(format(PlayerLeft) %playerNum %&quot;kicked&quot;));
+ 		Broadcast(CBaseNetProtocol::Get().SendPlayerLeft(playerNum, 2));
+-		players[playerNum]-&gt;link-&gt;SendData(CBaseNetProtocol::Get().SendQuit());
++		players[playerNum].link-&gt;SendData(CBaseNetProtocol::Get().SendQuit());
++		players[playerNum].link.reset();
++		players[playerNum].myState = GameParticipant::DISCONNECTED;
+ 		if (hostif)
+ 		{
+ 			hostif-&gt;SendPlayerLeft(playerNum, 2);
+ 		}
+-		players[playerNum].reset();
+ 	}
++	else
++		Message(str( format(&quot;Attempt to kick player $d who is not connected&quot;) %playerNum ));
+ }
+ 
+ unsigned CGameServer::BindConnection(const std::string&amp; name, const std::string&amp; version, bool isLocal, boost::shared_ptr&lt;netcode::CConnection&gt; link)
+@@ -1338,49 +1340,57 @@
+ 	unsigned hisNewNumber = 0;
+ 	bool found = false;
+ 
+-	for (unsigned i = setup-&gt;numDemoPlayers; i &lt; setup-&gt;numPlayers; ++i)
++	unsigned startnum;
++	if (demoReader)
++		 startnum = (unsigned)demoReader-&gt;GetFileHeader().maxPlayerNum+1;
++	else
++		startnum = 0;
++	
++	for (unsigned i = startnum; i &lt; players.size(); ++i)
+ 	{
+-		if (name == setup-&gt;playerStartingData[i].name)
++		if (name == players[i].name)
+ 		{
+-			hisNewNumber = i;
+-			found = true;
+-			break;
+-		}
+-	}
+-
+-	if (demoReader) {
+-		hisNewNumber = std::max(hisNewNumber, (unsigned)demoReader-&gt;GetFileHeader().maxPlayerNum+1);
+-	}
+-	if (players[hisNewNumber])
+-	{
+-		for (int p = 0; p &lt; MAX_PLAYERS; ++p)
+-		{
+-			if (!players[p])
++			if (players[i].myState == GameParticipant::UNCONNECTED || players[i].myState == GameParticipant::DISCONNECTED)
+ 			{
+-				hisNewNumber = p;
++				hisNewNumber = i;
++				found = true;
+ 				break;
+ 			}
++			else
++			{
++				Message(str(format(&quot;Player %s is already ingame&quot;) %name));
++			}
+ 		}
+ 	}
+ 
+-	if ((hisNewNumber &gt;= static_cast&lt;unsigned&gt;(setup-&gt;numPlayers) || !found) &amp;&amp; !demoReader)
++	if (hisNewNumber &gt;= players.size())
+ 	{
+-		// player not found
+-		Message(str(format(&quot;Player %s not found, rejecting connection attempt&quot;) %name));
+-		return 0;
++		if (demoReader)
++		{
++			GameParticipant buf;
++			buf.isFromDemo = false;
++			buf.name = name;
++			buf.spectator = true;
++			buf.team = 0;
++			players.push_back(buf);
++		}
++		else
++		{
++			// player not found
++			Message(str(format(&quot;Player %s not found, rejecting connection attempt&quot;) %name));
++			return 0;
++		}
+ 	}
+ 
+-	players[hisNewNumber].reset(new GameParticipant(isLocal)); // give him rights to change speed, kick players etc
+-	players[hisNewNumber]-&gt;link = link;
+-	if (hisNewNumber &lt; setup-&gt;playerStartingData.size()) {
+-		*static_cast&lt;PlayerBase*&gt;(players[hisNewNumber].get()) = setup-&gt;playerStartingData[hisNewNumber];
+-	}
++	players[hisNewNumber].link = link;
++	players[hisNewNumber].isLocal = isLocal;
++	
+ 	link-&gt;SendData(boost::shared_ptr&lt;const RawPacket&gt;(gameData-&gt;Pack()));
+ 	link-&gt;SendData(CBaseNetProtocol::Get().SendSetPlayerNum((unsigned char)hisNewNumber));
+ 
+-	for (int a = 0; a &lt; MAX_PLAYERS; ++a) {
+-		if(players[a] &amp;&amp; players[a]-&gt;readyToStart)
+-			Broadcast(CBaseNetProtocol::Get().SendPlayerName(a, players[a]-&gt;name));
++	for (unsigned a = 0; a &lt; players.size(); ++a) {
++		if(players[a].myState &gt;= GameParticipant::INGAME)
++			Broadcast(CBaseNetProtocol::Get().SendPlayerName(a, players[a].name));
+ 	}
+ 
+ 	if (!demoReader || setup-&gt;demoName.empty()) // gamesetup from demo?
+@@ -1393,7 +1403,7 @@
+ 			teams[hisTeam]-&gt;readyToStart = (setup-&gt;startPosType != CGameSetup::StartPos_ChooseInGame);
+ 			teams[hisTeam]-&gt;allyTeam = setup-&gt;teamStartingData[hisTeam].teamAllyteam;
+ 		}
+-		players[hisNewNumber]-&gt;team = hisTeam;
++		players[hisNewNumber].team = hisTeam;
+ 		if (!setup-&gt;playerStartingData[hisNewNumber].spectator)
+ 			Broadcast(CBaseNetProtocol::Get().SendJoinTeam(hisNewNumber, hisTeam));
+ 		for (int a = 0; a &lt; MAX_TEAMS; ++a)
+
+Modified: trunk/rts/Game/GameServer.h
+===================================================================
+--- trunk/rts/Game/GameServer.h	2008-11-18 18:40:13 UTC (rev 7064)
++++ trunk/rts/Game/GameServer.h	2008-11-18 18:41:49 UTC (rev 7065)
+@@ -35,9 +35,19 @@
+ class GameParticipant : public PlayerBase
+ {
+ public:
+-	GameParticipant(bool willHaveRights);
++	GameParticipant();
++	
++	void operator=(const PlayerBase&amp; base) { PlayerBase::operator=(base); };
+ 
+-	bool readyToStart;
++	enum State
++	{
++		UNCONNECTED,
++		CONNECTED,
++		INGAME,
++		DISCONNECTED
++	};
++	State myState;
++	
+ 	float cpuUsage;
+ 	int ping;
+ 
+@@ -157,7 +167,7 @@
+ 	float internalSpeed;
+ 	bool cheating;
+ 
+-	boost::scoped_ptr&lt;GameParticipant&gt; players[MAX_PLAYERS];
++	std::vector&lt;GameParticipant&gt; players;
+ 	boost::scoped_ptr&lt;GameTeam&gt; teams[MAX_TEAMS];
+ 
+ 	/////////////////// game settings ///////////////////
+
+Modified: trunk/rts/Game/Player.h
+===================================================================
+--- trunk/rts/Game/Player.h	2008-11-18 18:40:13 UTC (rev 7064)
++++ trunk/rts/Game/Player.h	2008-11-18 18:41:49 UTC (rev 7065)
+@@ -48,6 +48,8 @@
+ 
+ 	void StartSpectating();
+ 
++	void operator=(const PlayerBase&amp; base) { PlayerBase::operator=(base); };
++
+ 	bool active;
+ 
+ 	int playerNum;
+
+Modified: trunk/rts/Game/PlayerHandler.cpp
+===================================================================
+--- trunk/rts/Game/PlayerHandler.cpp	2008-11-18 18:40:13 UTC (rev 7064)
++++ trunk/rts/Game/PlayerHandler.cpp	2008-11-18 18:41:49 UTC (rev 7065)
+@@ -40,9 +40,7 @@
+ 
+ 	for (int i = 0; i &lt; activePlayers; ++i)
+ 	{
+-		// TODO: refactor
+-		// NOTE: this seems slightly better already then the static_cast
+-		Player(i)-&gt;PlayerBase::operator=(setup-&gt;playerStartingData[i]);
++		*Player(i) = setup-&gt;playerStartingData[i];
+ 	}
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001833.html">[Taspring-linux-commit] r7064 - in trunk: rts/System tools/unitsync
+</A></li>
+	<LI>Next message: <A HREF="001835.html">[Taspring-linux-commit] r7066 - in trunk/AI/Global/NTai/AI: .	ntai-xcode ntai-xcode/build ntai-xcode/build/ntai-xcode.build	ntai-xcode/build/ntai-xcode.build/ntai-xcode.pbxindex	ntai-xcode/build/ntai-xcode.build/ntai-xcode.pbxindex/strings.pbxstrings	ntai-xcode/ntai-xcode.xcodeproj
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1834">[ date ]</a>
+              <a href="thread.html#1834">[ thread ]</a>
+              <a href="subject.html#1834">[ subject ]</a>
+              <a href="author.html#1834">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

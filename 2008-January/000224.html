@@ -1,0 +1,236 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5418 - trunk/rts/Sim/Units/CommandAI
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5418%20-%20trunk/rts/Sim/Units/CommandAI&In-Reply-To=%3CE1JJiLq-0004Sz-6S%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000225.html">
+   <LINK REL="Next"  HREF="000226.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5418 - trunk/rts/Sim/Units/CommandAI</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5418%20-%20trunk/rts/Sim/Units/CommandAI&In-Reply-To=%3CE1JJiLq-0004Sz-6S%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5418 - trunk/rts/Sim/Units/CommandAI">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Jan 29 05:45:38 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000225.html">[Taspring-linux-commit] r5417 - trunk/rts/System
+</A></li>
+        <LI>Next message: <A HREF="000226.html">[Taspring-linux-commit] r5419 - trunk/Lobby/TASServer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#224">[ date ]</a>
+              <a href="thread.html#224">[ thread ]</a>
+              <a href="subject.html#224">[ subject ]</a>
+              <a href="author.html#224">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: przybyjw
+Date: 2008-01-29 05:45:38 +0100 (Tue, 29 Jan 2008)
+New Revision: 5418
+
+Modified:
+   trunk/rts/Sim/Units/CommandAI/AirCAI.cpp
+   trunk/rts/Sim/Units/CommandAI/AirCAI.h
+   trunk/rts/Sim/Units/CommandAI/MobileCAI.cpp
+   trunk/rts/Sim/Units/CommandAI/MobileCAI.h
+Log:
+Have fighting, patrolling and guarding aircraft and guarding ground units follow noChaseCatagory.
+
+Modified: trunk/rts/Sim/Units/CommandAI/AirCAI.cpp
+===================================================================
+--- trunk/rts/Sim/Units/CommandAI/AirCAI.cpp	2008-01-29 04:39:18 UTC (rev 5417)
++++ trunk/rts/Sim/Units/CommandAI/AirCAI.cpp	2008-01-29 04:45:38 UTC (rev 5418)
+@@ -492,13 +492,18 @@
+ 	}
+ 
+ 	// CMD_FIGHT is pretty useless if !canAttack but we try to honour the modders wishes anyway...
+-	if (owner-&gt;unitDef-&gt;canAttack &amp;&amp; owner-&gt;fireState &gt;= 2 &amp;&amp; owner-&gt;moveState != 0 &amp;&amp; owner-&gt;maxRange &gt; 0) {
+-		float3 curPosOnLine = ClosestPointOnLine(commandPos1, commandPos2, owner-&gt;pos+owner-&gt;speed*10);
+-		float testRad=1000*owner-&gt;moveState;
+-		CUnit* enemy = helper-&gt;GetClosestEnemyAircraft(curPosOnLine,testRad,owner-&gt;allyteam);
+-		if(myPlane-&gt;isFighter
+-			&amp;&amp; enemy &amp;&amp; !enemy-&gt;crashing
+-			&amp;&amp; (owner-&gt;moveState!=1 || LinePointDist(commandPos1,commandPos2,enemy-&gt;pos) &lt; 1000))
++	if (owner-&gt;unitDef-&gt;canAttack &amp;&amp; owner-&gt;fireState &gt;= 2
++			&amp;&amp; owner-&gt;moveState != 0 &amp;&amp; owner-&gt;maxRange &gt; 0) {
++		float3 curPosOnLine = ClosestPointOnLine(commandPos1, commandPos2,
++				owner-&gt;pos + owner-&gt;speed*10);
++		float testRad = 1000 * owner-&gt;moveState;
++		CUnit* enemy = NULL;
++		if(myPlane-&gt;isFighter) {
++			enemy = helper-&gt;GetClosestEnemyAircraft(curPosOnLine,
++					testRad, owner-&gt;allyteam);
++		}
++		if(IsValidTarget(enemy) &amp;&amp; (owner-&gt;moveState!=1
++				|| LinePointDist(commandPos1, commandPos2, enemy-&gt;pos) &lt; 1000))
+ 		{
+ 			Command nc;
+ 			nc.id=CMD_ATTACK;
+@@ -517,10 +522,7 @@
+ 				commandPos1, commandPos2, owner-&gt;pos + owner-&gt;speed * 20);
+ 			float testRad = 500 * owner-&gt;moveState;
+ 			enemy = helper-&gt;GetClosestEnemyUnit(curPosOnLine, testRad, owner-&gt;allyteam);
+-			if(enemy &amp;&amp; (owner-&gt;hasUWWeapons || !enemy-&gt;isUnderWater)
+-				&amp;&amp; !enemy-&gt;crashing
+-				&amp;&amp; (myPlane-&gt;isFighter || !enemy-&gt;unitDef-&gt;canfly))
+-			{
++			if(IsValidTarget(enemy)) {
+ 				Command nc;
+ 				nc.id = CMD_ATTACK;
+ 				nc.params.push_back(enemy-&gt;id);
+@@ -539,7 +541,8 @@
+ 	}
+ 	myPlane-&gt;goalPos=goalPos;
+ 
+-	if((owner-&gt;pos-goalPos).SqLength2D()&lt;(127*127) || (owner-&gt;pos+owner-&gt;speed*8-goalPos).SqLength2D()&lt;(127*127)){
++	if((owner-&gt;pos - goalPos).SqLength2D() &lt; (127 * 127)
++			|| (owner-&gt;pos + owner-&gt;speed*8 - goalPos).SqLength2D() &lt; (127 * 127)) {
+ 		FinishCommand();
+ 	}
+ 	return;
+@@ -678,9 +681,9 @@
+ 	if (int(c.params[0]) &gt;= 0 &amp;&amp; uh-&gt;units[int(c.params[0])] != NULL
+ 			&amp;&amp; UpdateTargetLostTimer(int(c.params[0]))) {
+ 		CUnit* guarded = uh-&gt;units[int(c.params[0])];
+-		if(owner-&gt;unitDef-&gt;canAttack &amp;&amp; guarded-&gt;lastAttacker
+-				&amp;&amp; guarded-&gt;lastAttack + 40 &lt; gs-&gt;frameNum &amp;&amp; owner-&gt;maxRange &gt; 0
+-				&amp;&amp; (owner-&gt;hasUWWeapons || !guarded-&gt;lastAttacker-&gt;isUnderWater)){
++		if(owner-&gt;unitDef-&gt;canAttack &amp;&amp; guarded-&gt;lastAttack + 40 &lt; gs-&gt;frameNum
++				&amp;&amp; owner-&gt;maxRange &gt; 0 &amp;&amp; IsValidTarget(guarded-&gt;lastAttacker))
++		{
+ 			Command nc;
+ 			nc.id = CMD_ATTACK;
+ 			nc.params.push_back(guarded-&gt;lastAttacker-&gt;id);
+@@ -720,6 +723,11 @@
+ 	return CMD_MOVE;
+ }
+ 
++bool CAirCAI::IsValidTarget(const CUnit* enemy) const {
++	return CMobileCAI::IsValidTarget(enemy) &amp;&amp; !enemy-&gt;crashing
++		&amp;&amp; (((CAirMoveType*)owner-&gt;moveType)-&gt;isFighter || !enemy-&gt;unitDef-&gt;canfly);
++}
++
+ void CAirCAI::DrawCommands(void)
+ {
+ 	lineDrawer.StartPath(owner-&gt;pos, cmdColors.start);
+
+Modified: trunk/rts/Sim/Units/CommandAI/AirCAI.h
+===================================================================
+--- trunk/rts/Sim/Units/CommandAI/AirCAI.h	2008-01-29 04:39:18 UTC (rev 5417)
++++ trunk/rts/Sim/Units/CommandAI/AirCAI.h	2008-01-29 04:45:38 UTC (rev 5418)
+@@ -46,6 +46,8 @@
+ 	void PushOrUpdateReturnFight() {
+ 		CCommandAI::PushOrUpdateReturnFight(commandPos1, commandPos2);
+ 	}
++	
++	bool IsValidTarget(const CUnit* enemy) const;
+ };
+ 
+ #endif // __AIR_CAI_H__
+
+Modified: trunk/rts/Sim/Units/CommandAI/MobileCAI.cpp
+===================================================================
+--- trunk/rts/Sim/Units/CommandAI/MobileCAI.cpp	2008-01-29 04:39:18 UTC (rev 5417)
++++ trunk/rts/Sim/Units/CommandAI/MobileCAI.cpp	2008-01-29 04:45:38 UTC (rev 5418)
+@@ -466,7 +466,8 @@
+ 				&amp;&amp; !owner-&gt;weapons.front()-&gt;AttackUnit(orderTarget, false)) {
+ 			CUnit* newTarget = helper-&gt;GetClosestEnemyUnit(
+ 				owner-&gt;pos, owner-&gt;maxRange, owner-&gt;allyteam);
+-			if(owner-&gt;weapons.front()-&gt;AttackUnit(newTarget, false)) {
++			if(IsValidTarget(newTarget) &amp;&amp; !owner-&gt;weapons.empty()
++					&amp;&amp; owner-&gt;weapons.front()-&gt;AttackUnit(newTarget, false)) {
+ 				c.params[0] = newTarget-&gt;id;
+ 				inCommand = false;
+ 			} else {
+@@ -518,10 +519,7 @@
+ 		CUnit* enemy=helper-&gt;GetClosestEnemyUnit(
+ 			curPosOnLine, owner-&gt;maxRange + 100 * owner-&gt;moveState * owner-&gt;moveState,
+ 			owner-&gt;allyteam);
+-		if(enemy &amp;&amp; (owner-&gt;hasUWWeapons || !enemy-&gt;isUnderWater)
+-				&amp;&amp; !(owner-&gt;unitDef-&gt;noChaseCategory &amp; enemy-&gt;category)
+-				&amp;&amp; !owner-&gt;weapons.empty()
+-				&amp;&amp; !enemy-&gt;neutral){
++		if(IsValidTarget(enemy) &amp;&amp; !owner-&gt;weapons.empty()) {
+ 			Command c2;
+ 			c2.id=CMD_FIGHT;
+ 			c2.options=c.options|INTERNAL_ORDER;
+@@ -544,6 +542,12 @@
+ 	return;
+ }
+ 
++bool CMobileCAI::IsValidTarget(const CUnit* enemy) const {
++	return enemy &amp;&amp; (owner-&gt;hasUWWeapons || !enemy-&gt;isUnderWater)
++		&amp;&amp; !(owner-&gt;unitDef-&gt;noChaseCategory &amp; enemy-&gt;category)
++		&amp;&amp; !enemy-&gt;neutral;
++}
++
+ /**
+ * @brief Executes the guard command c
+ */
+@@ -554,9 +558,9 @@
+ 	if(int(c.params[0]) &gt;= 0 &amp;&amp; uh-&gt;units[int(c.params[0])] != NULL
+ 			&amp;&amp; UpdateTargetLostTimer(int(c.params[0]))){
+ 		CUnit* guarded = uh-&gt;units[int(c.params[0])];
+-		if(owner-&gt;unitDef-&gt;canAttack &amp;&amp; guarded-&gt;lastAttacker
+-				&amp;&amp; guarded-&gt;lastAttack + 40 &lt; gs-&gt;frameNum
+-				&amp;&amp; (owner-&gt;hasUWWeapons || !guarded-&gt;lastAttacker-&gt;isUnderWater)){
++		if(owner-&gt;unitDef-&gt;canAttack &amp;&amp; guarded-&gt;lastAttack + 40 &lt; gs-&gt;frameNum
++				&amp;&amp; IsValidTarget(guarded-&gt;lastAttacker))
++		{
+ 			StopSlowGuard();
+ 			Command nc;
+ 			nc.id=CMD_ATTACK;
+
+Modified: trunk/rts/Sim/Units/CommandAI/MobileCAI.h
+===================================================================
+--- trunk/rts/Sim/Units/CommandAI/MobileCAI.h	2008-01-29 04:39:18 UTC (rev 5417)
++++ trunk/rts/Sim/Units/CommandAI/MobileCAI.h	2008-01-29 04:45:38 UTC (rev 5418)
+@@ -63,9 +63,12 @@
+ 	int lastCloseInTry;
+ 	bool slowGuard;
+ 	bool moveDir;
++	
+ 	void PushOrUpdateReturnFight() {
+ 		CCommandAI::PushOrUpdateReturnFight(commandPos1, commandPos2);
+ 	}
++	
++	virtual bool IsValidTarget(const CUnit* enemy) const;
+ };
+ 
+ #define MAX_CLOSE_IN_RETRY_TICKS 30
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000225.html">[Taspring-linux-commit] r5417 - trunk/rts/System
+</A></li>
+	<LI>Next message: <A HREF="000226.html">[Taspring-linux-commit] r5419 - trunk/Lobby/TASServer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#224">[ date ]</a>
+              <a href="thread.html#224">[ thread ]</a>
+              <a href="subject.html#224">[ subject ]</a>
+              <a href="author.html#224">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

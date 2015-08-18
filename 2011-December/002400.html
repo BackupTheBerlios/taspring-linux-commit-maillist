@@ -1,0 +1,735 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7630 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2011-December/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7630%20-%20Lobby/TASClient&In-Reply-To=%3C20111213185329.7EAEAA8232B%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002401.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7630 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7630%20-%20Lobby/TASClient&In-Reply-To=%3C20111213185329.7EAEAA8232B%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7630 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Dec 13 19:53:29 CET 2011</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002401.html">[Taspring-linux-commit] r7631 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2400">[ date ]</a>
+              <a href="thread.html#2400">[ thread ]</a>
+              <a href="subject.html#2400">[ subject ]</a>
+              <a href="author.html#2400">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2011-12-13 19:53:28 +0100 (Tue, 13 Dec 2011)
+New Revision: 7630
+
+Modified:
+   Lobby/TASClient/BattleFormUnit.pas
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/ManageGroups.dfm
+   Lobby/TASClient/ManageGroups.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* 0 hash are ignored to set the battle sync state
+* &quot;Execute special commands&quot; group option added
+* if an admin or a user in a group with execute special commands option enabled, send you a &quot;!join name password&quot; you will automatically leave the current battle and join the new one
+* &quot;!join me&quot; added to user context menu
+
+Modified: Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.pas	2011-11-11 19:16:27 UTC (rev 7629)
++++ Lobby/TASClient/BattleFormUnit.pas	2011-12-13 18:53:28 UTC (rev 7630)
+@@ -1262,13 +1262,13 @@
+       mapSynced := True;
+       modSynced := True;
+ 
+-      if (CurrentMapIndex = -1) or not (Utility.MapChecksums.Items[CurrentMapIndex] = BattleState.Battle.MapHash) then
++      if (CurrentMapIndex = -1) or ( (BattleState.Battle.MapHash &lt;&gt; 0) and (Utility.MapChecksums.Items[CurrentMapIndex] &lt;&gt; BattleState.Battle.MapHash) ) then
+       begin
+         mapSynced := False;
+         if not (CurrentMapIndex = -1) and (BattleState.Status &lt;&gt; None) then
+           AddTextToChat(_('Your map differs from the host''s one.'),Colors.Error,1);
+       end;
+-      if GetModHash(BattleState.Battle.ModName) &lt;&gt; BattleState.Battle.HashCode then
++      if (BattleState.Battle.HashCode &lt;&gt; 0) and (GetModHash(BattleState.Battle.ModName) &lt;&gt; BattleState.Battle.HashCode) then
+       begin
+         modSynced := False;
+         if BattleState.Status &lt;&gt; None then
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2011-11-11 19:16:27 UTC (rev 7629)
++++ Lobby/TASClient/MainUnit.dfm	2011-12-13 18:53:28 UTC (rev 7630)
+@@ -5309,6 +5309,10 @@
+         Caption = 'Play with'
+         OnClick = mnuPlayWithClick
+       end
++      object SpTBXItem10: TSpTBXItem
++        Caption = '!join me'
++        OnClick = SpTBXItem10Click
++      end
+       object mnuSelectBattle: TSpTBXItem
+         Caption = 'Find battle'
+         OnClick = mnuSelectBattleClick
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2011-11-11 19:16:27 UTC (rev 7629)
++++ Lobby/TASClient/MainUnit.pas	2011-12-13 18:53:28 UTC (rev 7630)
+@@ -429,7 +429,7 @@
+   );
+ 
+ const
+-  VERSION_NUMBER = '0.93'; // Must be float value! (with a period as a decimal seperator)
++  VERSION_NUMBER = '0.94'; // Must be float value! (with a period as a decimal seperator)
+   PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER;
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+   ASSUME_TIMEOUT_INTERVAL = 30000; // in milliseconds. Must be greater than KEEP_ALIVE_INTERVAL! If server hasn't send any data to us within this interval, then we assume timeout occured. It's us who must make sure we get constant replies from server by pinging it.
+@@ -474,6 +474,8 @@
+   CANT_WRITE_SCRIPT_MSG = 'Could''nt write the start script file ''script.txt'', try again ?';
+   SCROLLING_NEWS_DIR_DEFAULT = LOBBY_FOLDER + '\ScrollingNews';
+ 
++  REMOTE_JOIN_COMMAND = '!join';
++
+   MAX_PLAYERS = 200; // max. players supported by Spring in a game
+   MAX_TEAMS = 100; // max. teams supported by Spring in a game (MAX_ALLIES would be same as MAX_TEAMS, so no need for it)
+   MAX_POPUP = 8; // max popup notification displaying at the same time
+@@ -674,6 +676,7 @@
+     Rank: integer;
+     BalanceInSameTeam: boolean;
+     Ignore: boolean;
++    ExecuteSpecialCommands: boolean;
+ 
+     constructor Create(Name: string; Color: Integer);
+     destructor Destroy;
+@@ -1312,6 +1315,7 @@
+     SpTBXSeparatorItem30: TSpTBXSeparatorItem;
+     SpringSocket: TIdUDPServer;
+     SpTBXItem8: TSpTBXItem;
++    SpTBXItem10: TSpTBXItem;
+     procedure mnuOpenPrivateChatClick(Sender: TObject);
+     procedure mnuSelectBattleClick(Sender: TObject);
+     procedure mnuPlayWithClick(Sender: TObject);
+@@ -1515,6 +1519,7 @@
+     procedure SpringSocketUDPRead(Sender: TObject; AData: TStream;
+       ABinding: TIdSocketHandle);
+     procedure SpTBXItem8Click(Sender: TObject);
++    procedure SpTBXItem10Click(Sender: TObject);
+   published
+     MainTitleBar: TSpTBXTitleBar;
+     ButtonImageList: TImageList;
+@@ -6846,6 +6851,34 @@
+         Exit;
+       end;
+ 
++      if (sl[2] = REMOTE_JOIN_COMMAND) and (Client.GetAccess or ((Client.GetGroup &lt;&gt; nil) and (Client.GetGroup.ExecuteSpecialCommands))) and (sl.Count &gt;= 4) and (sl.Count &lt;= 5) then
++      begin
++        Client2 := GetClient(sl[3]);
++        if (Client2 &lt;&gt; nil) and (Client2.Battle &lt;&gt; nil) then
++        begin
++          if not Client2.Battle.Password or (sl.Count &gt;= 5) then
++          begin
++            try
++              AddMainLog(Format(_('Executing !join command from user : %s'),[Client.Name]),Colors.Info);
++            except
++              AddMainLog(Format('Executing !join command from user : %s',[Client.Name]),Colors.Info);
++            end;
++
++            if BattleForm.IsBattleActive then
++            begin
++              BattleForm.DisconnectButtonClick(nil);
++            end;
++
++            if Client2.Battle.Password and (sl.Count &gt;= 5) then
++              JoinBattle(Client2.Battle,false,sl[4])
++            else
++              JoinBattle(Client2.Battle);
++
++            Exit;
++          end;
++        end;
++      end;
++
+       if (Client = HostBattleForm.relayHoster) and (sl[2] = 'JOINEDBATTLE') then
+       begin
+         Client2 := GetClient(sl[4]);
+@@ -11255,6 +11288,7 @@
+   Self.ReplaceRank := False;
+   Self.Rank := 0;
+   Self.BalanceInSameTeam := False;
++  Self.ExecuteSpecialCommands := False;
+ end;
+ 
+ destructor TClientGroup.Destroy;
+@@ -11442,6 +11476,7 @@
+       Ini.WriteString(IntToStr(i), 'Rank', IntToStr(TClientGroup(ClientGroups[i]).Rank));
+       Ini.WriteString(IntToStr(i), 'BalanceInSameTeam', BoolToStr(TClientGroup(ClientGroups[i]).BalanceInSameTeam));
+       Ini.WriteString(IntToStr(i), 'Ignore', BoolToStr(TClientGroup(ClientGroups[i]).Ignore));
++      Ini.WriteString(IntToStr(i), 'ExecuteSpecialCommands', BoolToStr(TClientGroup(ClientGroups[i]).ExecuteSpecialCommands));
+       Ini.WriteString(IntToStr(i), 'Clients', Misc.JoinStringList(TClientGroup(ClientGroups[i]).Clients,' '));
+       tmpStr := '';
+       for j:=0 to TClientGroup(ClientGroups[i]).ClientsIds.Count-1 do
+@@ -11484,6 +11519,7 @@
+     cg.Rank := StrToInt(Ini.ReadString(IntToStr(i), 'Rank', '0'));
+     cg.BalanceInSameTeam := StrToBool(Ini.ReadString(IntToStr(i), 'BalanceInSameTeam', '0'));
+     cg.Ignore := StrToBool(Ini.ReadString(IntToStr(i), 'Ignore', '0'));
++    cg.ExecuteSpecialCommands := StrToBool(Ini.ReadString(IntToStr(i), 'ExecuteSpecialCommands', '0'));
+     tmp := Ini.ReadString(IntToStr(i), 'Clients', '');
+     if tmp &lt;&gt; '' then
+       Misc.ParseDelimited(cg.Clients,tmp,' ','');
+@@ -14820,4 +14856,9 @@
+   SpringDownloaderFormUnit.DownloadMod(SelectedBattle.HashCode,SelectedBattle.ModName,True);
+ end;
+ 
++procedure TMainForm.SpTBXItem10Click(Sender: TObject);
++begin
++  TryToSendCommand('SAYPRIVATE',SelectedUserName+' !join '+Status.Me.Name);
++end;
++
+ end.
+
+Modified: Lobby/TASClient/ManageGroups.dfm
+===================================================================
+--- Lobby/TASClient/ManageGroups.dfm	2011-11-11 19:16:27 UTC (rev 7629)
++++ Lobby/TASClient/ManageGroups.dfm	2011-12-13 18:53:28 UTC (rev 7630)
+@@ -1,10 +1,10 @@
+ object ManageGroupsForm: TManageGroupsForm
+-  Left = 505
+-  Top = 469
++  Left = 518
++  Top = 522
+   BorderIcons = [biSystemMenu]
+   BorderStyle = bsSingle
+   Caption = 'Manage groups'
+-  ClientHeight = 441
++  ClientHeight = 466
+   ClientWidth = 596
+   Color = clBtnFace
+   Constraints.MaxHeight = 1150
+@@ -27,7 +27,7 @@
+     Left = 0
+     Top = 0
+     Width = 596
+-    Height = 441
++    Height = 466
+     Caption = 'Manage groups'
+     Active = False
+     FixedSize = True
+@@ -37,7 +37,7 @@
+       Left = 8
+       Top = 72
+       Width = 225
+-      Height = 289
++      Height = 313
+       DragMode = dmAutomatic
+       ItemHeight = 16
+       TabOrder = 1
+@@ -56,7 +56,7 @@
+     end
+     object SpTBXPanel1: TSpTBXPanel
+       Left = 8
+-      Top = 372
++      Top = 396
+       Width = 577
+       Height = 41
+       Caption = 'SpTBXPanel1'
+@@ -110,7 +110,7 @@
+       Left = 240
+       Top = 40
+       Width = 345
+-      Height = 321
++      Height = 345
+       Caption = 'SpTBXPanel2'
+       ParentShowHint = False
+       ShowHint = False
+@@ -134,158 +134,98 @@
+         AutoSize = False
+         Alignment = taRightJustify
+       end
+-      object SpTBXLabel2: TSpTBXLabel
+-        Left = 8
+-        Top = 36
+-        Width = 193
+-        Height = 13
+-        Caption = 'Color :'
+-        AutoSize = False
+-        Alignment = taRightJustify
+-      end
+-      object SpTBXLabel3: TSpTBXLabel
+-        Left = 8
+-        Top = 58
+-        Width = 193
+-        Height = 13
+-        Caption = 'Auto-kick :'
+-        AutoSize = False
+-        Alignment = taRightJustify
+-      end
+-      object SpTBXLabel4: TSpTBXLabel
+-        Left = 8
+-        Top = 80
+-        Width = 193
+-        Height = 13
+-        Caption = 'Auto-spec :'
+-        AutoSize = False
+-        Alignment = taRightJustify
+-      end
+       object btChooseColor: TSpTBXButton
+         Left = 312
+         Top = 32
+         Width = 25
+         Height = 20
+         Caption = '...'
+-        TabOrder = 5
++        TabOrder = 2
+         OnClick = btChooseColorClick
+       end
+       object AutoSpecCheckBox: TSpTBXCheckBox
+-        Left = 208
++        Left = 8
+         Top = 80
+-        Width = 14
++        Width = 212
+         Height = 15
+-        TabOrder = 6
++        Caption = 'Auto-spec :'
++        AutoSize = False
++        TabOrder = 3
+         OnClick = AutoSpecCheckBoxClick
++        Alignment = taRightJustify
+       end
+       object AutoKickCheckBox: TSpTBXCheckBox
+-        Left = 208
++        Left = 8
+         Top = 58
+-        Width = 14
++        Width = 212
+         Height = 15
+-        TabOrder = 7
++        Caption = 'Auto-kick :'
++        AutoSize = False
++        TabOrder = 4
+         OnClick = AutoKickCheckBoxClick
++        Alignment = taRightJustify
+       end
+       object NotifyOnHostCheckBox: TSpTBXCheckBox
+-        Left = 208
+-        Top = 104
+-        Width = 14
+-        Height = 15
+-        TabOrder = 8
+-        OnClick = NotifyOnHostCheckBoxClick
+-      end
+-      object SpTBXLabel5: TSpTBXLabel
+         Left = 8
+         Top = 104
+-        Width = 193
+-        Height = 13
++        Width = 212
++        Height = 15
+         Caption = 'Notify on host :'
+         AutoSize = False
++        TabOrder = 5
++        OnClick = NotifyOnHostCheckBoxClick
+         Alignment = taRightJustify
+       end
+-      object SpTBXLabel6: TSpTBXLabel
++      object NotifyOnJoinCheckBox: TSpTBXCheckBox
+         Left = 8
+         Top = 128
+-        Width = 193
+-        Height = 13
++        Width = 212
++        Height = 15
+         Caption = 'Notify on join :'
+         AutoSize = False
++        TabOrder = 6
++        OnClick = NotifyOnJoinCheckBoxClick
+         Alignment = taRightJustify
+       end
+-      object NotifyOnJoinCheckBox: TSpTBXCheckBox
+-        Left = 208
+-        Top = 128
+-        Width = 14
+-        Height = 15
+-        TabOrder = 11
+-        OnClick = NotifyOnJoinCheckBoxClick
+-      end
+       object NotifyOnBattlEndCheckBox: TSpTBXCheckBox
+-        Left = 208
+-        Top = 152
+-        Width = 14
+-        Height = 15
+-        TabOrder = 12
+-        OnClick = NotifyOnBattlEndCheckBoxClick
+-      end
+-      object SpTBXLabel7: TSpTBXLabel
+         Left = 8
+         Top = 152
+-        Width = 193
+-        Height = 13
++        Width = 212
++        Height = 15
+         Caption = 'Notify on battle end :'
+         AutoSize = False
++        TabOrder = 7
++        OnClick = NotifyOnBattlEndCheckBoxClick
+         Alignment = taRightJustify
+       end
+-      object SpTBXLabel8: TSpTBXLabel
++      object NotifyOnConnectCheckBox: TSpTBXCheckBox
+         Left = 8
+         Top = 176
+-        Width = 193
+-        Height = 13
++        Width = 212
++        Height = 15
+         Caption = 'Notify on connect :'
+         AutoSize = False
++        TabOrder = 8
++        OnClick = NotifyOnConnectCheckBoxClick
+         Alignment = taRightJustify
+       end
+-      object NotifyOnConnectCheckBox: TSpTBXCheckBox
+-        Left = 208
+-        Top = 176
+-        Width = 14
+-        Height = 15
+-        TabOrder = 15
+-        OnClick = NotifyOnConnectCheckBoxClick
+-      end
+       object txtName: TSpTBXEdit
+         Left = 208
+         Top = 10
+         Width = 129
+         Height = 21
+-        TabOrder = 16
++        TabOrder = 9
+         OnChange = txtNameChange
+       end
+-      object SpTBXLabel9: TSpTBXLabel
++      object HighlightBattlesCheckbox: TSpTBXCheckBox
+         Left = 8
+         Top = 200
+-        Width = 193
+-        Height = 13
++        Width = 212
++        Height = 15
+         Caption = 'Highlight battles :'
+         AutoSize = False
+-        Alignment = taRightJustify
+-      end
+-      object HighlightBattlesCheckbox: TSpTBXCheckBox
+-        Left = 208
+-        Top = 200
+-        Width = 14
+-        Height = 15
+-        TabOrder = 18
++        TabOrder = 10
+         OnClick = HighlightBattlesCheckboxClick
+-      end
+-      object SpTBXLabel10: TSpTBXLabel
+-        Left = 8
+-        Top = 224
+-        Width = 193
+-        Height = 13
+-        Caption = 'Chat color :'
+-        AutoSize = False
+         Alignment = taRightJustify
+       end
+       object ChatColorPanel: TPanel
+@@ -296,7 +236,7 @@
+         BevelOuter = bvNone
+         BorderStyle = bsSingle
+         Color = clBlack
+-        TabOrder = 20
++        TabOrder = 11
+       end
+       object btChooseChatColor: TSpTBXButton
+         Left = 312
+@@ -304,24 +244,30 @@
+         Width = 25
+         Height = 20
+         Caption = '...'
+-        TabOrder = 21
++        TabOrder = 12
+         OnClick = btChooseChatColorClick
+       end
+       object ChatColorCheckBox: TSpTBXCheckBox
+-        Left = 208
++        Left = 8
+         Top = 224
+-        Width = 14
++        Width = 212
+         Height = 15
+-        TabOrder = 22
++        Caption = 'Chat color :'
++        AutoSize = False
++        TabOrder = 13
+         OnClick = ChatColorCheckBoxClick
++        Alignment = taRightJustify
+       end
+       object ReplaceRankCheckBox: TSpTBXCheckBox
+-        Left = 208
++        Left = 8
+         Top = 248
+-        Width = 14
++        Width = 212
+         Height = 15
+-        TabOrder = 23
++        Caption = 'Replace rank :'
++        AutoSize = False
++        TabOrder = 14
+         OnClick = ReplaceRankCheckBoxClick
++        Alignment = taRightJustify
+       end
+       object ReplaceRankCmb: TSpTBXComboBox
+         Left = 232
+@@ -330,76 +276,68 @@
+         Height = 22
+         Style = csOwnerDrawFixed
+         ItemHeight = 16
+-        TabOrder = 24
++        TabOrder = 15
+         OnChange = ReplaceRankCmbChange
+         OnDrawItem = ReplaceRankCmbDrawItem
+       end
+-      object SpTBXLabel11: TSpTBXLabel
++      object BalanceInSameTeamCheckBox: TSpTBXCheckBox
+         Left = 8
+         Top = 272
+-        Width = 193
+-        Height = 13
++        Width = 212
++        Height = 15
+         Hint = 
+           'Act like if all member of the group were in the same clan when b' +
+           'alancing teams.'
+         Caption = 'Balance in same team :'
+         AutoSize = False
+         ParentShowHint = False
+-        ShowAccelChar = False
+         ShowHint = True
++        TabOrder = 16
++        OnClick = BalanceInSameTeamCheckBoxClick
+         Alignment = taRightJustify
+       end
+-      object BalanceInSameTeamCheckBox: TSpTBXCheckBox
+-        Left = 208
+-        Top = 272
+-        Width = 14
+-        Height = 15
+-        Hint = 
+-          'Act like if all member of the group were in the same clan when b' +
+-          'alancing teams.'
+-        ParentShowHint = False
+-        ShowHint = True
+-        TabOrder = 26
+-        OnClick = BalanceInSameTeamCheckBoxClick
+-      end
+-      object SpTBXLabel12: TSpTBXLabel
++      object IgnoreCheckBox: TSpTBXCheckBox
+         Left = 8
+         Top = 296
+-        Width = 193
+-        Height = 13
++        Width = 212
++        Height = 15
+         Caption = 'Ignore :'
+         AutoSize = False
++        TabOrder = 17
++        OnClick = IgnoreCheckBoxClick
+         Alignment = taRightJustify
+       end
+-      object IgnoreCheckBox: TSpTBXCheckBox
+-        Left = 208
+-        Top = 296
+-        Width = 14
+-        Height = 15
+-        TabOrder = 28
+-        OnClick = IgnoreCheckBoxClick
+-      end
+       object ColorCheckBox: TSpTBXCheckBox
+-        Left = 208
++        Left = 8
+         Top = 36
+-        Width = 14
++        Width = 212
+         Height = 15
+-        TabOrder = 29
++        Caption = 'Color :'
++        AutoSize = False
++        TabOrder = 18
+         OnClick = ColorCheckBoxClick
++        Alignment = taRightJustify
+       end
+-      object SpTBXLabel14: TSpTBXLabel
++      object ExecSpecCommandsCheckBox: TSpTBXCheckBox
+         Left = 8
+-        Top = 248
+-        Width = 193
+-        Height = 13
+-        Caption = 'Replace rank :'
++        Top = 318
++        Width = 212
++        Height = 15
++        Hint = 
++          'Will execute special commands sent by users from this group such' +
++          ' as &quot;!join host&quot;'
++        Caption = 'Execute special commands :'
+         AutoSize = False
++        ParentShowHint = False
++        ShowHint = True
++        TabOrder = 19
++        OnClick = ExecSpecCommandsCheckBoxClick
+         Alignment = taRightJustify
+       end
+     end
+     object SpTBXLabel13: TSpTBXLabel
+       Left = 8
+-      Top = 416
++      Top = 440
+       Width = 411
+       Height = 13
+       Caption = 
+
+Modified: Lobby/TASClient/ManageGroups.pas
+===================================================================
+--- Lobby/TASClient/ManageGroups.pas	2011-11-11 19:16:27 UTC (rev 7629)
++++ Lobby/TASClient/ManageGroups.pas	2011-12-13 18:53:28 UTC (rev 7630)
+@@ -18,38 +18,27 @@
+     SpTBXPanel2: TSpTBXPanel;
+     ColorPanel: TPanel;
+     SpTBXLabel1: TSpTBXLabel;
+-    SpTBXLabel2: TSpTBXLabel;
+-    SpTBXLabel3: TSpTBXLabel;
+-    SpTBXLabel4: TSpTBXLabel;
+     btChooseColor: TSpTBXButton;
+     btClose: TSpTBXButton;
+     AutoSpecCheckBox: TSpTBXCheckBox;
+     AutoKickCheckBox: TSpTBXCheckBox;
+     NotifyOnHostCheckBox: TSpTBXCheckBox;
+-    SpTBXLabel5: TSpTBXLabel;
+-    SpTBXLabel6: TSpTBXLabel;
+     NotifyOnJoinCheckBox: TSpTBXCheckBox;
+-    SpTBXLabel7: TSpTBXLabel;
+     NotifyOnBattlEndCheckBox: TSpTBXCheckBox;
+-    SpTBXLabel8: TSpTBXLabel;
+     NotifyOnConnectCheckBox: TSpTBXCheckBox;
+     txtName: TSpTBXEdit;
+-    SpTBXLabel9: TSpTBXLabel;
+     HighlightBattlesCheckbox: TSpTBXCheckBox;
+     btAddPlayer: TSpTBXButton;
+-    SpTBXLabel10: TSpTBXLabel;
+     ChatColorPanel: TPanel;
+     btChooseChatColor: TSpTBXButton;
+     ChatColorCheckBox: TSpTBXCheckBox;
+     ReplaceRankCheckBox: TSpTBXCheckBox;
+     ReplaceRankCmb: TSpTBXComboBox;
+-    SpTBXLabel11: TSpTBXLabel;
+     BalanceInSameTeamCheckBox: TSpTBXCheckBox;
+-    SpTBXLabel12: TSpTBXLabel;
+     IgnoreCheckBox: TSpTBXCheckBox;
+     ColorCheckBox: TSpTBXCheckBox;
+     SpTBXLabel13: TSpTBXLabel;
+-    SpTBXLabel14: TSpTBXLabel;
++    ExecSpecCommandsCheckBox: TSpTBXCheckBox;
+     procedure FormShow(Sender: TObject);
+     procedure cmbGroupsChange(Sender: TObject);
+     procedure btRemoveClick(Sender: TObject);
+@@ -81,6 +70,7 @@
+     procedure ReplaceRankCmbDrawItem(Sender: TObject; ACanvas: TCanvas;
+       var ARect: TRect; Index: Integer; const State: TOwnerDrawState;
+       const PaintStage: TSpTBXPaintStage; var PaintDefault: Boolean);
++    procedure ExecSpecCommandsCheckBoxClick(Sender: TObject);
+   private
+     { Private declarations }
+   public
+@@ -153,6 +143,7 @@
+   BalanceInSameTeamCheckBox.Checked := TClientGroup(ClientGroups[cmbGroups.ItemIndex]).BalanceInSameTeam;
+   IgnoreCheckBox.Checked := TClientGroup(ClientGroups[cmbGroups.ItemIndex]).Ignore;
+   ColorCheckBox.Checked := TClientGroup(ClientGroups[cmbGroups.ItemIndex]).EnableColor;
++  ExecSpecCommandsCheckBox.Checked := TClientGroup(ClientGroups[cmbGroups.ItemIndex]).ExecuteSpecialCommands;
+ end;
+ 
+ procedure TManageGroupsForm.btRemoveClick(Sender: TObject);
+@@ -425,4 +416,9 @@
+   ACanvas.TextOut(ARect.Left + MainForm.RanksImageList.Width + 3, ARect.Top, (Sender as TSpTBxComboBox).Items[Index])
+ end;
+ 
++procedure TManageGroupsForm.ExecSpecCommandsCheckBoxClick(Sender: TObject);
++begin
++  TClientGroup(ClientGroups[cmbGroups.ItemIndex]).ExecuteSpecialCommands := ExecSpecCommandsCheckBox.Checked;
++end;
++
+ end.
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2011-11-11 19:16:27 UTC (rev 7629)
++++ Lobby/TASClient/TASClient.dof	2011-12-13 18:53:28 UTC (rev 7630)
+@@ -113,9 +113,9 @@
+ IncludeVerInfo=1
+ AutoIncBuild=1
+ MajorVer=0
+-MinorVer=93
++MinorVer=94
+ Release=0
+-Build=1336
++Build=1338
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.93.0.1336
++FileVersion=0.94.0.1338
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002401.html">[Taspring-linux-commit] r7631 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2400">[ date ]</a>
+              <a href="thread.html#2400">[ thread ]</a>
+              <a href="subject.html#2400">[ subject ]</a>
+              <a href="author.html#2400">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

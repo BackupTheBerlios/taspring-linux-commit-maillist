@@ -1,0 +1,191 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5404 - trunk/rts/Lua
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5404%20-%20trunk/rts/Lua&In-Reply-To=%3CE1JJ1ed-0003dN-09%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000210.html">
+   <LINK REL="Next"  HREF="000212.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5404 - trunk/rts/Lua</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5404%20-%20trunk/rts/Lua&In-Reply-To=%3CE1JJ1ed-0003dN-09%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5404 - trunk/rts/Lua">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Jan 27 08:10:11 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000210.html">[Taspring-linux-commit] r5403 - in trunk: rts/Game rts/System	tools/DedicatedServer
+</A></li>
+        <LI>Next message: <A HREF="000212.html">[Taspring-linux-commit] r5405 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#211">[ date ]</a>
+              <a href="thread.html#211">[ thread ]</a>
+              <a href="subject.html#211">[ subject ]</a>
+              <a href="author.html#211">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: trepan
+Date: 2008-01-27 08:10:10 +0100 (Sun, 27 Jan 2008)
+New Revision: 5404
+
+Modified:
+   trunk/rts/Lua/LuaOpenGL.cpp
+   trunk/rts/Lua/LuaOpenGL.h
+   trunk/rts/Lua/LuaUnsyncedCtrl.cpp
+Log:
+* Removed StencilTwoSide()
+* Removed StencilFace()
+* Added StencilMaskSeparate()
+* Added StencilFuncSeparate()
+* Added StencilOpSeparate()
+
+- Note: GL2.0 separate stencil API based on GL_ATI_separate_stencil
+
+
+Modified: trunk/rts/Lua/LuaOpenGL.cpp
+===================================================================
+--- trunk/rts/Lua/LuaOpenGL.cpp	2008-01-27 00:56:16 UTC (rev 5403)
++++ trunk/rts/Lua/LuaOpenGL.cpp	2008-01-27 07:10:10 UTC (rev 5404)
+@@ -196,9 +196,10 @@
+ 	REGISTER_LUA_CFUNC(StencilMask);
+ 	REGISTER_LUA_CFUNC(StencilFunc);
+ 	REGISTER_LUA_CFUNC(StencilOp);
+-	if (GLEW_EXT_stencil_two_side) {
+-		REGISTER_LUA_CFUNC(StencilTwoSide);
+-		REGISTER_LUA_CFUNC(StencilFace);
++	if (haveGL20) {
++		REGISTER_LUA_CFUNC(StencilMaskSeparate);
++		REGISTER_LUA_CFUNC(StencilFuncSeparate);
++		REGISTER_LUA_CFUNC(StencilOpSeparate);
+ 	}
+ 
+ 	REGISTER_LUA_CFUNC(LineWidth);
+@@ -2952,9 +2953,7 @@
+ int LuaOpenGL::StencilTest(lua_State* L)
+ {
+ 	CheckDrawingEnabled(L, __FUNCTION__);
+-	if (!lua_isboolean(L, 1)) {
+-		luaL_error(L, &quot;Incorrect arguments to gl.StencilTest()&quot;);
+-	}
++	luaL_checktype(L, 1, LUA_TBOOLEAN);
+ 	if (lua_toboolean(L, 1)) {
+ 		glEnable(GL_STENCIL_TEST);
+ 	} else {
+@@ -2995,28 +2994,40 @@
+ }
+ 
+ 
+-int LuaOpenGL::StencilTwoSide(lua_State* L)
++int LuaOpenGL::StencilMaskSeparate(lua_State* L)
+ {
+ 	CheckDrawingEnabled(L, __FUNCTION__);
+-	luaL_checktype(L, 1, LUA_TBOOLEAN);
+-	if (lua_toboolean(L, 1)) {
+-		glEnable(GL_STENCIL_TEST_TWO_SIDE_EXT);
+-	} else {
+-		glDisable(GL_STENCIL_TEST_TWO_SIDE_EXT);
+-	}
++	const GLenum face = luaL_checkint(L, 1);
++	const GLuint mask = luaL_checkint(L, 2);
++	glStencilMaskSeparate(face, mask);
+ 	return 0;
+ }
+ 
+ 
+-int LuaOpenGL::StencilFace(lua_State* L)
++int LuaOpenGL::StencilFuncSeparate(lua_State* L)
+ {
+ 	CheckDrawingEnabled(L, __FUNCTION__);
+-	const GLenum face = (GLenum)luaL_checkint(L, 1);
+-	glActiveStencilFaceEXT(face);
++	const GLenum face = luaL_checkint(L, 1);
++	const GLenum func = luaL_checkint(L, 2);
++	const GLint  ref  = luaL_checkint(L, 3);
++	const GLuint mask = luaL_checkint(L, 4);
++	glStencilFuncSeparate(face, func, ref, mask);
+ 	return 0;
+ }
+ 
+ 
++int LuaOpenGL::StencilOpSeparate(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	const GLenum face  = luaL_checkint(L, 1);
++	const GLenum fail  = luaL_checkint(L, 2);
++	const GLenum zfail = luaL_checkint(L, 3);
++	const GLenum zpass = luaL_checkint(L, 4);
++	glStencilOpSeparate(face, fail, zfail, zpass);
++	return 0;
++}
++
++
+ /******************************************************************************/
+ 
+ int LuaOpenGL::LineStipple(lua_State* L)
+
+Modified: trunk/rts/Lua/LuaOpenGL.h
+===================================================================
+--- trunk/rts/Lua/LuaOpenGL.h	2008-01-27 00:56:16 UTC (rev 5403)
++++ trunk/rts/Lua/LuaOpenGL.h	2008-01-27 07:10:10 UTC (rev 5404)
+@@ -158,8 +158,9 @@
+ 		static int StencilMask(lua_State* L);
+ 		static int StencilFunc(lua_State* L);
+ 		static int StencilOp(lua_State* L);
+-		static int StencilTwoSide(lua_State* L);
+-		static int StencilFace(lua_State* L);
++		static int StencilMaskSeparate(lua_State* L);
++		static int StencilFuncSeparate(lua_State* L);
++		static int StencilOpSeparate(lua_State* L);
+ 
+ 		static int LineWidth(lua_State* L);
+ 		static int PointSize(lua_State* L);
+
+Modified: trunk/rts/Lua/LuaUnsyncedCtrl.cpp
+===================================================================
+--- trunk/rts/Lua/LuaUnsyncedCtrl.cpp	2008-01-27 00:56:16 UTC (rev 5403)
++++ trunk/rts/Lua/LuaUnsyncedCtrl.cpp	2008-01-27 07:10:10 UTC (rev 5404)
+@@ -799,8 +799,6 @@
+ {
+ 	const int cmdID = (int)luaL_checknumber(L, 1);
+ 
+-	
+-
+ 	int iconID = 0;
+ 	if (lua_israwnumber(L, 2)) {
+ 		iconID = (int)lua_tonumber(L, 2);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000210.html">[Taspring-linux-commit] r5403 - in trunk: rts/Game rts/System	tools/DedicatedServer
+</A></li>
+	<LI>Next message: <A HREF="000212.html">[Taspring-linux-commit] r5405 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#211">[ date ]</a>
+              <a href="thread.html#211">[ thread ]</a>
+              <a href="subject.html#211">[ subject ]</a>
+              <a href="author.html#211">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

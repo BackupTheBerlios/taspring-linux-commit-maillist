@@ -1,0 +1,157 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5653 - in trunk/rts: Game System
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5653%20-%20in%20trunk/rts%3A%20Game%20System&In-Reply-To=%3C20080403152538.ED8B146A1%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000433.html">
+   <LINK REL="Next"  HREF="000435.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5653 - in trunk/rts: Game System</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5653%20-%20in%20trunk/rts%3A%20Game%20System&In-Reply-To=%3C20080403152538.ED8B146A1%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5653 - in trunk/rts: Game System">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Apr  3 17:25:38 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000433.html">[Taspring-linux-commit] r5652 - trunk/tools/DedicatedServer
+</A></li>
+        <LI>Next message: <A HREF="000435.html">[Taspring-linux-commit] r5654 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#434">[ date ]</a>
+              <a href="thread.html#434">[ thread ]</a>
+              <a href="subject.html#434">[ subject ]</a>
+              <a href="author.html#434">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-04-03 17:25:37 +0200 (Thu, 03 Apr 2008)
+New Revision: 5653
+
+Modified:
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/PreGame.cpp
+   trunk/rts/System/BaseNetProtocol.cpp
+   trunk/rts/System/BaseNetProtocol.h
+Log:
+* provide some randomness before the game starts loading and initialising
+
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-04-03 14:48:46 UTC (rev 5652)
++++ trunk/rts/Game/GameServer.cpp	2008-04-03 15:25:37 UTC (rev 5653)
+@@ -736,12 +736,6 @@
+ 							CheckForGameStart(true);
+ 						break;
+ 					}
+-					case NETMSG_RANDSEED:
+-					{
+-						if (players[a]-&gt;hasRights &amp;&amp; !demoReader)
+-							serverNet-&gt;SendRandSeed(*(unsigned int*)(inbuf+1));
+-						break;
+-					}
+ 					case NETMSG_TEAM:
+ 					{
+ 						//TODO update players[] and teams[] and send to hostif
+@@ -864,6 +858,7 @@
+ 					case NETMSG_INTERNAL_SPEED:
+ 					case NETMSG_ATTEMPTCONNECT:
+ 					case NETMSG_GAMEDATA:
++					case NETMSG_RANDSEED:
+ 						break;
+ 					default:
+ 						{
+@@ -1296,6 +1291,8 @@
+ 	hisNewNumber = serverNet-&gt;AcceptIncomingConnection(hisNewNumber);
+ 
+ 	serverNet-&gt;SendSetPlayerNum((unsigned char)hisNewNumber, (unsigned char)hisNewNumber);
++	static const int pregameRandomSeed = rng();
++	serverNet-&gt;SendRandSeed(pregameRandomSeed);
+ 	serverNet-&gt;SendData(gameData-&gt;Pack(), hisNewNumber);
+ 
+ 	for (int a = 0; a &lt; MAX_PLAYERS; ++a) {
+
+Modified: trunk/rts/Game/PreGame.cpp
+===================================================================
+--- trunk/rts/Game/PreGame.cpp	2008-04-03 14:48:46 UTC (rev 5652)
++++ trunk/rts/Game/PreGame.cpp	2008-04-03 15:25:37 UTC (rev 5653)
+@@ -379,6 +379,10 @@
+ 			case NETMSG_MAPDRAW: {
+ 			} break;
+ 
++			case NETMSG_RANDSEED: {
++				gs-&gt;SetRandSeed(*((unsigned int*)&amp;inbuf[1]));
++				break;
++			}
+ 
+ 			case NETMSG_SYSTEMMSG:
+ 			case NETMSG_CHAT: {
+
+Modified: trunk/rts/System/BaseNetProtocol.cpp
+===================================================================
+--- trunk/rts/System/BaseNetProtocol.cpp	2008-04-03 14:48:46 UTC (rev 5652)
++++ trunk/rts/System/BaseNetProtocol.cpp	2008-04-03 15:25:37 UTC (rev 5653)
+@@ -116,6 +116,13 @@
+ 	SendData&lt;uint&gt;(NETMSG_RANDSEED, randSeed);
+ }
+ 
++void CBaseNetProtocol::SendRandSeed(uint randSeed, int toPlayer)
++{
++	uchar data[5] = {static_cast&lt;uchar&gt;(toPlayer)};
++	*(int*)(data+1) = randSeed;
++	SendData(data, 5, toPlayer);
++}
++
+ //  NETMSG_GAMEID           = 9,  // char gameID[16];
+ 
+ void CBaseNetProtocol::SendGameID(const uchar* buf)
+
+Modified: trunk/rts/System/BaseNetProtocol.h
+===================================================================
+--- trunk/rts/System/BaseNetProtocol.h	2008-04-03 14:48:46 UTC (rev 5652)
++++ trunk/rts/System/BaseNetProtocol.h	2008-04-03 15:25:37 UTC (rev 5653)
+@@ -114,6 +114,7 @@
+ 	void SendSetPlayerNum(uchar myPlayerNum, uchar connNumber);
+ 	void SendPlayerName(uchar myPlayerNum, const std::string&amp; playerName);
+ 	void SendRandSeed(uint randSeed);
++	void SendRandSeed(uint randSeed, int toPlayer);
+ 	void SendGameID(const uchar* buf);
+ 	void SendCommand(uchar myPlayerNum, int id, uchar options, const std::vector&lt;float&gt;&amp; params);
+ 	void SendSelect(uchar myPlayerNum, const std::vector&lt;short&gt;&amp; selectedUnitIDs);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000433.html">[Taspring-linux-commit] r5652 - trunk/tools/DedicatedServer
+</A></li>
+	<LI>Next message: <A HREF="000435.html">[Taspring-linux-commit] r5654 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#434">[ date ]</a>
+              <a href="thread.html#434">[ thread ]</a>
+              <a href="subject.html#434">[ subject ]</a>
+              <a href="author.html#434">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

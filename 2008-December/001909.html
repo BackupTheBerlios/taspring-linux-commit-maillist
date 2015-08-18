@@ -1,0 +1,308 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7140 - in Lobby/springie/Springie: .	PlanetWars
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7140%20-%20in%20Lobby/springie/Springie%3A%20.%0A%09PlanetWars&In-Reply-To=%3C20081206152536.83225478C%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001908.html">
+   <LINK REL="Next"  HREF="001910.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7140 - in Lobby/springie/Springie: .	PlanetWars</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7140%20-%20in%20Lobby/springie/Springie%3A%20.%0A%09PlanetWars&In-Reply-To=%3C20081206152536.83225478C%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r7140 - in Lobby/springie/Springie: .	PlanetWars">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Dec  6 16:25:36 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001908.html">[Taspring-linux-commit] r7139 - Lobby/springie/Springie/PlanetWars
+</A></li>
+        <LI>Next message: <A HREF="001910.html">[Taspring-linux-commit] r7141 - in branches/caiinterface: .	AI/Interfaces/C AI/Interfaces/Java AI/Skirmish/NullJavaAI/nulljavaai	AI/Skirmish/NullOOJavaAI/nulloojavaai rts/ExternalAI	rts/ExternalAI/Interface rts/System rts/build/scons tools/unitsync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1909">[ date ]</a>
+              <a href="thread.html#1909">[ thread ]</a>
+              <a href="subject.html#1909">[ subject ]</a>
+              <a href="author.html#1909">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Licho
+Date: 2008-12-06 16:25:35 +0100 (Sat, 06 Dec 2008)
+New Revision: 7140
+
+Modified:
+   Lobby/springie/Springie/Main.cs
+   Lobby/springie/Springie/PlanetWars/PlanetWarsHandler.cs
+Log:
+PW: team balancing is applied every 2s instead insntaly when player status changes, this should fix some issues
+
+Modified: Lobby/springie/Springie/Main.cs
+===================================================================
+--- Lobby/springie/Springie/Main.cs	2008-12-06 13:10:06 UTC (rev 7139)
++++ Lobby/springie/Springie/Main.cs	2008-12-06 15:25:35 UTC (rev 7140)
+@@ -3,19 +3,15 @@
+ #region using
+ 
+ using System;
+-using System.Collections.Generic;
+ using System.IO;
+-using System.Linq;
+ using System.Timers;
+ using System.Xml.Serialization;
+-using PlanetWarsShared;
+-using PlanetWarsShared.Springie;
+ using Springie.autohost;
+ using Springie.Client;
+ using Springie.PlanetWars;
+ using Springie.SpringNamespace;
+ 
+-    #endregion
++#endregion
+ 
+ #endregion
+ 
+@@ -84,6 +80,7 @@
+ 
+         public void InitializePlanetWarsServer()
+         {
++            if (PlanetWars != null) PlanetWars.Dispose();
+             if (config.PlanetWarsEnabled) PlanetWars = new PlanetWarsHandler(config.PlanetWarsServer, 1666, autoHost, tas, config);
+             else PlanetWars = null;
+         }
+@@ -235,4 +232,4 @@
+ 
+         #endregion
+     }
+-}
++}
+\ No newline at end of file
+
+Modified: Lobby/springie/Springie/PlanetWars/PlanetWarsHandler.cs
+===================================================================
+--- Lobby/springie/Springie/PlanetWars/PlanetWarsHandler.cs	2008-12-06 13:10:06 UTC (rev 7139)
++++ Lobby/springie/Springie/PlanetWars/PlanetWarsHandler.cs	2008-12-06 15:25:35 UTC (rev 7140)
+@@ -4,6 +4,7 @@
+ using System.Collections.Generic;
+ using System.IO;
+ using System.Linq;
++using System.Timers;
+ using PlanetWarsShared;
+ using PlanetWarsShared.Springie;
+ using Springie.autohost;
+@@ -13,8 +14,20 @@
+ 
+ namespace Springie.PlanetWars
+ {
+-    public class PlanetWarsHandler
++    public class PlanetWarsHandler : IDisposable
+     {
++        #region SpringMessageType enum
++
++        public enum SpringMessageType
++        {
++            pwaward,
++            pwdeploy,
++            pwpurchase,
++            pwdeath
++        }
++
++        #endregion
++
+         #region Fields
+ 
+         private AutoHost autoHost;
+@@ -24,6 +37,7 @@
+ 
+ 
+         private TasClient tas;
++        private Timer timer = new Timer();
+ 
+         #endregion
+ 
+@@ -56,8 +70,17 @@
+                     if (tas != null &amp;&amp; tas.IsConnected &amp;&amp; tas.IsLoggedIn) tas.JoinChannel(name);
+                 }
+             }
++            timer.Elapsed += timer_Elapsed;
++            timer.AutoReset = true;
++            timer.Start();
+         }
+ 
++        public void Dispose()
++        {
++            timer.Stop();
++            timer.Elapsed -= timer_Elapsed;
++        }
++
+         #endregion
+ 
+         #region Public methods
+@@ -111,7 +134,7 @@
+                 if (canset) {
+                     if (info.FactionName == fact.Name) {
+                         string pname = vals[0].Split('|')[0];
+-                        autoHost.SayBattle(string.Format(&quot;changing planet to {0} by {1}&quot;,pname , e.UserName));
++                        autoHost.SayBattle(string.Format(&quot;changing planet to {0} by {1}&quot;, pname, e.UserName));
+                         var planet = server.GetAttackOptions(account).Where(m =&gt; m.Name == pname).Single();
+                         tas.ChangeMap(Program.main.Spring.UnitSyncWrapper.MapList[planet.MapName]);
+                     } else autoHost.Respond(e, string.Format(&quot;It's currently {0} turn&quot;, fact.Name));
+@@ -203,16 +226,23 @@
+             }
+         }
+ 
++        public void SpringExited()
++        {
++            try {
++                var toNotify = server.GetPlayersToNotify(account, tas.GetBattle().Map.Name, ReminderEvent.OnBattleEnded);
++                foreach (var s in toNotify) tas.Say(TasClient.SayPlace.User, s, &quot;PlanetWars battle has just ended.&quot;, false);
++            } catch (Exception ex) {
++                autoHost.SayBattle(&quot;Error notifying game end:&quot; + ex);
++            }
++        }
+ 
+-        public enum SpringMessageType { pwaward, pwdeploy, pwpurchase, pwdeath}
+ 
+         public void SpringMessage(string text)
+         {
+             string txtOrig = text;
+-            SpringMessageType type = SpringMessageType.pwaward;
++            var type = SpringMessageType.pwaward;
+             bool found = false;
+-            foreach (var option in (SpringMessageType[])Enum.GetValues(typeof (SpringMessageType)))
+-            {
++            foreach (var option in (SpringMessageType[]) Enum.GetValues(typeof (SpringMessageType))) {
+                 string prefix = option + &quot;:&quot;;
+                 if (text.StartsWith(prefix)) {
+                     text = text.Substring(prefix.Length);
+@@ -228,7 +258,6 @@
+ 
+             var parts = text.Split(new[] {','});
+             try {
+-
+                 switch (type) {
+                     case SpringMessageType.pwaward:
+                         var partsSpace = text.Split(new[] {' '}, 3);
+@@ -252,12 +281,9 @@
+                         server.UnitDied(account, parts[0], parts[1], (int) double.Parse(parts[3]), (int) double.Parse(parts[4]));
+                         break;
+                 }
+-
+-            } catch (Exception ex)
+-            {
++            } catch (Exception ex) {
+                 autoHost.SayBattle(string.Format(&quot;Error while processing '{0}' :{1}&quot;, txtOrig, ex));
+             }
+-
+         }
+ 
+         public bool StartGame(TasSayEventArgs e)
+@@ -350,8 +376,7 @@
+                             channelAllowedExceptions = new List&lt;string&gt;(server.GetFactionChannelAllowedExceptions());
+                             isOk = channelAllowedExceptions.Contains(name);
+                         }
+-                    }
+-                    else {
++                    } else {
+                         string realFact = usinfo.FactionName.ToLower();
+                         planetWarsPlayerSide[name] = realFact;
+                         isOk = realFact == channel;
+@@ -388,29 +413,14 @@
+                         return;
+                     }
+                 } else {
+-                    if (autoHost.ComFix(TasSayEventArgs.Default, &quot;silent&quot; )) {
++                    if (autoHost.ComFix(TasSayEventArgs.Default, &quot;silent&quot;)) {
+                         int hisFaction = factions.IndexOf(factions.Find((f) =&gt; f.Name == info.FactionName));
+                         if (!user.IsSpectator &amp;&amp; user.AllyNumber != hisFaction) // he is in wrong team
+                         {
+                             tas.ForceAlly(user.name, hisFaction);
+                             autoHost.SayBattle(string.Format(&quot;{0} must play in team {1}&quot;, user.name, hisFaction + 1), false);
+                             return;
+-                        } else { // his ally number was ok, lets check for team balance
+-                            Battle b = tas.GetBattle();
+-                            var grouping = b.Users.Where(u =&gt; !u.IsSpectator).GroupBy(u =&gt; u.AllyNumber).OrderBy(g =&gt; g.Key).ToList();
+-                            if (grouping.Count() ==2 &amp;&amp; grouping.Count() &gt; hisFaction) {
+-                                int otherFaction = (hisFaction + 1)%2;
+-                                if (!user.IsSpectator &amp;&amp; grouping[hisFaction].Count() &gt; 2*grouping[otherFaction].Count()) {
+-                                    tas.ForceSpectator(user.name);
+-                                    autoHost.SayBattle(string.Format(&quot;There are too many players on that side {0}&quot;, user.name));
+-                                } else if (grouping[otherFaction].Count() &gt; 2*grouping[hisFaction].Count()) {
+-                                    var newest = b.Users.Where(u =&gt; u.AllyNumber == otherFaction &amp;&amp; !u.IsSpectator).OrderByDescending(u =&gt; u.JoinTime).First();
+-                                    tas.ForceSpectator(newest.name);
+-                                    autoHost.SayBattle(string.Format(&quot;There are too many players on that side {0}, sorry you joined last.&quot;, user.name));
+-                                }
+-                            }
+                         }
+-
+                     }
+                 }
+             } catch (Exception ex) {
+@@ -420,15 +430,27 @@
+ 
+         #endregion
+ 
+-        public void SpringExited()
++        #region Event Handlers
++
++        private void timer_Elapsed(object sender, ElapsedEventArgs e)
+         {
++            timer.Stop();
+             try {
+-                var toNotify = server.GetPlayersToNotify(account, tas.GetBattle().Map.Name, ReminderEvent.OnBattleEnded);
+-                foreach (var s in toNotify) tas.Say(TasClient.SayPlace.User, s, &quot;PlanetWars battle has just ended.&quot;, false);
+-            }catch(Exception ex) {
+-                autoHost.SayBattle(&quot;Error notifying game end:&quot; + ex);
++               Battle b = tas.GetBattle();
++               if (!autoHost.ComFix(TasSayEventArgs.Default, &quot;silent&quot;)) return;
++               var grouping = b.Users.Where(u =&gt; !u.IsSpectator &amp;&amp; u.SyncStatus != SyncStatuses.Unknown).GroupBy(u =&gt; u.AllyNumber).OrderBy(g =&gt; g.Count()).ToList();
++               if (grouping.Count() == 2) {
++                   if (grouping[1].Count() &gt; 2*grouping[0].Count()) {
++                       var newest = b.Users.Where(u =&gt; u.AllyNumber == grouping[1].Key &amp;&amp; !u.IsSpectator).OrderByDescending(u =&gt; u.JoinTime).First();
++                       tas.ForceSpectator(newest.name);
++                       autoHost.SayBattle(string.Format(&quot;There are too many players on that side {0}, sorry you joined last.&quot;, newest.name));
++                   }
++               }
++            } finally {
++                timer.Start();
+             }
++        }
+ 
+-        }
++        #endregion
+     }
+ }
+\ No newline at end of file
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001908.html">[Taspring-linux-commit] r7139 - Lobby/springie/Springie/PlanetWars
+</A></li>
+	<LI>Next message: <A HREF="001910.html">[Taspring-linux-commit] r7141 - in branches/caiinterface: .	AI/Interfaces/C AI/Interfaces/Java AI/Skirmish/NullJavaAI/nulljavaai	AI/Skirmish/NullOOJavaAI/nulloojavaai rts/ExternalAI	rts/ExternalAI/Interface rts/System rts/build/scons tools/unitsync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1909">[ date ]</a>
+              <a href="thread.html#1909">[ thread ]</a>
+              <a href="subject.html#1909">[ subject ]</a>
+              <a href="author.html#1909">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

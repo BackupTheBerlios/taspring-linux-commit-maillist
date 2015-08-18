@@ -1,0 +1,560 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6751 - trunk/rts/Sim/MoveTypes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6751%20-%20trunk/rts/Sim/MoveTypes&In-Reply-To=%3C20081015131837.6EDEA4731%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001519.html">
+   <LINK REL="Next"  HREF="001521.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6751 - trunk/rts/Sim/MoveTypes</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6751%20-%20trunk/rts/Sim/MoveTypes&In-Reply-To=%3C20081015131837.6EDEA4731%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6751 - trunk/rts/Sim/MoveTypes">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Oct 15 15:18:36 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001519.html">[Taspring-linux-commit] r6750 - in trunk: . Documentation
+</A></li>
+        <LI>Next message: <A HREF="001521.html">[Taspring-linux-commit] r6752 - trunk/installer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1520">[ date ]</a>
+              <a href="thread.html#1520">[ thread ]</a>
+              <a href="subject.html#1520">[ subject ]</a>
+              <a href="author.html#1520">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-10-15 15:18:36 +0200 (Wed, 15 Oct 2008)
+New Revision: 6751
+
+Modified:
+   trunk/rts/Sim/MoveTypes/AirMoveType.cpp
+Log:
+fix CAirMoveType using an uninitialized variable (maxSpeed)
+
+Modified: trunk/rts/Sim/MoveTypes/AirMoveType.cpp
+===================================================================
+--- trunk/rts/Sim/MoveTypes/AirMoveType.cpp	2008-10-15 09:18:36 UTC (rev 6750)
++++ trunk/rts/Sim/MoveTypes/AirMoveType.cpp	2008-10-15 13:18:36 UTC (rev 6751)
+@@ -100,6 +100,7 @@
+ 	maxAileron(0.04f),
+ 	maxElevator(0.02f),
+ 	maxRudder(0.01f),
++	maxSpeed(owner-&gt;maxSpeed),
+ 	invDrag(0.995f),
+ 	crashDrag(0.995f),
+ 	inSupply(0),
+@@ -114,9 +115,10 @@
+ 	loopbackAttack(false)
+ {
+ 	turnRadius = 150;
+-	if (owner) owner-&gt;mapSquare += 1;						//to force los recalculation
+ 
+-	//From Aircraft::Init
++	// force LOS recalculation
++	if (owner) owner-&gt;mapSquare += 1;
++
+ 	maxRudder *= 0.99f + gs-&gt;randFloat() * 0.02f;
+ 	maxElevator *= 0.99f + gs-&gt;randFloat() * 0.02f;
+ 	maxAileron *= 0.99f + gs-&gt;randFloat() * 0.02f;
+@@ -149,7 +151,7 @@
+ 
+ void CAirMoveType::Update(void)
+ {
+-	float3 &amp;pos = owner-&gt;pos;
++	float3&amp; pos = owner-&gt;pos;
+ 
+ 	// note: this is only set to false after
+ 	// the plane has finished constructing
+@@ -163,6 +165,7 @@
+ 		goto EndNormalControl;
+ 	}
+ 
++
+ #ifdef DIRECT_CONTROL_ALLOWED
+ 	if (owner-&gt;directControl &amp;&amp; !(aircraftState == AIRCRAFT_CRASHING)) {
+ 		SetState(AIRCRAFT_FLYING);
+@@ -189,6 +192,7 @@
+ 	}
+ #endif
+ 
++
+ 	if (reservedPad) {
+ 		CUnit* unit = reservedPad-&gt;GetUnit();
+ 		float3 relPos = unit-&gt;localmodel-&gt;GetPiecePos(reservedPad-&gt;GetPiece());
+@@ -233,13 +237,15 @@
+ 				SetState(AIRCRAFT_TAKEOFF);
+ 			}
+ 		}
+-	} else if (padStatus == 0 &amp;&amp; owner-&gt;unitDef-&gt;maxFuel &gt; 0.0f &amp;&amp; owner-&gt;currentFuel &lt;= 0.0f) {
++	} else if ((owner-&gt;unitDef-&gt;maxFuel &gt; 0.0f &amp;&amp; owner-&gt;currentFuel &lt;= 0.0f) &amp;&amp;
++				padStatus == 0 &amp;&amp; maxWantedSpeed &gt; 0.0f) {
+ 		// keep us in the air to reach our landing goalPos
+ 		// (which is hopefully in the vicinity of a pad)
+ 		SetState(AIRCRAFT_FLYING);
+ 	}
+ 
+ 
++
+ 	switch (aircraftState) {
+ 		case AIRCRAFT_FLYING: {
+ 	#ifdef DEBUG_AIRCRAFT
+@@ -303,6 +309,8 @@
+ EndNormalControl:
+ 
+ 
++
++	// handle collisions
+ 	if (pos != oldpos) {
+ 		oldpos = pos;
+ 		bool hitBuilding = false;
+@@ -374,12 +382,14 @@
+ 		}
+ 	}
+ 
++
++
+ #ifdef DEBUG_AIRCRAFT
+-	if (lastColWarningType==1) {
++	if (lastColWarningType == 1) {
+ 		int g = geometricObjects-&gt;AddLine(owner-&gt;pos, lastColWarning-&gt;pos, 10, 1, 1);
+ 		geometricObjects-&gt;SetColor(g, 0.2f, 1, 0.2f, 0.6f);
+-	} else if(lastColWarningType == 2) {
+-		int g=geometricObjects-&gt;AddLine(owner-&gt;pos, lastColWarning-&gt;pos, 10, 1, 1);
++	} else if (lastColWarningType == 2) {
++		int g = geometricObjects-&gt;AddLine(owner-&gt;pos, lastColWarning-&gt;pos, 10, 1, 1);
+ 		if (owner-&gt;frontdir.dot(lastColWarning-&gt;midPos + lastColWarning-&gt;speed * 20 - owner-&gt;midPos - owner-&gt;speed * 20) &lt; 0)
+ 			geometricObjects-&gt;SetColor(g, 1, 0.2f, 0.2f, 0.6f);
+ 		else
+@@ -392,17 +402,19 @@
+ 
+ void CAirMoveType::SlowUpdate(void)
+ {
+-	if (aircraftState != AIRCRAFT_LANDED &amp;&amp; owner-&gt;unitDef-&gt;maxFuel &gt; 0)
+-		owner-&gt;currentFuel = std::max(0.f, owner-&gt;currentFuel - (16.f / GAME_SPEED));
++	if (aircraftState != AIRCRAFT_LANDED &amp;&amp; owner-&gt;unitDef-&gt;maxFuel &gt; 0.0f) {
++		owner-&gt;currentFuel = std::max(0.0f, owner-&gt;currentFuel - (16.f / GAME_SPEED));
++	}
+ 
+ 	if (owner-&gt;pos != oldSlowUpdatePos) {
+ 		oldSlowUpdatePos = owner-&gt;pos;
+ 
+-		//try to handle aircraft getting unlimited height
++		// try to handle aircraft getting unlimited height
+ 		if (owner-&gt;pos.y - ground-&gt;GetApproximateHeight(owner-&gt;pos.x, owner-&gt;pos.z) &gt; wantedHeight * 5 + 100)
+ 			owner-&gt;pos.y = ground-&gt;GetApproximateHeight(owner-&gt;pos.x, owner-&gt;pos.z) + wantedHeight * 5  + 100;
+ 
+ 		int newmapSquare = ground-&gt;GetSquare(owner-&gt;pos);
++
+ 		if (newmapSquare != owner-&gt;mapSquare) {
+ 			owner-&gt;mapSquare = newmapSquare;
+ 			float oldlh = owner-&gt;losHeight;
+@@ -430,47 +442,59 @@
+ 	}
+ #endif
+ 	float speedf = owner-&gt;speed.Length();
+-	switch(maneuver) {
+-	case 1: {	//immelman
+-		int aileron = 0, elevator = 0;
+-		if (owner-&gt;updir.y &gt; 0) {
+-			if (owner-&gt;rightdir.y &gt; maxAileron * speedf) {
+-				aileron = 1;
+-			} else if (owner-&gt;rightdir.y &lt; -maxAileron * speedf) {
+-				aileron = -1;
++
++	switch (maneuver) {
++		case 1: {
++			// Immelman
++			int aileron = 0, elevator = 0;
++
++			if (owner-&gt;updir.y &gt; 0) {
++				if (owner-&gt;rightdir.y &gt; maxAileron * speedf) {
++					aileron = 1;
++				} else if (owner-&gt;rightdir.y &lt; -maxAileron * speedf) {
++					aileron = -1;
++				}
+ 			}
++
++			if (fabs(owner-&gt;rightdir.y) &lt; maxAileron * 3 * speedf || owner-&gt;updir.y &lt; 0)
++				elevator = 1;
++			UpdateAirPhysics(0, aileron, elevator, 1, owner-&gt;frontdir);
++
++			if ((owner-&gt;updir.y &lt; 0 &amp;&amp; owner-&gt;frontdir.y &lt; 0) || speedf &lt; 0.8f)
++				maneuver = 0;
++			// some seem to report that the &quot;unlimited altitude&quot; thing is because of these maneuvers
++			if (owner-&gt;pos.y - ground-&gt;GetApproximateHeight(owner-&gt;pos.x, owner-&gt;pos.z) &gt; wantedHeight * 4)
++				maneuver = 0;
++			break;
+ 		}
+-		if (fabs(owner-&gt;rightdir.y) &lt; maxAileron * 3 * speedf || owner-&gt;updir.y &lt; 0)
+-			elevator = 1;
+-		UpdateAirPhysics(0, aileron, elevator, 1, owner-&gt;frontdir);
+-		if ((owner-&gt;updir.y &lt; 0 &amp;&amp; owner-&gt;frontdir.y &lt; 0) || speedf &lt; 0.8f)
+-			maneuver = 0;
+-		//some seem to report that the &quot;unlimited altitude&quot; thing is because of these maneuvers
+-		if(owner-&gt;pos.y - ground-&gt;GetApproximateHeight(owner-&gt;pos.x, owner-&gt;pos.z) &gt; wantedHeight * 4)
+-			maneuver = 0;
+-		break;}
+-	case 2: {	//inverted immelman
+-		int aileron = 0, elevator = 0;
+-		if (maneuverSubState == 0) {
+-			if (owner-&gt;rightdir.y &gt;= 0) {
+-				aileron = -1;
+-			} else {
+-				aileron = 1;
++
++		case 2: {
++			// inverted Immelman
++			int aileron = 0, elevator = 0;
++			if (maneuverSubState == 0) {
++				if (owner-&gt;rightdir.y &gt;= 0) {
++					aileron = -1;
++				} else {
++					aileron = 1;
++				}
+ 			}
++
++			if (owner-&gt;frontdir.y &lt; -0.7f)
++				maneuverSubState = 1;
++			if (maneuverSubState == 1 || owner-&gt;updir.y &lt; 0)
++				elevator = 1;
++
++			UpdateAirPhysics(0, aileron, elevator, 1, owner-&gt;frontdir);
++	
++			if ((owner-&gt;updir.y &gt; 0 &amp;&amp; owner-&gt;frontdir.y &gt; 0 &amp;&amp; maneuverSubState == 1) || speedf &lt; 0.2f)
++				maneuver = 0;
++			break;
+ 		}
+-		if (owner-&gt;frontdir.y &lt; -0.7f)
+-			maneuverSubState = 1;
+-		if (maneuverSubState == 1 || owner-&gt;updir.y &lt; 0)
+-			elevator = 1;
+-		UpdateAirPhysics(0, aileron, elevator, 1, owner-&gt;frontdir);
+ 
+-		if ((owner-&gt;updir.y &gt; 0 &amp;&amp; owner-&gt;frontdir.y &gt; 0 &amp;&amp; maneuverSubState == 1) || speedf &lt; 0.2f)
++		default:
++			UpdateAirPhysics(0, 0, 0, 1, owner-&gt;frontdir);
+ 			maneuver = 0;
+-		break;}
+-	default:
+-		UpdateAirPhysics(0, 0, 0, 1, owner-&gt;frontdir);
+-		maneuver = 0;
+-		break;
++			break;
+ 	}
+ }
+ 
+@@ -485,7 +509,7 @@
+ 	float3 &amp;speed = owner-&gt;speed;
+ 
+ 	float speedf = owner-&gt;speed.Length();
+-	if (speedf &lt; 0.01f){
++	if (speedf &lt; 0.01f) {
+ 		UpdateAirPhysics(0, 0, 0, 1, owner-&gt;frontdir);
+ 		return;
+ 	}
+@@ -522,7 +546,6 @@
+ 	float rudder = 0;
+ 	float elevator = 0;
+ 	float engine = 0;
+-
+ 	float gHeight = ground-&gt;GetHeight(pos.x, pos.z);
+ 
+ 	float goalDot = rightdir.dot(goalDir);
+@@ -536,7 +559,7 @@
+ 		maneuverSubState = 0;
+ 	}
+ 
+-	//roll
++	// roll
+ 	if (speedf &gt; 0.45f &amp;&amp; pos.y + owner-&gt;speed.y * 60 * fabs(frontdir.y) + std::min(0.0f, float(updir.y)) * 150 &gt; gHeight + 60 + fabs(rightdir.y) * 150) {
+ 		float goalBankDif = goalDot + rightdir.y * 0.2f;
+ 		if (goalBankDif &gt; maxAileron * speedf * 4) {
+@@ -560,7 +583,7 @@
+ 		}
+ 	}
+ 
+-	//yaw
++	// yaw
+ 	if (pos.y &gt; gHeight + 30) {
+ 		if (goalDot &lt; -maxRudder * speedf) {
+ 			rudder = -1;
+@@ -575,7 +598,7 @@
+ 	if (updir.y &lt; -0.3f)
+ 		upside = -1;
+ 
+-	//pitch
++	// pitch
+ 	if (speedf &lt; 1.5f) {
+ 		if (frontdir.y &lt; 0.0f) {
+ 			elevator=upside;
+@@ -602,7 +625,7 @@
+ 			elevator=-upside;
+ 		}*/
+ //	} else {
+-		if(lastColWarning &amp;&amp; lastColWarningType == 2 &amp;&amp; frontdir.dot(lastColWarning-&gt;pos + lastColWarning-&gt;speed * 20 - pos-owner-&gt;speed * 20) &lt; 0) {
++		if (lastColWarning &amp;&amp; lastColWarningType == 2 &amp;&amp; frontdir.dot(lastColWarning-&gt;pos + lastColWarning-&gt;speed * 20 - pos-owner-&gt;speed * 20) &lt; 0) {
+ /*			float pitchMod=updir.y&gt;0?1:-1;
+ 			if(lastColWarning-&gt;pos.y&gt;pos.y)
+ 				elevator=-pitchMod;
+@@ -663,7 +686,6 @@
+ 	float aileron = 0.0f;
+ 	float rudder = 0.0f;
+ 	float elevator = 0.0f;
+-
+ 	float gHeight = ground-&gt;GetHeight(pos.x, pos.z);
+ 
+ 	if (!((gs-&gt;frameNum + owner-&gt;id) &amp; 3))
+@@ -788,8 +810,8 @@
+ 
+ void CAirMoveType::UpdateTakeOff(float wantedHeight)
+ {
+-	float3&amp; pos=owner-&gt;pos;
+-	float3&amp; speed=owner-&gt;speed;
++	float3&amp; pos = owner-&gt;pos;
++	float3&amp; speed = owner-&gt;speed;
+ 
+ 	float h = 0.0f;
+ 	if (owner-&gt;unitDef-&gt;canSubmerge)
+@@ -919,7 +941,7 @@
+ 	owner-&gt;UpdateMidPos();
+ 
+ 	// see if we are at the reserved (not user-clicked) landing spot
+-	if (dist &lt; 1) {
++	if (dist &lt; 1.0f) {
+ 		float gh = ground-&gt;GetHeight(pos.x, pos.z);
+ 		float gah = ground-&gt;GetApproximateHeight(pos.x, pos.z);
+ 		float alt = 0.0f;
+@@ -928,13 +950,12 @@
+ 		if ((owner-&gt;unitDef-&gt;canSubmerge) &amp;&amp; (gah &lt; 0)) {
+ 			alt = pos.y - gah;
+ 			reservedLandingPos.y = gah;
+-		}
+-		else {
++		} else {
+ 			alt = pos.y - gh;
+ 			reservedLandingPos.y = gh;
+ 		}
+ 
+-		if (alt &lt;= 1) {
++		if (alt &lt;= 1.0f) {
+ 			SetState(AIRCRAFT_LANDED);
+ 		}
+ 	}
+@@ -957,7 +978,7 @@
+ 
+ 	float speedf = speed.Length();
+ 	float3 speeddir = frontdir;
+-	if (speedf != 0)
++	if (speedf != 0.0f)
+ 		speeddir = speed / speedf;
+ 
+ 	float gHeight = ground-&gt;GetHeight(pos.x, pos.z);
+@@ -975,10 +996,10 @@
+ 
+ 	speed += engineVector * maxAcc * engine;
+ 	speed.y += mapInfo-&gt;map.gravity * myGravity;
++
+ 	if (aircraftState == AIRCRAFT_CRASHING) {
+ 		speed *= crashDrag;
+-	}
+-	else {
++	} else {
+ 		speed *= invDrag;
+ 	}
+ 
+@@ -1008,8 +1029,10 @@
+ 					damage += impactSpeed * impactSpeed * 1000;
+ 				if (updir.dot(gNormal) &lt; 0.95f)
+ 					damage += (1 - (updir.dot(gNormal))) * 1000;
+-				if (damage &gt; 0)
+-					owner-&gt;DoDamage(DamageArray() * (damage * 0.4f), 0, ZeroVector);	//only do damage while stunned for now
++				if (damage &gt; 0) {
++					// only do damage while stunned for now
++					owner-&gt;DoDamage(DamageArray() * (damage * 0.4f), 0, ZeroVector);
++				}
+ 			}
+ 			pos.y = gHeight + owner-&gt;model-&gt;radius * 0.2f + 0.01f;
+ 			speed += gNormal * (impactSpeed * 1.5f);
+@@ -1027,9 +1050,9 @@
+ 	owner-&gt;UpdateMidPos();
+ 
+ #ifdef DEBUG_AIRCRAFT
+-	if(selectedUnits.selectedUnits.find(this)!=selectedUnits.selectedUnits.end()){
+-		logOutput.Print(&quot;UpdataAP %.1f %.1f %.1f %.1f&quot;,speedf,pos.x,pos.y,pos.z);
+-//		logOutput.Print(&quot;Rudders %.1f %.1f %.1f %.1f&quot;,rudder,aileron,elevator,engine);
++	if (selectedUnits.selectedUnits.find(this) != selectedUnits.selectedUnits.end()) {
++		logOutput.Print(&quot;UpdataAP %.1f %.1f %.1f %.1f&quot;, speedf, pos.x, pos.y, pos.z);
++		// logOutput.Print(&quot;Rudders %.1f %.1f %.1f %.1f&quot;, rudder, aileron, elevator, engine);
+ 	}
+ #endif
+ }
+@@ -1038,14 +1061,18 @@
+ 
+ void CAirMoveType::SetState(AAirMoveType::AircraftState state)
+ {
++	// this state is only used by CTAAirMoveType
+ 	assert(state != AIRCRAFT_HOVERING);
++
+ 	if (aircraftState == AIRCRAFT_CRASHING || state == aircraftState)
+ 		return;
+ 
+-/*	if (state == AIRCRAFT_LANDING)
++	/*
++	if (state == AIRCRAFT_LANDING)
+ 		owner-&gt;cob-&gt;Call(COBFN_Deactivate);
+-		else if (state == aircraft_flying)
+-		//cob-&gt;Call(COBFN_Activate); */
++	else if (state == aircraft_flying)
++		// cob-&gt;Call(COBFN_Activate);
++	*/
+ 
+ 	if (state == AIRCRAFT_FLYING) {
+ 		owner-&gt;Activate();
+@@ -1059,7 +1086,7 @@
+ 	} else {
+ 		owner-&gt;physicalState = CSolidObject::Flying;
+ 		owner-&gt;useAirLos = true;
+-		if(state != AIRCRAFT_LANDING) {
++		if (state != AIRCRAFT_LANDING) {
+ 			reservedLandingPos.x = -1;
+ 			owner-&gt;UnBlock();
+ 		}
+@@ -1070,11 +1097,12 @@
+ 	}
+ 	subState = 0;
+ 
+-	//make sure we only go into takeoff if actually landed
+-	if (state != AIRCRAFT_TAKEOFF || aircraftState == AIRCRAFT_LANDED)
++	// make sure we only go into takeoff if actually landed
++	if (state != AIRCRAFT_TAKEOFF || aircraftState == AIRCRAFT_LANDED) {
+ 		aircraftState = state;
+-	else
++	} else {
+ 		aircraftState = AIRCRAFT_TAKEOFF;
++	}
+ }
+ 
+ 
+@@ -1148,10 +1176,14 @@
+ 		if (forwardDif.SqLength() &lt; dist * dist) {
+ 			float frontLength = forwardDif.Length();
+ 			float3 ortoDif = dif - forwardDif;
+-			//note that the radiuses is multiplied by two since we rely on
+-			//the aircrafts having to small radiuses (see unitloader)
+-			
++
++			// note that the radii are multiplied by two since we rely on
++			// aircraft having half-size hitspheres (see unitloader)
++			//
+ 			// FIXME: with the new collision volumes, is this still true?
++			//
++			// yes: for backward compatibility, aircraft that do not define
++			// their own custom volumes get halved hitspheres by default
+ 
+ 			float minOrtoDif = ((*ui)-&gt;radius + owner-&gt;radius) * 2 + frontLength * 0.1f + 10;
+ 			if (ortoDif.SqLength() &lt; minOrtoDif * minOrtoDif) {
+@@ -1183,7 +1215,7 @@
+ 
+ void CAirMoveType::DependentDied(CObject* o)
+ {
+-	if(o == lastColWarning){
++	if (o == lastColWarning) {
+ 		lastColWarning = 0;
+ 		lastColWarningType = 0;
+ 	}
+@@ -1195,10 +1227,10 @@
+ void CAirMoveType::SetMaxSpeed(float speed)
+ {
+ 	maxSpeed = speed;
+-	if (maxAcc != 0 &amp;&amp; maxSpeed != 0) {
+-		//meant to set the drag such that the maxspeed becomes what it should be
++	if (maxAcc != 0.0f &amp;&amp; maxSpeed != 0.0f) {
++		// meant to set the drag such that the maxspeed becomes what it should be
+ 		float drag = 1.0f / (maxSpeed / GAME_SPEED * 1.1f / maxAcc) - wingAngle * wingAngle * wingDrag;
+-		invDrag = 1 - drag;
++		invDrag = 1.0f - drag;
+ 	}
+ }
+ 
+@@ -1212,6 +1244,7 @@
+ 
+ void CAirMoveType::StartMoving(float3 gpos, float goalRadius)
+ {
++	SetWantedMaxSpeed(owner-&gt;maxSpeed);
+ 	SetGoal(gpos);
+ }
+ 
+@@ -1228,10 +1261,10 @@
+ void CAirMoveType::StopMoving()
+ {
+ 	SetGoal(owner-&gt;pos);
++	SetWantedMaxSpeed(0.0);
+ 
+-	if ((aircraftState == AAirMoveType::AIRCRAFT_FLYING) &amp;&amp;
+-		!owner-&gt;unitDef-&gt;DontLand() &amp;&amp; autoLand) {
+-		SetState(AAirMoveType::AIRCRAFT_LANDING);
++	if ((aircraftState == AAirMoveType::AIRCRAFT_FLYING) &amp;&amp; !owner-&gt;unitDef-&gt;DontLand() &amp;&amp; autoLand) {
++		SetState(AIRCRAFT_LANDING);
+ 	}
+ }
+ 
+@@ -1239,12 +1272,16 @@
+ 
+ void CAirMoveType::Takeoff()
+ {
+-	if (aircraftState == AAirMoveType::AIRCRAFT_LANDED) {
+-		SetState(AAirMoveType::AIRCRAFT_TAKEOFF);
++	if (aircraftState != AAirMoveType::AIRCRAFT_FLYING) {
++		if ((owner-&gt;currentFuel &gt; 0.0f) || owner-&gt;unitDef-&gt;maxFuel &lt;= 0.0f) {
++			if (aircraftState == AAirMoveType::AIRCRAFT_LANDED) {
++				SetState(AAirMoveType::AIRCRAFT_TAKEOFF);
++			}
++			if (aircraftState == AAirMoveType::AIRCRAFT_LANDING) {
++				SetState(AAirMoveType::AIRCRAFT_FLYING);
++			}
++		}
+ 	}
+-	if (aircraftState == AAirMoveType::AIRCRAFT_LANDING) {
+-		SetState(AAirMoveType::AIRCRAFT_FLYING);
+-	}
+ }
+ 
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001519.html">[Taspring-linux-commit] r6750 - in trunk: . Documentation
+</A></li>
+	<LI>Next message: <A HREF="001521.html">[Taspring-linux-commit] r6752 - trunk/installer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1520">[ date ]</a>
+              <a href="thread.html#1520">[ thread ]</a>
+              <a href="subject.html#1520">[ subject ]</a>
+              <a href="author.html#1520">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

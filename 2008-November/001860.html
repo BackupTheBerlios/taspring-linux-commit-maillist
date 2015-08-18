@@ -1,0 +1,193 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7091 - trunk/rts/Game
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-November/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7091%20-%20trunk/rts/Game&In-Reply-To=%3C20081123160100.4CC924778%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001859.html">
+   <LINK REL="Next"  HREF="001861.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7091 - trunk/rts/Game</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7091%20-%20trunk/rts/Game&In-Reply-To=%3C20081123160100.4CC924778%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r7091 - trunk/rts/Game">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Nov 23 17:01:00 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001859.html">[Taspring-linux-commit] r7090 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="001861.html">[Taspring-linux-commit] r7092 - branches/caiinterface/rts/ExternalAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1860">[ date ]</a>
+              <a href="thread.html#1860">[ thread ]</a>
+              <a href="subject.html#1860">[ subject ]</a>
+              <a href="author.html#1860">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zerver
+Date: 2008-11-23 17:00:59 +0100 (Sun, 23 Nov 2008)
+New Revision: 7091
+
+Modified:
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameServer.h
+Log:
+New option &quot;EnforceGameSpeed&quot; that may drop players if they are causing severe slowdown.
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-11-23 15:50:06 UTC (rev 7090)
++++ trunk/rts/Game/GameServer.cpp	2008-11-23 16:00:59 UTC (rev 7091)
+@@ -127,6 +127,10 @@
+ 	cheating = false;
+ 	sentGameOverMsg = false;
+ 
++	medianCpu=0.0f;
++	medianPing=0;
++	enforceSpeed=configHandler.Get(&quot;EnforceGameSpeed&quot;, 1);
++
+ 	if (!onlyLocal)
+ 		UDPNet.reset(new netcode::UDPListener(settings-&gt;hostport));
+ 
+@@ -140,6 +144,11 @@
+ 
+ 	maxUserSpeed = setup-&gt;maxSpeed;
+ 	minUserSpeed = setup-&gt;minSpeed;
++	// enforce gamespeed if not configured
++	if(enforceSpeed &amp;&amp; minUserSpeed &lt;= 0.3f)
++		minUserSpeed = 1.0f;
++	if(enforceSpeed &amp;&amp; maxUserSpeed &gt;= 3.0f)
++		maxUserSpeed = 1.0f;
+ 	noHelperAIs = (bool)setup-&gt;noHelperAIs;
+ 
+ 	gameData.reset(newGameData);
+@@ -414,23 +423,43 @@
+ 
+ 		if (serverframenum &gt; 0) {
+ 			//send info about the players
+-			float maxCpu = 0.0f;
++			int curpos=0;
++			float refCpu=0.0f;
+ 			for (unsigned a = 0; a &lt; players.size(); ++a) {
+ 				if (players[a].myState &gt;= GameParticipant::INGAME) {
+ 					Broadcast(CBaseNetProtocol::Get().SendPlayerInfo(a, players[a].cpuUsage, players[a].ping));
+-					if (players[a].cpuUsage &gt; maxCpu) {
+-						maxCpu = players[a].cpuUsage;
+-					}
++					if (players[a].cpuUsage &gt; refCpu)
++						refCpu = players[a].cpuUsage;
++					cpuUsages[curpos]=players[a].cpuUsage;
++					pings[curpos]=players[a].ping;
++					++curpos;
+ 				}
+ 			}
+ 
+-			if (maxCpu &gt; 0.0f) {
+-				float wantedCpu=0.5f+(1-internalSpeed/userSpeedFactor)*0.5f;
+-				//float speedMod=1+wantedCpu-maxCpu;
+-				float newSpeed=internalSpeed*wantedCpu/maxCpu;
+-				//logOutput.Print(&quot;Speed %f %f %f %f&quot;,maxCpu,wantedCpu,speedMod,newSpeed);
++			medianCpu=0.0f;
++			medianPing=0;
++			if(enforceSpeed &amp;&amp; curpos&gt;0) {
++				std::sort(cpuUsages,cpuUsages+curpos);
++				std::sort(pings,pings+curpos);
++
++				int midpos=curpos/2;
++				medianCpu=cpuUsages[midpos];
++				medianPing=pings[midpos];
++				if(midpos*2==curpos) {
++					medianCpu=(medianCpu+cpuUsages[midpos-1])/2.0f;
++					medianPing=(medianPing+pings[midpos-1])/2;
++				}
++				refCpu=medianCpu;
++			}
++
++			if (refCpu &gt; 0.0f) {
++				// aim for 60% cpu usage if median is used as reference and 75% cpu usage if max is the reference 
++				float wantedCpu=enforceSpeed ? 0.6f+(1-internalSpeed/userSpeedFactor)*0.5f : 0.75f+(1-internalSpeed/userSpeedFactor)*0.5f;
++				float newSpeed=internalSpeed*wantedCpu/refCpu;
++//				float speedMod=1+wantedCpu-refCpu;
++//				logOutput.Print(&quot;Speed REF %f MED %f WANT %f SPEEDM %f NSPEED %f&quot;,refCpu,medianCpu,wantedCpu,speedMod,newSpeed);
+ 				newSpeed = (newSpeed+internalSpeed)*0.5f;
+-				newSpeed = std::max(newSpeed, userSpeedFactor*0.5f);
++				newSpeed = std::max(newSpeed, enforceSpeed ? userSpeedFactor*0.8f : userSpeedFactor*0.5f);
+ 				if(newSpeed&gt;userSpeedFactor)
+ 					newSpeed=userSpeedFactor;
+ 				if(newSpeed&lt;0.1f)
+@@ -509,6 +538,10 @@
+ 					syncErrorFrame = 0;
+ 				if(gamePausable || players[a].isLocal) // allow host to pause even if nopause is set
+ 				{
++					if(enforceSpeed &amp;&amp; (players[a].cpuUsage - medianCpu &gt; 0.25f || players[a].ping - medianPing &gt; internalSpeed*GAME_SPEED/2)) {
++						GotChatMessage(ChatMessage(a, a, &quot;Pausing rejected (cpu load or ping is too high)&quot;));
++						break; // disallow pausing by players who cannot keep up gamespeed
++					}
+ 					timeLeft=0;
+ 					if (isPaused != !!inbuf[2]) {
+ 						isPaused = !isPaused;
+@@ -1441,6 +1474,11 @@
+ 
+ void CGameServer::UserSpeedChange(float newSpeed, int player)
+ {
++	if(enforceSpeed &amp;&amp; player!=SERVER_PLAYER &amp;&amp; (players[player].cpuUsage - medianCpu &gt; 0.25f || players[player].ping - medianPing &gt; internalSpeed*GAME_SPEED/2)) {
++		GotChatMessage(ChatMessage(player, player, &quot;Speed change rejected (cpu load or ping is too high)&quot;));
++		return; // disallow speed change by players who cannot keep up gamespeed
++	}
++
+ 	newSpeed = std::min(maxUserSpeed, std::max(newSpeed, minUserSpeed));
+ 
+ 	if (userSpeedFactor != newSpeed)
+
+Modified: trunk/rts/Game/GameServer.h
+===================================================================
+--- trunk/rts/Game/GameServer.h	2008-11-23 15:50:06 UTC (rev 7090)
++++ trunk/rts/Game/GameServer.h	2008-11-23 16:00:59 UTC (rev 7091)
+@@ -170,6 +170,11 @@
+ 	std::vector&lt;GameParticipant&gt; players;
+ 	boost::scoped_ptr&lt;GameTeam&gt; teams[MAX_TEAMS];
+ 
++	float cpuUsages[MAX_PLAYERS];
++	float medianCpu;
++	int pings[MAX_PLAYERS];
++	int medianPing;
++	int enforceSpeed;
+ 	/////////////////// game settings ///////////////////
+ 	boost::scoped_ptr&lt;const CGameSetup&gt; setup;
+ 	boost::scoped_ptr&lt;const GameData&gt; gameData;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001859.html">[Taspring-linux-commit] r7090 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="001861.html">[Taspring-linux-commit] r7092 - branches/caiinterface/rts/ExternalAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1860">[ date ]</a>
+              <a href="thread.html#1860">[ thread ]</a>
+              <a href="subject.html#1860">[ subject ]</a>
+              <a href="author.html#1860">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

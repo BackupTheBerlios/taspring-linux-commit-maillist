@@ -1,0 +1,295 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5416 - trunk/Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5416%20-%20trunk/Lobby/TASClient&In-Reply-To=%3CE1JJesj-00011q-L8%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000222.html">
+   <LINK REL="Next"  HREF="000225.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5416 - trunk/Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5416%20-%20trunk/Lobby/TASClient&In-Reply-To=%3CE1JJesj-00011q-L8%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5416 - trunk/Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Jan 29 02:03:21 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000222.html">[Taspring-linux-commit] r5415 - trunk/AI/Global/KAIK-0.13
+</A></li>
+        <LI>Next message: <A HREF="000225.html">[Taspring-linux-commit] r5417 - trunk/rts/System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#223">[ date ]</a>
+              <a href="thread.html#223">[ thread ]</a>
+              <a href="subject.html#223">[ subject ]</a>
+              <a href="author.html#223">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2008-01-29 02:03:20 +0100 (Tue, 29 Jan 2008)
+New Revision: 5416
+
+Modified:
+   trunk/Lobby/TASClient/BattleFormUnit.dfm
+   trunk/Lobby/TASClient/MainUnit.dfm
+   trunk/Lobby/TASClient/MainUnit.pas
+   trunk/Lobby/TASClient/TASClient.dof
+   trunk/Lobby/TASClient/TASClient.res
+Log:
+- get usernames by ip msgbox removed
+- added a new thread to send a &quot;ping&quot; command every 8s when connected
+
+Modified: trunk/Lobby/TASClient/BattleFormUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/BattleFormUnit.dfm	2008-01-28 18:50:46 UTC (rev 5415)
++++ trunk/Lobby/TASClient/BattleFormUnit.dfm	2008-01-29 01:03:20 UTC (rev 5416)
+@@ -1,6 +1,6 @@
+ object BattleForm: TBattleForm
+-  Left = 258
+-  Top = 110
++  Left = 694
++  Top = 167
+   Width = 758
+   Height = 548
+   Caption = 'Battle window'
+
+Modified: trunk/Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.dfm	2008-01-28 18:50:46 UTC (rev 5415)
++++ trunk/Lobby/TASClient/MainUnit.dfm	2008-01-29 01:03:20 UTC (rev 5416)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 576
+-  Top = 377
++  Left = 266
++  Top = 223
+   Width = 789
+   Height = 548
+   Caption = 'TASClient'
+
+Modified: trunk/Lobby/TASClient/MainUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.pas	2008-01-28 18:50:46 UTC (rev 5415)
++++ trunk/Lobby/TASClient/MainUnit.pas	2008-01-29 01:03:20 UTC (rev 5416)
+@@ -508,7 +508,7 @@
+ 
+ const
+   VERSION_NUMBER = '0.37'; // Must be float value! (with a period as a decimal seperator)
+-  BETA_NUMBER = 207;
++  BETA_NUMBER = 208;
+   CHECK_BETA_LOBBY_URL = '<A HREF="http://buildbot.no-ip.org/~satirik/TASClient.txt">http://buildbot.no-ip.org/~satirik/TASClient.txt</A>';
+   PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER;
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+@@ -661,6 +661,12 @@
+     procedure ShowInputBox;
+   end;
+ 
++  TKeepAliveThread = class(TDialogThread)
++  protected
++    procedure Execute; override;
++  end;
++
++
+   TLadder = class
+   public
+     id: integer;
+@@ -982,7 +988,6 @@
+     procedure FilterListGetText(Sender: TBaseVirtualTree;
+       Node: PVirtualNode; Column: TColumnIndex; TextType: TVSTTextType;
+       var CellText: WideString);
+-    procedure Button1Click(Sender: TObject);
+     procedure FilterGroupResize(Sender: TObject);
+     procedure ReplaysFilterClick(Sender: TObject);
+     procedure EnableFiltersClick(Sender: TObject);
+@@ -1243,6 +1248,8 @@
+ 
+   MainForm: TMainForm;
+ 
++  KAT:TKeepAliveThread;
++
+   { this is a list of all clients on the server. We must maintain this list by reading ADDUSER and REMOVEUSER commands.
+     All other clients lists (in channels, battles) contain objects linking to actual objects in this list. Never free
+     any clients in any list except in this one, since freeing them in any other list will also free them in this list! }
+@@ -1357,7 +1364,6 @@
+ 
+   LastBoundTo: integer;
+   FindIPQueueList : TStringList;
+-  FindIPDisplayQueueList : TStringList;
+ 
+   LastCursorPos : TPoint;
+ 
+@@ -2938,8 +2944,9 @@
+   ClientsListBox.DoubleBuffered := True;
+ 
+   FixFormSizeConstraints(MainForm);
+-  
+ 
++  KAT := TKeepAliveThread.Create(False);
++
+   SplashScreenForm.UpdateText('initializing unitsync.dll ...');
+   if not Utility.InitLib then
+   begin
+@@ -3007,7 +3014,6 @@
+   LadderList := TList.Create;
+ 
+   FindIPQueueList := TStringList.Create;
+-  FindIPDisplayQueueList := TStringList.Create;
+ 
+   // we have to set the splash screen title bar back to what it was before (since we changed it in OnFormCreate event):
+   SplashScreenForm.UpdateText('creating forms ...'); // main form will change the update text, that is why we change it back again
+@@ -5764,29 +5770,8 @@
+         begin
+           TryToSendCommand('FINDIP', Client.IP);
+           FindIPQueueList.Delete(FindIPQueueList.IndexOf(sl2[0]));
+-          FindIPDisplayQueueList.Add(Client.IP);
+         end;
+       end;
+-      if Pos(' is bound to: ',tmp)&gt;0 then // find ip retreiving
+-      begin
+-        Misc.ParseDelimited(sl2,tmp,' is bound to: ','');
+-        if FindIPDisplayQueueList.IndexOf(sl2[0]) &gt; -1 then
+-        begin
+-          Client := GetClientByIP(sl2[0]);
+-          LastBoundTo := GetTickCount;
+-          Client := GetClientByIP(sl2[0]);
+-          if Client &lt;&gt; nil then
+-            Client.RecentNames := sl2[1];
+-        end;
+-      end;
+-      if Pos(' was recently bound to: ',tmp)&gt;0 then // find ip retreiving
+-      begin
+-        Misc.ParseDelimited(sl2,tmp,' was recently bound to: ','');
+-        Client := GetClientByIP(sl2[0]);
+-        LastBoundTo := GetTickCount;
+-        if Client &lt;&gt; nil then
+-          Client.RecentNames := Client.RecentNames +' '+ sl2[1];
+-      end;
+     end
+     else if sl[0] = 'SERVERMSGBOX' then
+     begin
+@@ -6595,7 +6580,6 @@
+ var
+   i: Integer;
+   p: TPoint;
+-  sl : TStringList;
+ begin
+   // lets purge the Pings list:
+   i := 0;
+@@ -6662,17 +6646,6 @@
+     end;
+   end;
+ 
+-  sl := TStringList.Create;
+-  if GetTickCount - LastBoundTo &gt; 1000 then
+-  begin
+-    for i:=FindIPDisplayQueueList.Count-1 downto 0 do
+-    begin
+-      Misc.ParseDelimited(sl,GetClientByIP(FindIPDisplayQueueList[i]).RecentNames,' ','');
+-      MessageDlg(GetClientByIP(FindIPDisplayQueueList[i]).IP + ' is bound to :'+EOL+EOL+'   '+Misc.JoinStringList(sl,EOL+'   '),mtInformation,[mbOk],0);
+-    end;
+-    FindIPDisplayQueueList.Clear;
+-  end;
+-  sl.Free;
+ end;
+ 
+ procedure TMainForm.SocketDataAvailable(Sender: TObject; ErrCode: Word);
+@@ -8466,14 +8439,6 @@
+   end;
+ end;
+ 
+-procedure TMainForm.Button1Click(Sender: TObject);
+-var
+-  i:integer;
+-begin
+-  For i:=1 to PageControl1.PageCount -1 do
+-    AddTextToChatWindow(PageControl1.Pages[i] as TMyTabSheet, '* Broadcast from server: ', Colors.Info);
+-end;
+-
+ procedure TMainForm.FilterGroupResize(Sender: TObject);
+ begin
+   FilterList.Width := FilterGroup.Width - 402;
+@@ -8854,7 +8819,6 @@
+   else
+   begin
+     TryToSendCommand('FINDIP', client.IP);
+-    FindIPDisplayQueueList.Add(client.IP);
+   end;
+ 
+ end;
+@@ -8864,4 +8828,14 @@
+   TryToSendCommand('UNMUTE', MidStr(PageControl1.ActivePage.Caption,2,500000000)+' '+SelectedUserName);
+ end;
+ 
++procedure TKeepAliveThread.Execute;
++begin
++  while true do
++  begin
++    if Status.LoggedIn then
++      MainForm.TryToSendCommand('PING');
++    Sleep(8000);
++  end;
++end;
++
+ end.
+
+Modified: trunk/Lobby/TASClient/TASClient.dof
+===================================================================
+--- trunk/Lobby/TASClient/TASClient.dof	2008-01-28 18:50:46 UTC (rev 5415)
++++ trunk/Lobby/TASClient/TASClient.dof	2008-01-29 01:03:20 UTC (rev 5416)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=3
+ Release=0
+-Build=207
++Build=208
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TA Spring lobby client
+-FileVersion=0.3.0.207
++FileVersion=0.3.0.208
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: trunk/Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000222.html">[Taspring-linux-commit] r5415 - trunk/AI/Global/KAIK-0.13
+</A></li>
+	<LI>Next message: <A HREF="000225.html">[Taspring-linux-commit] r5417 - trunk/rts/System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#223">[ date ]</a>
+              <a href="thread.html#223">[ thread ]</a>
+              <a href="subject.html#223">[ subject ]</a>
+              <a href="author.html#223">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

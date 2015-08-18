@@ -1,0 +1,713 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6411 - in trunk/Lobby/TASClient: . Python	Python/engine lobby/var
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6411%20-%20in%20trunk/Lobby/TASClient%3A%20.%20Python%0A%09Python/engine%20lobby/var&In-Reply-To=%3C20080912220834.5CE2C49A2%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001180.html">
+   <LINK REL="Next"  HREF="001182.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6411 - in trunk/Lobby/TASClient: . Python	Python/engine lobby/var</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6411%20-%20in%20trunk/Lobby/TASClient%3A%20.%20Python%0A%09Python/engine%20lobby/var&In-Reply-To=%3C20080912220834.5CE2C49A2%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6411 - in trunk/Lobby/TASClient: . Python	Python/engine lobby/var">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Sep 13 00:08:34 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001180.html">[Taspring-linux-commit] r6410 - trunk/Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="001182.html">[Taspring-linux-commit] r6412 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1181">[ date ]</a>
+              <a href="thread.html#1181">[ thread ]</a>
+              <a href="subject.html#1181">[ subject ]</a>
+              <a href="author.html#1181">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2008-09-13 00:08:32 +0200 (Sat, 13 Sep 2008)
+New Revision: 6411
+
+Modified:
+   trunk/Lobby/TASClient/BattleFormUnit.dfm
+   trunk/Lobby/TASClient/BattleFormUnit.pas
+   trunk/Lobby/TASClient/MainUnit.dfm
+   trunk/Lobby/TASClient/MainUnit.pas
+   trunk/Lobby/TASClient/ManageGroups.dfm
+   trunk/Lobby/TASClient/ManageGroups.pas
+   trunk/Lobby/TASClient/Python/api.txt
+   trunk/Lobby/TASClient/Python/engine/handlers.py
+   trunk/Lobby/TASClient/TASClient.dof
+   trunk/Lobby/TASClient/TASClient.res
+   trunk/Lobby/TASClient/lobby/var/tips.txt
+Log:
+* battleform dblclick event on chat doesn't use duplicated code anymore
+* replace rank option added to the groups, so you can &quot;down grade&quot; players to make a better balance
+* python : onChatDblClick(word,line) api added
+* handlers.py : callins not returning the value bug fixed (so you can let or not the lobby handle the event)
+* you can now double click on map names blabla.smf (doesn't work if the name has space in it) to change map (if someone suggests a map just dbl click on the map name to switch if you have it)
+* dblclick on map name tip added
+
+Modified: trunk/Lobby/TASClient/BattleFormUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/BattleFormUnit.dfm	2008-09-12 13:50:23 UTC (rev 6410)
++++ trunk/Lobby/TASClient/BattleFormUnit.dfm	2008-09-12 22:08:32 UTC (rev 6411)
+@@ -4021,6 +4021,7 @@
+         TabOrder = 0
+         URLColor = clBlue
+         URLCursor = crHandPoint
++        OnDblClick = ChatExRichEditDblClick
+         OnMouseDown = ChaTRichEditMouseDown
+         OnURLClick = ChaTExRichEditURLClick
+         InputFormat = ifText
+
+Modified: trunk/Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/BattleFormUnit.pas	2008-09-12 13:50:23 UTC (rev 6410)
++++ trunk/Lobby/TASClient/BattleFormUnit.pas	2008-09-12 22:08:32 UTC (rev 6411)
+@@ -2419,7 +2419,6 @@
+ 
+   InputEdit.Align := alBottom;
+   ChatRichEdit.Align := alClient;
+-  ChatRichEdit.OnDblClick := ChatExRichEditDblClick;
+ 
+   mask := SendMessage(ChatRichEdit.Handle, EM_GETEVENTMASK, 0, 0);
+   SendMessage(ChatRichEdit.Handle, EM_SETEVENTMASK, 0, mask or ENM_LINK);
+@@ -6678,43 +6677,8 @@
+ end;
+ 
+ procedure TBattleForm.ChatExRichEditDblClick(Sender: TObject);
+-var
+-   ci, //Character Index
+-   lix, //Line Index
+-   co, //Character Offset
+-   k, j: Integer;
+-   Pt: TPoint;
+-   s: string;
+-   SelectedNick: string;
+-   SelectedClient: TClient;
+ begin
+-   with TExRichEdit(Sender) do
+-   begin
+-     GetCursorPos(pt);
+-     pt := TExRichEdit(Sender).ScreenToClient(pt);
+-     //Pt := Point(X, Y) ;
+-     ci := Perform(Messages.EM_CHARFROMPOS, 0, Integer(@Pt)) ;
+-     if ci &lt; 0 then Exit;
+-     lix := Perform(EM_EXLINEFROMCHAR, 0, ci) ;
+-     co := ci - Perform(EM_LINEINDEX, lix, 0) ;
+-     if -1 + Lines.Count &lt; lix then Exit;
+-     s := Lines[lix];
+-     Inc(co) ;
+-     k := co;
+-     while (k &gt; 0) and (s[k] &lt;&gt; ' ') and (s[k] &lt;&gt; '&lt;') do k:=k-1;
+-     Inc(k);
+-     Inc(co) ;
+-     j := co;
+-     while (j &lt;= Length(s)) and (s[j] &lt;&gt; ' ') and (s[j] &lt;&gt; '&gt;') do Inc(j) ;
+-     SelectedNick := Copy(s, k, j - k) ;
+-
+-     SelectedClient := MainForm.GetClient(SelectedNick);
+-
+-     if SelectedClient &lt;&gt; nil then
+-     begin
+-       MainForm.OpenPrivateChat(SelectedNick);
+-     end;
+-   end;
++   MainForm.RichEditDblClick(Sender);
+ end;
+ 
+ procedure TBattleForm.ChatRichEditMouseDown(Sender: TObject;
+
+Modified: trunk/Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.dfm	2008-09-12 13:50:23 UTC (rev 6410)
++++ trunk/Lobby/TASClient/MainUnit.dfm	2008-09-12 22:08:32 UTC (rev 6411)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 482
+-  Top = 342
++  Left = 430
++  Top = 367
+   Width = 773
+   Height = 535
+   Caption = '.'
+
+Modified: trunk/Lobby/TASClient/MainUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.pas	2008-09-12 13:50:23 UTC (rev 6410)
++++ trunk/Lobby/TASClient/MainUnit.pas	2008-09-12 22:08:32 UTC (rev 6411)
+@@ -524,7 +524,7 @@
+ const
+   VERSION_NUMBER = '0.38'; // Must be float value! (with a period as a decimal seperator)
+   CHECK_BETA_LOBBY_URL = '<A HREF="http://tasclient.no-ip.org/TASClient_update_v2.txt">http://tasclient.no-ip.org/TASClient_update_v2.txt</A>';
+-  PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER + ' RC21';
++  PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER + ' RC22';
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+   ASSUME_TIMEOUT_INTERVAL = 30000; // in milliseconds. Must be greater than KEEP_ALIVE_INTERVAL! If server hasn't send any data to us within this interval, then we assume timeout occured. It's us who must make sure we get constant replies from server by pinging it.
+   LOCAL_TAB = '$Local'; // caption of main (command) tab window. Must be special so that is different from channel names or user names, that is why there is a &quot;$&quot; in front of it.
+@@ -971,6 +971,8 @@
+     HighlightBattles : boolean;
+     EnableChatColor : boolean;
+     ChatColor : integer;
++    ReplaceRank: boolean;
++    Rank: integer;
+ 
+     constructor Create(Name: string; Color: Integer);
+     destructor Destroy;
+@@ -2572,8 +2574,14 @@
+ end;
+ 
+ function TClient.GetRank: Integer;
++var
++  g: integer;
+ begin
+   Result := (Status and $1C) shr 2;
++  g := Self.GetGroup;
++  if g &gt; -1 then
++    if TClientGroup(ClientGroups[g]).ReplaceRank then
++      Result := TClientGroup(ClientGroups[g]).Rank;
+ end;
+ 
+ function TClient.GetAccess: Boolean;
+@@ -6692,8 +6700,10 @@
+    k, j: Integer;
+    Pt: TPoint;
+    s: WideString;
+-   SelectedNick: WideString;
++   SelectedWord: WideString;
+    SelectedClient: TClient;
++   mapIndex: integer;
++   r: boolean;
+ begin
+    with TExRichEdit(Sender) do
+    begin
+@@ -6713,13 +6723,26 @@
+      Inc(co) ;
+      j := co;
+      while (j &lt;= Length(s)) and (s[j] &lt;&gt; ' ') and (s[j] &lt;&gt; '&gt;') do Inc(j) ;
+-     SelectedNick := Copy(s, k, j - k) ;
++     SelectedWord := Copy(s, k, j - k) ;
+ 
+-     SelectedClient := GetClient(SelectedNick);
++     AcquireMainThread;
++     try if not Preferences.DisableScripts then r := handlers.onChatDblClick(SelectedWord,Lines[lix]); except end;
++     ReleaseMainThread;
+ 
++     if r then Exit;
++
++     SelectedClient := GetClient(SelectedWord);
++
+      if SelectedClient &lt;&gt; nil then
+      begin
+-       OpenPrivateChat(SelectedNick);
++       OpenPrivateChat(SelectedWord);
++     end
++     else if RightStr(LowerCase(SelectedWord),4) = '.smf' then
++     begin
++        mapIndex := MapList.IndexOf(SelectedWord);
++        if mapIndex &gt; -1 then
++          if BattleState.Status &lt;&gt; Joined then
++            BattleForm.ChangeMap(mapIndex);
+      end;
+    end;
+ end;
+@@ -8975,6 +8998,8 @@
+       Ini.WriteString(IntToStr(i), 'HighlightBattles', BoolToStr(TClientGroup(ClientGroups[i]).HighlightBattles));
+       Ini.WriteString(IntToStr(i), 'EnableChatColor', BoolToStr(TClientGroup(ClientGroups[i]).EnableChatColor));
+       Ini.WriteString(IntToStr(i), 'ChatColor', IntToStr(TClientGroup(ClientGroups[i]).ChatColor));
++      Ini.WriteString(IntToStr(i), 'ReplaceRank', BoolToStr(TClientGroup(ClientGroups[i]).ReplaceRank));
++      Ini.WriteString(IntToStr(i), 'Rank', IntToStr(TClientGroup(ClientGroups[i]).Rank));
+       Ini.WriteString(IntToStr(i), 'Clients', Misc.JoinStringList(TClientGroup(ClientGroups[i]).Clients,' '));
+     end;
+     Ini.Free;
+@@ -9008,6 +9033,8 @@
+     cg.HighlightBattles := StrToBool(Ini.ReadString(IntToStr(i), 'HighlightBattles', '0'));
+     cg.EnableChatColor := StrToBool(Ini.ReadString(IntToStr(i), 'EnableChatColor', '0'));
+     cg.ChatColor := StrToInt(Ini.ReadString(IntToStr(i), 'ChatColor', '0'));
++    cg.ReplaceRank := StrToBool(Ini.ReadString(IntToStr(i), 'ReplaceRank', '0'));
++    cg.Rank := StrToInt(Ini.ReadString(IntToStr(i), 'Rank', '0'));
+     Misc.ParseDelimited(cg.Clients,Ini.ReadString(IntToStr(i), 'Clients', 'Empty'),' ','');
+     ClientGroups.Add(cg);
+     i := i+1;
+
+Modified: trunk/Lobby/TASClient/ManageGroups.dfm
+===================================================================
+--- trunk/Lobby/TASClient/ManageGroups.dfm	2008-09-12 13:50:23 UTC (rev 6410)
++++ trunk/Lobby/TASClient/ManageGroups.dfm	2008-09-12 22:08:32 UTC (rev 6411)
+@@ -1,10 +1,10 @@
+ object ManageGroupsForm: TManageGroupsForm
+-  Left = 1117
+-  Top = 302
++  Left = 730
++  Top = 100
+   BorderStyle = bsDialog
+   Caption = 'Manage groups'
+-  ClientHeight = 374
+-  ClientWidth = 473
++  ClientHeight = 384
++  ClientWidth = 516
+   Color = clBtnFace
+   Constraints.MaxHeight = 1000
+   Constraints.MaxWidth = 1680
+@@ -24,8 +24,8 @@
+   object SpTBXTitleBar1: TSpTBXTitleBar
+     Left = 0
+     Top = 0
+-    Width = 473
+-    Height = 374
++    Width = 516
++    Height = 384
+     Caption = 'Manage groups'
+     FixedSize = True
+     Options.Maximize = False
+@@ -33,7 +33,7 @@
+       Left = 8
+       Top = 72
+       Width = 225
+-      Height = 241
++      Height = 248
+       ItemHeight = 16
+       TabOrder = 1
+     end
+@@ -49,13 +49,13 @@
+     end
+     object SpTBXPanel1: TSpTBXPanel
+       Left = 8
+-      Top = 325
+-      Width = 456
++      Top = 332
++      Width = 497
+       Height = 41
+       Caption = 'SpTBXPanel1'
+       TabOrder = 3
+       DesignSize = (
+-        456
++        497
+         41)
+       object btRemove: TSpTBXButton
+         Left = 104
+@@ -90,7 +90,7 @@
+         LinkFont.Style = [fsUnderline]
+       end
+       object btClose: TSpTBXButton
+-        Left = 376
++        Left = 417
+         Top = 8
+         Width = 73
+         Height = 25
+@@ -122,19 +122,22 @@
+     object SpTBXPanel2: TSpTBXPanel
+       Left = 240
+       Top = 40
+-      Width = 225
+-      Height = 273
++      Width = 265
++      Height = 280
+       Caption = 'SpTBXPanel2'
+       TabOrder = 4
+-      DesignSize = (
+-        225
+-        273)
++      object Label1: TLabel
++        Left = 8
++        Top = 248
++        Width = 70
++        Height = 13
++        Caption = 'Replace rank :'
++      end
+       object ColorPanel: TPanel
+-        Left = 120
++        Left = 128
+         Top = 32
+-        Width = 57
++        Width = 97
+         Height = 21
+-        Anchors = [akTop, akRight]
+         BevelOuter = bvNone
+         BorderStyle = bsSingle
+         Color = clBlack
+@@ -189,12 +192,11 @@
+         LinkFont.Style = [fsUnderline]
+       end
+       object btChooseColor: TSpTBXButton
+-        Left = 184
++        Left = 232
+         Top = 32
+         Width = 25
+         Height = 20
+         Caption = '...'
+-        Anchors = [akTop, akRight]
+         TabOrder = 5
+         OnClick = btChooseColorClick
+         LinkFont.Charset = DEFAULT_CHARSET
+@@ -205,7 +207,7 @@
+         ThemeType = thtTBX
+       end
+       object AutoSpecCheckBox: TSpTBXCheckBox
+-        Left = 120
++        Left = 128
+         Top = 80
+         Width = 14
+         Height = 15
+@@ -213,7 +215,7 @@
+         OnClick = AutoSpecCheckBoxClick
+       end
+       object AutoKickCheckBox: TSpTBXCheckBox
+-        Left = 120
++        Left = 128
+         Top = 58
+         Width = 14
+         Height = 15
+@@ -221,7 +223,7 @@
+         OnClick = AutoKickCheckBoxClick
+       end
+       object NotifyOnHostCheckBox: TSpTBXCheckBox
+-        Left = 120
++        Left = 128
+         Top = 104
+         Width = 14
+         Height = 15
+@@ -253,7 +255,7 @@
+         LinkFont.Style = [fsUnderline]
+       end
+       object NotifyOnJoinCheckBox: TSpTBXCheckBox
+-        Left = 120
++        Left = 128
+         Top = 128
+         Width = 14
+         Height = 15
+@@ -261,7 +263,7 @@
+         OnClick = NotifyOnJoinCheckBoxClick
+       end
+       object NotifyOnBattlEndCheckBox: TSpTBXCheckBox
+-        Left = 120
++        Left = 128
+         Top = 152
+         Width = 14
+         Height = 15
+@@ -293,7 +295,7 @@
+         LinkFont.Style = [fsUnderline]
+       end
+       object NotifyOnConnectCheckBox: TSpTBXCheckBox
+-        Left = 120
++        Left = 128
+         Top = 176
+         Width = 14
+         Height = 15
+@@ -301,9 +303,9 @@
+         OnClick = NotifyOnConnectCheckBoxClick
+       end
+       object txtName: TSpTBXEdit
+-        Left = 120
++        Left = 128
+         Top = 10
+-        Width = 89
++        Width = 129
+         Height = 21
+         TabOrder = 16
+         OnChange = txtNameChange
+@@ -321,7 +323,7 @@
+         LinkFont.Style = [fsUnderline]
+       end
+       object HighlightBattlesCheckbox: TSpTBXCheckBox
+-        Left = 120
++        Left = 128
+         Top = 200
+         Width = 14
+         Height = 15
+@@ -341,23 +343,21 @@
+         LinkFont.Style = [fsUnderline]
+       end
+       object ChatColorPanel: TPanel
+-        Left = 144
++        Left = 152
+         Top = 222
+-        Width = 41
++        Width = 73
+         Height = 21
+-        Anchors = [akTop, akRight]
+         BevelOuter = bvNone
+         BorderStyle = bsSingle
+         Color = clBlack
+         TabOrder = 20
+       end
+       object btChooseChatColor: TSpTBXButton
+-        Left = 192
++        Left = 232
+         Top = 222
+         Width = 25
+         Height = 20
+         Caption = '...'
+-        Anchors = [akTop, akRight]
+         TabOrder = 21
+         OnClick = btChooseChatColorClick
+         LinkFont.Charset = DEFAULT_CHARSET
+@@ -368,13 +368,32 @@
+         ThemeType = thtTBX
+       end
+       object ChatColorCheckBox: TSpTBXCheckBox
+-        Left = 120
++        Left = 128
+         Top = 224
+         Width = 14
+         Height = 15
+         TabOrder = 22
+         OnClick = ChatColorCheckBoxClick
+       end
++      object ReplaceRankCheckBox: TSpTBXCheckBox
++        Left = 128
++        Top = 248
++        Width = 14
++        Height = 15
++        TabOrder = 23
++        OnClick = ReplaceRankCheckBoxClick
++      end
++      object ReplaceRankCmb: TSpTBXComboBox
++        Left = 152
++        Top = 245
++        Width = 105
++        Height = 22
++        Style = csOwnerDrawFixed
++        ItemHeight = 16
++        TabOrder = 24
++        OnChange = ReplaceRankCmbChange
++        OnDrawItem = ReplaceRankCmbDrawItem
++      end
+     end
+   end
+ end
+
+Modified: trunk/Lobby/TASClient/ManageGroups.pas
+===================================================================
+--- trunk/Lobby/TASClient/ManageGroups.pas	2008-09-12 13:50:23 UTC (rev 6410)
++++ trunk/Lobby/TASClient/ManageGroups.pas	2008-09-12 22:08:32 UTC (rev 6411)
+@@ -41,6 +41,9 @@
+     ChatColorPanel: TPanel;
+     btChooseChatColor: TSpTBXButton;
+     ChatColorCheckBox: TSpTBXCheckBox;
++    Label1: TLabel;
++    ReplaceRankCheckBox: TSpTBXCheckBox;
++    ReplaceRankCmb: TSpTBXComboBox;
+     procedure FormShow(Sender: TObject);
+     procedure cmbGroupsChange(Sender: TObject);
+     procedure btRemoveClick(Sender: TObject);
+@@ -61,6 +64,10 @@
+     procedure FormClose(Sender: TObject; var Action: TCloseAction);
+     procedure ChatColorCheckBoxClick(Sender: TObject);
+     procedure btChooseChatColorClick(Sender: TObject);
++    procedure ReplaceRankCmbDrawItem(Control: TWinControl; Index: Integer;
++      Rect: TRect; State: TOwnerDrawState);
++    procedure ReplaceRankCheckBoxClick(Sender: TObject);
++    procedure ReplaceRankCmbChange(Sender: TObject);
+   private
+     { Private declarations }
+   public
+@@ -121,6 +128,8 @@
+   HighlightBattlesCheckbox.Checked := TClientGroup(ClientGroups[cmbGroups.ItemIndex]).HighlightBattles;
+   ChatColorCheckBox.Checked := TClientGroup(ClientGroups[cmbGroups.ItemIndex]).EnableChatColor;
+   ChatColorPanel.Color := TClientGroup(ClientGroups[cmbGroups.ItemIndex]).ChatColor;
++  ReplaceRankCheckBox.Checked := TClientGroup(ClientGroups[cmbGroups.ItemIndex]).ReplaceRank;
++  ReplaceRankCmb.ItemIndex := TClientGroup(ClientGroups[cmbGroups.ItemIndex]).Rank;
+ end;
+ 
+ procedure TManageGroupsForm.btRemoveClick(Sender: TObject);
+@@ -225,9 +234,14 @@
+ end;
+ 
+ procedure TManageGroupsForm.FormCreate(Sender: TObject);
++var
++  i: integer;
+ begin
+   if not SpTBXTitleBar1.Active then
+     RemoveSpTBXTitleBarMarges(self);
++
++  for i := 1 to High(Ranks) do ReplaceRankCmb.Items.Add(Ranks[i]);
++  ReplaceRankCmb.ItemIndex := 0;
+ end;
+ 
+ procedure TManageGroupsForm.HighlightBattlesCheckboxClick(Sender: TObject);
+@@ -272,4 +286,24 @@
+   TClientGroup(ClientGroups[cmbGroups.ItemIndex]).ChatColor := ChatColorPanel.Color;
+ end;
+ 
++procedure TManageGroupsForm.ReplaceRankCmbDrawItem(Control: TWinControl;
++  Index: Integer; Rect: TRect; State: TOwnerDrawState);
++begin
++  // this ensures the correct highlite color is used
++  (Control as TSpTBXComboBox).Canvas.FillRect(Rect);
++
++  MainForm.RanksImageList.Draw((Control as TSpTBXComboBox).Canvas, Rect.Left, Rect.Top, Index);
++  (Control as TSpTBxComboBox).Canvas.TextOut(Rect.Left + MainForm.RanksImageList.Width + 3, Rect.Top, (Control as TSpTBxComboBox).Items[Index])
++end;
++
++procedure TManageGroupsForm.ReplaceRankCheckBoxClick(Sender: TObject);
++begin
++  TClientGroup(ClientGroups[cmbGroups.ItemIndex]).ReplaceRank := ReplaceRankCheckBox.Checked;
++end;
++
++procedure TManageGroupsForm.ReplaceRankCmbChange(Sender: TObject);
++begin
++  TClientGroup(ClientGroups[cmbGroups.ItemIndex]).Rank := ReplaceRankCmb.ItemIndex;
++end;
++
+ end.
+
+Modified: trunk/Lobby/TASClient/Python/api.txt
+===================================================================
+--- trunk/Lobby/TASClient/Python/api.txt	2008-09-12 13:50:23 UTC (rev 6410)
++++ trunk/Lobby/TASClient/Python/api.txt	2008-09-12 22:08:32 UTC (rev 6411)
+@@ -35,10 +35,10 @@
+ Callin :
+ 
+ - handleCommand(s)
+-- handleIn(s)
++- handleIn(s) return dontLetLobbyHandleIt : boolean
+ - onLoggedIn
+ - onDisconnect
+-- HandleOut(s)
++- HandleOut(s) return dontLetLobbyHandleIt : boolean
+ - onLogin
+ - onConnected
+ - onClose
+@@ -47,7 +47,8 @@
+ - onMapsReloaded
+ - onReplaysReloaded
+ - onModsReloaded
+-- onURLClick(url)
++- onURLClick(url) return dontLetLobbyHandleIt : boolean
++- onChatDblClick(word,line) return dontLetLobbyHandleIt : boolean
+ 
+ 
+ 
+
+Modified: trunk/Lobby/TASClient/Python/engine/handlers.py
+===================================================================
+--- trunk/Lobby/TASClient/Python/engine/handlers.py	2008-09-12 13:50:23 UTC (rev 6410)
++++ trunk/Lobby/TASClient/Python/engine/handlers.py	2008-09-12 22:08:32 UTC (rev 6411)
+@@ -191,35 +191,38 @@
+ 				print ' %s has an attribute %s but it is not a function' % (s, funcname)
+ 
+ def onDisconnect():
+-	_handle_callin('onDisconnect')
++	return _handle_callin('onDisconnect')
+ 
+ def onConnected():
+-	_handle_callin('onConnected')
++	return _handle_callin('onConnected')
+ 
+ def onLogin():
+-	_handle_callin('onLogin')
++	return _handle_callin('onLogin')
+ 
+ def onLoggedIn():
+-	_handle_callin('onLoggedIn')
++	return _handle_callin('onLoggedIn')
+ 	
+ def onSettingsChanged():
+-	_handle_callin('onSettingsChanged')
++	return _handle_callin('onSettingsChanged')
+ 	
+ def onGroupsChanged():
+-	_handle_callin('onGroupsChanged')
++	return _handle_callin('onGroupsChanged')
+ 	
+ def onMapsReloaded():
+-	_handle_callin('onMapsReloaded')
++	return _handle_callin('onMapsReloaded')
+ 	
+ def onReplaysReloaded():
+-	_handle_callin('onReplaysReloaded')
++	return _handle_callin('onReplaysReloaded')
+ 	
+ def onModsReloaded():
+-	_handle_callin('onModsReloaded')
++	return _handle_callin('onModsReloaded')
+ 	
+ def onURLClick(url):
+-	_handle_callin('onURLClick',url)
++	return _handle_callin('onURLClick',url)
+ 	
++def onChatDblClick(word,line):
++	return _handle_callin('onChatDblClick',word+' '+line)
++	
+ def handleCommand(cmd):
+ 	spaces = cmd.count(' ')
+ 	if spaces &gt;= 1:
+
+Modified: trunk/Lobby/TASClient/TASClient.dof
+===================================================================
+--- trunk/Lobby/TASClient/TASClient.dof	2008-09-12 13:50:23 UTC (rev 6410)
++++ trunk/Lobby/TASClient/TASClient.dof	2008-09-12 22:08:32 UTC (rev 6411)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=3
+ Release=0
+-Build=461
++Build=464
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TA Spring lobby client
+-FileVersion=0.3.0.461
++FileVersion=0.3.0.464
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: trunk/Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+Modified: trunk/Lobby/TASClient/lobby/var/tips.txt
+===================================================================
+--- trunk/Lobby/TASClient/lobby/var/tips.txt	2008-09-12 13:50:23 UTC (rev 6410)
++++ trunk/Lobby/TASClient/lobby/var/tips.txt	2008-09-12 22:08:32 UTC (rev 6411)
+@@ -37,4 +37,5 @@
+ ##4#The green players in the list are the winners.
+ 
+ The winning team is only stored in the replay if you got the battle end statistics page. The players statistics are only stored if the player didn't leave before the end of the game.
+-##0#To choose if you want to keep the replay, delete it or upload it after each battle, you can enable the Options -&gt; Interface -&gt; 'Ask what to do with replays after each battle'.
+\ No newline at end of file
++##0#To choose if you want to keep the replay, delete it or upload it after each battle, you can enable the Options -&gt; Interface -&gt; 'Ask what to do with replays after each battle'.
++##0#You can double click on a map name (eg: double click on the map_name.smf when someone suggests a map) in the chat to load it if you are hosting or not in a battle.
+\ No newline at end of file
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001180.html">[Taspring-linux-commit] r6410 - trunk/Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="001182.html">[Taspring-linux-commit] r6412 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1181">[ date ]</a>
+              <a href="thread.html#1181">[ thread ]</a>
+              <a href="subject.html#1181">[ subject ]</a>
+              <a href="author.html#1181">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,568 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6235 - in trunk/rts/Sim: MoveTypes Units
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6235%20-%20in%20trunk/rts/Sim%3A%20MoveTypes%20Units&In-Reply-To=%3C20080806095449.AC891447F%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001014.html">
+   <LINK REL="Next"  HREF="001016.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6235 - in trunk/rts/Sim: MoveTypes Units</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6235%20-%20in%20trunk/rts/Sim%3A%20MoveTypes%20Units&In-Reply-To=%3C20080806095449.AC891447F%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6235 - in trunk/rts/Sim: MoveTypes Units">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Aug  6 11:54:49 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001014.html">[Taspring-linux-commit] r6234 - trunk/rts/Game
+</A></li>
+        <LI>Next message: <A HREF="001016.html">[Taspring-linux-commit] r6236 - trunk/rts/Sim/MoveTypes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1015">[ date ]</a>
+              <a href="thread.html#1015">[ thread ]</a>
+              <a href="subject.html#1015">[ subject ]</a>
+              <a href="author.html#1015">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-08-06 11:54:48 +0200 (Wed, 06 Aug 2008)
+New Revision: 6235
+
+Modified:
+   trunk/rts/Sim/MoveTypes/GroundMoveType.cpp
+   trunk/rts/Sim/Units/UnitDef.h
+   trunk/rts/Sim/Units/UnitDefHandler.cpp
+Log:
+fix the stop-turn-move-stop-turn behavior for ground units (new udef tag, turnInPlace)
+
+Modified: trunk/rts/Sim/MoveTypes/GroundMoveType.cpp
+===================================================================
+--- trunk/rts/Sim/MoveTypes/GroundMoveType.cpp	2008-08-05 20:44:04 UTC (rev 6234)
++++ trunk/rts/Sim/MoveTypes/GroundMoveType.cpp	2008-08-06 09:54:48 UTC (rev 6235)
+@@ -107,13 +107,13 @@
+ 		));
+ 
+ 
+-const unsigned int MAX_REPATH_FREQUENCY = 30;		//The minimum of frames between two full path-requests.
++const unsigned int MAX_REPATH_FREQUENCY = 30;		// The minimum of frames between two full path-requests.
+ 
+-const float ETA_ESTIMATION = 1.5f;					//How much time the unit are given to reach the waypoint.
+-const float MAX_WAYPOINT_DISTANCE_FACTOR = 2.0f;		//Used to tune how often new waypoints are requested. Multiplied with MinDistanceToWaypoint().
+-const float MAX_OFF_PATH_FACTOR = 20;				//How far away from a waypoint a unit could be before a new path is requested.
++const float ETA_ESTIMATION = 1.5f;					// How much time the unit are given to reach the waypoint.
++const float MAX_WAYPOINT_DISTANCE_FACTOR = 2.0f;	// Used to tune how often new waypoints are requested. Multiplied with MinDistanceToWaypoint().
++const float MAX_OFF_PATH_FACTOR = 20;				// How far away from a waypoint a unit could be before a new path is requested.
+ 
+-const float MINIMUM_SPEED = 0.01f;					//Minimum speed a unit may move in.
++const float MINIMUM_SPEED = 0.01f;					// Minimum speed a unit may move in.
+ 
+ static const bool DEBUG_CONTROLLER=false;
+ std::vector&lt;int2&gt; (*CGroundMoveType::lineTable)[11] = 0;
+@@ -304,12 +304,14 @@
+ 			}
+ 
+ 			if (nextDeltaSpeedUpdate &lt;= gs-&gt;frameNum) {
+-				wantedSpeed = pathId? requestedSpeed: 0;
++				wantedSpeed = pathId? requestedSpeed: 0.0f;
++				bool moreCommands = owner-&gt;commandAI-&gt;HasMoreMoveCommands();
++
+ 				// If arriving at waypoint, then need to slow down, or may pass it.
+-				if (!owner-&gt;commandAI-&gt;HasMoreMoveCommands() &amp;&amp;
+-					currentDistanceToWaypoint &lt; BreakingDistance(currentSpeed) + SQUARE_SIZE) {
+-					wantedSpeed = std::min((float) wantedSpeed, (float) (fastmath::sqrt(currentDistanceToWaypoint * -owner-&gt;mobility-&gt;maxBreaking)));
++				if (!moreCommands &amp;&amp; currentDistanceToWaypoint &lt; BreakingDistance(currentSpeed) + SQUARE_SIZE) {
++					wantedSpeed = std::min(wantedSpeed, fastmath::sqrt(currentDistanceToWaypoint * -owner-&gt;mobility-&gt;maxBreaking));
+ 				}
++
+ 				wantedSpeed *= std::max(0.0f, std::min(1.0f, desiredVelocity.dot(owner-&gt;frontdir) + 0.1f));
+ 				SetDeltaSpeed();
+ 			}
+@@ -383,12 +385,13 @@
+ 	if (progressState == Active &amp;&amp; etaFailures &gt; 8) {
+ 		if (owner-&gt;pos.distance2D(goalPos) &gt; 200 || CheckGoalFeasability()) {
+ 			if (DEBUG_CONTROLLER)
+-				logOutput.Print(&quot;Unit eta failure %i&quot;, owner-&gt;id);
++				logOutput.Print(&quot;ETA failure for unit %i&quot;, owner-&gt;id);
++
+ 			StopEngine();
+ 			StartEngine();
+ 		} else {
+ 			if (DEBUG_CONTROLLER)
+-				logOutput.Print(&quot;Goal clogged up %i&quot;, owner-&gt;id);
++				logOutput.Print(&quot;Goal clogged up for unit %i&quot;, owner-&gt;id);
+ 			Fail();
+ 		}
+ 	}
+@@ -434,8 +437,6 @@
+ 			if (owner-&gt;hasRadarCapacity)
+ 				radarhandler-&gt;MoveUnit(owner);
+ 
+-			// owner-&gt;UnBlock();
+-			// owner-&gt;Block();
+ 		}
+ 		qf-&gt;MovedUnit(owner);
+ 
+@@ -470,20 +471,19 @@
+ 		StopEngine();
+ 	}
+ 
+-	//Sets the new goal.
++	// set the new goal
+ 	goalPos = moveGoalPos;
+ 	goalRadius = goalRadius;
+-	requestedSpeed = std::min(speed, maxSpeed * 2);
++	requestedSpeed = std::min(speed, maxSpeed * 2.0f);
+ 	requestedTurnRate = owner-&gt;mobility-&gt;maxTurnRate;
+ 	atGoal = false;
+ 	useMainHeading = false;
+-
+ 	progressState = Active;
+ 
+-	//Starts the engine.
+ 	if (DEBUG_CONTROLLER) {
+ 		logOutput &lt;&lt; owner-&gt;id &lt;&lt; &quot;: StartMoving() starting engine.\n&quot;;
+ 	}
++
+ 	StartEngine();
+ 
+ 	ENTER_UNSYNCED;
+@@ -510,74 +510,88 @@
+ 	StopEngine();
+ 
+ 	useMainHeading = false;
+-	if(progressState != Done)
++	if (progressState != Done)
+ 		progressState = Done;
+ }
+ 
+ void CGroundMoveType::SetDeltaSpeed(void)
+ {
+-	//Rounding of low speed.
+-	if(wantedSpeed == 0 &amp;&amp; currentSpeed &lt; 0.01f){
+-		currentSpeed=0;
+-		deltaSpeed=0;
+-//		nextDeltaSpeedUpdate=gs-&gt;frameNum+8;
++	// round low speeds to zero
++	if (wantedSpeed == 0.0f &amp;&amp; currentSpeed &lt; 0.01f) {
++		currentSpeed = 0.0f;
++		deltaSpeed = 0.0f;
+ 		return;
+ 	}
+ 
+-	//Wanted speed and acceleration.
++	// wanted speed and acceleration
+ 	float wSpeed = maxSpeed;
+ 
+-	//Limiting speed and acceleration.
+-	if(wantedSpeed &gt; 0) {
+-		float groundMod = owner-&gt;unitDef-&gt;movedata-&gt;moveMath-&gt;SpeedMod(*owner-&gt;unitDef-&gt;movedata, owner-&gt;pos,flatFrontDir);
++	// limit speed and acceleration
++	if (wantedSpeed &gt; 0.0f) {
++		float groundMod = owner-&gt;unitDef-&gt;movedata-&gt;moveMath-&gt;SpeedMod(*owner-&gt;unitDef-&gt;movedata, owner-&gt;pos, flatFrontDir);
+ 		wSpeed *= groundMod;
+ 
+-		float3 goalDif=waypoint-owner-&gt;pos;
+-		short turn=owner-&gt;heading-GetHeadingFromVector(goalDif.x,goalDif.z);
+-		if(turn!=0){
+-			float goalLength=goalDif.Length();
++		float3 goalDif = waypoint - owner-&gt;pos;
++		short turn = owner-&gt;heading - GetHeadingFromVector(goalDif.x, goalDif.z);
+ 
+-			float turnSpeed=(goalLength+8)/(abs(turn)/turnRate)*0.5f;
+-			if(turnSpeed&lt;wSpeed)		//make sure we can turn fast enought to get hit the goal
+-				wSpeed=turnSpeed;
++		if (turn != 0) {
++			float goalLength = goalDif.Length();
++			float turnSpeed = (goalLength + 8.0f) / (abs(turn) / turnRate) * 0.5f;
++
++			if (turnSpeed &lt; wSpeed) {
++				// make sure we can turn fast enough to hit the goal
++				// (but don't slow us down to a complete crawl either)
++				//
++				// NOTE: can cause units with large turning circles to
++				// circle around close waypoints indefinitely, but one
++				// GetNextWaypoint() often is sufficient prevention
++				if (owner-&gt;unitDef-&gt;turnInPlace || currentSpeed &lt; 1.5f) {
++					// keep the turn mostly in-place
++					wSpeed = turnSpeed;
++				} else {
++					GetNextWaypoint();
++					wSpeed = (turnSpeed + wSpeed) * 0.667f;
++				}
++			}
+ 	}
+-	if(wSpeed&gt;wantedSpeed)
+-		wSpeed=wantedSpeed;
++
++	if (wSpeed &gt; wantedSpeed)
++		wSpeed = wantedSpeed;
+ 	} else {
+-		wSpeed=0;
++		wSpeed = 0.0f;
+ 	}
+-	//Limit change according to acceleration.
++
++	// limit speed change according to acceleration
+ 	float dif = wSpeed - currentSpeed;
+ 
+ 	if (!accRate) {
+-		logOutput.Print(&quot;Acceleration is zero on unit %s\n&quot;,owner-&gt;unitDef-&gt;name.c_str());
+-		accRate=0.01f;
++		logOutput.Print(&quot;Acceleration is zero for unit %s\n&quot;, owner-&gt;unitDef-&gt;name.c_str());
++		accRate = 0.01f;
+ 	}
+-	if(fabs(dif) &lt; 0.05f) {		//good speed
+-		deltaSpeed = dif / 8;
++
++	if (fabs(dif) &lt; 0.05f) {
++		// we are already going (mostly) how fast we want to go
++		deltaSpeed = dif * 0.125f;
+ 		nextDeltaSpeedUpdate = gs-&gt;frameNum + 8;
+-	}
+-	else if(dif &gt; 0) {				//accelerate
+-		if(dif &lt; accRate) {
++	} else if (dif &gt; 0.0f) {
++		// we want to accelerate
++		if (dif &lt; accRate) {
+ 			deltaSpeed = dif;
+ 			nextDeltaSpeedUpdate = gs-&gt;frameNum;
+ 		} else {
+ 			deltaSpeed = accRate;
+-			nextDeltaSpeedUpdate = (int)(gs-&gt;frameNum + std::min((float) 8, dif / accRate));
++			nextDeltaSpeedUpdate = (int) (gs-&gt;frameNum + std::min(8.0f, dif / accRate));
+ 		}
+-	}
+-	else {	// decRate = 0.1*brakeRate, I guess this is for aircraft
+-		if(dif &gt; -10*decRate){
++	} else {
++		// we want to decelerate
++		if (dif &gt; -10.0f * decRate) {
+ 			deltaSpeed = dif;
+ 			nextDeltaSpeedUpdate = gs-&gt;frameNum + 1;
++		} else {
++			deltaSpeed = -10.0f * decRate;
++			nextDeltaSpeedUpdate = (int) (gs-&gt;frameNum + std::min(8.0f, dif / deltaSpeed));
+ 		}
+-		else {
+-			deltaSpeed = -10*decRate;
+-			nextDeltaSpeedUpdate = (int)(gs-&gt;frameNum + std::min((float) 8, dif / (-10*decRate)));
+-		}
+ 	}
+-	//float3 temp=UpVector*wSpeed;
+-	//temp.CheckInBounds();
+ 
+ #ifdef TRACE_SYNC
+ 	tracefile &lt;&lt; &quot;Unit delta speed: &quot;;
+@@ -800,9 +814,6 @@
+ 			midPos.y = wh + owner-&gt;relMidPos.y - speed.y*0.8;
+ 			owner-&gt;cob-&gt;Call(&quot;Landed&quot;); //stop parachute animation
+ 		}
+-
+-
+-
+ 	}
+ }
+ 
+@@ -953,13 +964,11 @@
+ }
+ 
+ 
+-const float AVOIDANCE_DISTANCE = 1.0f;				// How far away a unit should start avoiding an obstacle. Multiplied with distance to waypoint.
+-const float AVOIDANCE_STRENGTH = 2.0f;				// How strongly an object should be avoided. Raise this value to give some more marginal.
+-const float FORCE_FIELD_DISTANCE = 50;				// How faar away a unit may be affected by the force-field. Multiplied with speed of the unit.
+-const float FORCE_FIELD_STRENGTH = 0.4f;			// Maximum strenght of the force-field.
++// const float AVOIDANCE_DISTANCE = 1.0f;			// How far away a unit should start avoiding an obstacle. Multiplied with distance to waypoint.
++const float AVOIDANCE_STRENGTH = 2.0f;				// How strongly an object should be avoided. Raise this value to give some more margin.
++// const float FORCE_FIELD_DISTANCE = 50;			// How far away a unit may be affected by the force-field. Multiplied with speed of the unit.
++// const float FORCE_FIELD_STRENGTH = 0.4f;			// Maximum strenght of the force-field.
+ 
+-
+-
+ /*
+  * Dynamic obstacle avoidance, helps the unit to
+  * follow the path even when it's not perfect.
+@@ -1140,7 +1149,7 @@
+ 			pathId = 0;
+ 			return;
+ 		}
+-	}else {
++	} else {
+ 		lastGetPathPos = owner-&gt;pos;
+ 		nonMovingFailures = 0;
+ 	}
+@@ -1148,8 +1157,9 @@
+ 	pathManager-&gt;DeletePath(pathId);
+ 	pathId = pathManager-&gt;RequestPath(owner-&gt;mobility, owner-&gt;pos, goalPos, goalRadius, owner);
+ 	nextWaypoint = owner-&gt;pos;
+-	// new path received, can't be at waypoint.
+-	if (pathId){
++
++	// if new path received, can't be at waypoint
++	if (pathId) {
+ 		atGoal = false;
+ 		haveFinalWaypoint = false;
+ 		GetNextWaypoint();
+@@ -1176,7 +1186,7 @@
+ 			atGoal = false;
+ 		} else {
+ 			if (DEBUG_CONTROLLER)
+-				logOutput.Print(&quot;Path failure %i %i&quot;, owner-&gt;id, pathFailures);
++				logOutput.Print(&quot;Path-failure count for unit %i: %i&quot;, owner-&gt;id, pathFailures);
+ 			pathFailures++;
+ 			if (pathFailures &gt; 0) {
+ 				pathFailures = 0;
+@@ -1195,6 +1205,8 @@
+ }
+ 
+ 
++
++
+ /*
+ The distance the unit will move at max breaking before stopping,
+ starting from given speed.
+@@ -1208,7 +1220,6 @@
+ 	return fabs(speed * speed / owner-&gt;mobility-&gt;maxBreaking);
+ }
+ 
+-
+ /*
+ Gives the position this unit will end up at with full breaking
+ from current velocity.
+@@ -1216,7 +1227,7 @@
+ float3 CGroundMoveType::Here()
+ {
+ 	float3 motionDir = owner-&gt;speed;
+-	if(motionDir.SqLength2D() == 0) {
++	if (motionDir.SqLength2D() == 0) {
+ 		return owner-&gt;midPos;
+ 	} else {
+ 		motionDir.Normalize();
+@@ -1234,7 +1245,6 @@
+ 	return BreakingDistance(owner-&gt;speed.Length2D()) + CPathManager::PATH_RESOLUTION;
+ }
+ 
+-
+ /*
+ Gives the maximum distance from it's waypoint a unit could be
+ before a new path is requested.
+@@ -1244,9 +1254,10 @@
+ 	return MinDistanceToWaypoint() * MAX_OFF_PATH_FACTOR;
+ }
+ 
+-/*
+-Initializes motion.
+-*/
++
++
++
++/* Initializes motion. */
+ void CGroundMoveType::StartEngine() {
+ 	// ran only if the unit has no path and is not already at goal
+ 	if (!pathId &amp;&amp; !atGoal) {
+@@ -1272,12 +1283,9 @@
+ 	}
+ 
+ 	nextObstacleAvoidanceUpdate = gs-&gt;frameNum;
+-	//SetDeltaSpeed();
+ }
+ 
+-/*
+-Stops motion.
+-*/
++/* Stops motion. */
+ void CGroundMoveType::StopEngine() {
+ 	// ran only if engine is active
+ 	if (pathId) {
+@@ -1295,25 +1303,22 @@
+ 			logOutput &lt;&lt; &quot;Engine stopped.&quot; &lt;&lt; &quot; &quot; &lt;&lt; owner-&gt;id &lt;&lt; &quot;\n&quot;;
+ 		}
+ 	}
++
+ 	owner-&gt;isMoving = false;
+ 	wantedSpeed = 0;
+-	// SetDeltaSpeed();
+ }
+ 
+ 
+-/*
+-Called when the unit arrives at it's waypoint.
+-*/
++/* Called when the unit arrives at its waypoint. */
+ void CGroundMoveType::Arrived()
+ {
+-	//Can only &quot;arrive&quot; if the engine is active.
+-	if(progressState == Active) {
+-		//Have reached waypoint.
++	// can only &quot;arrive&quot; if the engine is active
++	if (progressState == Active) {
++		// we have reached our waypoint
+ 		atGoal = true;
+ 
+ 		StopEngine();
+ 
+-		// Play &quot;arrived&quot; sound.
+ 		ENTER_UNSYNCED;
+ 		if (owner-&gt;team == gu-&gt;myTeam) {
+ 			int soundIdx = owner-&gt;unitDef-&gt;sounds.arrived.getRandomIdx();
+@@ -1325,11 +1330,11 @@
+ 		}
+ 		ENTER_SYNCED;
+ 
+-		//And the action is done.
++		// and the action is done
+ 		progressState = Done;
+ 		owner-&gt;commandAI-&gt;SlowUpdate();
+ 
+-		if(DEBUG_CONTROLLER)
++		if (DEBUG_CONTROLLER)
+ 			logOutput &lt;&lt; &quot;Unit arrived!\n&quot;;
+ 	}
+ }
+@@ -1340,7 +1345,7 @@
+ */
+ void CGroundMoveType::Fail()
+ {
+-	if(DEBUG_CONTROLLER)
++	if (DEBUG_CONTROLLER)
+ 		logOutput.Print(&quot;Unit failed! %i&quot;,owner-&gt;id);
+ 
+ 	StopEngine();
+@@ -1843,22 +1848,26 @@
+ void CGroundMoveType::KeepPointingTo(float3 pos, float distance, bool aggressive){
+ 	mainHeadingPos = pos;
+ 	useMainHeading = aggressive;
+-	if(useMainHeading &amp;&amp; !owner-&gt;weapons.empty()){
+-		if(!owner-&gt;weapons[0]-&gt;weaponDef-&gt;waterweapon &amp;&amp; mainHeadingPos.y &lt;= 1){
++
++	if (useMainHeading &amp;&amp; !owner-&gt;weapons.empty()) {
++		if (!owner-&gt;weapons[0]-&gt;weaponDef-&gt;waterweapon &amp;&amp; mainHeadingPos.y &lt;= 1) {
+ 			mainHeadingPos.y = 1;
+ 		}
++
+ 		float3 dir1 = owner-&gt;weapons.front()-&gt;mainDir;
+ 		dir1.y = 0;
+ 		dir1.Normalize();
+-		float3 dir2 = mainHeadingPos-owner-&gt;pos;
++		float3 dir2 = mainHeadingPos - owner-&gt;pos;
+ 		dir2.y = 0;
+ 		dir2.Normalize();
+-		if(dir2 != ZeroVector){
+-			short heading = GetHeadingFromVector(dir2.x,dir2.z)
+-				- GetHeadingFromVector(dir1.x,dir1.z);
+-			if(owner-&gt;heading != heading
++
++		if (dir2 != ZeroVector) {
++			short heading =
++				GetHeadingFromVector(dir2.x, dir2.z) -
++				GetHeadingFromVector(dir1.x,dir1.z);
++			if (owner-&gt;heading != heading
+ 					&amp;&amp; !(owner-&gt;weapons.front()-&gt;TryTarget(
+-					mainHeadingPos, true, 0))){
++					mainHeadingPos, true, 0))) {
+ 				progressState = Active;
+ 			}
+ 		}
+@@ -1868,22 +1877,27 @@
+ void CGroundMoveType::KeepPointingTo(CUnit* unit, float distance, bool aggressive){
+ 	mainHeadingPos = unit-&gt;pos;
+ 	useMainHeading = aggressive;
+-	if(useMainHeading
++
++	if (useMainHeading
+ 			&amp;&amp; !owner-&gt;weapons.empty()
+ 			&amp;&amp; (this-owner-&gt;weapons[0]-&gt;weaponDef-&gt;waterweapon
+-			|| mainHeadingPos.y &gt;= 0)){
++			|| mainHeadingPos.y &gt;= 0)) {
++
+ 		float3 dir1 = owner-&gt;weapons.front()-&gt;mainDir;
+ 		dir1.y = 0;
+ 		dir1.Normalize();
+-		float3 dir2 = mainHeadingPos-owner-&gt;pos;
++		float3 dir2 = mainHeadingPos - owner-&gt;pos;
+ 		dir2.y = 0;
+ 		dir2.Normalize();
+-		if(dir2 != ZeroVector){
+-			short heading = GetHeadingFromVector(dir2.x,dir2.z)
+-				- GetHeadingFromVector(dir1.x,dir1.z);
+-			if(owner-&gt;heading != heading
++
++		if (dir2 != ZeroVector) {
++			short heading =
++				GetHeadingFromVector(dir2.x, dir2.z) -
++				GetHeadingFromVector(dir1.x, dir1.z);
++
++			if (owner-&gt;heading != heading
+ 					&amp;&amp; !(owner-&gt;weapons.front()-&gt;TryTarget(
+-					mainHeadingPos, true, 0))){
++					mainHeadingPos, true, 0))) {
+ 				progressState = Active;
+ 			}
+ 		}
+
+Modified: trunk/rts/Sim/Units/UnitDef.h
+===================================================================
+--- trunk/rts/Sim/Units/UnitDef.h	2008-08-05 20:44:04 UTC (rev 6234)
++++ trunk/rts/Sim/Units/UnitDef.h	2008-08-06 09:54:48 UTC (rev 6235)
+@@ -136,6 +136,7 @@
+ 
+ 	float speed;
+ 	float turnRate;
++	bool turnInPlace;
+ 	int moveType;
+ 	bool upright;
+ 	bool collide;
+
+Modified: trunk/rts/Sim/Units/UnitDefHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-08-05 20:44:04 UTC (rev 6234)
++++ trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-08-06 09:54:48 UTC (rev 6235)
+@@ -374,9 +374,11 @@
+ 
+ 	ud.speed    = udTable.GetFloat(&quot;maxVelocity&quot;,  0.0f) * 30.0f;
+ 	ud.maxAcc   = fabs(udTable.GetFloat(&quot;acceleration&quot;, 0.5f)); // no negative values
+-	ud.maxDec   = fabs(udTable.GetFloat(&quot;brakeRate&quot;,    3.0f*ud.maxAcc)) * (ud.canfly ? 0.1f : 1.f); // no negative values
+-	ud.turnRate = udTable.GetFloat(&quot;turnRate&quot;,     0.0f);
++	ud.maxDec   = fabs(udTable.GetFloat(&quot;brakeRate&quot;,    3.0f * ud.maxAcc)) * (ud.canfly? 0.1f: 1.0f); // no negative values
+ 
++	ud.turnRate    = udTable.GetFloat(&quot;turnRate&quot;,     0.0f);
++	ud.turnInPlace = udTable.GetBool( &quot;turnInPlace&quot;,  true);
++
+ 	bool noAutoFire  = udTable.GetBool(&quot;noAutoFire&quot;,  false);
+ 	ud.canFireControl = udTable.GetBool(&quot;canFireControl&quot;, !noAutoFire);
+ 	ud.fireState = udTable.GetInt(&quot;fireState&quot;, ud.canFireControl ? -1 : 2);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001014.html">[Taspring-linux-commit] r6234 - trunk/rts/Game
+</A></li>
+	<LI>Next message: <A HREF="001016.html">[Taspring-linux-commit] r6236 - trunk/rts/Sim/MoveTypes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1015">[ date ]</a>
+              <a href="thread.html#1015">[ thread ]</a>
+              <a href="subject.html#1015">[ subject ]</a>
+              <a href="author.html#1015">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

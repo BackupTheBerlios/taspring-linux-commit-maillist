@@ -1,0 +1,304 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5441 - in trunk: rts/Game rts/System	tools/DedicatedServer
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5441%20-%20in%20trunk%3A%20rts/Game%20rts/System%0A%09tools/DedicatedServer&In-Reply-To=%3CE1JL4Hn-0005yx-KU%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000247.html">
+   <LINK REL="Next"  HREF="000249.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5441 - in trunk: rts/Game rts/System	tools/DedicatedServer</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5441%20-%20in%20trunk%3A%20rts/Game%20rts/System%0A%09tools/DedicatedServer&In-Reply-To=%3CE1JL4Hn-0005yx-KU%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5441 - in trunk: rts/Game rts/System	tools/DedicatedServer">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Feb  1 23:23:03 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000247.html">[Taspring-linux-commit] r5440 - in trunk/Lobby/AFLobby: . nbproject	nbproject/private src/aflobby src/aflobby/UI	src/aflobby/UI/battle src/aflobby/protocol/tasserver
+</A></li>
+        <LI>Next message: <A HREF="000249.html">[Taspring-linux-commit] r5442 - in trunk/Lobby/AFLobby/src/aflobby:	. UI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#248">[ date ]</a>
+              <a href="thread.html#248">[ thread ]</a>
+              <a href="subject.html#248">[ subject ]</a>
+              <a href="author.html#248">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-02-01 23:23:02 +0100 (Fri, 01 Feb 2008)
+New Revision: 5441
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/GameSetup.cpp
+   trunk/rts/Game/PreGame.cpp
+   trunk/rts/Game/Team.cpp
+   trunk/rts/System/GlobalStuff.cpp
+   trunk/tools/DedicatedServer/CMakeLists.txt
+   trunk/tools/DedicatedServer/GameSetup.cpp
+   trunk/tools/DedicatedServer/GameSetup.h
+Log:
+* dedicated server builds again
+* removed unsynced random number generator from GameSetup.cpp
+
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-02-01 22:11:06 UTC (rev 5440)
++++ trunk/rts/Game/Game.cpp	2008-02-01 22:23:02 UTC (rev 5441)
+@@ -3211,7 +3211,10 @@
+ 					}
+ 					case TEAMMSG_JOIN_TEAM: {
+ 						//TODO is this enought?
+-						gs-&gt;players[player]-&gt;team = int(inbuf[3]);
++						int newTeam = int(inbuf[3]);
++						gs-&gt;players[player]-&gt;team = newTeam;
++						if (gs-&gt;Team(newTeam)-&gt;leader == -1)
++							gs-&gt;Team(newTeam)-&gt;leader = player;
+ 						break;
+ 					}
+ 					default: {
+@@ -3833,11 +3836,8 @@
+ 	}
+ #endif
+ 	else if ((s == &quot;.spectator&quot;) &amp;&amp; (gs-&gt;cheatEnabled || net-&gt;localDemoPlayback)) {
+-		gs-&gt;players[player]-&gt;spectator=true;
++		gs-&gt;players[player]-&gt;StartSpectating();
+ 		if (player == gu-&gt;myPlayerNum) {
+-			gu-&gt;spectating           = true;
+-			gu-&gt;spectatingFullView   = true;
+-			gu-&gt;spectatingFullSelect = true;
+ 			selectedUnits.ClearSelected();
+ 			unitTracker.Disable();
+ 			CLuaUI::UpdateTeams();
+
+Modified: trunk/rts/Game/GameSetup.cpp
+===================================================================
+--- trunk/rts/Game/GameSetup.cpp	2008-02-01 22:11:06 UTC (rev 5440)
++++ trunk/rts/Game/GameSetup.cpp	2008-02-01 22:23:02 UTC (rev 5441)
+@@ -2,8 +2,6 @@
+ #include &lt;algorithm&gt;
+ #include &lt;cctype&gt;
+ #include &quot;GameSetup.h&quot;
+-#include &quot;GameVersion.h&quot;
+-#include &quot;LogOutput.h&quot;
+ #include &quot;Player.h&quot;
+ #include &quot;TdfParser.h&quot;
+ #include &quot;Team.h&quot;
+@@ -16,6 +14,7 @@
+ #include &quot;Lua/LuaParser.h&quot;
+ #include &quot;Map/ReadMap.h&quot;
+ #include &quot;Rendering/Textures/TAPalette.h&quot;
++#include &quot;System/UnsyncedRNG.h&quot;
+ 
+ 
+ using namespace std;
+@@ -52,17 +51,6 @@
+ 	return ret;
+ }
+ 
+-/** @brief random number generator function object for use with std::random_shuffle
+- * @todo we could use UnsyncedRNG here 
+- * */
+-struct UnsyncedRandomNumberGenerator {
+-	/** @brief returns a random number in the range [0, n) */
+-	int operator()(int n) {
+-		// a simple gu-&gt;usRandInt() % n isn't random enough
+-		return gu-&gt;usRandInt() * n / (RANDINT_MAX + 1);
+-	}
+-};
+-
+ /**
+ @brief Determine if the map is inside an archive, and possibly map needed archives
+ @pre mapName initialized
+@@ -141,7 +129,7 @@
+ 
+ 	if (startPosType == StartPos_Random) {
+ 		// Server syncs these later, so we can use unsynced rng
+-		UnsyncedRandomNumberGenerator rng;
++		UnsyncedRNG rng;
+ 		std::random_shuffle(&amp;teamStartNum[0], &amp;teamStartNum[numTeams], rng);
+ 	}
+ 
+@@ -187,9 +175,6 @@
+ void CGameSetup::LoadPlayers(const TdfParser&amp; file)
+ {
+ 	numDemoPlayers = 0;
+-	for (int a = 0; a &lt; MAX_PLAYERS; a++) {
+-		gs-&gt;players[a]-&gt;team = 0; //needed in case one tries to spec a game with only one team
+-	}
+ 	// i = player index in game (no gaps), a = player index in script
+ 	int i = 0;
+ 	for (int a = 0; a &lt; MAX_PLAYERS; ++a) {
+
+Modified: trunk/rts/Game/PreGame.cpp
+===================================================================
+--- trunk/rts/Game/PreGame.cpp	2008-02-01 22:11:06 UTC (rev 5440)
++++ trunk/rts/Game/PreGame.cpp	2008-02-01 22:23:02 UTC (rev 5441)
+@@ -518,7 +518,10 @@
+ 					}
+ 					case TEAMMSG_JOIN_TEAM: {
+ 						//TODO is this enought?
+-						gs-&gt;players[player]-&gt;team = int(inbuf[3]);
++						int newTeam = int(inbuf[3]);
++						gs-&gt;players[player]-&gt;team = newTeam;
++						if (gs-&gt;Team(newTeam)-&gt;leader == -1)
++							gs-&gt;Team(newTeam)-&gt;leader = player;
+ 						break;
+ 					}
+ 					default: {
+
+Modified: trunk/rts/Game/Team.cpp
+===================================================================
+--- trunk/rts/Game/Team.cpp	2008-02-01 22:11:06 UTC (rev 5440)
++++ trunk/rts/Game/Team.cpp	2008-02-01 22:23:02 UTC (rev 5441)
+@@ -128,7 +128,7 @@
+ 	luaAI(&quot;&quot;),
+ 	startPos(100,100,100),
+ 	handicap(1),
+-	leader(0),
++	leader(-1),
+ 	lineageRoot(-1),
+ 	isDead(false),
+ 	lastStatSave(0),
+
+Modified: trunk/rts/System/GlobalStuff.cpp
+===================================================================
+--- trunk/rts/System/GlobalStuff.cpp	2008-02-01 22:11:06 UTC (rev 5440)
++++ trunk/rts/System/GlobalStuff.cpp	2008-02-01 22:23:02 UTC (rev 5441)
+@@ -108,17 +108,17 @@
+ 	sunVector4[2]=1;
+ 	sunVector4[3]=0;
+ 
+-	for(int a=0;a&lt;MAX_TEAMS;a++){
++	for(int a=0; a &lt; MAX_TEAMS; ++a){
+ 		teams[a]=SAFE_NEW CTeam();
+ 		teams[a]-&gt;teamNum=a;
+ 		team2allyteam[a]=a;
+ 	}
+-	for(int a=0;a&lt;MAX_PLAYERS;a++){
++	for(int a=0; a &lt; MAX_PLAYERS; ++a){
+ 		players[a]=SAFE_NEW CPlayer();
+-		players[a]-&gt;team=(a%2);
++		players[a]-&gt;team=0;
+ 	}
+ 
+-	for(int a=0;a&lt;MAX_TEAMS;++a){
++	for(int a=0; a &lt; MAX_TEAMS; ++a){
+ 		for(int b=0;b&lt;MAX_TEAMS;++b){
+ 			allies[a][b]=false;
+ 		}
+
+Modified: trunk/tools/DedicatedServer/CMakeLists.txt
+===================================================================
+--- trunk/tools/DedicatedServer/CMakeLists.txt	2008-02-01 22:11:06 UTC (rev 5440)
++++ trunk/tools/DedicatedServer/CMakeLists.txt	2008-02-01 22:23:02 UTC (rev 5441)
+@@ -1,12 +1,17 @@
+-PROJECT(DedicatedServer)
+-SET(CMAKE_CXX_FLAGS &quot;-g -O1 -Wall&quot;)
++FIND_PACKAGE(SDL REQUIRED)
++INCLUDE_DIRECTORIES(${SDL_INCLUDE_DIR})
++
++FIND_PACKAGE(Boost REQUIRED)
++
++SET(CMAKE_CXX_FLAGS_DEBUG &quot;-g -O1 -Wall -DDEBUG -D_DEBUG&quot;)
++SET(CMAKE_CXX_FLAGS_RELEASE &quot;-O2 -march=i686 -msse&quot;)
++
+ ADD_DEFINITIONS(-DDEBUG -D_SZ_ONE_DIRECTORY -DNO_AVI -DDEDICATED -DSYNCCHECK )
+-find_package(SDL REQUIRED)
+ 
+ AUX_SOURCE_DIRECTORY(../../rts/System/Net/ netfiles)
+ ADD_LIBRARY(net SHARED  ${netfiles})
+ TARGET_LINK_LIBRARIES(net SDL boost_thread)
+-INCLUDE_DIRECTORIES(../../rts/System/Net/ /usr/include/SDL/)
++INCLUDE_DIRECTORIES(../../rts/System/Net/)
+ 
+ AUX_SOURCE_DIRECTORY(../../rts/lib/7zip 7zipfiles)
+ ADD_LIBRARY(7zip SHARED  ${7zipfiles})
+
+Modified: trunk/tools/DedicatedServer/GameSetup.cpp
+===================================================================
+--- trunk/tools/DedicatedServer/GameSetup.cpp	2008-02-01 22:11:06 UTC (rev 5440)
++++ trunk/tools/DedicatedServer/GameSetup.cpp	2008-02-01 22:23:02 UTC (rev 5441)
+@@ -21,12 +21,6 @@
+ 
+ using namespace std;
+ 
+-extern string stupidGlobalMapname;
+-
+-
+-CGameSetup* gameSetup = NULL;
+-
+-
+ CGameSetup::CGameSetup()
+ {
+ }
+@@ -185,7 +179,6 @@
+ void CGameSetup::LoadPlayers(const TdfParser&amp; file)
+ {
+ 	numDemoPlayers = 0;
+-
+ 	// i = player index in game (no gaps), a = player index in script
+ 	int i = 0;
+ 	for (int a = 0; a &lt; MAX_PLAYERS; ++a) {
+@@ -230,9 +223,9 @@
+ 			continue;
+ 
+ 		// Get default color from palette (based on &quot;color&quot; tag)
+-		int colorNum = atoi(file.SGetValueDef(&quot;0&quot;, s + &quot;color&quot;).c_str());
+-		colorNum %= palette.NumTeamColors();
+-		float3 defaultCol(palette.teamColor[colorNum][0] / 255.0f, palette.teamColor[colorNum][1] / 255.0f, palette.teamColor[colorNum][2] / 255.0f);
++		// int colorNum = atoi(file.SGetValueDef(&quot;0&quot;, s + &quot;color&quot;).c_str());
++		// colorNum %= palette.NumTeamColors();
++		// float3 defaultCol(palette.teamColor[colorNum][0] / 255.0f, palette.teamColor[colorNum][1] / 255.0f, palette.teamColor[colorNum][2] / 255.0f);
+ 
+ 		const string aiDll = file.SGetValueDef(&quot;&quot;, s + &quot;aidll&quot;);
+ 		if (aiDll.substr(0, 6) == &quot;LuaAI:&quot;) {
+
+Modified: trunk/tools/DedicatedServer/GameSetup.h
+===================================================================
+--- trunk/tools/DedicatedServer/GameSetup.h	2008-02-01 22:11:06 UTC (rev 5440)
++++ trunk/tools/DedicatedServer/GameSetup.h	2008-02-01 22:23:02 UTC (rev 5441)
+@@ -34,6 +34,4 @@
+ 	void RemapAllyteams();
+ };
+ 
+-extern CGameSetup* gameSetup;
+-
+ #endif // __GAME_SETUP_H__
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000247.html">[Taspring-linux-commit] r5440 - in trunk/Lobby/AFLobby: . nbproject	nbproject/private src/aflobby src/aflobby/UI	src/aflobby/UI/battle src/aflobby/protocol/tasserver
+</A></li>
+	<LI>Next message: <A HREF="000249.html">[Taspring-linux-commit] r5442 - in trunk/Lobby/AFLobby/src/aflobby:	. UI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#248">[ date ]</a>
+              <a href="thread.html#248">[ thread ]</a>
+              <a href="subject.html#248">[ subject ]</a>
+              <a href="author.html#248">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

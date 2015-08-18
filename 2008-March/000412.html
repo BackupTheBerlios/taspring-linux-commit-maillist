@@ -1,0 +1,1593 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5631 - in trunk/rts: Lua	Rendering/UnitModels Sim/Features Sim/Objects Sim/Units
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-March/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5631%20-%20in%20trunk/rts%3A%20Lua%0A%09Rendering/UnitModels%20Sim/Features%20Sim/Objects%20Sim/Units&In-Reply-To=%3C20080331145053.4DB59464E%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000411.html">
+   <LINK REL="Next"  HREF="000413.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5631 - in trunk/rts: Lua	Rendering/UnitModels Sim/Features Sim/Objects Sim/Units</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5631%20-%20in%20trunk/rts%3A%20Lua%0A%09Rendering/UnitModels%20Sim/Features%20Sim/Objects%20Sim/Units&In-Reply-To=%3C20080331145053.4DB59464E%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5631 - in trunk/rts: Lua	Rendering/UnitModels Sim/Features Sim/Objects Sim/Units">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon Mar 31 16:50:53 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000411.html">[Taspring-linux-commit] r5630 - trunk/rts/Game
+</A></li>
+        <LI>Next message: <A HREF="000413.html">[Taspring-linux-commit] r5632 - in trunk/rts/Sim/Units: . CommandAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#412">[ date ]</a>
+              <a href="thread.html#412">[ thread ]</a>
+              <a href="subject.html#412">[ subject ]</a>
+              <a href="author.html#412">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-03-31 16:50:52 +0200 (Mon, 31 Mar 2008)
+New Revision: 5631
+
+Modified:
+   trunk/rts/Lua/LuaOpenGL.cpp
+   trunk/rts/Rendering/UnitModels/UnitDrawer.cpp
+   trunk/rts/Rendering/UnitModels/UnitDrawer.h
+   trunk/rts/Sim/Features/Feature.cpp
+   trunk/rts/Sim/Features/Feature.h
+   trunk/rts/Sim/Features/FeatureHandler.cpp
+   trunk/rts/Sim/Objects/SolidObject.cpp
+   trunk/rts/Sim/Objects/SolidObject.h
+   trunk/rts/Sim/Objects/WorldObject.h
+   trunk/rts/Sim/Units/Unit.cpp
+   trunk/rts/Sim/Units/Unit.h
+Log:
+factor out all the Draw*() OGL functions from CUnit
+and place them in CUnitDrawer as pseudo-statics that
+operate on a CUnit instance (cleaner code, but maybe
+not as observant of OO principles)
+
+
+Modified: trunk/rts/Lua/LuaOpenGL.cpp
+===================================================================
+--- trunk/rts/Lua/LuaOpenGL.cpp	2008-03-31 11:14:13 UTC (rev 5630)
++++ trunk/rts/Lua/LuaOpenGL.cpp	2008-03-31 14:50:52 UTC (rev 5631)
+@@ -1300,11 +1300,11 @@
+ 
+ 	if (rawDraw) {
+ 		if (useLOD) {
+-			unit-&gt;DrawRaw();
++			unitDrawer-&gt;DrawUnitRaw(unit);
+ 		} else {
+ 			const unsigned int origLodCount = unit-&gt;lodCount;
+ 			unit-&gt;lodCount = 0;
+-			unit-&gt;DrawRaw();
++			unitDrawer-&gt;DrawUnitRaw(unit);
+ 			unit-&gt;lodCount = origLodCount;
+ 		}
+ 	}
+@@ -1361,11 +1361,12 @@
+ 
+ 	if (rawDraw) {
+ 		if (useLOD) {
+-			unit-&gt;DrawRawModel();
++			unitDrawer-&gt;DrawUnitRawModel(unit);
+ 		} else {
+ 			const unsigned int origLodCount = unit-&gt;lodCount;
+ 			unit-&gt;lodCount = 0;
+-			unit-&gt;DrawRawModel(); // transformation is not applied
++			// transformation is not applied
++			unitDrawer-&gt;DrawUnitRawModel(unit);
+ 			unit-&gt;lodCount = origLodCount;
+ 		}
+ 	}
+@@ -1420,7 +1421,7 @@
+ 	if (unit == NULL) {
+ 		return 0;
+ 	}
+-	unit-&gt;ApplyTransformMatrix();
++	unitDrawer-&gt;ApplyUnitTransformMatrix(unit);
+ 	return 0;
+ }
+ 
+
+Modified: trunk/rts/Rendering/UnitModels/UnitDrawer.cpp
+===================================================================
+--- trunk/rts/Rendering/UnitModels/UnitDrawer.cpp	2008-03-31 11:14:13 UTC (rev 5630)
++++ trunk/rts/Rendering/UnitModels/UnitDrawer.cpp	2008-03-31 14:50:52 UTC (rev 5631)
+@@ -10,6 +10,7 @@
+ #include &quot;Game/Team.h&quot;
+ #include &quot;Lua/LuaMaterial.h&quot;
+ #include &quot;Lua/LuaUnitMaterial.h&quot;
++#include &quot;Lua/LuaRules.h&quot;
+ #include &quot;Map/BaseGroundDrawer.h&quot;
+ #include &quot;Map/Ground.h&quot;
+ #include &quot;Map/ReadMap.h&quot;
+@@ -17,6 +18,7 @@
+ #include &quot;Rendering/Env/BaseSky.h&quot;
+ #include &quot;Rendering/Env/BaseWater.h&quot;
+ #include &quot;Rendering/FartextureHandler.h&quot;
++#include &quot;Rendering/glFont.h&quot;
+ #include &quot;Rendering/GL/myGL.h&quot;
+ #include &quot;Rendering/GL/VertexArray.h&quot;
+ #include &quot;Rendering/GroundDecalHandler.h&quot;
+@@ -24,6 +26,10 @@
+ #include &quot;Rendering/ShadowHandler.h&quot;
+ #include &quot;Rendering/Textures/Bitmap.h&quot;
+ #include &quot;Rendering/Textures/TextureHandler.h&quot;
++
++#include &quot;ExternalAI/Group.h&quot;
++#include &quot;Sim/Features/Feature.h&quot;
++#include &quot;Sim/Misc/CollisionVolume.h&quot;
+ #include &quot;Sim/Misc/LosHandler.h&quot;
+ #include &quot;Sim/Misc/RadarHandler.h&quot;
+ #include &quot;Sim/Units/CommandAI/BuilderCAI.h&quot;
+@@ -31,16 +37,14 @@
+ #include &quot;Sim/Units/UnitDefHandler.h&quot;
+ #include &quot;Sim/Units/Unit.h&quot;
+ #include &quot;Sim/Units/UnitHandler.h&quot;
++#include &quot;Sim/Units/UnitTypes/TransportUnit.h&quot;
++#include &quot;Sim/Weapons/Weapon.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
+ 
+ CUnitDrawer* unitDrawer;
+-using namespace std;
+-
+-
+ static bool luaDrawing = false; // FIXME
+ 
+-
+ static float GetLODFloat(const string&amp; name, float def)
+ {
+ 	// NOTE: the inverse of the value is used
+@@ -60,7 +64,7 @@
+ :	showHealthBars(true),
+ 	updateFace(0)
+ {
+-	if (texturehandler == 0) { 
++	if (texturehandler == 0) {
+ 		texturehandler = SAFE_NEW CTextureHandler;
+ 	}
+ 
+@@ -96,8 +100,7 @@
+ 		advShading = false;
+ 	}
+ 
+-	if (advShading)
+-	{
++	if (advShading) {
+ 		unitVP = LoadVertexProgram(&quot;unit.vp&quot;);
+ 		unitFP = LoadFragmentProgram(&quot;unit.fp&quot;);
+ 		unitS3oVP = LoadVertexProgram(&quot;units3o.vp&quot;);
+@@ -113,19 +116,19 @@
+ 			unitShadowGenVP = 0;
+ 		}
+ 
+-		glGenTextures(1,&amp;boxtex);
++		glGenTextures(1, &amp;boxtex);
+ 		glBindTexture(GL_TEXTURE_CUBE_MAP_ARB, boxtex);
+ 		glTexParameteri(GL_TEXTURE_CUBE_MAP_EXT, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+ 		glTexParameteri(GL_TEXTURE_CUBE_MAP_EXT, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+ 		glTexParameteri(GL_TEXTURE_CUBE_MAP_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+ 		glTexParameteri(GL_TEXTURE_CUBE_MAP_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+ 
+-		glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X_ARB,0,GL_RGBA8,reflTexSize,reflTexSize,0,GL_RGBA,GL_UNSIGNED_BYTE,0);
+-		glTexImage2D(GL_TEXTURE_CUBE_MAP_NEGATIVE_X_ARB,0,GL_RGBA8,reflTexSize,reflTexSize,0,GL_RGBA,GL_UNSIGNED_BYTE,0);
+-		glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_Y_ARB,0,GL_RGBA8,reflTexSize,reflTexSize,0,GL_RGBA,GL_UNSIGNED_BYTE,0);
+-		glTexImage2D(GL_TEXTURE_CUBE_MAP_NEGATIVE_Y_ARB,0,GL_RGBA8,reflTexSize,reflTexSize,0,GL_RGBA,GL_UNSIGNED_BYTE,0);
+-		glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_Z_ARB,0,GL_RGBA8,reflTexSize,reflTexSize,0,GL_RGBA,GL_UNSIGNED_BYTE,0);
+-		glTexImage2D(GL_TEXTURE_CUBE_MAP_NEGATIVE_Z_ARB,0,GL_RGBA8,reflTexSize,reflTexSize,0,GL_RGBA,GL_UNSIGNED_BYTE,0);
++		glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X_ARB, 0, GL_RGBA8, reflTexSize, reflTexSize, 0, GL_RGBA,GL_UNSIGNED_BYTE, 0);
++		glTexImage2D(GL_TEXTURE_CUBE_MAP_NEGATIVE_X_ARB, 0, GL_RGBA8, reflTexSize, reflTexSize, 0, GL_RGBA,GL_UNSIGNED_BYTE, 0);
++		glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_Y_ARB, 0, GL_RGBA8, reflTexSize, reflTexSize, 0, GL_RGBA,GL_UNSIGNED_BYTE, 0);
++		glTexImage2D(GL_TEXTURE_CUBE_MAP_NEGATIVE_Y_ARB, 0, GL_RGBA8, reflTexSize, reflTexSize, 0, GL_RGBA,GL_UNSIGNED_BYTE, 0);
++		glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_Z_ARB, 0, GL_RGBA8, reflTexSize, reflTexSize, 0, GL_RGBA,GL_UNSIGNED_BYTE, 0);
++		glTexImage2D(GL_TEXTURE_CUBE_MAP_NEGATIVE_Z_ARB, 0, GL_RGBA8, reflTexSize, reflTexSize, 0, GL_RGBA,GL_UNSIGNED_BYTE, 0);
+ 
+ 		glGenTextures(1,&amp;specularTex);
+ 		glBindTexture(GL_TEXTURE_CUBE_MAP_ARB, specularTex);
+@@ -230,7 +233,7 @@
+ 			if (unit-&gt;model-&gt;textureType) {
+ 				QueS3ODraw(unit, unit-&gt;model-&gt;textureType);
+ 			} else {
+-				unit-&gt;Draw();
++				DrawUnitNow(unit);
+ 			}
+ 		}
+ 	}
+@@ -254,7 +257,7 @@
+ 		if (unit-&gt;isCloaked) {
+ 			drawCloaked.push_back(unit);
+ 		} else {
+-			unit-&gt;Draw();
++			DrawUnitNow(unit);
+ 		}
+ 	}
+ }
+@@ -425,7 +428,7 @@
+ 		}
+ 		glDisable(GL_TEXTURE_2D);
+ 		for (ui = drawStat.begin(); ui != drawStat.end(); ++ui) {
+-			(*ui)-&gt;DrawStats();
++			DrawUnitStats(*ui);
+ 		}
+ 	}
+ 	glDisable(GL_TEXTURE_2D);
+@@ -462,8 +465,9 @@
+ 			const LuaUnitLODMaterial* lodMat = unitMat.GetMaterial(unit-&gt;currentLOD);
+ 
+ 			lodMat-&gt;uniforms.Execute(unit);
++			// we are inside a static function, so must invoke on unitDrawer instance
+ 			unitDrawer-&gt;SetS3OTeamColour(unit-&gt;team);
+-			unit-&gt;DrawWithLists(lodMat-&gt;preDisplayList, lodMat-&gt;postDisplayList);
++			unitDrawer-&gt;DrawUnitWithLists(unit, lodMat-&gt;preDisplayList, lodMat-&gt;postDisplayList);
+ 		}
+ 	}
+ 
+@@ -601,7 +605,7 @@
+ 				if (sqDist &lt; realIconLength) {
+ 					if (!unit-&gt;isCloaked) {
+ 						if (unit-&gt;lodCount &lt;= 0) {
+-							unit-&gt;Draw();
++							DrawUnitNow(unit);
+ 						} else {
+ 							LuaUnitMaterial&amp; unitMat = unit-&gt;luaMats[LUAMAT_SHADOW];
+ 							const unsigned lod = unit-&gt;CalcLOD(unitMat.GetLastLOD());
+@@ -611,7 +615,7 @@
+ 							if ((lodMat != NULL) &amp;&amp; lodMat-&gt;IsActive()) {
+ 								lodMat-&gt;AddUnit(unit);
+ 							} else {
+-								unit-&gt;Draw();
++								DrawUnitNow(unit);
+ 							}
+ 						}
+ 					}
+@@ -839,7 +843,7 @@
+ 				SetBasicS3OTeamColour(unit-&gt;team);
+ 				texturehandler-&gt;SetS3oTexture(unit-&gt;model-&gt;textureType);
+ 			}
+-			unit-&gt;Draw();
++			DrawUnitNow(unit);
+ 		} else {
+ 			// ghosted enemy units
+ 			if (unit-&gt;losStatus[gu-&gt;myAllyTeam] &amp; LOS_CONTRADAR)
+@@ -1463,7 +1467,7 @@
+ }
+ 
+ 
+-void CUnitDrawer::QueS3ODraw(CWorldObject* object,int textureType)
++void CUnitDrawer::QueS3ODraw(CWorldObject* object, int textureType)
+ {
+ 	while (quedS3Os.size() &lt;= textureType)
+ 		quedS3Os.push_back(std::vector&lt;CWorldObject*&gt;());
+@@ -1476,14 +1480,18 @@
+ void CUnitDrawer::DrawQuedS3O(void)
+ {
+ 	SetupForS3ODrawing();
++
+ 	for (std::set&lt;int&gt;::iterator uti = usedS3OTextures.begin(); uti != usedS3OTextures.end(); ++uti) {
+ 		const int tex = *uti;
+ 		texturehandler-&gt;SetS3oTexture(tex);
+-		for(std::vector&lt;CWorldObject*&gt;::iterator ui = quedS3Os[tex].begin(); ui != quedS3Os[tex].end(); ++ui){
+-			(*ui)-&gt;DrawS3O();
++
++		for (std::vector&lt;CWorldObject*&gt;::iterator ui = quedS3Os[tex].begin(); ui != quedS3Os[tex].end(); ++ui){
++			DrawWorldObjectS3O(*ui);
+ 		}
++
+ 		quedS3Os[tex].clear();
+ 	}
++
+ 	usedS3OTextures.clear();
+ 	CleanUpS3ODrawing();
+ }
+@@ -1497,7 +1505,7 @@
+  * Note: does all the GL state setting for that one unit, so you might want
+  * something else for drawing many units.
+  */
+-void CUnitDrawer::DrawIndividual(CUnit * unit)
++void CUnitDrawer::DrawIndividual(CUnit* unit)
+ {
+ 	const bool origDebug = gu-&gt;drawdebug;
+ 	gu-&gt;drawdebug = false;
+@@ -1525,14 +1533,14 @@
+ 
+ 		lodMat-&gt;uniforms.Execute(unit);
+ 		SetS3OTeamColour(unit-&gt;team);
+-		unit-&gt;DrawRawWithLists(lodMat-&gt;preDisplayList, lodMat-&gt;postDisplayList);
++		DrawUnitRawWithLists(unit, lodMat-&gt;preDisplayList, lodMat-&gt;postDisplayList);
+ 
+ 		LuaMaterial::defMat.Execute(mat);
+ 	}
+ 	else if (unit-&gt;model-&gt;textureType == 0){
+ 		/* 3DO */
+ 		SetupForUnitDrawing();
+-		unit-&gt;DrawRaw();
++		DrawUnitRaw(unit);
+ 		CleanUpUnitDrawing();
+ 	}
+ 	else {
+@@ -1540,7 +1548,7 @@
+ 		SetupForS3ODrawing();
+ 		texturehandler-&gt;SetS3oTexture(unit-&gt;model-&gt;textureType);
+ 		SetS3OTeamColour(unit-&gt;team);
+-		unit-&gt;DrawRaw();
++		DrawUnitRaw(unit);
+ 		CleanUpS3ODrawing();
+ 	}
+ 
+@@ -1678,3 +1686,360 @@
+ 
+ 	glPopAttrib();
+ }
++
++
++
++
++
++
++inline void CUnitDrawer::DrawUnitDebug(CUnit* unit)
++{
++	// draw the collision volume
++	if (gu-&gt;drawdebug) {
++		glPushMatrix();
++		glTranslatef3((unit-&gt;frontdir * unit-&gt;relMidPos.z) +
++					  (unit-&gt;updir    * unit-&gt;relMidPos.y) +
++					  (unit-&gt;rightdir * unit-&gt;relMidPos.x));
++		GLUquadricObj* q = gluNewQuadric();
++		gluQuadricDrawStyle(q, GLU_LINE);
++
++		CCollisionVolume* vol = unit-&gt;unitDef-&gt;collisionVolume;
++
++		switch (vol-&gt;GetVolumeType()) {
++			case COLVOL_TYPE_ELLIPSOID: {
++				// scaled sphere: radius, slices, stacks
++				glTranslatef(vol-&gt;GetOffset(0), vol-&gt;GetOffset(1), vol-&gt;GetOffset(2));
++				glScalef(vol-&gt;GetHScale(0), vol-&gt;GetHScale(1), vol-&gt;GetHScale(2));
++				gluSphere(q, 1.0f, 20, 20);
++			} break;
++			case COLVOL_TYPE_CYLINDER: {
++				// scaled cylinder: base-radius, top-radius, height, slices, stacks
++				//
++				// (cylinder base is drawn at unit center by default so add offset
++				// by half major axis to visually match the mathematical situation,
++				// height of the cylinder equals the unit's full major axis)
++				switch (vol-&gt;GetPrimaryAxis()) {
++					case COLVOL_AXIS_X: {
++						glTranslatef(-(vol-&gt;GetHScale(0)), 0.0f, 0.0f);
++						glTranslatef(vol-&gt;GetOffset(0), vol-&gt;GetOffset(1), vol-&gt;GetOffset(2));
++						glScalef(vol-&gt;GetScale(0), vol-&gt;GetHScale(1), vol-&gt;GetHScale(2));
++						glRotatef( 90.0f, 0.0f, 1.0f, 0.0f);
++					} break;
++					case COLVOL_AXIS_Y: {
++						glTranslatef(0.0f, -(vol-&gt;GetHScale(1)), 0.0f);
++						glTranslatef(vol-&gt;GetOffset(0), vol-&gt;GetOffset(1), vol-&gt;GetOffset(2));
++						glScalef(vol-&gt;GetHScale(0), vol-&gt;GetScale(1), vol-&gt;GetHScale(2));
++						glRotatef(-90.0f, 1.0f, 0.0f, 0.0f);
++					} break;
++					case COLVOL_AXIS_Z: {
++						glTranslatef(0.0f, 0.0f, -(vol-&gt;GetHScale(2)));
++						glTranslatef(vol-&gt;GetOffset(0), vol-&gt;GetOffset(1), vol-&gt;GetOffset(2));
++						glScalef(vol-&gt;GetHScale(0), vol-&gt;GetHScale(1), vol-&gt;GetScale(2));
++					} break;
++				}
++
++				gluCylinder(q, 1.0f, 1.0f, 1.0f, 20, 20);
++			} break;
++			case COLVOL_TYPE_BOX: {
++				// scaled cube: length, width, height
++				glTranslatef(vol-&gt;GetOffset(0), vol-&gt;GetOffset(1), vol-&gt;GetOffset(2));
++				glScalef(vol-&gt;GetScale(0), vol-&gt;GetScale(1), vol-&gt;GetScale(2));
++				gluMyCube(1.0f);
++			} break;
++		}
++
++		gluDeleteQuadric(q);
++		glPopMatrix();
++	}
++}
++
++void CUnitDrawer::DrawUnitBeingBuilt(CUnit* unit)
++{
++	if (shadowHandler-&gt;inShadowPass) {
++		if (unit-&gt;buildProgress &gt; 0.66f) {
++			DrawUnitModel(unit);
++		}
++		return;
++	}
++
++	const float start  = unit-&gt;model-&gt;miny;
++	const float height = unit-&gt;model-&gt;height;
++
++	glEnable(GL_CLIP_PLANE0);
++	glEnable(GL_CLIP_PLANE1);
++
++	const float col = fabs(128.0f - ((gs-&gt;frameNum * 4) &amp; 255)) / 255.0f + 0.5f;
++	float3 fc;// fc frame color
++	if (!gu-&gt;teamNanospray) {
++		fc = unit-&gt;unitDef-&gt;nanoColor;
++	}
++	else {
++		const unsigned char* tcol = gs-&gt;Team(unit-&gt;team)-&gt;color;
++		fc = float3(tcol[0] * (1.0f / 255.0f),
++								tcol[1] * (1.0f / 255.0f),
++								tcol[2] * (1.0f / 255.0f));
++	}
++	glColorf3(fc * col);
++
++	unitDrawer-&gt;UnitDrawingTexturesOff(unit-&gt;model);
++
++	const double plane0[4] = {0, -1, 0, start + height * unit-&gt;buildProgress * 3};
++	glClipPlane(GL_CLIP_PLANE0, plane0);
++	const double plane1[4] = {0, 1, 0, -start - height * (unit-&gt;buildProgress * 10 - 9)};
++	glClipPlane(GL_CLIP_PLANE1, plane1);
++
++	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
++	DrawUnitModel(unit);
++	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
++
++	if (unit-&gt;buildProgress &gt; 0.33f) {
++		glColorf3(fc * (1.5f - col));
++		const double plane0[4] = {0, -1, 0, start + height * (unit-&gt;buildProgress * 3 - 1)};
++		glClipPlane(GL_CLIP_PLANE0, plane0);
++		const double plane1[4] = {0, 1, 0, -start - height * (unit-&gt;buildProgress * 3 - 2)};
++		glClipPlane(GL_CLIP_PLANE1, plane1);
++
++		DrawUnitModel(unit);
++	}
++
++	glDisable(GL_CLIP_PLANE1);
++	unitDrawer-&gt;UnitDrawingTexturesOn(unit-&gt;model);
++
++	if (unit-&gt;buildProgress &gt; 0.66f) {
++		const double plane0[4] = {0, -1, 0 , start + height * (unit-&gt;buildProgress * 3 - 2)};
++		glClipPlane(GL_CLIP_PLANE0, plane0);
++
++		if (shadowHandler-&gt;drawShadows &amp;&amp; !water-&gt;drawReflection) {
++			glPolygonOffset(1.0f, 1.0f);
++			glEnable(GL_POLYGON_OFFSET_FILL);
++		}
++
++		DrawUnitModel(unit);
++
++		if (shadowHandler-&gt;drawShadows &amp;&amp; !water-&gt;drawReflection) {
++			glDisable(GL_POLYGON_OFFSET_FILL);
++		}
++	}
++
++	glDisable(GL_CLIP_PLANE0);
++}
++
++
++
++void CUnitDrawer::ApplyUnitTransformMatrix(CUnit* unit)
++{
++	CMatrix44f m;
++	unit-&gt;GetTransformMatrix(m);
++	glMultMatrixf(&amp;m[0]);
++}
++
++inline void CUnitDrawer::DrawUnitModel(CUnit* unit) {
++	if (unit-&gt;luaDraw &amp;&amp; luaRules &amp;&amp; luaRules-&gt;DrawUnit(unit-&gt;id)) {
++		return;
++	}
++
++	if (unit-&gt;lodCount &lt;= 0) {
++		unit-&gt;localmodel-&gt;Draw();
++	} else {
++		unit-&gt;localmodel-&gt;DrawLOD(unit-&gt;currentLOD);
++	}
++}
++
++void CUnitDrawer::DrawUnitNow(CUnit* unit)
++{
++	glAlphaFunc(GL_GEQUAL, unit-&gt;alphaThreshold);
++
++	glPushMatrix();
++	ApplyUnitTransformMatrix(unit);
++
++	if (!unit-&gt;beingBuilt || !unit-&gt;unitDef-&gt;showNanoFrame) {
++		DrawUnitModel(unit);
++	} else {
++		DrawUnitBeingBuilt(unit);
++	}
++
++	DrawUnitDebug(unit);
++	glPopMatrix();
++}
++
++void CUnitDrawer::DrawUnitWithLists(CUnit* unit, unsigned int preList, unsigned int postList)
++{
++	glPushMatrix();
++	ApplyUnitTransformMatrix(unit);
++
++	if (preList != 0) {
++		glCallList(preList);
++	}
++
++	if (!unit-&gt;beingBuilt || !unit-&gt;unitDef-&gt;showNanoFrame) {
++		DrawUnitModel(unit);
++	} else {
++		DrawUnitBeingBuilt(unit);
++	}
++
++	if (postList != 0) {
++		glCallList(postList);
++	}
++
++	DrawUnitDebug(unit);
++	glPopMatrix();
++}
++
++void CUnitDrawer::DrawUnitRaw(CUnit* unit)
++{
++	glPushMatrix();
++	ApplyUnitTransformMatrix(unit);
++	DrawUnitModel(unit);
++	glPopMatrix();
++}
++
++void CUnitDrawer::DrawUnitRawModel(CUnit* unit)
++{
++	if (unit-&gt;lodCount &lt;= 0) {
++		unit-&gt;localmodel-&gt;Draw();
++	} else {
++		unit-&gt;localmodel-&gt;DrawLOD(unit-&gt;currentLOD);
++	}
++}
++
++void CUnitDrawer::DrawUnitRawWithLists(CUnit* unit, unsigned int preList, unsigned int postList)
++{
++	glPushMatrix();
++	ApplyUnitTransformMatrix(unit);
++
++	if (preList != 0) {
++		glCallList(preList);
++	}
++
++	DrawUnitModel(unit);
++
++	if (postList != 0) {
++		glCallList(postList);
++	}
++
++	glPopMatrix();
++}
++
++void CUnitDrawer::DrawUnitStats(CUnit* unit)
++{
++	if ((gu-&gt;myAllyTeam != unit-&gt;allyteam) &amp;&amp;
++	    !gu-&gt;spectatingFullView &amp;&amp; unit-&gt;unitDef-&gt;hideDamage) {
++		return;
++	}
++
++	float3 interPos;
++
++	if (!unit-&gt;transporter) {
++		interPos = unit-&gt;pos + (unit-&gt;speed * gu-&gt;timeOffset);
++	} else {
++		interPos = unit-&gt;pos + (unit-&gt;transporter-&gt;speed * gu-&gt;timeOffset);
++	}
++
++	interPos.y += unit-&gt;model-&gt;height + 5.0f;
++
++	// setup the billboard transformation
++	glPushMatrix();
++	glTranslatef(interPos.x, interPos.y, interPos.z);
++	// glMultMatrixd(camera-&gt;billboard);
++	glCallList(CCamera::billboardList);
++
++	// black background for healthbar
++	glColor3f(0.0f, 0.0f, 0.0f);
++	glRectf(-5.0f, 4.0f, +5.0f, 6.0f);
++
++	// healthbar
++	const float hpp = max(0.0f, unit-&gt;health / unit-&gt;maxHealth);
++	const float hEnd = hpp * 10.0f;
++
++	if (unit-&gt;stunned) {
++		glColor3f(0.0f, 0.0f, 1.0f);
++	} else {
++		if (hpp &gt; 0.5f) {
++			glColor3f(1.0f - ((hpp - 0.5f) * 2.0f), 1.0f, 0.0f);
++		} else {
++			glColor3f(1.0f, hpp * 2.0f, 0.0f);
++		}
++	}
++
++	glRectf(-5.0f, 4.0f, hEnd - 5.0f, 6.0f);
++
++	// stun level
++	if (!unit-&gt;stunned &amp;&amp; (unit-&gt;paralyzeDamage &gt; 0.0f)) {
++		const float pEnd = (unit-&gt;paralyzeDamage / unit-&gt;maxHealth) * 10.0f;
++		glColor3f(0.0f, 0.0f, 1.0f);
++		glRectf(-5.0f, 4.0f, pEnd - 5.0f, 6.0f);
++	}
++
++	// skip the rest of the indicators if it isn't a local unit
++	if ((gu-&gt;myTeam != unit-&gt;team) &amp;&amp; !gu-&gt;spectatingFullView) {
++		glPopMatrix();
++		return;
++	}
++
++	// experience bar
++	const float eEnd = (unit-&gt;limExperience * 0.8f) * 10.0f;
++	glColor3f(1.0f, 1.0f, 1.0f);
++	glRectf(6.0f, -2.0f, 8.0f, eEnd - 2.0f);
++
++	if (unit-&gt;beingBuilt) {
++		const float bEnd = (unit-&gt;buildProgress * 0.8f) * 10.0f;
++		glColor3f(1.0f, 0.0f, 0.0f);
++		glRectf(-8.0f, -2.0f, -6.0f, bEnd - 2.0f);
++	}
++	else if (unit-&gt;stockpileWeapon) {
++		const float sEnd = (unit-&gt;stockpileWeapon-&gt;buildPercent * 0.8f) * 10.0f;
++		glColor3f(1.0f, 0.0f, 0.0f);
++		glRectf(-8.0f, -2.0f, -6.0f, sEnd - 2.0f);
++	}
++
++	if (unit-&gt;group) {
++		const float scale = 10.0f;
++		char buf[32];
++		sprintf(buf, &quot;%i&quot;, unit-&gt;group-&gt;id);
++		const float width = scale * font-&gt;CalcTextWidth(buf);
++
++		glEnable(GL_TEXTURE_2D);
++		glEnable(GL_BLEND);
++		glTranslatef(-7.0f - width, 0.0f, 0.0f); // right justified
++		glScalef(scale, scale, scale);
++		glColor3f(1.0f, 1.0f, 1.0f);
++		font-&gt;glPrintSuperRaw(buf);
++		glDisable(GL_TEXTURE_2D);
++		glDisable(GL_BLEND);
++	}
++
++	glPopMatrix();
++}
++
++void CUnitDrawer::DrawUnitS3O(CUnit* unit)
++{
++	SetS3OTeamColour(unit-&gt;team);
++	DrawUnitNow(unit);
++}
++
++
++void CUnitDrawer::DrawFeatureS3O(CFeature* feature)
++{
++	glPushMatrix();
++	glMultMatrixf(feature-&gt;transMatrix.m);
++	if (feature-&gt;model-&gt;textureType) {
++		unitDrawer-&gt;SetS3OTeamColour(feature-&gt;team);
++	}
++	feature-&gt;model-&gt;DrawStatic();
++	glPopMatrix();
++}
++
++void CUnitDrawer::DrawWorldObjectS3O(CWorldObject* obj)
++{
++	// not as neat as the previous solution (ie. a virtual DrawS3O()
++	// function in CWorldObject implemented by CUnit and CFeature),
++	// but this way the sim-code does not need to be polluted with
++	// OGL stuff
++	if (dynamic_cast&lt;CUnit*&gt;(obj)) {
++		// S3O unit
++		DrawUnitS3O((CUnit*) obj);
++	} else {
++		// S3O feature
++		DrawFeatureS3O((CFeature*) obj);
++	}
++}
+
+Modified: trunk/rts/Rendering/UnitModels/UnitDrawer.h
+===================================================================
+--- trunk/rts/Rendering/UnitModels/UnitDrawer.h	2008-03-31 11:14:13 UTC (rev 5630)
++++ trunk/rts/Rendering/UnitModels/UnitDrawer.h	2008-03-31 14:50:52 UTC (rev 5631)
+@@ -14,8 +14,10 @@
+ struct UnitDef;
+ class CWorldObject;
+ class CUnit;
++class CFeature;
+ struct BuildingGroundDecal;
+ 
++
+ class CUnitDrawer
+ {
+ public:
+@@ -23,11 +25,12 @@
+ 	~CUnitDrawer(void);
+ 
+ 	void Update(void);
+-	void Draw(bool drawReflection,bool drawRefraction=false);
++
++	void Draw(bool drawReflection, bool drawRefraction = false);
+ 	void DrawUnit(CUnit* unit);
+ 	void DrawUnitLOD(CUnit* unit);
+ 
+-	void DrawCloakedUnits(void);		//cloaked units must be drawn after all others;
++	void DrawCloakedUnits(void);									// cloaked units must be drawn after all others
+ 	void DrawShadowPass(void);
+ 	void SetupForUnitDrawing(void);
+ 	void CleanUpUnitDrawing(void);
+@@ -35,7 +38,7 @@
+ 	void CleanUpS3ODrawing(void);
+ 	void CleanUpGhostDrawing();
+ 	void SetupForGhostDrawing();
+-	void SetupForGhostDrawingS3O();//S3DOModel *model, int team);
++	void SetupForGhostDrawingS3O();
+ 
+ 	void DrawOpaqueShaderUnits();
+ 	void DrawCloakedShaderUnits();
+@@ -43,6 +46,21 @@
+ 
+ 	inline void DrawFar(CUnit* unit);
+ 
++	// note: make these static?
++	inline void DrawUnitDebug(CUnit*);								// was CUnit::DrawDebug()
++	void DrawUnitBeingBuilt(CUnit*);								// was CUnit::DrawBeingBuilt()
++	void ApplyUnitTransformMatrix(CUnit*);							// was CUnit::ApplyTransformMatrix()
++	inline void DrawUnitModel(CUnit*);								// was CUnit::DrawModel()
++	void DrawUnitNow(CUnit*);										// was CUnit::Draw()
++	void DrawUnitWithLists(CUnit*, unsigned int, unsigned int);		// was CUnit::DrawWithLists() [CUnitDrawer]
++	void DrawUnitRaw(CUnit*);										// was CUnit::DrawRaw()
++	void DrawUnitRawModel(CUnit*);									// was CUnit::DrawRawModel() [CLuaOpenGL]
++	void DrawUnitRawWithLists(CUnit*, unsigned int, unsigned int);	// was CUnit::DrawRawWithLists()
++	void DrawUnitStats(CUnit*);										// was CUnit::DrawStats()
++	void DrawUnitS3O(CUnit*);										// was CUnit::DrawS3O()
++	void DrawFeatureS3O(CFeature*);									// was CFeature::DrawS3O()
++	void DrawWorldObjectS3O(CWorldObject*);
++
+ 	std::vector&lt;CUnit*&gt; drawCloaked;
+ 	std::vector&lt;CUnit*&gt; drawCloakedS3O;
+ 
+
+Modified: trunk/rts/Sim/Features/Feature.cpp
+===================================================================
+--- trunk/rts/Sim/Features/Feature.cpp	2008-03-31 11:14:13 UTC (rev 5630)
++++ trunk/rts/Sim/Features/Feature.cpp	2008-03-31 14:50:52 UTC (rev 5631)
+@@ -538,28 +538,15 @@
+ 
+ void CFeature::StartFire(void)
+ {
+-	if(fireTime || !def-&gt;burnable)
++	if (fireTime || !def-&gt;burnable)
+ 		return;
+ 
+-	fireTime=200+(int)(gs-&gt;randFloat()*30);
++	fireTime = 200 + (int)(gs-&gt;randFloat() * 30);
+ 	featureHandler-&gt;SetFeatureUpdateable(this);
+ 
+-	myFire=SAFE_NEW CFireProjectile(midPos,UpVector,0,300,radius*0.8f,70,20);
++	myFire = SAFE_NEW CFireProjectile(midPos, UpVector, 0, 300, radius * 0.8f, 70, 20);
+ }
+ 
+-
+-void CFeature::DrawS3O()
+-{
+-	glPushMatrix();
+-	glMultMatrixf(transMatrix.m);
+-	if (model-&gt;textureType) {
+-		unitDrawer-&gt;SetS3OTeamColour(team);
+-	}
+-	model-&gt;DrawStatic();
+-	glPopMatrix();
+-}
+-
+-
+ int CFeature::ChunkNumber(float f)
+ {
+ 	return (int) ceil(f * modInfo.reclaimMethod);
+
+Modified: trunk/rts/Sim/Features/Feature.h
+===================================================================
+--- trunk/rts/Sim/Features/Feature.h	2008-03-31 11:14:13 UTC (rev 5630)
++++ trunk/rts/Sim/Features/Feature.h	2008-03-31 14:50:52 UTC (rev 5631)
+@@ -29,7 +29,7 @@
+ 	/** Negative amount = reclaim
+ 	    @return true if reclaimed */
+ 	bool AddBuildPower(float amount, CUnit* builder);
+-	void DoDamage(const DamageArray&amp; damages, CUnit* attacker,const float3&amp; impulse);
++	void DoDamage(const DamageArray&amp; damages, CUnit* attacker, const float3&amp; impulse);
+ 	void Kill(float3&amp; impulse);
+ 	void ForcedMove(const float3&amp; newPos);
+ 	void ForcedSpin(const float3&amp; newDir);
+@@ -39,7 +39,6 @@
+ 	float RemainingMetal(void) const;
+ 	float RemainingEnergy(void) const;
+ 	int ChunkNumber(float f);
+-	void DrawS3O();
+ 	void CalculateTransform();
+ 	void DependentDied(CObject *o);
+ 	void ChangeTeam(int newTeam);
+
+Modified: trunk/rts/Sim/Features/FeatureHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Features/FeatureHandler.cpp	2008-03-31 11:14:13 UTC (rev 5630)
++++ trunk/rts/Sim/Features/FeatureHandler.cpp	2008-03-31 14:50:52 UTC (rev 5631)
+@@ -637,20 +637,22 @@
+ 					continue;
+ 				}
+ 			}
+-			if(drawRefraction){
+-				if(f-&gt;pos.y&gt;0)
++			if (drawRefraction) {
++				if (f-&gt;pos.y &gt; 0)
+ 					continue;
+ 			}
+-			float sqDist=(f-&gt;pos-camera-&gt;pos).SqLength2D();
+-			float farLength=f-&gt;sqRadius*unitDrawDist*unitDrawDist;
+-			if(sqDist&lt;farLength){
+-				if(!f-&gt;model-&gt;textureType) {
+-					f-&gt;DrawS3O ();
++
++			float sqDist = (f-&gt;pos-camera-&gt;pos).SqLength2D();
++			float farLength = f-&gt;sqRadius * unitDrawDist * unitDrawDist;
++
++			if (sqDist&lt;farLength) {
++				if (!f-&gt;model-&gt;textureType) {
++					unitDrawer-&gt;DrawFeatureS3O(f);
+ 				} else {
+-					unitDrawer-&gt;QueS3ODraw(f,f-&gt;model-&gt;textureType);
++					unitDrawer-&gt;QueS3ODraw(f, f-&gt;model-&gt;textureType);
+ 				}
+ 			} else {
+-				if(farFeatures)
++				if (farFeatures)
+ 					farFeatures-&gt;push_back(f);
+ 			}
+ 		}
+
+Modified: trunk/rts/Sim/Objects/SolidObject.cpp
+===================================================================
+--- trunk/rts/Sim/Objects/SolidObject.cpp	2008-03-31 11:14:13 UTC (rev 5630)
++++ trunk/rts/Sim/Objects/SolidObject.cpp	2008-03-31 14:50:52 UTC (rev 5631)
+@@ -1,12 +1,9 @@
+ #include &quot;StdAfx.h&quot;
+ #include &quot;SolidObject.h&quot;
+ #include &quot;Map/ReadMap.h&quot;
+-//#include &quot;PhysicsEngine.h&quot;
+-#include &quot;Rendering/GL/myGL.h&quot;
+ #include &quot;LogOutput.h&quot;
+ #include &quot;Map/Ground.h&quot;
+ #include &quot;myMath.h&quot;
+-#include &quot;Rendering/GL/glExtra.h&quot;
+ 
+ CR_BIND_DERIVED(CSolidObject, CWorldObject, );
+ 
+@@ -43,31 +40,24 @@
+ 	xsize(1),
+ 	ysize(1),
+ 	height(1),
+-	//relMidPos(0,0,0),
+ 
+ 	physicalState(Ghost),
+ 	midPos(pos),
+ 
+ 	immobile(false),
+-	//velocity(0,0,0),
+-	//momentum(0,0,0),
+ 	isMoving(false),
+ 	heading(0),
+ 	buildFacing(0),
+-	//newVelocity(0,0,0),
+-	//newMomentum(0,0,0),
+-	residualImpulse(0,0,0),
++	residualImpulse(0, 0, 0),
+ 
+ 	mobility(0),
+ 	yardMap(0),
+ 	isMarkedOnBlockingMap(false),
+ 
+-	speed(0,0,0),
++	speed(0, 0, 0),
+ 	isUnderWater(false)
+ {
+-	mapPos=GetMapPos();
+-//	mapPos.x=0;
+-//	mapPos.y=0;
++	mapPos = GetMapPos();
+ }
+ 
+ 
+@@ -76,64 +66,13 @@
+ */
+ CSolidObject::~CSolidObject() {
+ 	UnBlock();
+-//	readmap-&gt;CleanBlockingMap(this);	//Debug
+ 
+-	if(mobility)
++	if (mobility)
+ 		delete mobility;
+ }
+ 
+ 
+-/*
+-Draws some additional information about this object.
+-*/
+-void CSolidObject::Draw() {
+-/*	if(gu-&gt;drawdebug) {
+-		glDisable(GL_TEXTURE_2D);
+ 
+-		//Draw heading-directions.
+-		glBegin(GL_LINE_STRIP);
+-		glColor4f(0,0,1,1);
+-		glVertexf3(midPos);
+-		glVertexf3(midPos + frontdir*50);
+-		glEnd();
+-
+-		glBegin(GL_LINE_STRIP);
+-		glColor4f(1,1,0,1);
+-		glVertexf3(midPos);
+-		glVertexf3(midPos + rightdir*50);
+-		glEnd();
+-
+-		glBegin(GL_LINE_STRIP);
+-		glColor4f(0,1,0,1);
+-		glVertexf3(midPos);
+-		glVertexf3(midPos + updir*50);
+-		glEnd();
+-
+-		//Draw velocity-vector.
+-		glBegin(GL_LINE_STRIP);
+-		glColor4f(1,0,0,1);
+-		glVertexf3(midPos);
+-		glVertexf3(midPos + velocity*50);
+-		glEnd();
+-
+-		//Draw blocked area on GroundBlockingMap.
+-		if(isMarkedOnBlockingMap) {
+-			glBegin(GL_LINE_STRIP);
+-			glColor4f(1,0,0,1);
+-			glVertexf3((mapPos + float3(xsize*SQUARE_SIZE/2, 5, ysize*SQUARE_SIZE/2)));
+-			glVertexf3((mapPos + float3(-xsize*SQUARE_SIZE/2, 5, ysize*SQUARE_SIZE/2)));
+-			glVertexf3((mapPos + float3(-xsize*SQUARE_SIZE/2, 5, -ysize*SQUARE_SIZE/2)));
+-			glVertexf3((mapPos + float3(xsize*SQUARE_SIZE/2, 5, -ysize*SQUARE_SIZE/2)));
+-			glVertexf3((mapPos + float3(xsize*SQUARE_SIZE/2, 5, ysize*SQUARE_SIZE/2)));
+-			glEnd();
+-		}
+-
+-		glEnable(GL_TEXTURE_2D);
+-	}*/
+-}
+-
+-
+-
+ /////////////////////
+ // Useful fuctions //
+ /////////////////////
+@@ -142,7 +81,7 @@
+ Removes this object from GroundBlockingMap.
+ */
+ void CSolidObject::UnBlock() {
+-	if(isMarkedOnBlockingMap) {
++	if (isMarkedOnBlockingMap) {
+ 		readmap-&gt;RemoveGroundBlockingObject(this);
+ 	}
+ }
+@@ -152,12 +91,12 @@
+ Adds this object to the GroundBlockingMap.
+ */
+ void CSolidObject::Block() {
+-	if(isMarkedOnBlockingMap)
++	if (isMarkedOnBlockingMap)
+ 		UnBlock();
+ 
+-	if(blocking &amp;&amp; (physicalState == OnGround || physicalState == Floating || physicalState == Hovering || physicalState == Submarine)){
+-		//Using yardmap if available.
+-		if(yardMap) {
++	if (blocking &amp;&amp; (physicalState == OnGround || physicalState == Floating || physicalState == Hovering || physicalState == Submarine)) {
++		// use the object's yardmap if available
++		if (yardMap) {
+ 			readmap-&gt;AddGroundBlockingObject(this, yardMap);
+ 		} else {
+ 			readmap-&gt;AddGroundBlockingObject(this);
+@@ -174,18 +113,18 @@
+ int2 CSolidObject::GetMapPos()
+ {
+ 	int2 p;
+-	p.x = (int(pos.x+SQUARE_SIZE/2) / SQUARE_SIZE) - xsize/2;
+-	p.y = (int(pos.z+SQUARE_SIZE/2) / SQUARE_SIZE) - ysize/2;
++	p.x = (int(pos.x + SQUARE_SIZE / 2) / SQUARE_SIZE) - xsize / 2;
++	p.y = (int(pos.z + SQUARE_SIZE / 2) / SQUARE_SIZE) - ysize / 2;
+ 
+-	if(p.x&lt;0)
+-		p.x=0;
+-	if(p.x&gt;gs-&gt;mapx-xsize)
+-		p.x=gs-&gt;mapx-xsize;
++	if (p.x &lt; 0)
++		p.x = 0;
++	if (p.x &gt; gs-&gt;mapx - xsize)
++		p.x = gs-&gt;mapx - xsize;
+ 
+-	if(p.y&lt;0)
+-		p.y=0;
+-	if(p.y&gt;gs-&gt;mapy-ysize)
+-		p.y=gs-&gt;mapy-ysize;
++	if (p.y &lt; 0)
++		p.y = 0;
++	if (p.y &gt; gs-&gt;mapy - ysize)
++		p.y = gs-&gt;mapy - ysize;
+ 
+ 	return p;
+ }
+
+Modified: trunk/rts/Sim/Objects/SolidObject.h
+===================================================================
+--- trunk/rts/Sim/Objects/SolidObject.h	2008-03-31 11:14:13 UTC (rev 5630)
++++ trunk/rts/Sim/Objects/SolidObject.h	2008-03-31 14:50:52 UTC (rev 5631)
+@@ -10,7 +10,7 @@
+ struct DamageArray;
+ 
+ 
+-class CSolidObject : public CWorldObject {
++class CSolidObject: public CWorldObject {
+ public:
+ 	CR_DECLARE(CSolidObject)
+ 
+@@ -28,48 +28,45 @@
+ 
+ 	virtual bool AddBuildPower(float amount, CUnit* builder);
+ 
+-	virtual void DoDamage(const DamageArray&amp; damages,CUnit* attacker,const float3&amp; impulse){};
+-	virtual void Kill(float3&amp; impulse){};
+-	void Draw();
++	virtual void DoDamage(const DamageArray&amp; damages, CUnit* attacker, const float3&amp; impulse) {};
++	virtual void Kill(float3&amp; impulse) {};
+ 
+ 	void Block();
+ 	void UnBlock();
+ 
+ 
+-	//Static properties.
+-	float mass;									//The physical mass of this object.
+-	bool blocking;								//If this object is blocking/collidable. (NOTE: Some objects could be flat =&gt; not collidable.)
+-	bool floatOnWater;							//If the object will float or not in water.	(TODO: &quot;float dencity;&quot; would give more dynamic.)
++	// Static properties.
++	float mass;									// The physical mass of this object.
++	bool blocking;								// If this object is blocking/collidable. (NOTE: Some objects could be flat =&gt; not collidable.)
++	bool floatOnWater;							// If the object will float or not in water.	(TODO: &quot;float dencity;&quot; would give more dynamic.)
+ 	bool isUnderWater;
+-	bool immobile;								//Immobile objects could not be moved. (Except perhaps in y, to make them stay on gound.)
+-	bool blockHeightChanges;			//map height cant change under this object
+-	int xsize;									//The x-size of this object, according to it's footprint.
+-	int ysize;									//The z-size of this object, according to it's footprint. NOTE: This one should have been called zsize!
+-	float height;								//The height of this object.
+-	short heading;								//Contains the same information as frontdir, but in a short signed integer.
++	bool immobile;								// Immobile objects could not be moved. (Except perhaps in y, to make them stay on gound.)
++	bool blockHeightChanges;					// map height cant change under this object
++	int xsize;									// The x-size of this object, according to it's footprint.
++	int ysize;									// The z-size of this object, according to it's footprint. NOTE: This one should have been called zsize!
++	float height;								// The height of this object.
++	short heading;								// Contains the same information as frontdir, but in a short signed integer.
+ 	
+-	//Positional properties.
+-	PhysicalState physicalState;				//The current state of the object within the gameworld. I.e Flying or OnGround.
+-	SyncedFloat3 midPos;								//This is the calculated center position of the model (pos is usually at the very bottom of the model). Used as mass center.
++	// Positional properties.
++	PhysicalState physicalState;				// The current state of the object within the gameworld. I.e Flying or OnGround.
++	SyncedFloat3 midPos;						// This is the calculated center position of the model (pos is usually at the very bottom of the model). Used as mass center.
+ 
+-	//Current dynamic properties.
+-	bool isMoving;								//= velocity.length() &gt; 0.0
+-	
+-	//Accelerated dynamic properties.
+-//	float3 newVelocity;							//Resulting velocity at end of frame. Use this one to apply acceleration.
+-//	float3 newMomentum;							//Resulting momentum at end of frame. Use this one to apply acceleration.
+-	float3 residualImpulse;						//Used to sum up external impulses.
++	// Current dynamic properties.
++	bool isMoving;								// = velocity.length() &gt; 0.0
+ 
+-	//Mobility
+-	CMobility *mobility;						//Holding information about the mobility of this object. 0 means that object could not move by it's own.
++	// Accelerated dynamic properties.
++	float3 residualImpulse;						// Used to sum up external impulses.
+ 
+-	//Map
+-	int2 mapPos;								//Current position on GroundBlockingMap.
+-	unsigned char* yardMap;						//Current active yardmap of this object. 0 means no active yardmap =&gt; all blocked.
+-	int buildFacing;							//Orientation of footprint, 4 different states
+-	bool isMarkedOnBlockingMap;					//Tells if this object are marked on the GroundBlockingMap.
++	// Mobility
++	CMobility *mobility;						// holds information about the mobility of this object (0 means object can not move on its own)
+ 
+-	//Old stuff. Used for back-compability. NOTE: Don't use whose!
++	// Map
++	int2 mapPos;								// Current position on GroundBlockingMap.
++	unsigned char* yardMap;						// Current active yardmap of this object. 0 means no active yardmap =&gt; all blocked.
++	int buildFacing;							// Orientation of footprint, 4 different states
++	bool isMarkedOnBlockingMap;					// Tells if this object are marked on the GroundBlockingMap.
++
++	// Old stuff. Used for back-compability. NOTE: Don't use these!
+ 	float3 speed;
+ 	int2 GetMapPos();
+ };
+
+Modified: trunk/rts/Sim/Objects/WorldObject.h
+===================================================================
+--- trunk/rts/Sim/Objects/WorldObject.h	2008-03-31 11:14:13 UTC (rev 5630)
++++ trunk/rts/Sim/Objects/WorldObject.h	2008-03-31 14:50:52 UTC (rev 5631)
+@@ -19,7 +19,6 @@
+ 
+ 	void SetRadius(float r);
+ 	virtual ~CWorldObject();
+-	virtual void DrawS3O(){}
+ 
+ 	float3 pos;
+ 	float radius;     //used for collisions
+
+Modified: trunk/rts/Sim/Units/Unit.cpp
+===================================================================
+--- trunk/rts/Sim/Units/Unit.cpp	2008-03-31 11:14:13 UTC (rev 5630)
++++ trunk/rts/Sim/Units/Unit.cpp	2008-03-31 14:50:52 UTC (rev 5631)
+@@ -22,16 +22,11 @@
+ #include &quot;Map/Ground.h&quot;
+ #include &quot;Map/MetalMap.h&quot;
+ #include &quot;Map/ReadMap.h&quot;
+-#include &quot;Rendering/Env/BaseWater.h&quot;
+-#include &quot;Rendering/glFont.h&quot;
+-#include &quot;Rendering/GL/myGL.h&quot;
++
+ #include &quot;Rendering/GroundDecalHandler.h&quot;
+ #include &quot;Rendering/GroundFlash.h&quot;
+-#include &quot;Rendering/ShadowHandler.h&quot;
+-#include &quot;Rendering/UnitModels/3DModelParser.h&quot;
+-#include &quot;Rendering/UnitModels/UnitDrawer.h&quot;
++
+ #include &quot;Sim/Misc/AirBaseHandler.h&quot;
+-#include &quot;Sim/Misc/CollisionVolume.h&quot;
+ #include &quot;Sim/Features/Feature.h&quot;
+ #include &quot;Sim/Features/FeatureHandler.h&quot;
+ #include &quot;Sim/Misc/LosHandler.h&quot;
+@@ -494,7 +489,11 @@
+ 		return; // allied -- no need to update
+ 	}
+ 
+-	if (loshandler-&gt;InLos(this, at)) {
++	/// KLOOTNOTE: DEBUG MANTIS 706
++	const bool InLOS = !(this-&gt;transporter &amp;&amp; this-&gt;transporter-&gt;isCloaked);
++	const bool InRAD = !(this-&gt;transporter &amp;&amp; this-&gt;transporter-&gt;stealth);
++
++	if (loshandler-&gt;InLos(this, at)   &amp;&amp; InLOS) {
+ 		if ((prevLosStatus &amp; LOS_INLOS) == 0) {
+ 
+ 			if (beingBuilt) {
+@@ -511,7 +510,7 @@
+ 			globalAI-&gt;UnitEnteredLos(this, at);
+ 		}
+ 	}
+-	else if (radarhandler-&gt;InRadar(this, at)) {
++	else if (radarhandler-&gt;InRadar(this, at)   &amp;&amp; InRAD) {
+ 		if ((prevLosStatus &amp; LOS_INLOS) != 0) {
+ 			losStatus[at] &amp;= ~LOS_INLOS;
+ 			luaCallIns.UnitLeftLos(this, at);
+@@ -988,244 +987,10 @@
+ }
+ 
+ 
++
+ /******************************************************************************/
+ /******************************************************************************/
+-//
+-//  Drawing routines
+-//
+ 
+-inline void CUnit::DrawModel()
+-{
+-	if (luaDraw &amp;&amp; luaRules &amp;&amp; luaRules-&gt;DrawUnit(id)) {
+-		return;
+-	}
+-
+-	if (lodCount &lt;= 0) {
+-		localmodel-&gt;Draw();
+-	} else {
+-		localmodel-&gt;DrawLOD(currentLOD);
+-	}
+-}
+-
+-
+-void CUnit::DrawRawModel()
+-{
+-	if (lodCount &lt;= 0) {
+-		localmodel-&gt;Draw();
+-	} else {
+-		localmodel-&gt;DrawLOD(currentLOD);
+-	}
+-}
+-
+-
+-inline void CUnit::DrawDebug()
+-{
+-	// draw the collision volume
+-	if (gu-&gt;drawdebug) {
+-		glPushMatrix();
+-		glTranslatef3((frontdir * relMidPos.z) +
+-					  (updir    * relMidPos.y) +
+-					  (rightdir * relMidPos.x));
+-		GLUquadricObj* q = gluNewQuadric();
+-		gluQuadricDrawStyle(q, GLU_LINE);
+-
+-		CCollisionVolume* vol = unitDef-&gt;collisionVolume;
+-
+-		switch (vol-&gt;GetVolumeType()) {
+-			case COLVOL_TYPE_ELLIPSOID: {
+-				// scaled sphere: radius, slices, stacks
+-				glTranslatef(vol-&gt;GetOffset(0), vol-&gt;GetOffset(1), vol-&gt;GetOffset(2));
+-				glScalef(vol-&gt;GetHScale(0), vol-&gt;GetHScale(1), vol-&gt;GetHScale(2));
+-				gluSphere(q, 1.0f, 20, 20);
+-			} break;
+-			case COLVOL_TYPE_CYLINDER: {
+-				// scaled cylinder: base-radius, top-radius, height, slices, stacks
+-				//
+-				// (cylinder base is drawn at unit center by default so add offset
+-				// by half major axis to visually match the mathematical situation,
+-				// height of the cylinder equals the unit's full major axis)
+-				switch (vol-&gt;GetPrimaryAxis()) {
+-					case COLVOL_AXIS_X: {
+-						glTranslatef(-(vol-&gt;GetHScale(0)), 0.0f, 0.0f);
+-						glTranslatef(vol-&gt;GetOffset(0), vol-&gt;GetOffset(1), vol-&gt;GetOffset(2));
+-						glScalef(vol-&gt;GetScale(0), vol-&gt;GetHScale(1), vol-&gt;GetHScale(2));
+-						glRotatef( 90.0f, 0.0f, 1.0f, 0.0f);
+-					} break;
+-					case COLVOL_AXIS_Y: {
+-						glTranslatef(0.0f, -(vol-&gt;GetHScale(1)), 0.0f);
+-						glTranslatef(vol-&gt;GetOffset(0), vol-&gt;GetOffset(1), vol-&gt;GetOffset(2));
+-						glScalef(vol-&gt;GetHScale(0), vol-&gt;GetScale(1), vol-&gt;GetHScale(2));
+-						glRotatef(-90.0f, 1.0f, 0.0f, 0.0f);
+-					} break;
+-					case COLVOL_AXIS_Z: {
+-						glTranslatef(0.0f, 0.0f, -(vol-&gt;GetHScale(2)));
+-						glTranslatef(vol-&gt;GetOffset(0), vol-&gt;GetOffset(1), vol-&gt;GetOffset(2));
+-						glScalef(vol-&gt;GetHScale(0), vol-&gt;GetHScale(1), vol-&gt;GetScale(2));
+-					} break;
+-				}
+-
+-				gluCylinder(q, 1.0f, 1.0f, 1.0f, 20, 20);
+-			} break;
+-			case COLVOL_TYPE_BOX: {
+-				// scaled cube: length, width, height
+-				glTranslatef(vol-&gt;GetOffset(0), vol-&gt;GetOffset(1), vol-&gt;GetOffset(2));
+-				glScalef(vol-&gt;GetScale(0), vol-&gt;GetScale(1), vol-&gt;GetScale(2));
+-				gluMyCube(1.0f);
+-			} break;
+-		}
+-
+-		gluDeleteQuadric(q);
+-		glPopMatrix();
+-	}
+-}
+-
+-
+-void CUnit::Draw()
+-{
+-	glAlphaFunc(GL_GEQUAL, alphaThreshold);
+-
+-	glPushMatrix();
+-	ApplyTransformMatrix();
+-
+-	if (!beingBuilt || !unitDef-&gt;showNanoFrame) {
+-		DrawModel();
+-	} else {
+-		DrawBeingBuilt();
+-	}
+-
+-	DrawDebug();
+-	glPopMatrix();
+-}
+-
+-
+-void CUnit::DrawRaw()
+-{
+-	glPushMatrix();
+-	ApplyTransformMatrix();
+-	DrawModel();
+-	glPopMatrix();
+-}
+-
+-
+-void CUnit::DrawWithLists(unsigned int preList, unsigned int postList)
+-{
+-	glPushMatrix();
+-	ApplyTransformMatrix();
+-
+-	if (preList != 0) {
+-		glCallList(preList);
+-	}
+-
+-	if (!beingBuilt || !unitDef-&gt;showNanoFrame) {
+-		DrawModel();
+-	} else {
+-		DrawBeingBuilt();
+-	}
+-
+-	if (postList != 0) {
+-		glCallList(postList);
+-	}
+-
+-	DrawDebug();
+-	glPopMatrix();
+-}
+-
+-
+-void CUnit::DrawRawWithLists(unsigned int preList, unsigned int postList)
+-{
+-	glPushMatrix();
+-	ApplyTransformMatrix();
+-
+-	if (preList != 0) {
+-		glCallList(preList);
+-	}
+-
+-	DrawModel();
+-
+-	if (postList != 0) {
+-		glCallList(postList);
+-	}
+-
+-	glPopMatrix();
+-}
+-
+-
+-void CUnit::DrawBeingBuilt()
+-{
+-	if (shadowHandler-&gt;inShadowPass) {
+-		if (buildProgress &gt; 0.66f) {
+-			DrawModel();
+-		}
+-		return;
+-	}
+-
+-	const float start  = model-&gt;miny;
+-	const float height = model-&gt;height;
+-
+-	glEnable(GL_CLIP_PLANE0);
+-	glEnable(GL_CLIP_PLANE1);
+-
+-	const float col = fabs(128.0f - ((gs-&gt;frameNum * 4) &amp; 255)) / 255.0f + 0.5f;
+-	float3 fc;// fc frame color
+-	if (!gu-&gt;teamNanospray) {
+-		fc = unitDef-&gt;nanoColor;
+-	}
+-	else {
+-		const unsigned char* tcol = gs-&gt;Team(team)-&gt;color;
+-		fc = float3(tcol[0] * (1.0f / 255.0f),
+-								tcol[1] * (1.0f / 255.0f),
+-								tcol[2] * (1.0f / 255.0f));
+-	}
+-	glColorf3(fc * col);
+-
+-	unitDrawer-&gt;UnitDrawingTexturesOff(model);
+-
+-	const double plane0[4] = { 0, -1, 0, start + height * buildProgress * 3 };
+-	glClipPlane(GL_CLIP_PLANE0, plane0);
+-	const double plane1[4] = { 0, 1, 0, -start - height * (buildProgress * 10 - 9) };
+-	glClipPlane(GL_CLIP_PLANE1, plane1);
+-
+-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+-	DrawModel();
+-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+-
+-	if (buildProgress&gt;0.33f) {
+-		glColorf3(fc * (1.5f - col));
+-		const double plane0[4] = { 0, -1, 0, start + height * (buildProgress * 3 - 1) };
+-		glClipPlane(GL_CLIP_PLANE0, plane0);
+-		const double plane1[4] = { 0, 1, 0, -start - height * (buildProgress * 3 - 2) };
+-		glClipPlane(GL_CLIP_PLANE1, plane1);
+-
+-		DrawModel();
+-	}
+-	glDisable(GL_CLIP_PLANE1);
+-
+-	unitDrawer-&gt;UnitDrawingTexturesOn(model);
+-
+-	if (buildProgress &gt; 0.66f){
+-		const double plane0[4] = { 0, -1, 0 , start + height * (buildProgress * 3 - 2) };
+-		glClipPlane(GL_CLIP_PLANE0, plane0);
+-		if (shadowHandler-&gt;drawShadows &amp;&amp; !water-&gt;drawReflection) {
+-			glPolygonOffset(1.0f, 1.0f);
+-			glEnable(GL_POLYGON_OFFSET_FILL);
+-		}
+-		DrawModel();
+-		if (shadowHandler-&gt;drawShadows &amp;&amp; !water-&gt;drawReflection) {
+-			glDisable(GL_POLYGON_OFFSET_FILL);
+-		}
+-	}
+-	glDisable(GL_CLIP_PLANE0);
+-}
+-
+-
+-void CUnit::ApplyTransformMatrix() const
+-{
+-	CMatrix44f m;
+-	GetTransformMatrix(m);
+-	glMultMatrixf(&amp;m[0]);
+-}
+-
+-
+ void CUnit::GetTransformMatrix(CMatrix44f&amp; matrix) const
+ {
+ 	float3 interPos;
+@@ -1280,98 +1045,11 @@
+ 	}
+ }
+ 
+-
+-void CUnit::DrawStats()
+-{
+-	if ((gu-&gt;myAllyTeam != allyteam) &amp;&amp;
+-	    !gu-&gt;spectatingFullView &amp;&amp; unitDef-&gt;hideDamage) {
+-		return;
+-	}
+-
+-	float3 interPos;
+-	if (!transporter) {
+-		interPos = pos + (speed * gu-&gt;timeOffset);
+-	} else {
+-		interPos = pos + (transporter-&gt;speed * gu-&gt;timeOffset);
+-	}
+-	interPos.y += model-&gt;height + 5.0f;
+-
+-	// setup the billboard transformation
+-	glPushMatrix();
+-	glTranslatef(interPos.x, interPos.y, interPos.z);
+-	//glMultMatrixd(camera-&gt;billboard);
+-	glCallList(CCamera::billboardList);
+-
+-	// black background for healthbar
+-	glColor3f(0.0f, 0.0f, 0.0f);
+-	glRectf(-5.0f, 4.0f, +5.0f, 6.0f);
+-
+-	// healthbar
+-	const float hpp = max(0.0f, health / maxHealth);
+-	const float hEnd = hpp * 10.0f;
+-	if (stunned) {
+-		glColor3f(0.0f, 0.0f, 1.0f);
+-	} else {
+-		if (hpp &gt; 0.5f) {
+-			glColor3f(1.0f - ((hpp - 0.5f) * 2.0f), 1.0f, 0.0f);
+-		} else {
+-			glColor3f(1.0f, hpp * 2.0f, 0.0f);
+-		}
+-	}
+-	glRectf(-5.0f, 4.0f, hEnd - 5.0f, 6.0f);
+-
+-	// stun level
+-	if (!stunned &amp;&amp; (paralyzeDamage &gt; 0.0f)) {
+-		const float pEnd = (paralyzeDamage / maxHealth) * 10.0f;
+-		glColor3f(0.0f, 0.0f, 1.0f);
+-		glRectf(-5.0f, 4.0f, pEnd - 5.0f, 6.0f);
+-	}
+-
+-	// skip the rest of the indicators if it isn't a local unit
+-	if ((gu-&gt;myTeam != team) &amp;&amp; !gu-&gt;spectatingFullView) {
+-		glPopMatrix();
+-		return;
+-	}
+-
+-	// experience bar
+-	const float eEnd = (limExperience * 0.8f) * 10.0f;
+-	glColor3f(1.0f, 1.0f, 1.0f);
+-	glRectf(6.0f, -2.0f, 8.0f, eEnd - 2.0f);
+-
+-	if (beingBuilt) {
+-		const float bEnd = (buildProgress * 0.8f) * 10.0f;
+-		glColor3f(1.0f, 0.0f, 0.0f);
+-		glRectf(-8.0f, -2.0f, -6.0f, bEnd - 2.0f);
+-	}
+-	else if (stockpileWeapon) {
+-		const float sEnd = (stockpileWeapon-&gt;buildPercent * 0.8f) * 10.0f;
+-		glColor3f(1.0f, 0.0f, 0.0f);
+-		glRectf(-8.0f, -2.0f, -6.0f, sEnd - 2.0f);
+-	}
+-
+-	if (group) {
+-		const float scale = 10.0f;
+-		char buf[32];
+-		sprintf(buf, &quot;%i&quot;, group-&gt;id);
+-		const float width = scale * font-&gt;CalcTextWidth(buf);
+-
+-		glEnable(GL_TEXTURE_2D);
+-		glEnable(GL_BLEND);
+-		glTranslatef(-7.0f - width, 0.0f, 0.0f); // right justified
+-		glScalef(scale, scale, scale);
+-		glColor3f(1.0f, 1.0f, 1.0f);
+-		font-&gt;glPrintSuperRaw(buf);
+-		glDisable(GL_TEXTURE_2D);
+-		glDisable(GL_BLEND);
+-	}
+-
+-	glPopMatrix();
+-}
+-
+-
+ /******************************************************************************/
+ /******************************************************************************/
+ 
++
++
+ void CUnit::AddExperience(float exp)
+ {
+ 	const float oldExp = experience;
+@@ -2166,11 +1844,6 @@
+ 	dontFire = false;
+ }
+ 
+-void CUnit::DrawS3O(void)
+-{
+-	unitDrawer-&gt;SetS3OTeamColour(team);
+-	Draw();
+-}
+ 
+ void CUnit::hitByWeaponIdCallback(int retCode, void *p1, void *p2)
+ {
+
+Modified: trunk/rts/Sim/Units/Unit.h
+===================================================================
+--- trunk/rts/Sim/Units/Unit.h	2008-03-31 11:14:13 UTC (rev 5630)
++++ trunk/rts/Sim/Units/Unit.h	2008-03-31 14:50:52 UTC (rev 5631)
+@@ -70,7 +70,6 @@
+ 	bool AttackGround(const float3&amp;pos,bool dgun);
+ 	bool AttackUnit(CUnit* unit,bool dgun);
+ 
+-	virtual void DrawStats();
+ 	virtual void DoDamage(const DamageArray&amp; damages, CUnit* attacker,
+ 	                      const float3&amp; impulse, int weaponId = -1);
+ 	virtual void Kill(float3&amp; impulse);
+@@ -90,15 +89,6 @@
+ 	virtual void SlowUpdate();
+ 	virtual void Update();
+ 
+-	virtual void Draw();
+-	void DrawRaw();
+-	void DrawModel();
+-	void DrawRawModel();
+-	void DrawDebug();
+-	void DrawBeingBuilt();
+-	void DrawWithLists(unsigned int preList, unsigned int postList);
+-	void DrawRawWithLists(unsigned int preList, unsigned int postList);
+-
+ 	void SetDirectionFromHeading();
+ 
+ 	void ApplyTransformMatrix() const;
+@@ -386,7 +376,6 @@
+ 	void TempHoldFire(void);
+ 	void ReleaseTempHoldFire(void);
+ 	void Drop(float3 parentPos,float3 parentDir,CUnit* parent); //start this unit in freefall from parent unit
+-	virtual void DrawS3O(void);
+ 	void PostLoad();
+ 	static void hitByWeaponIdCallback(int retCode, void *p1, void *p2);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000411.html">[Taspring-linux-commit] r5630 - trunk/rts/Game
+</A></li>
+	<LI>Next message: <A HREF="000413.html">[Taspring-linux-commit] r5632 - in trunk/rts/Sim/Units: . CommandAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#412">[ date ]</a>
+              <a href="thread.html#412">[ thread ]</a>
+              <a href="subject.html#412">[ subject ]</a>
+              <a href="author.html#412">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

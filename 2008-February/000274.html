@@ -1,0 +1,171 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5467 - trunk/rts/Game
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5467%20-%20trunk/rts/Game&In-Reply-To=%3CE1JNYmv-0000lz-Qz%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000273.html">
+   <LINK REL="Next"  HREF="000275.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5467 - trunk/rts/Game</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5467%20-%20trunk/rts/Game&In-Reply-To=%3CE1JNYmv-0000lz-Qz%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5467 - trunk/rts/Game">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Feb  8 20:21:29 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000273.html">[Taspring-linux-commit] r5466 - in trunk/rts: Game Game/UI System
+</A></li>
+        <LI>Next message: <A HREF="000275.html">[Taspring-linux-commit] r5468 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#274">[ date ]</a>
+              <a href="thread.html#274">[ thread ]</a>
+              <a href="subject.html#274">[ subject ]</a>
+              <a href="author.html#274">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-02-08 20:21:29 +0100 (Fri, 08 Feb 2008)
+New Revision: 5467
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/GameServer.cpp
+Log:
+* allow teamchanges in demo mode
+* more fixes to TEAMMSG's
+* make &quot;.spectator&quot; and &quot;.team x&quot; send one of the new TEAMMSG's instead
+
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-02-08 18:58:33 UTC (rev 5466)
++++ trunk/rts/Game/Game.cpp	2008-02-08 19:21:29 UTC (rev 5467)
+@@ -3192,6 +3192,11 @@
+ 					}
+ 					case TEAMMSG_RESIGN: {
+ 						gs-&gt;players[player]-&gt;StartSpectating();
++						if (player == gu-&gt;myPlayerNum) {
++							selectedUnits.ClearSelected();
++							unitTracker.Disable();
++							CLuaUI::UpdateTeams();
++						}
+ 						if (numPlayersInTeam == 1)
+ 							gs-&gt;Team(fromTeam)-&gt;leader = -1;
+ 						logOutput.Print(&quot;Player %i resigned and is now spectating!&quot;, player);
+@@ -3201,6 +3206,17 @@
+ 						//TODO is this enought?
+ 						int newTeam = int(inbuf[3]);
+ 						gs-&gt;players[player]-&gt;team = newTeam;
++						gs-&gt;players[player]-&gt;spectator = net-&gt;localDemoPlayback;
++						if (player == gu-&gt;myPlayerNum) {
++							gu-&gt;spectating           = net-&gt;localDemoPlayback;
++							gu-&gt;spectatingFullView   = net-&gt;localDemoPlayback;
++							gu-&gt;spectatingFullSelect = net-&gt;localDemoPlayback;
++							gu-&gt;myTeam = newTeam;
++							gu-&gt;myAllyTeam = gs-&gt;AllyTeam(gu-&gt;myTeam);
++							selectedUnits.ClearSelected();
++							unitTracker.Disable();
++							CLuaUI::UpdateTeams();
++						}						
+ 						if (gs-&gt;Team(newTeam)-&gt;leader == -1)
+ 							gs-&gt;Team(newTeam)-&gt;leader = player;
+ 						break;
+@@ -3716,6 +3732,15 @@
+ 		SNPRINTF(buf, sizeof(buf), &quot; @%.0f,%.0f,%.0f&quot;, p.x, p.y, p.z);
+ 		msg += buf;
+ 	}
++	else if ((msg == &quot;.spectator&quot;)) {
++		net-&gt;SendResign(gu-&gt;myPlayerNum);
++	}
++	else if ((msg.find(&quot;.team&quot;) == 0) &amp;&amp; (gs-&gt;cheatEnabled || net-&gt;localDemoPlayback)) {
++		int team=atoi(&amp;msg.c_str()[msg.find(&quot; &quot;)]);
++		if ((team &gt;= 0) &amp;&amp; (team &lt;gs-&gt;activeTeams)) {
++			net-&gt;SendJoinTeam(gu-&gt;myPlayerNum, team);
++		}
++	}
+ 	if (msg.size() &gt; 128) {
+ 		msg.resize(128); // safety
+ 	}
+@@ -3823,31 +3848,6 @@
+ 		logOutput.Print(&quot;Resetting sync debugger.&quot;);
+ 	}
+ #endif
+-	else if ((s == &quot;.spectator&quot;) &amp;&amp; (gs-&gt;cheatEnabled || net-&gt;localDemoPlayback)) {
+-		gs-&gt;players[player]-&gt;StartSpectating();
+-		if (player == gu-&gt;myPlayerNum) {
+-			selectedUnits.ClearSelected();
+-			unitTracker.Disable();
+-			CLuaUI::UpdateTeams();
+-		}
+-	}
+-	else if ((s.find(&quot;.team&quot;) == 0) &amp;&amp; (gs-&gt;cheatEnabled || net-&gt;localDemoPlayback)) {
+-		int team=atoi(&amp;s.c_str()[s.find(&quot; &quot;)]);
+-		if ((team &gt;= 0) &amp;&amp; (team &lt;gs-&gt;activeTeams)) {
+-			gs-&gt;players[player]-&gt;team = team;
+-			gs-&gt;players[player]-&gt;spectator = net-&gt;localDemoPlayback;
+-			if (player == gu-&gt;myPlayerNum) {
+-				gu-&gt;spectating           = net-&gt;localDemoPlayback;
+-				gu-&gt;spectatingFullView   = net-&gt;localDemoPlayback;
+-				gu-&gt;spectatingFullSelect = net-&gt;localDemoPlayback;
+-				gu-&gt;myTeam = team;
+-				gu-&gt;myAllyTeam = gs-&gt;AllyTeam(gu-&gt;myTeam);
+-				selectedUnits.ClearSelected();
+-				unitTracker.Disable();
+-				CLuaUI::UpdateTeams();
+-			}
+-		}
+-	}
+ 	else if ((s.find(&quot;.atm&quot;) == 0) &amp;&amp; gs-&gt;cheatEnabled) {
+ 		int team = gs-&gt;players[player]-&gt;team;
+ 		gs-&gt;Team(team)-&gt;AddMetal(1000);
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-02-08 18:58:33 UTC (rev 5466)
++++ trunk/rts/Game/GameServer.cpp	2008-02-08 19:21:29 UTC (rev 5467)
+@@ -679,7 +679,7 @@
+ 								}
+ 								case TEAMMSG_JOIN_TEAM: {
+ 									unsigned newTeam = inbuf[3];
+-									if (setup &amp;&amp; !setup-&gt;fixedTeams)
++									if ((setup &amp;&amp; !setup-&gt;fixedTeams) || demoReader)
+ 									{
+ 										serverNet-&gt;SendJoinTeam(player, newTeam);
+ 										players[player]-&gt;team = newTeam;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000273.html">[Taspring-linux-commit] r5466 - in trunk/rts: Game Game/UI System
+</A></li>
+	<LI>Next message: <A HREF="000275.html">[Taspring-linux-commit] r5468 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#274">[ date ]</a>
+              <a href="thread.html#274">[ thread ]</a>
+              <a href="subject.html#274">[ subject ]</a>
+              <a href="author.html#274">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

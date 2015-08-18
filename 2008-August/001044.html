@@ -1,0 +1,754 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6274 - trunk/Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6274%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080819143006.1AEBA48A3%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001043.html">
+   <LINK REL="Next"  HREF="001045.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6274 - trunk/Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6274%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080819143006.1AEBA48A3%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6274 - trunk/Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Aug 19 16:30:05 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001043.html">[Taspring-linux-commit] r6273 - trunk/rts/Sim/Misc
+</A></li>
+        <LI>Next message: <A HREF="001045.html">[Taspring-linux-commit] r6275 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1044">[ date ]</a>
+              <a href="thread.html#1044">[ thread ]</a>
+              <a href="subject.html#1044">[ subject ]</a>
+              <a href="author.html#1044">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2008-08-19 16:30:04 +0200 (Tue, 19 Aug 2008)
+New Revision: 6274
+
+Modified:
+   trunk/Lobby/TASClient/LobbyScriptUnit.pas
+   trunk/Lobby/TASClient/MainUnit.dfm
+   trunk/Lobby/TASClient/MainUnit.pas
+   trunk/Lobby/TASClient/PreferencesFormUnit.dfm
+   trunk/Lobby/TASClient/SpringDownloaderFormUnit.pas
+   trunk/Lobby/TASClient/TASClient.dof
+   trunk/Lobby/TASClient/TASClient.dpr
+   trunk/Lobby/TASClient/TASClient.res
+   trunk/Lobby/TASClient/UploadReplayUnit.dfm
+   trunk/Lobby/TASClient/UploadReplayUnit.pas
+Log:
+* version changed to 0.38 RC1 for spring 0.77
+* .net 2.0 detection added before launching SD, it also asks the user to download it and open a browser to the download page
+* small bugs fixed in python scripting (it's still buggy)
+* SinglePlayer disabled until spring 0.77 is released
+
+Modified: trunk/Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/LobbyScriptUnit.pas	2008-08-18 18:01:33 UTC (rev 6273)
++++ trunk/Lobby/TASClient/LobbyScriptUnit.pas	2008-08-19 14:30:04 UTC (rev 6274)
+@@ -171,6 +171,9 @@
+   procedure PyDict_SetItemStringDecRef(dp: PPyObject; Key: PAnsiChar; const V : Variant);
+   procedure PyDict_SetItemDecRef(dp: PPyObject; Key: PPyObject; const V : Variant);
+   procedure PyList_AppendDecRef(list: PPyObject; const item : Variant);
++  procedure PyDict_SetItemStringIncRef(dp: PPyObject; Key: PAnsiChar; o : PPyObject);
++  procedure PyDict_SetItemIncRef(dp: PPyObject; Key: PPyObject; o : PPyObject);
++  procedure SafeDecRef(o : PPyObject);
+   procedure PostMsgs;
+   procedure JoinBattle;
+ var
+@@ -503,7 +506,6 @@
+   LockCallback;
+   with GetPythonEngine do
+   begin
+-    Result := PyObjectAsVariant(Py_None);
+     if BattleState.Status = None then
+     begin
+       UnlockCallback;
+@@ -747,18 +749,15 @@
+ 
+ procedure TCallback.ClearRefs;
+ begin
+-  with GetPythonEngine do
+-  begin
+-    try Py_XDECREF(pyGroups); except end;
+-    try Py_XDECREF(pyBattles); except end;
+-    try Py_XDECREF(pyUsers); except end;
+-    try Py_XDECREF(pyMods); except end;
+-    try Py_XDECREF(pyMaps); except end;
+-    try Py_XDECREF(pyCurrentBattle); except end;
+-    try Py_XDECREF(pyTextBoxes); except end;
+-    try Py_XDECREF(pyReplays); except end;
+-    try Py_XDECREF(pyServers); except end;
+-  end;
++  SafeDecRef(pyGroups);
++  SafeDecRef(pyBattles);
++  SafeDecRef(pyUsers);
++  SafeDecRef(pyMods);
++  SafeDecRef(pyMaps);
++  SafeDecRef(pyCurrentBattle);
++  SafeDecRef(pyTextBoxes);
++  SafeDecRef(pyReplays);
++  SafeDecRef(pyServers);
+ end;
+ 
+ function TCallback.GetGroups: Variant;
+@@ -1016,11 +1015,13 @@
+ var
+   b : TBattle;
+ begin
++  LockCallback;
+   Result := True;
+ 
+   if BattleState.Status &lt;&gt; None then
+   begin
+     Result := False;
++    UnlockCallback;
+     Exit;
+   end;
+ 
+@@ -1037,6 +1038,7 @@
+   else
+     Result := False;
+   AcquireMainThread;
++  UnlockCallback;
+ end;
+ 
+ function TCallback.HostReplay(replayFile: string; nbPlayers: integer; RankLimit: Integer; Description: string; Password: string; UDPHostPort: integer; NatTraversal: integer) : Boolean;
+@@ -1629,6 +1631,24 @@
+   end;
+ end;
+ 
++procedure PyDict_SetItemStringIncRef(dp: PPyObject; Key: PAnsiChar; o : PPyObject);
++begin
++  with GetPythonEngine do
++  begin
++    PyDict_SetItemString(dp,Key,o);
++    Py_XINCREF(o);
++  end;
++end;
++
++procedure PyDict_SetItemIncRef(dp: PPyObject; Key: PPyObject; o : PPyObject);
++begin
++  with GetPythonEngine do
++  begin
++    PyDict_SetItem(dp,Key,o);
++    Py_XINCREF(o);
++  end;
++end;
++
+ procedure PyList_AppendDecRef(list: PPyObject; const item : Variant);
+ var
+   o: PPyObject;
+@@ -1641,5 +1661,10 @@
+   end;
+ end;
+ 
++procedure SafeDecRef(o : PPyObject);
++begin
++  try if o &lt;&gt; GetPythonEngine.Py_None then GetPythonEngine.Py_XDECREF(o); except end;
++end;
+ 
++
+ end.
+
+Modified: trunk/Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.dfm	2008-08-18 18:01:33 UTC (rev 6273)
++++ trunk/Lobby/TASClient/MainUnit.dfm	2008-08-19 14:30:04 UTC (rev 6274)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 624
+-  Top = 337
++  Left = 388
++  Top = 164
+   Width = 808
+   Height = 549
+   Caption = '.'
+@@ -994,7 +994,7 @@
+         BorderType = pbrRaised
+         TBXStyleBackground = True
+         object OptionsSpeedButton: TSpTBXSpeedButton
+-          Left = 328
++          Left = 240
+           Top = 8
+           Width = 81
+           Height = 25
+@@ -1021,7 +1021,7 @@
+           ThemeType = thtTBX
+         end
+         object HelpButton: TSpTBXSpeedButton
+-          Left = 416
++          Left = 328
+           Top = 8
+           Width = 81
+           Height = 25
+@@ -1034,7 +1034,7 @@
+           LinkFont.Style = [fsUnderline]
+         end
+         object ReplaysButton: TSpTBXSpeedButton
+-          Left = 240
++          Left = 152
+           Top = 8
+           Width = 81
+           Height = 25
+@@ -1052,7 +1052,7 @@
+           LinkFont.Style = [fsUnderline]
+         end
+         object SearchButton: TSpTBXSpeedButton
+-          Left = 504
++          Left = 416
+           Top = 8
+           Width = 81
+           Height = 25
+@@ -1085,11 +1085,12 @@
+         end
+         object SinglePlayerButton: TSpTBXButton
+           Left = 152
+-          Top = 8
++          Top = 32
+           Width = 81
+           Height = 25
+           Caption = 'Single Player'
+           TabOrder = 6
++          Visible = False
+           OnClick = SinglePlayerButtonClick
+           LinkFont.Charset = DEFAULT_CHARSET
+           LinkFont.Color = clBlue
+@@ -7068,6 +7069,7 @@
+     FatalAbort = False
+     FatalMsgDlg = False
+     IO = PyInOut
++    PyFlags = [pfDebug]
+     Left = 452
+     Top = 166
+   end
+
+Modified: trunk/Lobby/TASClient/MainUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.pas	2008-08-18 18:01:33 UTC (rev 6273)
++++ trunk/Lobby/TASClient/MainUnit.pas	2008-08-19 14:30:04 UTC (rev 6274)
+@@ -522,7 +522,7 @@
+ const
+   VERSION_NUMBER = '0.38'; // Must be float value! (with a period as a decimal seperator)
+   CHECK_BETA_LOBBY_URL = '<A HREF="http://tasclient.no-ip.org/TASClient_update_v2.txt">http://tasclient.no-ip.org/TASClient_update_v2.txt</A>';
+-  PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER + ' beta';
++  PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER + ' RC1';
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+   ASSUME_TIMEOUT_INTERVAL = 30000; // in milliseconds. Must be greater than KEEP_ALIVE_INTERVAL! If server hasn't send any data to us within this interval, then we assume timeout occured. It's us who must make sure we get constant replies from server by pinging it.
+   LOCAL_TAB = '$Local'; // caption of main (command) tab window. Must be special so that is different from channel names or user names, that is why there is a &quot;$&quot; in front of it.
+@@ -3629,11 +3629,11 @@
+     // finally apply post-initialization preferences:
+     PreferencesForm.ApplyPostInitializationPreferences;
+ 
+-    if not RunningUnderWine then
++    {if not RunningUnderWine then
+     begin
+       SplashScreenForm.UpdateText('loading menu ...');
+       MenuForm.LoadSkin(Preferences.SPSkin);
+-    end;
++    end;}
+ 
+     // hide splash screen:
+     SplashScreenForm.Close;
+
+Modified: trunk/Lobby/TASClient/PreferencesFormUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/PreferencesFormUnit.dfm	2008-08-18 18:01:33 UTC (rev 6273)
++++ trunk/Lobby/TASClient/PreferencesFormUnit.dfm	2008-08-19 14:30:04 UTC (rev 6274)
+@@ -37,12 +37,11 @@
+       Width = 401
+       Height = 305
+       Color = clBtnFace
+-      ActiveTabIndex = 0
++      ActiveTabIndex = 6
+       TabAutofit = True
+       HiddenItems = &lt;&gt;
+       object SpTBXTabItem6: TSpTBXTabItem
+         Caption = 'Server'
+-        Checked = True
+         CustomWidth = 56
+       end
+       object SpTBXTabItem5: TSpTBXTabItem
+@@ -67,6 +66,7 @@
+       end
+       object SpTBXTabItem7: TSpTBXTabItem
+         Caption = 'Scripts'
++        Checked = True
+         CustomWidth = 56
+       end
+       object SpTBXTabSheet5: TSpTBXTabSheet
+@@ -755,79 +755,6 @@
+           end
+         end
+       end
+-      object SpTBXTabSheet7: TSpTBXTabSheet
+-        Left = 0
+-        Top = 23
+-        Width = 401
+-        Height = 282
+-        Caption = 'Scripts'
+-        ImageIndex = -1
+-        TabItem = 'SpTBXTabItem7'
+-        object ScriptsDebugWindowBt: TSpTBXButton
+-          Left = 132
+-          Top = 56
+-          Width = 137
+-          Height = 25
+-          Caption = 'Debug Window'
+-          TabOrder = 0
+-          OnClick = ScriptsDebugWindowBtClick
+-          LinkFont.Charset = DEFAULT_CHARSET
+-          LinkFont.Color = clBlue
+-          LinkFont.Height = -11
+-          LinkFont.Name = 'MS Sans Serif'
+-          LinkFont.Style = [fsUnderline]
+-        end
+-        object ScriptsReloadBt: TSpTBXButton
+-          Left = 132
+-          Top = 88
+-          Width = 137
+-          Height = 25
+-          Caption = 'Reload scripts'
+-          TabOrder = 1
+-          OnClick = ScriptsReloadBtClick
+-          LinkFont.Charset = DEFAULT_CHARSET
+-          LinkFont.Color = clBlue
+-          LinkFont.Height = -11
+-          LinkFont.Name = 'MS Sans Serif'
+-          LinkFont.Style = [fsUnderline]
+-        end
+-        object ScriptsLoadNewBt: TSpTBXButton
+-          Left = 132
+-          Top = 120
+-          Width = 137
+-          Height = 25
+-          Caption = 'Load new scripts'
+-          TabOrder = 2
+-          OnClick = ScriptsLoadNewBtClick
+-          LinkFont.Charset = DEFAULT_CHARSET
+-          LinkFont.Color = clBlue
+-          LinkFont.Height = -11
+-          LinkFont.Name = 'MS Sans Serif'
+-          LinkFont.Style = [fsUnderline]
+-        end
+-        object ScriptsAdvancedOptionsBt: TSpTBXButton
+-          Left = 132
+-          Top = 152
+-          Width = 137
+-          Height = 25
+-          Caption = 'Advanced options'
+-          TabOrder = 3
+-          OnClick = ScriptsAdvancedOptionsBtClick
+-          LinkFont.Charset = DEFAULT_CHARSET
+-          LinkFont.Color = clBlue
+-          LinkFont.Height = -11
+-          LinkFont.Name = 'MS Sans Serif'
+-          LinkFont.Style = [fsUnderline]
+-        end
+-        object EnableScriptsCheckBox: TSpTBXCheckBox
+-          Left = 104
+-          Top = 24
+-          Width = 193
+-          Height = 15
+-          Caption = 'Enable scripts BETA (requires restart)'
+-          TabOrder = 4
+-        end
+-      end
+       object SpTBXTabSheet6: TSpTBXTabSheet
+         Left = 0
+         Top = 23
+@@ -939,6 +866,80 @@
+           end
+         end
+       end
++      object SpTBXTabSheet7: TSpTBXTabSheet
++        Left = 0
++        Top = 23
++        Width = 401
++        Height = 282
++        Caption = 'Scripts'
++        ImageIndex = -1
++        TabItem = 'SpTBXTabItem7'
++        object ScriptsDebugWindowBt: TSpTBXButton
++          Left = 132
++          Top = 56
++          Width = 137
++          Height = 25
++          Caption = 'Debug Window'
++          TabOrder = 0
++          OnClick = ScriptsDebugWindowBtClick
++          LinkFont.Charset = DEFAULT_CHARSET
++          LinkFont.Color = clBlue
++          LinkFont.Height = -11
++          LinkFont.Name = 'MS Sans Serif'
++          LinkFont.Style = [fsUnderline]
++        end
++        object ScriptsReloadBt: TSpTBXButton
++          Left = 132
++          Top = 88
++          Width = 137
++          Height = 25
++          Caption = 'Reload scripts'
++          TabOrder = 1
++          OnClick = ScriptsReloadBtClick
++          LinkFont.Charset = DEFAULT_CHARSET
++          LinkFont.Color = clBlue
++          LinkFont.Height = -11
++          LinkFont.Name = 'MS Sans Serif'
++          LinkFont.Style = [fsUnderline]
++        end
++        object ScriptsLoadNewBt: TSpTBXButton
++          Left = 132
++          Top = 120
++          Width = 137
++          Height = 25
++          Caption = 'Load new scripts'
++          TabOrder = 2
++          OnClick = ScriptsLoadNewBtClick
++          LinkFont.Charset = DEFAULT_CHARSET
++          LinkFont.Color = clBlue
++          LinkFont.Height = -11
++          LinkFont.Name = 'MS Sans Serif'
++          LinkFont.Style = [fsUnderline]
++        end
++        object ScriptsAdvancedOptionsBt: TSpTBXButton
++          Left = 132
++          Top = 152
++          Width = 137
++          Height = 25
++          Caption = 'Advanced options'
++          TabOrder = 3
++          Visible = False
++          OnClick = ScriptsAdvancedOptionsBtClick
++          LinkFont.Charset = DEFAULT_CHARSET
++          LinkFont.Color = clBlue
++          LinkFont.Height = -11
++          LinkFont.Name = 'MS Sans Serif'
++          LinkFont.Style = [fsUnderline]
++        end
++        object EnableScriptsCheckBox: TSpTBXCheckBox
++          Left = 104
++          Top = 24
++          Width = 193
++          Height = 15
++          Caption = 'Enable scripts BETA (requires restart)'
++          TabOrder = 4
++        end
++      end
+     end
+     object ApplyAndCloseButton: TSpTBXButton
+       Left = 43
+
+Modified: trunk/Lobby/TASClient/SpringDownloaderFormUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/SpringDownloaderFormUnit.pas	2008-08-18 18:01:33 UTC (rev 6273)
++++ trunk/Lobby/TASClient/SpringDownloaderFormUnit.pas	2008-08-19 14:30:04 UTC (rev 6274)
+@@ -237,6 +237,17 @@
+ var
+   path : string;
+ begin
++  if not RegKeyExists(HKLM,'Software\Microsoft\NET Framework Setup\NDP\v2.0.50727') or not RegReadBool(HKLM,'Software\Microsoft\NET Framework Setup\NDP\v2.0.50727','Install') then
++  begin
++    if MessageDlg('You need the .NET Framework 2.0 to use SpringDownloader, do you want to download it now ?',mtConfirmation,[mbYes,mbNo],0) = mrYes then
++    begin
++      MessageDlg('Restart the lobby when the .NET Framework is installed.',mtInformation,[mbOk],0);
++      OpenURLInDefaultBrowser('<A HREF="http://www.microsoft.com/downloads/details.aspx?FamilyID=0856eacb-4362-4b0d-8edd-aab15c5e04f5">http://www.microsoft.com/downloads/details.aspx?FamilyID=0856eacb-4362-4b0d-8edd-aab15c5e04f5</A>');
++    end;
++    Exit;
++  end;
++
++
+   path := StringReplace(ExtractFilePath(Application.ExeName),'\','/',[rfReplaceAll]);
+   path := LeftStr(path,Length(path)-1);
+   try DeleteRegKey('Software\SpringDownloader\'+path+'\request\ExitRequest',HKCU); except end;
+
+Modified: trunk/Lobby/TASClient/TASClient.dof
+===================================================================
+--- trunk/Lobby/TASClient/TASClient.dof	2008-08-18 18:01:33 UTC (rev 6273)
++++ trunk/Lobby/TASClient/TASClient.dof	2008-08-19 14:30:04 UTC (rev 6274)
+@@ -100,7 +100,7 @@
+ DebugSourceDirs=
+ UsePackages=0
+ [Parameters]
+-RunParams=-menu
++RunParams=
+ HostApplication=C:\Program Files\Spring\TASClient.exe
+ Launcher=
+ UseLauncher=0
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=3
+ Release=0
+-Build=404
++Build=406
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TA Spring lobby client
+-FileVersion=0.3.0.404
++FileVersion=0.3.0.406
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: trunk/Lobby/TASClient/TASClient.dpr
+===================================================================
+--- trunk/Lobby/TASClient/TASClient.dpr	2008-08-18 18:01:33 UTC (rev 6273)
++++ trunk/Lobby/TASClient/TASClient.dpr	2008-08-19 14:30:04 UTC (rev 6274)
+@@ -128,8 +128,8 @@
+   for i := 1 to ParamCount do
+   begin
+     MainUnit.RunningUnderWine := MainUnit.RunningUnderWine or (UpperCase(ParamStr(i)) = '-WINE');
+-    MainUnit.RunningWithMainMenu := MainUnit.RunningWithMainMenu or (UpperCase(ParamStr(i)) = '-MENU');
+-    MainUnit.RunningWithMainMenuDev := MainUnit.RunningWithMainMenuDev or (UpperCase(ParamStr(i)) = '-MENUDEV');
++    //MainUnit.RunningWithMainMenu := MainUnit.RunningWithMainMenu or (UpperCase(ParamStr(i)) = '-MENU');
++    //MainUnit.RunningWithMainMenuDev := MainUnit.RunningWithMainMenuDev or (UpperCase(ParamStr(i)) = '-MENUDEV');
+ 
+     if UpperCase(ParamStr(i)) = '-SERVER' then
+       if (ParamCount = i) or (Pos(':',ParamStr(i+1)) = 0) then
+
+Modified: trunk/Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+Modified: trunk/Lobby/TASClient/UploadReplayUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/UploadReplayUnit.dfm	2008-08-18 18:01:33 UTC (rev 6273)
++++ trunk/Lobby/TASClient/UploadReplayUnit.dfm	2008-08-19 14:30:04 UTC (rev 6274)
+@@ -2,11 +2,11 @@
+   Left = 586
+   Top = 410
+   Width = 410
+-  Height = 328
++  Height = 307
+   Caption = 'UploadReplayForm'
+   Color = clBtnFace
+-  Constraints.MaxHeight = 908
+-  Constraints.MaxWidth = 1280
++  Constraints.MaxHeight = 1000
++  Constraints.MaxWidth = 1680
+   Font.Charset = DEFAULT_CHARSET
+   Font.Color = clWindowText
+   Font.Height = -11
+@@ -22,24 +22,12 @@
+     Left = 0
+     Top = 0
+     Width = 402
+-    Height = 301
++    Height = 280
+     Caption = 'Upload replay'
+     Options.Maximize = False
+-    object SpTBXLabel1: TSpTBXLabel
+-      Left = 16
+-      Top = 32
+-      Width = 26
+-      Height = 13
+-      Caption = 'Title :'
+-      LinkFont.Charset = DEFAULT_CHARSET
+-      LinkFont.Color = clBlue
+-      LinkFont.Height = -11
+-      LinkFont.Name = 'MS Sans Serif'
+-      LinkFont.Style = [fsUnderline]
+-    end
+     object SpTBXLabel2: TSpTBXLabel
+       Left = 16
+-      Top = 64
++      Top = 40
+       Width = 59
+       Height = 13
+       Caption = 'Description :'
+@@ -51,11 +39,11 @@
+     end
+     object CancelButton: TSpTBXButton
+       Left = 213
+-      Top = 264
++      Top = 240
+       Width = 73
+       Height = 25
+       Caption = 'Cancel'
+-      TabOrder = 3
++      TabOrder = 2
+       OnClick = CancelButtonClick
+       LinkFont.Charset = DEFAULT_CHARSET
+       LinkFont.Color = clBlue
+@@ -65,11 +53,11 @@
+     end
+     object UploadButton: TSpTBXButton
+       Left = 117
+-      Top = 264
++      Top = 240
+       Width = 73
+       Height = 25
+       Caption = 'Upload'
+-      TabOrder = 4
++      TabOrder = 3
+       OnClick = UploadButtonClick
+       LinkFont.Charset = DEFAULT_CHARSET
+       LinkFont.Color = clBlue
+@@ -79,20 +67,13 @@
+     end
+     object DescriptionRtBox: TRichEdit
+       Left = 88
+-      Top = 64
++      Top = 40
+       Width = 305
+       Height = 193
+       Lines.Strings = (
+         'DescriptionRtBox')
+-      TabOrder = 5
++      TabOrder = 4
+     end
+-    object TitleEdit: TSpTBXEdit
+-      Left = 88
+-      Top = 32
+-      Width = 305
+-      Height = 21
+-      TabOrder = 6
+-    end
+   end
+   object IdHTTP1: TIdHTTP
+     MaxLineAction = maException
+
+Modified: trunk/Lobby/TASClient/UploadReplayUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/UploadReplayUnit.pas	2008-08-18 18:01:33 UTC (rev 6273)
++++ trunk/Lobby/TASClient/UploadReplayUnit.pas	2008-08-19 14:30:04 UTC (rev 6274)
+@@ -11,14 +11,12 @@
+ type
+   TUploadReplayForm = class(TForm)
+     SpTBXTitleBar1: TSpTBXTitleBar;
+-    SpTBXLabel1: TSpTBXLabel;
+     SpTBXLabel2: TSpTBXLabel;
+     CancelButton: TSpTBXButton;
+     UploadButton: TSpTBXButton;
+     DescriptionRtBox: TRichEdit;
+     IdHTTP1: TIdHTTP;
+     IdAntiFreeze1: TIdAntiFreeze;
+-    TitleEdit: TSpTBXEdit;
+     procedure UploadButtonClick(Sender: TObject);
+     procedure IdHTTP1Work(Sender: TObject; AWorkMode: TWorkMode;
+       const AWorkCount: Integer);
+@@ -27,7 +25,7 @@
+   private
+     { Private declarations }
+   public
+-    Title : string;
++    Description : string;
+     FileName : string;
+     MapName : string;
+     ModName : string;
+@@ -49,20 +47,12 @@
+ 
+ implementation
+ 
+-uses ProgressBarWindow, ReplaysUnit;
++uses ProgressBarWindow, ReplaysUnit, PreferencesFormUnit;
+ 
+ {$R *.dfm}
+ 
+ procedure TUploadReplayForm.UploadButtonClick(Sender: TObject);
+ begin
+-  if (TitleEdit.Text = '') then begin
+-    MessageDlg('You must enter a title before upload !',mtWarning,[mbOk],0);
+-    Exit;
+-  end;
+-  if Length(TitleEdit.Text) &lt; 8 then begin
+-    MessageDlg('Title too short (8char min) !',mtWarning,[mbOk],0);
+-    Exit;
+-  end;
+   ProgressBarForm.TakeAction := 1;
+   ProgressBarForm.ShowModal;
+ end;
+@@ -80,18 +70,18 @@
+   ResponseStrList := TStringList.Create;
+   try
+     IdHttp1.Request.ContentType := MultiPartFormDataStream.RequestContentType;
+-    MultiPartFormDataStream.AddFormField('title', TitleEdit.Text);
+-    MultiPartFormDataStream.AddFormField('description', DescriptionRtBox.Text);
++    MultiPartFormDataStream.AddFormField('postdata[lobbynick]', Preferences.Username);
++    MultiPartFormDataStream.AddFormField('postdata[description]', DescriptionRtBox.Text);
+     MultiPartFormDataStream.AddFormField('submit', 'submit');
+     MultiPartFormDataStream.AddFormField('MAX_FILE_SIZE', '2097152');
+-    MultiPartFormDataStream.AddFile('replay', FileName , 'application/octet-stream');
++    MultiPartFormDataStream.AddFile('tiedosto', FileName , 'application/octet-stream');
+     { You must make sure you call this method *before* sending the stream }
+     MultiPartFormDataStream.PrepareStreamForDispatch;
+     MultiPartFormDataStream.Position := 0;
+     ProgressBarForm.Refresh;
+     ProgressBarForm.pb.Max := MultiPartFormDataStream.Size;
+     ProgressBarForm.pb.Position := 0;
+-    IdHTTP1.Post('<A HREF="http://replays.unknown-files.net/upload_bot.php">http://replays.unknown-files.net/upload_bot.php</A>', MultiPartFormDataStream, ResponseStream);
++    IdHTTP1.Post('<A HREF="http://replays.adune.nl/?act=upload&amp;do=upload&amp;secretzon=lamafaarao">http://replays.adune.nl/?act=upload&amp;do=upload&amp;secretzon=lamafaarao</A>', MultiPartFormDataStream, ResponseStream);
+     ResponseStream.Seek(0,0);
+     SetLength(ResponseStr, ResponseStream.Size);
+     ResponseStream.ReadBuffer(Pointer(ResponseStr)^, ResponseStream.Size);
+@@ -109,9 +99,9 @@
+   Misc.ParseDelimited(ResponseStrList,ResponseStr,' ','');
+   if (ResponseStrList.Count &gt; 0) and (ResponseStrList[0] = 'SUCCESS') then begin
+     MessageDlgThread('Your replay has been successfully uploaded. Its link has been added to your clipboard.', mtInformation,[mbOk], 0);
+-    Clipboard.Open;
+-    Clipboard.SetTextBuf(PChar('<A HREF="http://replays.unknown-files.net/?">http://replays.unknown-files.net/?</A>'+ResponseStrList[1]));
+-    Clipboard.Close;
++    //Clipboard.Open;
++    //Clipboard.SetTextBuf(PChar('<A HREF="http://replays.unknown-files.net/?">http://replays.unknown-files.net/?</A>'+ResponseStrList[1]));
++    //Clipboard.Close;
+     UploadedReplayId := ResponseStrList[1];
+   end
+   else
+@@ -129,12 +119,8 @@
+ 
+ procedure TUploadReplayForm.FormActivate(Sender: TObject);
+ begin
+-  DescriptionRtBox.Text := '';
+-  if Title &lt;&gt; '' then
+-    TitleEdit.Text := Title
+-  else
+-    TitleEdit.Text := NbPlayers +' @ ' +MapName+' @ '+ModName;
+-  Title := '';
++  DescriptionRtBox.Text := Description;
++  Description := '';
+ end;
+ 
+ constructor TUploadThread.Create(Suspended: Boolean);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001043.html">[Taspring-linux-commit] r6273 - trunk/rts/Sim/Misc
+</A></li>
+	<LI>Next message: <A HREF="001045.html">[Taspring-linux-commit] r6275 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1044">[ date ]</a>
+              <a href="thread.html#1044">[ thread ]</a>
+              <a href="subject.html#1044">[ subject ]</a>
+              <a href="author.html#1044">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

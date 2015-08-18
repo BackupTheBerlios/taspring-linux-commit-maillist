@@ -1,0 +1,274 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6336 - trunk/tools/ArchiveMoverLinux
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6336%20-%20trunk/tools/ArchiveMoverLinux&In-Reply-To=%3C20080829164325.560CD49B0%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001105.html">
+   <LINK REL="Next"  HREF="001107.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6336 - trunk/tools/ArchiveMoverLinux</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6336%20-%20trunk/tools/ArchiveMoverLinux&In-Reply-To=%3C20080829164325.560CD49B0%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6336 - trunk/tools/ArchiveMoverLinux">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Aug 29 18:43:25 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001105.html">[Taspring-linux-commit] r6335 - branches/0.77-branch/rts/lib/gml
+</A></li>
+        <LI>Next message: <A HREF="001107.html">[Taspring-linux-commit] r6337 - trunk/tools/ArchiveMoverLinux
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1106">[ date ]</a>
+              <a href="thread.html#1106">[ thread ]</a>
+              <a href="subject.html#1106">[ subject ]</a>
+              <a href="author.html#1106">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: det
+Date: 2008-08-29 18:43:24 +0200 (Fri, 29 Aug 2008)
+New Revision: 6336
+
+Modified:
+   trunk/tools/ArchiveMoverLinux/mover.ml
+Log:
+ArchiveMoverLinux
+ * Auto-detect Spring directory from .springrc
+ * Lots of error handling
+
+
+
+Modified: trunk/tools/ArchiveMoverLinux/mover.ml
+===================================================================
+--- trunk/tools/ArchiveMoverLinux/mover.ml	2008-08-29 14:23:03 UTC (rev 6335)
++++ trunk/tools/ArchiveMoverLinux/mover.ml	2008-08-29 16:43:24 UTC (rev 6336)
+@@ -1,9 +1,5 @@
+ open ExtString
+ 
+-module Config = struct
+-  let detect_spring_dir () = Filename.concat (Unix.getenv &quot;HOME&quot;) &quot;.spring&quot;
+-end
+-
+ module Archive = struct
+   type t = Mod | Map | Unknown
+ 
+@@ -20,17 +16,19 @@
+       | Unknown -&gt; -1
+ 
+   let from_zip path =
+-    let in_zip = Zip.open_in path in
+-    let entries = Zip.entries in_zip in
+-    let has_file filename =
+-      let lower = String.lowercase filename in
+-        List.exists (fun entry -&gt; entry.Zip.filename = lower) entries
+-    in
+-      Zip.close_in in_zip;
+-      if has_file &quot;maps&quot; then Map
+-      else if has_file &quot;modinfo.tdf&quot; then Mod
+-      else if has_file &quot;modinfo.lua&quot; then Mod
+-      else Unknown
++    try
++      let in_zip = Zip.open_in path in
++      let entries = Zip.entries in_zip in
++      let has_file filename =
++        let lower = String.lowercase filename in
++          List.exists (fun entry -&gt; entry.Zip.filename = lower) entries
++      in
++        Zip.close_in in_zip;
++        if has_file &quot;maps/&quot; then Map
++        else if has_file &quot;modinfo.tdf&quot; then Mod
++        else if has_file &quot;modinfo.lua&quot; then Mod
++        else Unknown
++    with Zip.Error _ -&gt; Unknown
+ 
+   let from_path path  =
+     if String.ends_with path &quot;.sdz&quot; then
+@@ -63,38 +61,102 @@
+         
+   let move src dst =
+     try
+-      Unix.rename src dst
+-    with Unix.Unix_error (Unix.EXDEV, _, _) -&gt;
++      Sys.rename src dst
++    with Sys_error _ -&gt;
+       copy src dst;
+       Unix.unlink src
+ end
+ 
+ 
+ module GUI = struct
++  exception InvalidOption of string
++
+   let install path dest =
+-    print_endline dest;
+-    let message = Printf.sprintf &quot;%s was successfully installed&quot; dest in
+-      FileSystem.move path dest;
+-      GToolbox.message_box ~title:&quot;Success&quot; ~ok:&quot;Exit&quot; message;
+-      exit 0
+-        
+-  let install_archive path combo_box springdir_entry basename_entry =
++    try
++      let message = Printf.sprintf &quot;%s was successfully installed&quot; dest in
++        FileSystem.move path dest;
++        GToolbox.message_box ~title:&quot;Success&quot; ~ok:&quot;Exit&quot; message
++    with
++        Unix.Unix_error (error, func, filename) -&gt;
++          let error_string = Unix.error_message error in
++          let message = Printf.sprintf &quot;Error performing %s on %s: %s&quot; func filename error_string in
++            GToolbox.message_box ~title:&quot;Error&quot; ~ok:&quot;Exit&quot; message
++      | Sys_error (error_string) -&gt;
++          let message = Printf.sprintf &quot;Error: %s&quot; error_string in
++            GToolbox.message_box ~title:&quot;Error&quot; ~ok:&quot;Exit&quot; message
++              
++  let get_archive_dir combo_box =
+     let int = combo_box#active in
+     let archive = Archive.from_int int in
+-    let springdir = springdir_entry#text in
++      match archive with
++          Archive.Mod -&gt; &quot;mods&quot;
++        | Archive.Map -&gt; &quot;maps&quot;
++        | Archive.Unknown -&gt; raise (InvalidOption &quot;Please select an archive type&quot;)
++
++  let get_springdir springdir_entry archive_dir =
++      let springdir = springdir_entry#text in
++      let datadir = Filename.concat springdir archive_dir in
++        if Sys.file_exists datadir then
++          if Sys.is_directory datadir then
++            datadir
++          else
++            raise (InvalidOption (Printf.sprintf &quot;%s isn't a directory&quot; datadir))
++        else
++          raise (InvalidOption (Printf.sprintf &quot;Install directory %s doesn't exist&quot; datadir))
++
++  let get_basename_dir basename_entry =
+     let basename = basename_entry#text in
+-    let make dir = Filename.concat (Filename.concat springdir dir) basename in
+-      match archive with
+-          Archive.Mod -&gt; install path (make &quot;mods&quot;)
+-        | Archive.Map -&gt; install path (make &quot;maps&quot;)
+-        | Archive.Unknown -&gt;
+-            GToolbox.message_box
+-              ~title:&quot;Error&quot;
+-              &quot;Please select an archive type from the drop down list&quot;
++      if basename = &quot;&quot; then
++        raise (InvalidOption &quot;Please enter a filename&quot;)
++      else
++        basename
++
++  let install_archive path combo_box springdir_entry basename_entry =
++    try
++      let archive_dir = get_archive_dir combo_box in
++      let datadir = get_springdir springdir_entry archive_dir in
++      let basename = get_basename_dir basename_entry in
++      let dest = (Filename.concat datadir basename) in
++        install path dest;
++        GMain.Main.quit ()
++    with InvalidOption message -&gt; GToolbox.message_box ~title:&quot;Error&quot; message
+               
++  let detect_home_dir () =
++    try
++      let home_dir = Sys.getenv &quot;HOME&quot; in
++        Some home_dir
++    with Not_found -&gt; None
++
++  let detect_springrc home_dir =
++    try
++      let springrc = Filename.concat home_dir &quot;.springrc&quot; in
++      let in_file = open_in springrc in
++      let input = IO.input_channel in_file in
++      let rec loop option =
++        try 
++          let line = IO.read_line input in
++            try
++              let (key, value) = String.split line &quot;=&quot; in
++                if key = &quot;SpringData&quot; then
++                  loop (Some value)
++                else
++                  loop option
++            with Invalid_string -&gt; loop option
++        with IO.No_more_input -&gt; option in
++      let option = loop None in
++        close_in in_file;
++        option
++    with Sys_error _ -&gt; None
++
+   let detect_spring_dir springdir_entry =
+-    let spring_dir = Config.detect_spring_dir () in
+-      springdir_entry#set_text spring_dir
++    let dir = 
++      match detect_home_dir () with
++          Some home_dir -&gt;
++            (match detect_springrc home_dir with
++                Some springdir -&gt; springdir
++              | None -&gt; Filename.concat home_dir &quot;.spring&quot;)
++        | None -&gt; &quot;&quot; in
++      springdir_entry#set_text dir
+         
+   let detect_basename path basename_entry =
+     let basename = Filename.basename path in
+@@ -115,7 +177,6 @@
+       ~width:512
+       ~height:192
+       ~position:`CENTER
+-      ~type_hint:`DIALOG
+       () in
+       
+     let vbox = GPack.vbox
+@@ -165,7 +226,7 @@
+       () in
+     
+     let detect_button = GButton.button
+-      ~label:&quot;Auto-detect&quot;
++      ~label:&quot;Defaults&quot;
+       ~packing:button_box#pack
+       () in
+ 
+@@ -174,11 +235,10 @@
+       ~packing:button_box#pack
+       () in
+ 
+-    let destroy () = GMain.Main.quit () in
+     let install () = install_archive path combo_box springdir_entry basename_entry in
+     let detect () = detect_all path combo_box springdir_entry basename_entry in
+-    let _ = window#connect#destroy ~callback:destroy in
+-    let _ = exit_button#connect#clicked ~callback:destroy in
++    let _ = window#connect#destroy ~callback:GMain.Main.quit in
++    let _ = exit_button#connect#clicked ~callback:GMain.Main.quit in
+     let _ = detect_button#connect#clicked ~callback:detect in
+     let _ = install_button#connect#clicked ~callback:install in
+       window#show ();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001105.html">[Taspring-linux-commit] r6335 - branches/0.77-branch/rts/lib/gml
+</A></li>
+	<LI>Next message: <A HREF="001107.html">[Taspring-linux-commit] r6337 - trunk/tools/ArchiveMoverLinux
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1106">[ date ]</a>
+              <a href="thread.html#1106">[ thread ]</a>
+              <a href="subject.html#1106">[ subject ]</a>
+              <a href="author.html#1106">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,927 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5354 - in trunk: rts/Game rts/Game/UI	rts/System rts/System/Net tools/DedicatedServer tools/DemoAnalyser
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5354%20-%20in%20trunk%3A%20rts/Game%20rts/Game/UI%0A%09rts/System%20rts/System/Net%20tools/DedicatedServer%20tools/DemoAnalyser&In-Reply-To=%3CE1JGdoG-0005MD-D7%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000160.html">
+   <LINK REL="Next"  HREF="000162.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5354 - in trunk: rts/Game rts/Game/UI	rts/System rts/System/Net tools/DedicatedServer tools/DemoAnalyser</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5354%20-%20in%20trunk%3A%20rts/Game%20rts/Game/UI%0A%09rts/System%20rts/System/Net%20tools/DedicatedServer%20tools/DemoAnalyser&In-Reply-To=%3CE1JGdoG-0005MD-D7%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5354 - in trunk: rts/Game rts/Game/UI	rts/System rts/System/Net tools/DedicatedServer tools/DemoAnalyser">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Jan 20 18:18:16 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000160.html">[Taspring-linux-commit] r5353 - trunk/rts/Lua
+</A></li>
+        <LI>Next message: <A HREF="000162.html">[Taspring-linux-commit] r5355 - in trunk: rts/Rendering/GL	tools/DedicatedServer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#161">[ date ]</a>
+              <a href="thread.html#161">[ thread ]</a>
+              <a href="subject.html#161">[ subject ]</a>
+              <a href="author.html#161">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-01-20 18:18:16 +0100 (Sun, 20 Jan 2008)
+New Revision: 5354
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/Player.cpp
+   trunk/rts/Game/Player.h
+   trunk/rts/Game/PreGame.cpp
+   trunk/rts/Game/Team.cpp
+   trunk/rts/Game/Team.h
+   trunk/rts/Game/UI/QuitBox.cpp
+   trunk/rts/Game/UI/QuitBox.h
+   trunk/rts/System/AutohostInterface.cpp
+   trunk/rts/System/BaseNetProtocol.cpp
+   trunk/rts/System/BaseNetProtocol.h
+   trunk/rts/System/Net/UDPHardlink.cpp
+   trunk/rts/System/Net/UDPHardlink.h
+   trunk/rts/System/Net/UDPListener.cpp
+   trunk/rts/System/Net/UDPSocket.cpp
+   trunk/rts/System/Net/UDPSocket.h
+   trunk/tools/DedicatedServer/CMakeLists.txt
+   trunk/tools/DemoAnalyser/CMakeLists.txt
+Log:
+* some cleanup in networking
+* new network message: NETMSG_TEAM
+  - closes Mantis #688
+  - fixed bug where some units survived the selfdestruction
+  - respect luarules when giving awai all units
+  - people can resign and spectate without giving / destructing everything (needs still a button)
+* fix prevent autohost chatmessages from beeing echoed back
+* client doesn't complain if they recieve a chatmessage from the server
+  
+
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-01-20 16:50:07 UTC (rev 5353)
++++ trunk/rts/Game/Game.cpp	2008-01-20 17:18:16 UTC (rev 5354)
+@@ -2894,9 +2894,14 @@
+ 				int player=inbuf[2];
+ 				if(player&gt;=MAX_PLAYERS || player&lt;0){
+ 					logOutput.Print(&quot;Got invalid player num %i in chat msg&quot;,player);
++				} else if (player == SERVER_PLAYER){
++					string s=(char*)(&amp;inbuf[3]);
++					HandleChatMsg(s, player);
++					logOutput.Print(s);
+ 				} else {
+ 					string s=(char*)(&amp;inbuf[3]);
+ 					HandleChatMsg(s, player);
++					LogNetMsg(s, player);
+ 				}
+ 				AddTraffic(player, packetCode, dataLength);
+ 				break;
+@@ -3157,11 +3162,51 @@
+ 				AddTraffic(player, packetCode, dataLength);
+ 				break;
+ 			}
+-			case NETMSG_MAPDRAW:{
++			case NETMSG_MAPDRAW: {
+ 				inMapDrawer-&gt;GotNetMsg(inbuf);
+ 				AddTraffic(inbuf[2], packetCode, dataLength);
+ 				break;
+ 			}
++			case NETMSG_TEAM: {
++				const int player = (int)inbuf[1];
++				const unsigned char action = inbuf[2];
++				const int fromTeam = gs-&gt;players[player]-&gt;team;
++				
++				unsigned numPlayersInTeam = 0;
++				for (int a=0;a&lt;MAX_PLAYERS;++a)
++					if (gs-&gt;players[a]-&gt;active &amp;&amp; gs-&gt;players[a]-&gt;team == fromTeam)
++						++numPlayersInTeam;
++				assert(numPlayersInTeam &gt; 0);
++				
++				switch (action)
++				{
++					case TEAMMSG_SELFD: {
++						if (numPlayersInTeam == 1)
++							gs-&gt;Team(fromTeam)-&gt;SelfDestruct();
++						else
++							gs-&gt;players[player]-&gt;StartSpectating();
++						break;
++					}
++					case TEAMMSG_GIVEAWAY: {
++						const int toTeam = gs-&gt;players[inbuf[3]]-&gt;team;
++						if (numPlayersInTeam == 1)
++							gs-&gt;Team(fromTeam)-&gt;GiveEverythingTo(toTeam);
++						else
++							gs-&gt;players[player]-&gt;StartSpectating();
++						break;
++					}
++					case TEAMMSG_RESIGN: {
++						gs-&gt;players[player]-&gt;StartSpectating();
++						logOutput.Print(&quot;Player &amp;i resigned and is now spectating!&quot;, player);
++						break;
++					}
++					default: {
++						logOutput.Print(&quot;Unknown action in NETMSG_TEAM (%i) from player %i&quot;, action, player);
++					}
++				}
++				AddTraffic(player, packetCode, dataLength);
++				break;
++			}
+ 
+ #ifdef DIRECT_CONTROL_ALLOWED
+ 			case NETMSG_DIRECT_CONTROL: {
+@@ -3688,9 +3733,6 @@
+ 
+ void CGame::HandleChatMsg(std::string s, int player)
+ {
+-	// Player chat messages
+-	LogNetMsg(s, player);
+-
+ 	globalAI-&gt;GotChatMsg(s.c_str(),player);
+ 	CScriptHandler::Instance().chosenScript-&gt;GotChatMsg(s, player);
+ 
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-01-20 16:50:07 UTC (rev 5353)
++++ trunk/rts/Game/GameServer.cpp	2008-01-20 17:18:16 UTC (rev 5354)
+@@ -66,7 +66,7 @@
+ 	mapChecksum = archiveScanner-&gt;GetMapChecksum(mapName);
+ 
+ 	modName = newModName;
+-	std::string modArchive = archiveScanner-&gt;ModNameToModArchive(modName);
++	const std::string modArchive = archiveScanner-&gt;ModNameToModArchive(modName);
+ 	modChecksum = archiveScanner-&gt;GetModChecksum(modArchive);
+ 
+ 	scriptName = newScriptName;
+@@ -366,6 +366,7 @@
+ 			while (!quit &amp;&amp; (packet = serverNet-&gt;GetData(a)))
+ 			{
+ 				const unsigned char* inbuf = packet-&gt;data;
++				const unsigned length = packet-&gt;length;
+ 				switch (inbuf[0]){
+ 					case NETMSG_NEWFRAME:
+ 						players[a]-&gt;ping = serverframenum-*(int*)&amp;inbuf[1];
+@@ -602,6 +603,18 @@
+ 							serverNet-&gt;SendRandSeed(*(unsigned int*)(inbuf+1));
+ 						break;
+ 					}
++					case NETMSG_TEAM:
++					{
++						if (inbuf[1] != a)
++						{
++							SendSystemMsg(&quot;Server: Warning got teammsg from %i claiming to be from %i&quot;,a,inbuf[1]);
++						}
++						else
++						{
++							serverNet-&gt;RawSend(inbuf, length);
++						}
++						break;
++					}
+ 
+ 					// CGameServer should never get these messages
+ 					case NETMSG_GAMEID:
+@@ -964,7 +977,8 @@
+ 	}
+ 	else {
+ 		serverNet-&gt;SendChat(player, msg);
+-		if (hostif) {
++		if (hostif &amp;&amp; player != SERVER_PLAYER) {
++			// don't echo packets to autohost
+ 			hostif-&gt;SendPlayerChat(player, msg);
+ 		}
+ 	}
+
+Modified: trunk/rts/Game/Player.cpp
+===================================================================
+--- trunk/rts/Game/Player.cpp	2008-01-20 16:50:07 UTC (rev 5353)
++++ trunk/rts/Game/Player.cpp	2008-01-20 17:18:16 UTC (rev 5354)
+@@ -84,6 +84,17 @@
+ 	delete currentStats;
+ }
+ 
++void CPlayer::StartSpectating()
++{
++	spectator=true;
++	if (gs-&gt;players[gu-&gt;myPlayerNum] == this) //TODO bad hack
++	{
++		gu-&gt;spectating           = true;
++		gu-&gt;spectatingFullView   = true;
++		gu-&gt;spectatingFullSelect = true;
++	}
++}
++
+ #ifdef DIRECT_CONTROL_ALLOWED
+ void CPlayer::StopControllingUnit()
+ {
+
+Modified: trunk/rts/Game/Player.h
+===================================================================
+--- trunk/rts/Game/Player.h	2008-01-20 16:50:07 UTC (rev 5353)
++++ trunk/rts/Game/Player.h	2008-01-20 17:18:16 UTC (rev 5354)
+@@ -34,6 +34,8 @@
+ 	CR_DECLARE_SUB(Statistics);
+ 	CPlayer();
+ 	~CPlayer();
++	
++	void StartSpectating();
+ 
+ 	bool active;
+ 	std::string playerName;
+
+Modified: trunk/rts/Game/PreGame.cpp
+===================================================================
+--- trunk/rts/Game/PreGame.cpp	2008-01-20 16:50:07 UTC (rev 5353)
++++ trunk/rts/Game/PreGame.cpp	2008-01-20 17:18:16 UTC (rev 5354)
+@@ -139,9 +139,7 @@
+ 				We want to watch a demo local, so we dont know script, map and mod yet and we have to start a server which should send us the required data
+ 				Default settings: spectating
+ 				*/
+-				gu-&gt;spectating           = true;
+-				gu-&gt;spectatingFullView   = true;
+-				gu-&gt;spectatingFullSelect = true;
++				gs-&gt;players[gu-&gt;myPlayerNum]-&gt;StartSpectating();
+ 			}
+ 			else {
+ 				userInput=configHandler.GetString(&quot;address&quot;,&quot;&quot;);
+
+Modified: trunk/rts/Game/Team.cpp
+===================================================================
+--- trunk/rts/Game/Team.cpp	2008-01-20 16:50:07 UTC (rev 5353)
++++ trunk/rts/Game/Team.cpp	2008-01-20 17:18:16 UTC (rev 5354)
+@@ -10,6 +10,7 @@
+ #include &quot;Game/UI/LuaUI.h&quot;
+ #include &quot;Game/GameServer.h&quot;
+ #include &quot;Lua/LuaCallInHandler.h&quot;
++#include &quot;Lua/LuaRules.h&quot;
+ #include &quot;Sim/Units/Unit.h&quot;
+ #include &quot;Sim/Units/UnitHandler.h&quot;
+ #include &quot;Sim/Units/UnitDef.h&quot;
+@@ -206,6 +207,74 @@
+ 	}
+ }
+ 
++void CTeam::SelfDestruct()
++{
++	for(CUnitSet::iterator ui = units.begin(); ui != units.end(); ++ui)
++	{
++		if ((*ui) != NULL &amp;&amp; (*ui)-&gt;unitDef-&gt;canSelfD)
++		{
++			if ((*ui)-&gt;beingBuilt)
++			{
++				(*ui)-&gt;KillUnit(false, true, NULL); // kill units under construction without explosion
++			}
++			else
++			{
++				(*ui)-&gt;KillUnit(true, false, NULL);
++			}
++		}
++	}
++	Died();
++}
++
++void CTeam::GiveEverythingTo(const unsigned toTeam)
++{
++	CTeam* target = gs-&gt;Team(toTeam);
++
++	if (target)
++	{
++		if (!luaRules || luaRules-&gt;AllowResourceTransfer(teamNum, toTeam, &quot;m&quot;, metal))
++		{
++			target-&gt;metal += metal;
++			metal = 0;
++		}
++		if (!luaRules || luaRules-&gt;AllowResourceTransfer(teamNum, toTeam, &quot;e&quot;, energy))
++		{
++			target-&gt;energy += energy;
++			energy = 0;
++		}
++		
++		for (CUnitSet::iterator ui = units.begin(); ui != units.end(); ++ui)
++		{
++			if ((*ui) &amp;&amp; (!luaRules || luaRules-&gt;AllowUnitTransfer(*ui, toTeam, false))){
++				(*ui)-&gt;ChangeTeam(toTeam, CUnit::ChangeGiven);
++			}
++		}
++		Died();
++	}
++	else
++		logOutput.Print(&quot;Team %i didn't exists, can't give units&quot;);
++}
++
++void CTeam::Died()
++{
++	logOutput.Print(CMessages::Tr(&quot;Team%i(%s) is no more&quot;).c_str(), teamNum, gs-&gt;players[leader]-&gt;playerName.c_str());
++	isDead = true;
++	luaCallIns.TeamDied(teamNum);
++	for (int a = 0; a &lt; MAX_PLAYERS; ++a) {
++		if (gs-&gt;players[a]-&gt;active &amp;&amp; gs-&gt;players[a]-&gt;team == teamNum) {
++			gs-&gt;players[a]-&gt;StartSpectating();
++			if (gameServer)	{
++				gameServer-&gt;PlayerDefeated(a);
++			}
++		}
++	}
++	if (globalAI-&gt;ais[teamNum]) {
++		delete globalAI-&gt;ais[teamNum];
++		globalAI-&gt;ais[teamNum] = 0;
++	}
++	CLuaUI::UpdateTeams();
++}
++
+ void CTeam::SlowUpdate()
+ {
+ 	currentStats.metalProduced  += metalIncome;
+@@ -351,28 +420,9 @@
+ 		}
+ 	}
+ 
+-	if(units.empty() &amp;&amp; !gaia){
+-		logOutput.Print(CMessages::Tr(&quot;Team%i(%s) is no more&quot;).c_str(), teamNum, gs-&gt;players[leader]-&gt;playerName.c_str());
+-		isDead=true;
+-		luaCallIns.TeamDied(teamNum);
+-		for(int a=0;a&lt;MAX_PLAYERS;++a){
+-			if(gs-&gt;players[a]-&gt;active &amp;&amp; gs-&gt;players[a]-&gt;team==teamNum){
+-				gs-&gt;players[a]-&gt;spectator=true;
+-				if(a==gu-&gt;myPlayerNum){
+-					gu-&gt;spectating           = true;
+-					gu-&gt;spectatingFullView   = true;
+-					gu-&gt;spectatingFullSelect = true;
+-					CLuaUI::UpdateTeams();
+-				}
+-				if (gameServer)	{
+-					gameServer-&gt;PlayerDefeated(a);
+-				}
+-			}
+-		}
+-		if (globalAI-&gt;ais[teamNum]) {
+-			delete globalAI-&gt;ais[teamNum];
+-			globalAI-&gt;ais[teamNum] = 0;
+-		}
++	if(units.empty() &amp;&amp; !gaia)
++	{
++		Died();
+ 	}
+ }
+ 
+
+Modified: trunk/rts/Game/Team.h
+===================================================================
+--- trunk/rts/Game/Team.h	2008-01-20 16:50:07 UTC (rev 5353)
++++ trunk/rts/Game/Team.h	2008-01-20 17:18:16 UTC (rev 5354)
+@@ -27,6 +27,11 @@
+ 	bool UseMetal(float amount);
+ 	bool UseEnergyUpkeep(float amount);
+ 	bool UseMetalUpkeep(float amount);
++	
++	void SelfDestruct();
++	void GiveEverythingTo(const unsigned toTeam);
++	
++	void Died();
+ 
+ 	enum AddType{
+ 		AddBuilt,
+
+Modified: trunk/rts/Game/UI/QuitBox.cpp
+===================================================================
+--- trunk/rts/Game/UI/QuitBox.cpp	2008-01-20 16:50:07 UTC (rev 5353)
++++ trunk/rts/Game/UI/QuitBox.cpp	2008-01-20 17:18:16 UTC (rev 5354)
+@@ -1,6 +1,4 @@
+ #include &quot;StdAfx.h&quot;
+-#include &quot;Game/Player.h&quot;
+-#include &quot;Game/SelectedUnits.h&quot;
+ #include &quot;Game/Team.h&quot;
+ #include &quot;LogOutput.h&quot;
+ #include &quot;MouseHandler.h&quot;
+@@ -8,7 +6,6 @@
+ #include &quot;QuitBox.h&quot;
+ #include &quot;Rendering/glFont.h&quot;
+ #include &quot;Rendering/GL/myGL.h&quot;
+-#include &quot;Sim/Units/Unit.h&quot;
+ #include &lt;SDL_keysym.h&gt;
+ 
+ extern bool globalQuit;
+@@ -231,35 +228,22 @@
+ 	float my=MouseY(y);
+ 
+ 	if(InBox(mx,my,box+resignQuitBox) || InBox(mx,my,box+resignBox) || InBox(mx,my,box+giveAwayBox) &amp;&amp; !gs-&gt;Team(shareTeam)-&gt;isDead &amp;&amp; !gs-&gt;Team(gu-&gt;myTeam)-&gt;isDead){
+-		CUnitSet* tu=&amp;gs-&gt;Team(gu-&gt;myTeam)-&gt;units;
+-		//select all units
+-		selectedUnits.ClearSelected();
+-		for(CUnitSet::iterator ui=tu-&gt;begin();ui!=tu-&gt;end();++ui){
+-			selectedUnits.AddUnit(*ui);
+-		}
+-		Command c;
+ 		// give away all units (and resources)
+-		if(InBox(mx,my,box+giveAwayBox)){
+-			//make sure the units are stopped and that the selection is transmitted
+-			c.id=CMD_STOP;
+-			selectedUnits.GiveCommand(c,false);
+-			net-&gt;SendShare(gu-&gt;myPlayerNum, shareTeam, true,
+-				gs-&gt;Team(gu-&gt;myTeam)-&gt;metal, gs-&gt;Team(gu-&gt;myTeam)-&gt;energy);
+-			selectedUnits.ClearSelected();
++		if(InBox(mx,my,box+giveAwayBox)) {
++			net-&gt;SendGiveAwayEverything(gu-&gt;myPlayerNum, shareTeam);
+ 			// inform other users of the giving away of units
+ 			char givenAwayMsg[200];
+ 			sprintf(givenAwayMsg,&quot;%s gave everything to %s.&quot;,
+ 				gs-&gt;players[gu-&gt;myPlayerNum]-&gt;playerName.c_str(),
+ 				gs-&gt;players[gs-&gt;Team(shareTeam)-&gt;leader]-&gt;playerName.c_str());
+-			net-&gt;SendChat(gu-&gt;myPlayerNum, givenAwayMsg);
++			net-&gt;SendSystemMessage(gu-&gt;myPlayerNum, givenAwayMsg);
+ 		}
+ 		// resign, so self-d all units
+ 		if(InBox(mx,my,box+resignQuitBox) || InBox(mx,my,box+resignBox)) {
+-			c.id=CMD_SELFD;
+-			selectedUnits.GiveCommand(c,false);
++			net-&gt;SendSelfD(gu-&gt;myPlayerNum);
+ 		}
+ 		// (resign and) quit, so leave the game
+-		if(InBox(mx,my,box+resignQuitBox)){
++		if(InBox(mx,my,box+resignQuitBox)) {
+ 			logOutput.Print(&quot;User exited&quot;);
+ 			globalQuit=true;
+ 		}
+
+Modified: trunk/rts/Game/UI/QuitBox.h
+===================================================================
+--- trunk/rts/Game/UI/QuitBox.h	2008-01-20 16:50:07 UTC (rev 5353)
++++ trunk/rts/Game/UI/QuitBox.h	2008-01-20 17:18:16 UTC (rev 5354)
+@@ -1,5 +1,6 @@
+ #include &quot;InputReceiver.h&quot;
+ 
++//TOD add support for resigning without selfdestruction
+ class CQuitBox :
+ 	public CInputReceiver
+ {
+
+Modified: trunk/rts/System/AutohostInterface.cpp
+===================================================================
+--- trunk/rts/System/AutohostInterface.cpp	2008-01-20 16:50:07 UTC (rev 5353)
++++ trunk/rts/System/AutohostInterface.cpp	2008-01-20 17:18:16 UTC (rev 5354)
+@@ -40,7 +40,7 @@
+ 
+ AutohostInterface::AutohostInterface(int localport, int remoteport)
+ {
+-	autohost = new netcode::UDPHardlink(&quot;127.0.0.1&quot;, remoteport, localport, 10);
++	autohost = new netcode::UDPHardlink(&quot;127.0.0.1&quot;, remoteport, localport);
+ }
+ 
+ AutohostInterface::~AutohostInterface()
+
+Modified: trunk/rts/System/BaseNetProtocol.cpp
+===================================================================
+--- trunk/rts/System/BaseNetProtocol.cpp	2008-01-20 16:50:07 UTC (rev 5353)
++++ trunk/rts/System/BaseNetProtocol.cpp	2008-01-20 17:18:16 UTC (rev 5354)
+@@ -44,6 +44,7 @@
+ 	RegisterMessage(NETMSG_PLAYERLEFT, 3);
+ 	RegisterMessage(NETMSG_MODNAME, -1);
+ 	RegisterMessage(NETMSG_LUAMSG, -2);
++	RegisterMessage(NETMSG_TEAM, 4);
+ }
+ 
+ CBaseNetProtocol::~CBaseNetProtocol()
+@@ -333,9 +334,27 @@
+   data.push_back(script);
+   data.push_back(mode);
+   data.append(msg);
+-  return SendData((const unsigned char*)data.data(), msgLen);    
++  SendData((const unsigned char*)data.data(), msgLen);    
+ }
+ 
++void CBaseNetProtocol::SendSelfD(uchar myPlayerNum)
++{
++	unsigned char msg[4] = {NETMSG_TEAM, myPlayerNum, TEAMMSG_SELFD, 0};
++	SendData(msg, 4);
++}
++
++void CBaseNetProtocol::SendGiveAwayEverything(uchar myPlayerNum, uchar giveTo)
++{
++	unsigned char msg[4] = {NETMSG_TEAM, myPlayerNum, TEAMMSG_GIVEAWAY, giveTo};
++	SendData(msg, 4);
++}
++
++void CBaseNetProtocol::SendResign(uchar myPlayerNum)
++{
++	unsigned char msg[4] = {NETMSG_TEAM, myPlayerNum, TEAMMSG_RESIGN, 0};
++	SendData(msg, 4);
++}
++
+ /* FIXME: add these:
+ 
+ #ifdef SYNCDEBUG
+
+Modified: trunk/rts/System/BaseNetProtocol.h
+===================================================================
+--- trunk/rts/System/BaseNetProtocol.h	2008-01-20 16:50:07 UTC (rev 5353)
++++ trunk/rts/System/BaseNetProtocol.h	2008-01-20 17:18:16 UTC (rev 5354)
+@@ -71,8 +71,19 @@
+ #endif // SYNCDEBUG
+ 
+ 	NETMSG_LUAMSG           = 50, // uchar myPlayerNum, std::string msg
++	NETMSG_TEAM             = 51, // uchar myPlayerNum, uchar action, uchar parameter1
+ };
+ 
++// action to do with NETMSG_TEAM 
++enum TEAMMSG {
++//	TEAMMSG_NAME			= number	   parameter1
++	TEAMMSG_SELFD           = 0,		// not used 
++	TEAMMSG_GIVEAWAY        = 1,		// team to give stuff to
++	TEAMMSG_RESIGN			= 2,		// not used
++//TODO: changing teams (to spectator, from spectator to specific team)
++//TODO: in-game allyteams
++};
++
+ /**
+ @brief High level network code layer
+ Provides protocoldependent functions over our CNet-Class. It includes all functions needed to send stuff without handling with the internals.
+@@ -130,6 +141,10 @@
+ 	void SendPlayerLeft(uchar myPlayerNum, uchar bIntended);
+ 	void SendModName(const uint checksum, const std::string&amp; modName);
+ 	void SendLuaMsg(uchar myPlayerNum, uchar script, uchar mode, const std::string&amp; msg);
++	
++	void SendSelfD(uchar myPlayerNum);
++	void SendGiveAwayEverything(uchar myPlayerNum, uchar giveTo);
++	void SendResign(uchar myPlayerNum);
+ 
+ private:
+ };
+
+Modified: trunk/rts/System/Net/UDPHardlink.cpp
+===================================================================
+--- trunk/rts/System/Net/UDPHardlink.cpp	2008-01-20 16:50:07 UTC (rev 5353)
++++ trunk/rts/System/Net/UDPHardlink.cpp	2008-01-20 17:18:16 UTC (rev 5354)
+@@ -21,8 +21,8 @@
+ 	const int SOCKET_ERROR = -1;
+ #endif
+ 
+-UDPHardlink::UDPHardlink(const char* const server, const unsigned remoteport, const int port, const unsigned range)
+-: UDPSocket(port,range)
++UDPHardlink::UDPHardlink(const char* const server, const unsigned remoteport, const int port)
++: UDPSocket(port)
+ {
+ 	LPHOSTENT lpHostEntry;
+ 	sockaddr_in remoteAddr;
+
+Modified: trunk/rts/System/Net/UDPHardlink.h
+===================================================================
+--- trunk/rts/System/Net/UDPHardlink.h	2008-01-20 16:50:07 UTC (rev 5353)
++++ trunk/rts/System/Net/UDPHardlink.h	2008-01-20 17:18:16 UTC (rev 5354)
+@@ -21,7 +21,7 @@
+ 	@param range if $port is blocked, try port +1, +2, ... +range
+ 	@throw network_error when hostname cannot be resolved
+ 	*/
+-	UDPHardlink(const char* const address, const unsigned remoteport, const int port, const unsigned range=0);
++	UDPHardlink(const char* const address, const unsigned remoteport, const int port);
+ 
+ 	/**
+ 	@brief Send some data
+
+Modified: trunk/rts/System/Net/UDPListener.cpp
+===================================================================
+--- trunk/rts/System/Net/UDPListener.cpp	2008-01-20 16:50:07 UTC (rev 5353)
++++ trunk/rts/System/Net/UDPListener.cpp	2008-01-20 17:18:16 UTC (rev 5354)
+@@ -28,50 +28,44 @@
+ 			++i;
+ 	}
+ 
+-	do
++	unsigned char buffer[4096];
++	sockaddr_in fromAddr;
++	unsigned recieved;
++	while ((recieved = mySocket-&gt;RecvFrom(buffer, 4096, &amp;fromAddr)) &gt;= UDPConnection::hsize)
+ 	{
+-		unsigned char buffer[4096];
+-		sockaddr_in fromAddr;
+-		unsigned recieved = mySocket-&gt;RecvFrom(buffer, 4096, &amp;fromAddr);
+-		
+-		if (recieved &lt; UDPConnection::hsize)
+-		{
+-			break;
+-		}
+-		
+ 		RawPacket* data = new RawPacket(buffer, recieved);
+-		bool interrupt = false;
++
+ 		for (std::list&lt; boost::weak_ptr&lt;UDPConnection&gt; &gt;::iterator i = conn.begin(); i != conn.end(); ++i)
+ 		{
+ 			boost::shared_ptr&lt;UDPConnection&gt; locked(*i);
+ 			if (locked-&gt;CheckAddress(fromAddr))
+ 			{
+ 				locked-&gt;ProcessRawPacket(data);
+-				interrupt=true;
++				data = 0; // UDPConnection takes ownership of packet
++				break;
+ 			}
+ 		}
+ 		
+-		if (interrupt)
+-			continue;
+-		
+-		const int packetNumber = *(int*)(data-&gt;data);
+-		const int lastInOrder = *(int*)(data-&gt;data+4);
+-		const unsigned char nak = data-&gt;data[8];
+-		if (acceptNewConnections &amp;&amp; packetNumber == 0 &amp;&amp; lastInOrder == -1 &amp;&amp; nak == 0)
+-		{
+-			// new client wants to connect
+-			boost::shared_ptr&lt;UDPConnection&gt; incoming(new UDPConnection(mySocket, fromAddr));
+-			waitingQueue.push(incoming);
+-			conn.push_back(incoming);
+-			incoming-&gt;ProcessRawPacket(data);
+-		}
+-		else
+-		{
+-			// throw it
+-			delete data;
+-		}
+-		
+-	} while (true);
++		if (data) // still have the packet (means no connection with the sender's address found)
++		{		
++			const int packetNumber = *(int*)(data-&gt;data);
++			const int lastInOrder = *(int*)(data-&gt;data+4);
++			const unsigned char nak = data-&gt;data[8];
++			if (acceptNewConnections &amp;&amp; packetNumber == 0 &amp;&amp; lastInOrder == -1 &amp;&amp; nak == 0)
++			{
++				// new client wants to connect
++				boost::shared_ptr&lt;UDPConnection&gt; incoming(new UDPConnection(mySocket, fromAddr));
++				waitingQueue.push(incoming);
++				conn.push_back(incoming);
++				incoming-&gt;ProcessRawPacket(data);
++			}
++			else
++			{
++				// throw it
++				delete data;
++			}
++		}	
++	}
+ 	
+ 	for (std::list&lt; boost::weak_ptr&lt; UDPConnection&gt; &gt;::iterator i = conn.begin(); i != conn.end(); ++i)
+ 	{
+
+Modified: trunk/rts/System/Net/UDPSocket.cpp
+===================================================================
+--- trunk/rts/System/Net/UDPSocket.cpp	2008-01-20 16:50:07 UTC (rev 5353)
++++ trunk/rts/System/Net/UDPSocket.cpp	2008-01-20 17:18:16 UTC (rev 5354)
+@@ -1,12 +1,11 @@
+ #include &quot;UDPSocket.h&quot;
+ 
+-#include &lt;string&gt;
+ #ifdef _WIN32
+- #include &lt;direct.h&gt;
+- #include &lt;io.h&gt;
++	#include &lt;direct.h&gt;
++	#include &lt;io.h&gt;
+ #else
+- #include &lt;fcntl.h&gt;
+- #include &lt;errno.h&gt;
++	#include &lt;fcntl.h&gt;
++	#include &lt;errno.h&gt;
+ #endif
+ 
+ #include &quot;Exception.h&quot;
+@@ -16,14 +15,14 @@
+ 
+ #ifdef _WIN32
+ 	typedef int socklen_t;
+-#define close(x) closesocket(x)
++	inline int close(SOCKET mySocket) { return closesocket(mySocket); };
+ #else
+ 	const int INVALID_SOCKET = -1;
+ 	const int SOCKET_ERROR = -1;
+ #endif
+ 
+ 
+-UDPSocket::UDPSocket(int port, unsigned range)
++UDPSocket::UDPSocket(const int port)
+ {
+ #ifdef _WIN32
+ 	unsigned short wVersionRequested;
+@@ -32,7 +31,7 @@
+ 		
+ 	wVersionRequested = MAKEWORD( 2, 2 );
+ 	err = WSAStartup( wVersionRequested, &amp;wsaData );if ( err != 0 ) {
+-		throw network_error(&quot;Couldn't initialize winsock&quot;);
++		throw network_error(&quot;Error initializing winsock: failed to start&quot;);
+ 		return;
+ 	}
+ 	/* Confirm that the WinSock DLL supports 2.2.*/
+@@ -41,46 +40,39 @@
+ 	/* 2.2 in wVersion since that is the version we      */
+ 	/* requested.                                        */
+ 	if ( LOBYTE( wsaData.wVersion ) != 2 || HIBYTE( wsaData.wVersion ) != 2 ) {
+-		throw network_error(&quot;Wrong WSA version&quot;);
++		throw network_error(&quot;Error initializing winsock: wrong version&quot;);
+ 		WSACleanup( );
+ 		return;
+ 	}
+ #endif
+ 	
+-	if ((mySocket= socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == INVALID_SOCKET ){ /* create socket */
++	mySocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP); // create socket
++	if (mySocket == INVALID_SOCKET )
++	{
+ 		throw network_error(std::string(&quot;Error initializing socket: &quot;) + GetErrorMsg());
+-		exit(0);
+ 	}
+ 	
+ 	myAddr.sin_family = AF_INET;
+-	myAddr.sin_addr.s_addr = INADDR_ANY; // Let the OS assign a address
+-	
+-	do
++	myAddr.sin_addr.s_addr = htonl(INADDR_ANY); // Let the OS assign a address	
++	myAddr.sin_port = htons(port);	   // Use port passed from user
++
++	if (bind(mySocket,(struct sockaddr *)&amp;myAddr,sizeof(struct sockaddr_in)) == SOCKET_ERROR)
+ 	{
+-		myAddr.sin_port = htons(port);	   // Use port passed from user		
+-		if (bind(mySocket,(struct sockaddr *)&amp;myAddr,sizeof(struct sockaddr_in)) == SOCKET_ERROR)
+-		{
+-			if (range == 0)
+-			{
+-				// last try, error will break through to higher levels
+-				throw network_error(std::string(&quot;Error binding socket: &quot;) + GetErrorMsg());
+-			}
+-			--range;
+-			++port;
+-		}
+-		else 
+-			break;
+-	} while (range &gt; 0);
++		throw network_error(std::string(&quot;Error binding socket: &quot;) + GetErrorMsg());
++	}
+ 	
+ 	// dont set PATH_MTU yet
+ 	// int option = IP_PMTUDISC_DO;
+ 	// setsockopt(mySocket, IPPROTO_IP, IP_MTU_DISCOVER, &amp;option, sizeof(option));
+ #ifdef _WIN32
+ 	u_long u=1;
+-	ioctlsocket(mySocket,FIONBIO,&amp;u);
++	if (ioctlsocket(mySocket,FIONBIO,&amp;u) == SOCKET_ERROR)
+ #else
+-	fcntl(mySocket, F_SETFL, O_NONBLOCK);
++	if (fcntl(mySocket, F_SETFL, O_NONBLOCK) == -1)
+ #endif
++	{
++		throw network_error(std::string(&quot;Error configuring socket: &quot;) + GetErrorMsg());
++	}
+ }
+ 
+ UDPSocket::~UDPSocket()
+@@ -91,30 +83,34 @@
+ #endif
+ }
+ 
+-unsigned UDPSocket::RecvFrom(unsigned char* buf, const unsigned bufLength, sockaddr_in* fromAddress) const 
++unsigned UDPSocket::RecvFrom(unsigned char* const buf, const unsigned bufLength, sockaddr_in* const fromAddress) const 
+ {
+ 	socklen_t fromsize = sizeof(*fromAddress);
+ 	const int data =  recvfrom(mySocket,(char*)buf,bufLength,0,(sockaddr*)fromAddress,&amp;fromsize);
+-	if (data == SOCKET_ERROR) {
+-		if (IsFakeError()) {
++	if (data == SOCKET_ERROR)
++	{
++		if (IsFakeError())
++		{
+ 			return 0;
+-		} else {
++		}
++		else
++		{
+ 			throw network_error(std::string(&quot;Error receiving data from socket: &quot;) + GetErrorMsg());
+-    }
++		}
+ 	}
+-
+ 	return data;
+ }
+ 
+ void UDPSocket::SendTo(const unsigned char* const buf, const unsigned dataLength, const sockaddr_in* const destination) const
+ {
+ 	const int error = sendto(mySocket,(const char*)buf,dataLength,0,(const struct sockaddr* const)destination,sizeof(*destination));
+-	if (error == SOCKET_ERROR) {
++	if (error == SOCKET_ERROR)
++	{
+ 		if (IsFakeError()) {
+ 			return;
+ 		} else {
+ 			throw network_error(std::string(&quot;Error sending data to socket: &quot;) + GetErrorMsg());
+-    }
++    	}
+ 	}
+ }
+ 
+
+Modified: trunk/rts/System/Net/UDPSocket.h
+===================================================================
+--- trunk/rts/System/Net/UDPSocket.h	2008-01-20 16:50:07 UTC (rev 5353)
++++ trunk/rts/System/Net/UDPSocket.h	2008-01-20 17:18:16 UTC (rev 5354)
+@@ -19,19 +19,19 @@
+ 
+ /**
+ @brief Wrapper class over BSD-style UDP-sockets
+<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">+ at author</A> Karl-Robert Ernst
++
+ Provides easy to use access to network sockets: just construct this with a given portnum and you will have an valid, local bound UDP-Socket where you can sendto / recvfrom. If it gets deleted, the socket is closed automagically for you (this means you are not able to copy this class).
+<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">- at author</A> Karl-Robert Ernst
+ */
+ class UDPSocket : public boost::noncopyable
+ {
+ public:
+ 	/**
+ 	@brief perform initialisations
+-	@param port The port to bind our socket
+-	@param maxrange Try $range ports starting with $port
++	@param port The local port to bind our socket (0 means OS-select)
+ 	@throw network_error When any error occurs, this is thrown
+ 	*/
+-	UDPSocket(int port, unsigned range=0);
++	UDPSocket(const int port);
+ 	
+ 	/**
+ 	@brief Close our socket
+@@ -46,7 +46,7 @@
+ 	@throw network_error when a error occurs
+ 	@return The amount of bytes read (0 means no data)
+ 	 */
+-	unsigned RecvFrom(unsigned char* buf, const unsigned bufLength, sockaddr_in* fromAddress) const;
++	unsigned RecvFrom(unsigned char* const buf, const unsigned bufLength, sockaddr_in* const fromAddress) const;
+ 	
+ 	/**
+ 	@brief Send data to the socket
+
+Modified: trunk/tools/DedicatedServer/CMakeLists.txt
+===================================================================
+--- trunk/tools/DedicatedServer/CMakeLists.txt	2008-01-20 16:50:07 UTC (rev 5353)
++++ trunk/tools/DedicatedServer/CMakeLists.txt	2008-01-20 17:18:16 UTC (rev 5354)
+@@ -24,7 +24,7 @@
+ ADD_LIBRARY(hpiutil2 SHARED  ${hpiutil2})
+ 
+ IF (UNIX)
+-SET(platformfiles ../../rts/System/Platform/Linux/UnixFileSystemHandler ../../rts/System/Platform/Linux/DotfileHandler)
++SET(platformfiles ../../rts/System/Platform/Linux/UnixFileSystemHandler ../../rts/System/Platform/Linux/DataDirLocater ../../rts/System/Platform/Linux/DotfileHandler)
+ ELSE (UNIX)
+ SET(platformfiles ../../rts/System/Platform/Windows/WinFileSystemHandler ../../rts/System/Platform/Windows/RegHandler)
+ ENDIF (UNIX)
+
+Modified: trunk/tools/DemoAnalyser/CMakeLists.txt
+===================================================================
+--- trunk/tools/DemoAnalyser/CMakeLists.txt	2008-01-20 16:50:07 UTC (rev 5353)
++++ trunk/tools/DemoAnalyser/CMakeLists.txt	2008-01-20 17:18:16 UTC (rev 5354)
+@@ -1,7 +1,7 @@
+ PROJECT(DemoAnalyser)
+ SET(CMAKE_CXX_FLAGS &quot;-O1 -Wall -g&quot;)
+ 
+-ADD_DEFINITIONS(-DDEBUG -D_SZ_ONE_DIRECTORY -DNO_AVI -DDEDICATED -DSYNCCHECK )
++ADD_DEFINITIONS(-DDEBUG -D_DEBUG -D_SZ_ONE_DIRECTORY -DNO_AVI -DDEDICATED -DSYNCCHECK )
+ 
+ INCLUDE_DIRECTORIES(/usr/include/SDL/)
+ INCLUDE_DIRECTORIES(../../rts/ ../../rts/Game ../../rts/lib/7zip ../../rts/System)
+@@ -20,7 +20,7 @@
+ ADD_LIBRARY(hpiutil2 SHARED  ${hpiutil2})
+ 
+ IF (UNIX)
+-SET(platformfiles ../../rts/System/Platform/Linux/UnixFileSystemHandler ../../rts/System/Platform/Linux/DotfileHandler)
++SET(platformfiles ../../rts/System/Platform/Linux/UnixFileSystemHandler ../../rts/System/Platform/Linux/DotfileHandler ../../rts/System/Platform/Linux/DataDirLocater)
+ ELSE (UNIX)
+ SET(platformfiles ../../rts/System/Platform/Windows/WinFileSystemHandler ../../rts/System/Platform/Windows/RegHandler)
+ ENDIF (UNIX)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000160.html">[Taspring-linux-commit] r5353 - trunk/rts/Lua
+</A></li>
+	<LI>Next message: <A HREF="000162.html">[Taspring-linux-commit] r5355 - in trunk: rts/Rendering/GL	tools/DedicatedServer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#161">[ date ]</a>
+              <a href="thread.html#161">[ thread ]</a>
+              <a href="subject.html#161">[ subject ]</a>
+              <a href="author.html#161">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

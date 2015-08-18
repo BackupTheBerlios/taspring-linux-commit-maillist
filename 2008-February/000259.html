@@ -1,0 +1,133 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5452 - trunk/Lobby/TASServer
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5452%20-%20trunk/Lobby/TASServer&In-Reply-To=%3CE1JMJpY-0006B5-9T%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000258.html">
+   <LINK REL="Next"  HREF="000260.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5452 - trunk/Lobby/TASServer</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5452%20-%20trunk/Lobby/TASServer&In-Reply-To=%3CE1JMJpY-0006B5-9T%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5452 - trunk/Lobby/TASServer">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Feb  5 10:11:04 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000258.html">[Taspring-linux-commit] r5451 - in trunk/Lobby/AFLobby/src/aflobby:	. UI helpers
+</A></li>
+        <LI>Next message: <A HREF="000260.html">[Taspring-linux-commit] r5453 - in trunk: Documentation rts	rts/Game/StartScripts rts/Sim/MoveTypes rts/Sim/Units	rts/Sim/Units/COB rts/Sim/Units/CommandAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#259">[ date ]</a>
+              <a href="thread.html#259">[ thread ]</a>
+              <a href="subject.html#259">[ subject ]</a>
+              <a href="author.html#259">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: betalord
+Date: 2008-02-05 10:11:03 +0100 (Tue, 05 Feb 2008)
+New Revision: 5452
+
+Modified:
+   trunk/Lobby/TASServer/Client.java
+   trunk/Lobby/TASServer/Clients.java
+   trunk/Lobby/TASServer/TASServer.java
+Log:
+added &quot;halfDead&quot; flag to clients, this should make killing multiple clients at the same time faster (since data will not be sent to &quot;half dead&quot; clients)
+
+Modified: trunk/Lobby/TASServer/Client.java
+===================================================================
+--- trunk/Lobby/TASServer/Client.java	2008-02-04 21:11:31 UTC (rev 5451)
++++ trunk/Lobby/TASServer/Client.java	2008-02-05 09:11:03 UTC (rev 5452)
+@@ -23,6 +23,7 @@
+ 
+ public class Client {
+ 	public boolean alive = false; // if false, then this client is not &quot;valid&quot; anymore (we already killed him and closed his socket).
++	public boolean halfDead = false; // when we schedule client for kill (via Clients.killClientDelayed, for example) this flag is set to true. When true, we don't read or send any data to this client.
+ 	
+ 	public Account account;
+ 	public String IP;
+@@ -97,6 +98,7 @@
+ 	/* the 'msgID' param overrides any previously set ID (via setSendMsgID method). Use NO_MSG_ID (which should equal to -1) for none.  */
+ 	public boolean sendLine(String text, int msgID) {
+ 		if (!alive) return false;
++		if (halfDead) return false;
+ 
+ 		// prefix message with a message ID:
+ 		if (msgID != TASServer.NO_MSG_ID) text = &quot;#&quot; + msgID + &quot; &quot; + text;
+
+Modified: trunk/Lobby/TASServer/Clients.java
+===================================================================
+--- trunk/Lobby/TASServer/Clients.java	2008-02-04 21:11:31 UTC (rev 5451)
++++ trunk/Lobby/TASServer/Clients.java	2008-02-05 09:11:03 UTC (rev 5452)
+@@ -209,6 +209,7 @@
+ 	public static void killClientDelayed(Client client, String reason) {
+ 		killList.add(client);
+ 		reasonList.add(reason);
++		client.halfDead = true;
+ 	}
+ 	
+ 	/* this will kill all clients in the current kill list and empty it.
+
+Modified: trunk/Lobby/TASServer/TASServer.java
+===================================================================
+--- trunk/Lobby/TASServer/TASServer.java	2008-02-04 21:11:31 UTC (rev 5451)
++++ trunk/Lobby/TASServer/TASServer.java	2008-02-05 09:11:03 UTC (rev 5452)
+@@ -510,7 +510,8 @@
+ 				SelectionKey key = (SelectionKey)i.next();
+ 				i.remove();
+ 				SocketChannel channel = (SocketChannel)key.channel();
+-				client = (Client)key.attachment(); 
++				client = (Client)key.attachment();
++				if (client.halfDead) continue;
+ 				readBuffer.clear();
+ 
+ 				client.timeOfLastReceive = System.currentTimeMillis();
+@@ -3002,9 +3003,8 @@
+ 		    	long now = System.currentTimeMillis();
+ 		    	for (int i = 0; i &lt; Clients.getClientsSize(); i++) {
+ 		    		if (now - Clients.getClient(i).timeOfLastReceive &gt; TIMEOUT_LENGTH) {
+-		    			System.out.println(&quot;Timeout detected from &quot; + Clients.getClient(i).account.user + &quot; (&quot; + Clients.getClient(i).IP + &quot;). Killing client ...&quot;);
+-		    			Clients.killClient(Clients.getClient(i), &quot;Quit: timeout&quot;);		
+-		    			i--;
++		    			System.out.println(&quot;Timeout detected from &quot; + Clients.getClient(i).account.user + &quot; (&quot; + Clients.getClient(i).IP + &quot;). Client has been scheduled for kill ...&quot;);
++		    			Clients.killClientDelayed(Clients.getClient(i), &quot;Quit: timeout&quot;);		
+ 		    		}
+ 		    	}
+ 		    }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000258.html">[Taspring-linux-commit] r5451 - in trunk/Lobby/AFLobby/src/aflobby:	. UI helpers
+</A></li>
+	<LI>Next message: <A HREF="000260.html">[Taspring-linux-commit] r5453 - in trunk: Documentation rts	rts/Game/StartScripts rts/Sim/MoveTypes rts/Sim/Units	rts/Sim/Units/COB rts/Sim/Units/CommandAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#259">[ date ]</a>
+              <a href="thread.html#259">[ thread ]</a>
+              <a href="subject.html#259">[ subject ]</a>
+              <a href="author.html#259">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

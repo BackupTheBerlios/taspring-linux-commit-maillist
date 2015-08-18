@@ -1,0 +1,290 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7297 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7297%20-%20Lobby/TASClient&In-Reply-To=%3C20090715211723.D88DA3B6F1%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002066.html">
+   <LINK REL="Next"  HREF="002068.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7297 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7297%20-%20Lobby/TASClient&In-Reply-To=%3C20090715211723.D88DA3B6F1%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7297 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Jul 15 23:17:23 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002066.html">[Taspring-linux-commit] r7296 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002068.html">[Taspring-linux-commit] r7298 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2067">[ date ]</a>
+              <a href="thread.html#2067">[ thread ]</a>
+              <a href="subject.html#2067">[ subject ]</a>
+              <a href="author.html#2067">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2009-07-15 23:17:23 +0200 (Wed, 15 Jul 2009)
+New Revision: 7297
+
+Modified:
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/PerformFormUnit.pas
+   Lobby/TASClient/PreferencesFormUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* &quot;reload view after login&quot; option added
+* &quot;now talking in ...&quot; bug fixed
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2009-07-15 20:17:15 UTC (rev 7296)
++++ Lobby/TASClient/MainUnit.dfm	2009-07-15 21:17:23 UTC (rev 7297)
+@@ -7290,6 +7290,10 @@
+     object ViewSubMenu: TSpTBXSubmenuItem
+       Caption = 'View'
+     end
++    object mnuReloadViewLogin: TSpTBXItem
++      Caption = 'Reload view after login'
++      AutoCheck = True
++    end
+     object mnuLockView: TSpTBXItem
+       Caption = 'Panels locked'
+       AutoCheck = True
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2009-07-15 20:17:15 UTC (rev 7296)
++++ Lobby/TASClient/MainUnit.pas	2009-07-15 21:17:23 UTC (rev 7297)
+@@ -540,8 +540,8 @@
+     LogFile: TFileStream;
+     LogFileName: String;
+     constructor CreateNew(AOwner: TComponent; Dummy: Integer); override;
+-
+     destructor Destroy; override;
++    procedure ScrollRichEditToBottom;
+   end;
+ 
+   TClientGroup = class
+@@ -1129,6 +1129,7 @@
+     SpTBXSeparatorItem25: TSpTBXSeparatorItem;
+     ViewSubMenu: TSpTBXSubmenuItem;
+     mnuResetView: TSpTBXItem;
++    mnuReloadViewLogin: TSpTBXItem;
+     procedure mnuOpenPrivateChatClick(Sender: TObject);
+     procedure mnuSelectBattleClick(Sender: TObject);
+     procedure SpTBXItem1Click(Sender: TObject);
+@@ -1674,6 +1675,7 @@
+   BattleSortingDirection: Boolean;
+ 
+   SwitchToNewChatRoom : Boolean = false;
++  LastAutoJoin: string = '';
+ 
+   function Dequeue: WideString; forward;
+   function Enqueue(s: WideString): Integer; forward;
+@@ -3509,6 +3511,14 @@
+   inherited Destroy;
+ end;
+ 
++procedure TMyTabSheet.ScrollRichEditToBottom;
++var
++  r: TExRichEdit;
++begin
++  r := TExRichEdit(Self.FindComponent('RichEdit'));
++  r.ScrollToBottom;
++end;
++
+ { TMainForm }
+ 
+ procedure TMainForm.ChangeActivePageAndUpdate(PageControl: TPageControl; PageIndex: Integer); // never change ActivePageIndex manually, since it doesn't trigger OnChange event!
+@@ -3839,6 +3849,7 @@
+     if MainUnit.Debug.Enabled then
+       Misc.TryToAddLog(MainUnit.StartDebugLog,'Loading user docking layout ...');
+     DockHandler.LoadDesktop(TASCLIENT_REGISTRY_KEY+'\Layout',PreferencesForm.LayoutDefault.Text);
++    TMyTabSheet(ChatTabs[0]).ScrollRichEditToBottom;
+     MainForm.mnuLockViewClick(nil);
+ 
+     // small fix for weird tab captions
+@@ -4127,7 +4138,7 @@
+   Misc.AddTextToRichEdit(re, Text, Color, Chat.AutoScroll, ChatTextPos);
+   TryToAddLog(Chat.LogFile, Text);
+ 
+-  if (MainForm.lastActiveTab &lt;&gt; Chat) and not DoNotHighLight then
++  if (Chat.Parent is TTabSheet) and (TTabSheet(Chat.Parent).PageControl.ActivePage &lt;&gt; TTabSheet(Chat.Parent)) and not DoNotHighLight then
+     try
+       TTabSheet(Chat.Parent).Highlighted := True;
+     except
+@@ -5096,7 +5107,9 @@
+               Break;
+             end;
+           if not tmpBool then
++          begin
+             ProcessCommand('JOIN '+TMyTabSheet(MainForm.ChatTabs[i]).Caption,False);
++          end;
+         end;
+ 
+       // check new version
+@@ -5314,7 +5327,7 @@
+       if i &lt;&gt; -1 then
+       begin
+         RemoveClientFromTab(TMyTabSheet(MainForm.ChatTabs[i]), sl[1]);
+-        AddTextToChatWindow(TMyTabSheet(MainForm.ChatTabs[i]),sl[1]+_(' has left the server.'),Colors.ChanLeft);
++        AddTextToChatWindow(TMyTabSheet(MainForm.ChatTabs[i]),sl[1]+_(' has left the server.'),Colors.ChanLeft,True);
+       end;
+ 
+       if not RemoveClientFromAllClientsList(sl[1]) then
+@@ -5590,11 +5603,25 @@
+       begin
+         i := GetTabWindowPageIndex('#' + sl[1]);
+         if i = -1 then
++        begin
+           ChatTabs.Add(AddTabWindow('#' + sl[1], SwitchToNewChatRoom));
+-        //else
+-          //ChangeActivePageAndUpdate(PageControl1, i);
+-
+-        AddTextToChatWindow(TMyTabSheet(ChatTabs[ChatTabs.Count-1]), _('* Now talking in ') + TMyTabSheet(ChatTabs[ChatTabs.Count-1]).Caption, Colors.ChanJoin,True);
++          i := ChatTabs.Count-1;
++          if (LowerCase(sl[1]) = LowerCase(LastAutoJoin)) and mnuReloadViewLogin.Checked then
++          begin
++            DockHandler.LoadDesktop(TASCLIENT_REGISTRY_KEY+'\Layout',PreferencesForm.LayoutDefault.Text);
++            for j:=1 to ChatTabs.Count-1 do
++            begin
++              if not TMyTabSheet(ChatTabs[j]).Visible then
++              begin
++                TMyTabSheet(ChatTabs[j]).ManualDock(MainPCH.PageControl);
++                TMyTabSheet(ChatTabs[j]).Visible := True;
++              end;
++              TMyTabSheet(ChatTabs[j]).ScrollRichEditToBottom;
++            end;
++            TMyTabSheet(ChatTabs[0]).ScrollRichEditToBottom;
++          end;
++        end;
++        AddTextToChatWindow(TMyTabSheet(ChatTabs[i]), _('* Now talking in ') + TMyTabSheet(ChatTabs[i]).Caption, Colors.ChanJoin,True);
+       end;
+     end
+     else if sl[0] = 'CLIENTS' then
+@@ -5810,7 +5837,7 @@
+         Exit;
+       end;
+ 
+-      AddTextToChatWindow(TMyTabSheet(MainForm.ChatTabs[i]), _('* Channel message: ') + MakeSentenceWS(sl, 2), Colors.Info);
++      AddTextToChatWindow(TMyTabSheet(MainForm.ChatTabs[i]), _('* Channel message: ') + MakeSentenceWS(sl, 2), Colors.Info,True);
+     end
+     else if sl[0] = 'SAIDEX' then
+     begin
+
+Modified: Lobby/TASClient/PerformFormUnit.pas
+===================================================================
+--- Lobby/TASClient/PerformFormUnit.pas	2009-07-15 20:17:15 UTC (rev 7296)
++++ Lobby/TASClient/PerformFormUnit.pas	2009-07-15 21:17:23 UTC (rev 7297)
+@@ -5,7 +5,8 @@
+ uses
+   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
+   Dialogs, PreferencesFormUnit, StdCtrls, JvExStdCtrls, JvListBox, Buttons,
+-  SpTBXControls, SpTBXEditors, TBXDkPanels, TntStdCtrls, SpTBXItem, ImgList,Misc;
++  SpTBXControls, SpTBXEditors, TBXDkPanels, TntStdCtrls, SpTBXItem, ImgList,Misc,
++  StrUtils;
+ 
+ type
+   TPerformForm = class(TForm)
+@@ -146,7 +147,13 @@
+   i: Integer;
+ begin
+   for i := 0 to CommandsListBox.Count-1 do
++  begin
+     MainForm.ProcessCommand(Copy(CommandsListBox.Items[i], 2, Length(CommandsListBox.Items[i])-1), False);
++    if LowerCase(LeftStr(CommandsListBox.Items[i],4)) = '/j #' then
++      LastAutoJoin := MidStr(CommandsListBox.Items[i],5,99999);
++    if LowerCase(LeftStr(CommandsListBox.Items[i],7)) = '/join #' then
++      LastAutoJoin := MidStr(CommandsListBox.Items[i],8,99999);
++  end;
+ end;
+ 
+ procedure TPerformForm.Button1Click(Sender: TObject);
+
+Modified: Lobby/TASClient/PreferencesFormUnit.pas
+===================================================================
+--- Lobby/TASClient/PreferencesFormUnit.pas	2009-07-15 20:17:15 UTC (rev 7296)
++++ Lobby/TASClient/PreferencesFormUnit.pas	2009-07-15 21:17:23 UTC (rev 7297)
+@@ -462,6 +462,7 @@
+     try MainForm.EnableFilters.Checked := Misc.GetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\MainForm', 'EnableFilters'); except end;
+     try MainForm.FiltersTabs.ActiveTabIndex := Misc.GetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\MainForm', 'FiltersActiveTab'); except end;
+     try MainForm.mnuLockView.Checked := Misc.GetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\MainForm', 'LockView'); except end;
++    try MainForm.mnuReloadViewLogin.Checked := Misc.GetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\MainForm', 'ReloadViewLogin'); except end;
+ 
+     try ReplaysForm.FiltersTabs.ActiveTabIndex := Misc.GetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\MainForm', 'ReplayFiltersActiveTab'); except end;
+ 
+@@ -583,6 +584,7 @@
+     Misc.SetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\MainForm', 'FiltersActiveTab', rdInteger, MainForm.FiltersTabs.ActiveTabIndex);
+     Misc.SetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\MainForm', 'ReplayFiltersActiveTab', rdInteger, ReplaysForm.FiltersTabs.ActiveTabIndex);
+     Misc.SetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\MainForm', 'LockView', rdInteger, Misc.BoolToInt(MainForm.mnuLockView.Checked));
++    Misc.SetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\MainForm', 'ReloadViewLogin', rdInteger, Misc.BoolToInt(MainForm.mnuReloadViewLogin.Checked));
+ 
+     with MainForm.VDTBattles.Header.Columns do
+       for i := 0 to Count-1 do
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2009-07-15 20:17:15 UTC (rev 7296)
++++ Lobby/TASClient/TASClient.dof	2009-07-15 21:17:23 UTC (rev 7297)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=50
+ Release=0
+-Build=648
++Build=649
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.50.0.648
++FileVersion=0.50.0.649
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002066.html">[Taspring-linux-commit] r7296 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002068.html">[Taspring-linux-commit] r7298 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2067">[ date ]</a>
+              <a href="thread.html#2067">[ thread ]</a>
+              <a href="subject.html#2067">[ subject ]</a>
+              <a href="author.html#2067">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

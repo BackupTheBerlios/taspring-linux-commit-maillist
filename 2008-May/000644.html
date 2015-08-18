@@ -1,0 +1,600 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5864 - trunk/rts/ExternalAI
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5864%20-%20trunk/rts/ExternalAI&In-Reply-To=%3C20080510233952.B4BE046CC%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000643.html">
+   <LINK REL="Next"  HREF="000645.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5864 - trunk/rts/ExternalAI</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5864%20-%20trunk/rts/ExternalAI&In-Reply-To=%3C20080510233952.B4BE046CC%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5864 - trunk/rts/ExternalAI">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun May 11 01:39:52 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000643.html">[Taspring-linux-commit] r5863 - trunk/Documentation
+</A></li>
+        <LI>Next message: <A HREF="000645.html">[Taspring-linux-commit] r5865 - trunk/rts/ExternalAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#644">[ date ]</a>
+              <a href="thread.html#644">[ thread ]</a>
+              <a href="subject.html#644">[ subject ]</a>
+              <a href="author.html#644">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-05-11 01:39:51 +0200 (Sun, 11 May 2008)
+New Revision: 5864
+
+Modified:
+   trunk/rts/ExternalAI/GlobalAI.cpp
+   trunk/rts/ExternalAI/GlobalAI.h
+   trunk/rts/ExternalAI/GlobalAIHandler.cpp
+Log:
+allow loading of Java .jar GlobalAI's via the 'aidll' key (assumes that an AI/Bot-libs/JAI/JAI.{so, dll} proxy loader lib is present)
+
+Modified: trunk/rts/ExternalAI/GlobalAI.cpp
+===================================================================
+--- trunk/rts/ExternalAI/GlobalAI.cpp	2008-05-10 21:53:10 UTC (rev 5863)
++++ trunk/rts/ExternalAI/GlobalAI.cpp	2008-05-10 23:39:51 UTC (rev 5864)
+@@ -15,99 +15,42 @@
+ 
+ #include &lt;sstream&gt;
+ 
+-CR_BIND_DERIVED(CGlobalAI,CObject,(0,NULL))
+-
++CR_BIND_DERIVED(CGlobalAI, CObject, (0, NULL))
+ CR_REG_METADATA(CGlobalAI, (
+-				CR_MEMBER(team),
+-				CR_MEMBER(cheatevents),
+-				CR_MEMBER(dllName),
+-//				CR_MEMBER(gh),
+-				CR_SERIALIZER(Serialize),
+-				CR_POSTLOAD(PostLoad)
+-				));
++	CR_MEMBER(team),
++	CR_MEMBER(cheatevents),
++	CR_MEMBER(libName),
++	CR_MEMBER(IsCInterface),
++	CR_MEMBER(IsLoadSupported),
++	CR_SERIALIZER(Serialize),
++	CR_POSTLOAD(PostLoad)
++));
+ 
+ void AIException(const char *what);
+ 
+-#define HANDLE_EXCEPTION  \
+-	catch (const std::exception&amp; e) {	\
+-		if (globalAI-&gt;CatchException ()) {		\
+-			AIException(e.what());		\
+-			throw;						\
+-		} else throw;					\
+-	}									\
++#define HANDLE_EXCEPTION					\
++	catch (const std::exception&amp; e) {		\
++		if (globalAI-&gt;CatchException()) {	\
++			AIException(e.what());			\
++			throw;							\
++		} else throw;						\
++	}										\
+ 	catch (const char *s) {	\
+-		if (globalAI-&gt;CatchException ()) {		\
+-			AIException(s);				\
+-			throw;						\
+-		} else throw;					\
+-	}									\
+-	catch (...) {						\
+-		if (globalAI-&gt;CatchException ()) {		\
+-			AIException(0);				\
+-			throw;						\
+-		}else throw;					\
++		if (globalAI-&gt;CatchException()) {	\
++			AIException(s);					\
++			throw;							\
++		} else throw;						\
++	}										\
++	catch (...) {							\
++		if (globalAI-&gt;CatchException()) {	\
++			AIException(0);					\
++			throw;							\
++		} else throw;						\
+ 	}
+ 
+-CGlobalAI::CGlobalAI(int team, const char* dll): team(team), cheatevents(false),dllName(dll?dll:&quot;&quot;)
++CGlobalAI::CGlobalAI(int team, const char* botLibName): team(team), cheatevents(false), libName(botLibName? botLibName: &quot;&quot;)
+ {
+-	ai = 0;
+-	if (!dll) return;
+-	if (!filesystem.GetFilesize(dll)) {
+-		handleerror(NULL, dll, &quot;Could not find AI lib&quot;, MBF_OK | MBF_EXCL);
+-		return;
+-	}
+-
+-	lib = SharedLib::Instantiate(dll);
+-	_IsCInterface = (ISCINTERFACE) lib -&gt; FindAddress(&quot;IsCInterface&quot;);
+-
+-	// check if IsCInterface function exported and return value true
+-	if ( _IsCInterface != 0 &amp;&amp; _IsCInterface() == 1) {
+-		// presents C interface
+-		logOutput &lt;&lt; dll &lt;&lt;  &quot; has C interface\n&quot;;
+-		IsCInterface = true;
+-
+-		// keep as AbicProxy, so InitAI works ok
+-		AbicProxy* ai = SAFE_NEW AbicProxy;
+-		this-&gt;ai = ai;
+-
+-//		gh = SAFE_NEW CGroupHandler(team);
+-		callback = SAFE_NEW CGlobalAICallback(this);
+-		try {
+-			ai-&gt;InitAI(dll, callback, team);
+-		} HANDLE_EXCEPTION;
+-	} else {
+-		// presents C++ interface
+-		logOutput &lt;&lt; dll &lt;&lt;  &quot; has C++ interface\n&quot;;
+-		IsCInterface = false;
+-
+-		GetGlobalAiVersion = (GETGLOBALAIVERSION) lib-&gt;FindAddress(&quot;GetGlobalAiVersion&quot;);
+-
+-		if (GetGlobalAiVersion == 0) {
+-			handleerror(NULL, dll, &quot;Incorrect Global AI dll&quot;, MBF_OK|MBF_EXCL);
+-			return;
+-		}
+-
+-		int i = GetGlobalAiVersion();
+-
+-		if (i != GLOBAL_AI_INTERFACE_VERSION) {
+-			std::ostringstream tmp;
+-			tmp &lt;&lt; &quot;Incorrect Global AI dll version &quot; &lt;&lt; i &lt;&lt; &quot;, expected &quot;
+-					&lt;&lt; GLOBAL_AI_INTERFACE_VERSION;
+-			handleerror(NULL, dll, tmp.str().c_str(), MBF_OK | MBF_EXCL);
+-			return;
+-		}
+-
+-		GetNewAI = (GETNEWAI) lib-&gt;FindAddress(&quot;GetNewAI&quot;);
+-		ReleaseAI = (RELEASEAI) lib-&gt;FindAddress(&quot;ReleaseAI&quot;);
+-
+-		ai = GetNewAI();
+-//		gh = SAFE_NEW CGroupHandler(team);
+-		callback = SAFE_NEW CGlobalAICallback(this);
+-		try {
+-			ai-&gt;InitAI(callback, team);
+-		} HANDLE_EXCEPTION;
+-
+-	}
++	LoadAILib(team, botLibName, false);
+ }
+ 
+ void CGlobalAI::PreDestroy()
+@@ -120,99 +63,86 @@
+ 	if (ai) {
+ 		if (!IsCInterface) {
+ 			try {
+-				ReleaseAI(ai);
++				_ReleaseAIFunc(ai);
+ 			} HANDLE_EXCEPTION;
+ 		}
+ 
+ 		delete lib;
+ 		delete callback;
+-//		delete gh;
+ 	}
+ }
+ 
+-void CGlobalAI::Serialize(creg::ISerializer *s)
++void CGlobalAI::Serialize(creg::ISerializer* s)
+ {
+-
+ }
+ 
+-void CGlobalAI::Load(std::istream *s)
++
++
++void CGlobalAI::Load(std::istream* s)
+ {
+ 	try {
+-		ai-&gt;Load(callback,s);
++		ai-&gt;Load(callback, s);
+ 	} HANDLE_EXCEPTION;
+ }
+ 
+-void CGlobalAI::Save(std::ostream *s)
++void CGlobalAI::Save(std::ostream* s)
+ {
+ 	try {
+ 		ai-&gt;Save(s);
+ 	} HANDLE_EXCEPTION;
+ }
+ 
++
++
+ void CGlobalAI::PostLoad()
+ {
+-	if (!filesystem.GetFilesize(dllName.c_str())) {
+-		handleerror(NULL, dllName.c_str(), &quot;Could not find AI lib&quot;, MBF_OK | MBF_EXCL);
+-		return;
+-	}
+-	typedef bool (* ISLOADSUPPORTED)();
+-	ISLOADSUPPORTED _IsLoadSupported;
++	LoadAILib(team, libName.c_str(), true);
++}
+ 
+-	lib = SharedLib::Instantiate(dllName.c_str());
+-	_IsCInterface = (ISCINTERFACE) lib -&gt; FindAddress(&quot;IsCInterface&quot;);
+-	_IsLoadSupported = (ISLOADSUPPORTED) lib -&gt; FindAddress(&quot;IsLoadSupported&quot;);
+-	bool IsLoadSupported = _IsLoadSupported &amp;&amp; _IsLoadSupported();
+ 
+-	// check if IsCInterface function exported and return value true
+-	if ( _IsCInterface != 0 &amp;&amp; _IsCInterface() == 1) {
+-		// presents C interface
+-		logOutput &lt;&lt; dllName.c_str() &lt;&lt;  &quot; has C interface\n&quot;;
+-		IsCInterface = true;
+ 
+-		// keep as AbicProxy, so InitAI works ok
+-		AbicProxy* ai = SAFE_NEW AbicProxy;
+-		this-&gt;ai = ai;
++void CGlobalAI::LoadAILib(int team, const char* botLibName, bool postLoad)
++{
++	ai = 0;
+ 
+-		callback = SAFE_NEW CGlobalAICallback(this);
+-		if (!IsLoadSupported) {
+-			try {
+-				ai-&gt;InitAI(dllName.c_str(), callback, team);
+-			} HANDLE_EXCEPTION;
+-		}
+-	} else {
+-		// presents C++ interface
+-		logOutput &lt;&lt; dllName.c_str() &lt;&lt;  &quot; has C++ interface\n&quot;;
+-		IsCInterface = false;
++	if (!botLibName)
++		return;
+ 
+-		GetGlobalAiVersion = (GETGLOBALAIVERSION) lib-&gt;FindAddress(&quot;GetGlobalAiVersion&quot;);
++	if (!filesystem.GetFilesize(botLibName)) {
++		char msg[512];
++		SNPRINTF(msg, 511, &quot;Could not find GlobalAI library \&quot;%s\&quot;&quot;, botLibName);
++		handleerror(NULL, msg, &quot;Error&quot;, MBF_OK | MBF_EXCL);
++		return;
++	}
+ 
+-		if (GetGlobalAiVersion == 0) {
+-			handleerror(NULL, dllName.c_str(), &quot;Incorrect Global AI dll&quot;, MBF_OK|MBF_EXCL);
+-			return;
+-		}
++	bool isJavaAI = (strstr(botLibName, &quot;.jar&quot;) != 0);
+ 
+-		int i = GetGlobalAiVersion();
++	if (isJavaAI) {
++		LoadJavaProxyAI();
++		// Java AI's are loaded by a C++ proxy anyway
++		_IsCInterfaceFunc = 0;
++	} else {
++		lib = SharedLib::Instantiate(botLibName);
++		_IsCInterfaceFunc = (ISCINTERFACE) lib-&gt;FindAddress(&quot;IsCInterface&quot;);
++	}
+ 
+-		if (i != GLOBAL_AI_INTERFACE_VERSION) {
+-			handleerror(NULL, dllName.c_str(), &quot;Incorrect Global AI dll version&quot;, MBF_OK | MBF_EXCL);
+-			return;
+-		}
++	_IsLoadSupportedFunc = (ISLOADSUPPORTED) lib-&gt;FindAddress(&quot;IsLoadSupported&quot;);
++	IsCInterface = (_IsCInterfaceFunc != 0 &amp;&amp; _IsCInterfaceFunc() == 1);
++	IsLoadSupported = (_IsLoadSupportedFunc != 0 &amp;&amp; _IsLoadSupportedFunc());
+ 
+-		GetNewAI = (GETNEWAI) lib-&gt;FindAddress(&quot;GetNewAI&quot;);
+-		ReleaseAI = (RELEASEAI) lib-&gt;FindAddress(&quot;ReleaseAI&quot;);
++	if (IsCInterface) {
++		LoadABICAI(team, botLibName, postLoad, IsLoadSupported);
++	} else {
++		LoadCPPAI(team, botLibName, postLoad, IsLoadSupported, isJavaAI);
++	}
+ 
+-		ai = GetNewAI();
+-		callback = SAFE_NEW CGlobalAICallback(this);
+-		if (!IsLoadSupported) {
+-			try {
+-				ai-&gt;InitAI(callback, team);
+-			} HANDLE_EXCEPTION;
+-		}
+-	}
+-	if (!IsLoadSupported) {
++
++	if (postLoad &amp;&amp; !IsLoadSupported) {
++		// fallback code to help the AI if it
++		// doesn't implement load/save support
+ 		for (int a = 0; a &lt; MAX_UNITS; a++) {
+ 			if (!uh-&gt;units[a]) continue;
+-			if (uh-&gt;units[a]-&gt;team==team) {
++			if (uh-&gt;units[a]-&gt;team == team) {
+ 				try {
+ 					ai-&gt;UnitCreated(a);
+ 				} HANDLE_EXCEPTION;
+@@ -221,10 +151,10 @@
+ 						ai-&gt;UnitFinished(a);
+ 					} HANDLE_EXCEPTION;
+ 			} else {
+-				if ((uh-&gt;units[a]-&gt;allyteam==gs-&gt;AllyTeam(team))||gs-&gt;Ally(gs-&gt;AllyTeam(team),uh-&gt;units[a]-&gt;allyteam)) {
+-
++				if ((uh-&gt;units[a]-&gt;allyteam == gs-&gt;AllyTeam(team)) || gs-&gt;Ally(gs-&gt;AllyTeam(team), uh-&gt;units[a]-&gt;allyteam)) {
++					/* do nothing */
+ 				} else {
+-					if (uh-&gt;units[a]-&gt;losStatus[gs-&gt;AllyTeam(team)] &amp; (LOS_INRADAR|LOS_INLOS)) {
++					if (uh-&gt;units[a]-&gt;losStatus[gs-&gt;AllyTeam(team)] &amp; (LOS_INRADAR | LOS_INLOS)) {
+ 						try {
+ 							ai-&gt;EnemyEnterRadar(a);
+ 						} HANDLE_EXCEPTION;
+@@ -240,9 +170,111 @@
+ 	}
+ }
+ 
++
++
++void CGlobalAI::LoadABICAI(int team, const char* botLibName, bool postLoad, bool loadSupported)
++{
++	logOutput &lt;&lt; botLibName &lt;&lt;  &quot; has C interface\n&quot;;
++
++	// keep as AbicProxy, so InitAI works ok
++	AbicProxy* ai = SAFE_NEW AbicProxy;
++	this-&gt;ai = ai;
++
++	callback = SAFE_NEW CGlobalAICallback(this);
++
++	if (!postLoad || (postLoad &amp;&amp; !loadSupported)) {
++		try {
++			ai-&gt;InitAI(botLibName, callback, team);
++		} HANDLE_EXCEPTION;
++	}
++}
++
++
++void CGlobalAI::LoadCPPAI(int team, const char* botLibName, bool postLoad, bool loadSupported, bool isJavaAI)
++{
++	logOutput &lt;&lt; botLibName &lt;&lt;  &quot; has C++ interface\n&quot;;
++
++	_GetGlobalAiVersionFunc = (GETGLOBALAIVERSION) lib-&gt;FindAddress(&quot;GetGlobalAiVersion&quot;);
++
++	if (_GetGlobalAiVersionFunc == 0) {
++		char msg[512];
++		SNPRINTF(msg, 511, &quot;Incorrect GlobalAI library %s (no \&quot;GetGlobalAiVersion\&quot; function exported)&quot;, botLibName);
++		handleerror(NULL, msg, &quot;Error&quot;, MBF_OK | MBF_EXCL);
++		return;
++	}
++
++	const int botInterfaceVersion = _GetGlobalAiVersionFunc();
++
++	if (botInterfaceVersion != GLOBAL_AI_INTERFACE_VERSION) {
++		char msg[1024];
++		SNPRINTF(msg, 1023,
++			&quot;Incorrect GlobalAI library (compiled against interface version %d,&quot;
++			&quot; expected expected interface version %d)&quot;,
++			botInterfaceVersion, GLOBAL_AI_INTERFACE_VERSION);
++		handleerror(NULL, msg, &quot;Error&quot;, MBF_OK | MBF_EXCL);
++		return;
++	}
++
++
++	if (isJavaAI) {
++		// we want to load a Java AI inside a jar,
++		// pass the name of the actual .jar to the
++		// proxy library so it can spawn a JVM for
++		// that AI
++		_GetNewAIByNameFunc = (GETNEWAIBYNAME) lib-&gt;FindAddress(&quot;GetNewAIByName&quot;);
++
++		if (_GetNewAIByNameFunc == 0) {
++			throw std::runtime_error(&quot;JAI proxy does not export \&quot;GetNewAIByName\&quot;&quot;);
++		}
++
++		ai = _GetNewAIByNameFunc(botLibName, team);
++	} else {
++		_GetNewAIFunc = (GETNEWAI) lib-&gt;FindAddress(&quot;GetNewAI&quot;);
++
++		if (_GetNewAIFunc == 0) {
++			char msg[512];
++			SNPRINTF(msg, 511, &quot;GlobalAI library %s does not export \&quot;GetNewAI\&quot;&quot;, botLibName);
++			throw std::runtime_error(msg);
++		}
++
++		ai = _GetNewAIFunc();
++	}
++
++	// note: verify that this is really exported too?
++	_ReleaseAIFunc = (RELEASEAI) lib-&gt;FindAddress(&quot;ReleaseAI&quot;);
++	callback = SAFE_NEW CGlobalAICallback(this);
++
++	if (!postLoad || (postLoad &amp;&amp; !loadSupported)) {
++		try {
++			ai-&gt;InitAI(callback, team);
++		} HANDLE_EXCEPTION;
++	}
++}
++
++
++void CGlobalAI::LoadJavaProxyAI()
++{
++	// Java AI, need to load the JAI proxy first
++	// TODO: Mac support? non-hardcoded proxy?
++	#ifdef WIN32
++	const char* javaProxyAI = &quot;AI\\Bot-libs\\JAI\\JAI.dll&quot;;
++	#else
++	const char* javaProxyAI = &quot;AI/Bot-libs/JAI/JAI.so&quot;;
++	#endif
++
++	if (!filesystem.GetFilesize(javaProxyAI)) {
++		char msg[512];
++		SNPRINTF(msg, 511, &quot;Could not find Java GlobalAI proxy library \&quot;%s\&quot;&quot;, javaProxyAI);
++		handleerror(NULL, msg, &quot;Error&quot;, MBF_OK | MBF_EXCL);
++		return;
++	}
++
++	lib = SharedLib::Instantiate(javaProxyAI);
++}
++
++
+ void CGlobalAI::Update(void)
+ {
+-//	gh-&gt;Update();
+ 	ai-&gt;Update();
+ }
+ 
+
+Modified: trunk/rts/ExternalAI/GlobalAI.h
+===================================================================
+--- trunk/rts/ExternalAI/GlobalAI.h	2008-05-10 21:53:10 UTC (rev 5863)
++++ trunk/rts/ExternalAI/GlobalAI.h	2008-05-10 23:39:51 UTC (rev 5864)
+@@ -8,42 +8,53 @@
+ class CGlobalAICallback;
+ class CGroupHandler;
+ 
+-class CGlobalAI :
+-	public CObject
++class CGlobalAI: public CObject
+ {
+ public:
+ 	CR_DECLARE(CGlobalAI);
+ 	CGlobalAI(int team, const char* dll);
+ 	~CGlobalAI(void);
++
++	void LoadAILib(int, const char*, bool);
++
+ 	void Serialize(creg::ISerializer *s);
+ 	void PostLoad();
+ 	void Load(std::istream *s);
+ 	void Save(std::ostream *s);
+ 
+ 	void Update(void);
+-	void PreDestroy (); // called just before all the units are destroyed
++	void PreDestroy(); // called just before all the units are destroyed
+ 
+ 	int team;
+ 	bool cheatevents;
+ 
+ 	bool IsCInterface;
++	bool IsLoadSupported;
+ 
+ 	IGlobalAI* ai;
+ 	CGlobalAICallback* callback;
+-//	CGroupHandler* gh;
+ 
+-	SharedLib *lib;
+-	std::string dllName;
++	SharedLib* lib;
++	std::string libName;
+ 
+-	typedef bool (* ISCINTERFACE)();
+-	typedef int (* GETGLOBALAIVERSION)();
+-	typedef IGlobalAI* (* GETNEWAI)();
+-	typedef void (* RELEASEAI)(IGlobalAI* i);
++	typedef bool (*ISCINTERFACE)();
++	typedef int (*GETGLOBALAIVERSION)();
++	typedef IGlobalAI* (*GETNEWAI)();
++	typedef IGlobalAI* (*GETNEWAIBYNAME)(const char*, int);
++	typedef void (*RELEASEAI)(IGlobalAI* i);
++	typedef bool (*ISLOADSUPPORTED)();
+ 	
+-	ISCINTERFACE _IsCInterface;
+-	GETGLOBALAIVERSION GetGlobalAiVersion;
+-	GETNEWAI GetNewAI;
+-	RELEASEAI ReleaseAI;
++	ISCINTERFACE _IsCInterfaceFunc;
++	GETGLOBALAIVERSION _GetGlobalAiVersionFunc;
++	GETNEWAI _GetNewAIFunc;
++	GETNEWAIBYNAME _GetNewAIByNameFunc;
++	RELEASEAI _ReleaseAIFunc;
++	ISLOADSUPPORTED _IsLoadSupportedFunc;
++
++private:
++	void LoadABICAI(int, const char*, bool, bool);
++	void LoadCPPAI(int, const char*, bool, bool, bool);
++	void LoadJavaProxyAI();
+ };
+ 
+ #endif
+
+Modified: trunk/rts/ExternalAI/GlobalAIHandler.cpp
+===================================================================
+--- trunk/rts/ExternalAI/GlobalAIHandler.cpp	2008-05-10 21:53:10 UTC (rev 5863)
++++ trunk/rts/ExternalAI/GlobalAIHandler.cpp	2008-05-10 23:39:51 UTC (rev 5864)
+@@ -222,9 +222,13 @@
+ 		return false;
+ 	}
+ 
++	if (net-&gt;localDemoPlayback) {
++		return false;
++	}
++
+ 	if (strncmp(dll, &quot;LuaAI:&quot;, 6) == 0) {
+ 		CTeam* team = gs-&gt;Team(teamID);
+-		if (team != NULL) { 
++		if (team != NULL) {
+ 			team-&gt;luaAI = (dll + 6);
+ 			return true;
+ 		}
+@@ -232,23 +236,20 @@
+ 	}
+ 
+ 	try {
+-		if (net-&gt;localDemoPlayback) {
+-			return false;
+-		}
+-
+-		if(ais[teamID]){
++		if (ais[teamID]) {
+ 			delete ais[teamID];
+-			ais[teamID]=0;
++			ais[teamID] = 0;
+ 		}
+ 
+-		ais[teamID]=SAFE_NEW CGlobalAI(teamID,dll);
++		ais[teamID] = SAFE_NEW CGlobalAI(teamID, dll);
+ 
+-		if(!ais[teamID]-&gt;ai){
++		if (!ais[teamID]-&gt;ai) {
+ 			delete ais[teamID];
+-			ais[teamID]=0;
++			ais[teamID] = 0;
+ 			return false;
+ 		}
+-		hasAI=true;
++
++		hasAI = true;
+ 		return true;
+ 	} HANDLE_EXCEPTION;
+ 	return false;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000643.html">[Taspring-linux-commit] r5863 - trunk/Documentation
+</A></li>
+	<LI>Next message: <A HREF="000645.html">[Taspring-linux-commit] r5865 - trunk/rts/ExternalAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#644">[ date ]</a>
+              <a href="thread.html#644">[ thread ]</a>
+              <a href="subject.html#644">[ subject ]</a>
+              <a href="author.html#644">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

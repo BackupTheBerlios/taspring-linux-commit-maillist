@@ -1,0 +1,268 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7083 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-November/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7083%20-%20Lobby/TASClient&In-Reply-To=%3C20081122163719.A354A4763%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001851.html">
+   <LINK REL="Next"  HREF="001853.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7083 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7083%20-%20Lobby/TASClient&In-Reply-To=%3C20081122163719.A354A4763%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r7083 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Nov 22 17:37:19 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001851.html">[Taspring-linux-commit] r7082 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="001853.html">[Taspring-linux-commit] r7084 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1852">[ date ]</a>
+              <a href="thread.html#1852">[ thread ]</a>
+              <a href="subject.html#1852">[ subject ]</a>
+              <a href="author.html#1852">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2008-11-22 17:37:18 +0100 (Sat, 22 Nov 2008)
+New Revision: 7083
+
+Modified:
+   Lobby/TASClient/BattleFormUnit.dfm
+   Lobby/TASClient/BattleFormUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+   Lobby/TASClient/Utility.pas
+Log:
+* display the % of metal contained in each box on the minimap (stolen ftw !)
+
+Modified: Lobby/TASClient/BattleFormUnit.dfm
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.dfm	2008-11-22 14:08:08 UTC (rev 7082)
++++ Lobby/TASClient/BattleFormUnit.dfm	2008-11-22 16:37:18 UTC (rev 7083)
+@@ -1,6 +1,6 @@
+ object BattleForm: TBattleForm
+   Left = 555
+-  Top = 156
++  Top = 151
+   Width = 829
+   Height = 586
+   Caption = 'Battle window'
+
+Modified: Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.pas	2008-11-22 14:08:08 UTC (rev 7082)
++++ Lobby/TASClient/BattleFormUnit.pas	2008-11-22 16:37:18 UTC (rev 7083)
+@@ -25,7 +25,7 @@
+   SpTBXLists, ImgList, SpTBXjanTracker, SpTBXFormPopupMenu,IniFiles,
+   HttpProt,MsMultiPartFormData, JvComponentBase, Spin, Mask,
+   JvExMask, JvSpin, TntStdCtrls, TntForms, TntComCtrls,RichEdit,JclUnicode,
+-  RichEdit2, ExRichEdit, class_TIntegerList, TBXLists;
++  RichEdit2, ExRichEdit, class_TIntegerList, TBXLists, Utility;
+ 
+ type
+ 
+@@ -519,6 +519,7 @@
+     procedure OnlineMapsButtonClick(Sender: TObject);
+     procedure OnlineModsButtonClick(Sender: TObject);
+     procedure MinimapPanelResize(Sender: TObject);
++    procedure Button1Click(Sender: TObject);
+   private
+     History: TWideStringList;
+     HistoryIndex: Integer;
+@@ -540,6 +541,10 @@
+       ValueList: TStrings;
+     end;
+     LogFile: TFileStream; // use the same way as TMyTabSheet.LogFile is used
++    MapMetal: TMapData;
++    TotalMetal: int64;
++    MapMetalWidth: integer;
++    MapMetalHeight: integer;
+     property CurrentMapIndex: Integer read FCurrentMapIndex; // only ChangeMap method may change it!
+     property CurrentModName: String read FCurrentModName; // only ChangeMap method may change it!
+     property AmIReady: Boolean read FMyReadyStatus write SetMyReadyStatus;
+@@ -662,7 +667,7 @@
+ implementation
+ 
+ uses
+-  Utility, Misc, HostBattleFormUnit, ShellAPI,
++  Misc, HostBattleFormUnit, ShellAPI,
+   MinimapZoomedFormUnit, PreferencesFormUnit, DisableUnitsFormUnit,
+   InitWaitFormUnit, AddBotUnit, Math, OnlineMapsUnit, ReplaysUnit, StrUtils,
+   CustomColorUnit, StringParser, MapListFormUnit, AutoTeamsUnit,
+@@ -1141,6 +1146,8 @@
+ procedure TBattleForm.ChangeMap(MapIndex: Integer);
+ var
+   MapInfo: TMapInfo;
++  width,height : integer;
++  i: integer;
+ begin
+   if MapIndex = -1 then // you should use ChangeMapToNoMap method instead!
+   begin
+@@ -1163,6 +1170,11 @@
+ 
+   Utility.LoadMiniMap(TMapItem(MapListForm.Maps[MapIndex]).MapName,MapImage.Picture.Bitmap);
+ 
++  MapMetal := Utility.getMetalMap(Utility.MapList[MapIndex],MapMetalWidth,MapMetalHeight);
++  TotalMetal := 0;
++  for i:=1 to Length(MapMetal) do
++    TotalMetal := TotalMetal + Ord(MapMetal[i]);
++
+   MapInfo := GetMapItem(MapIndex).MapInfo;
+ 
+   MapSizeLabel.Caption := 'Map size: '+IntToStr(GetMapItem(MapIndex).MapInfo.Width div 64) + ' x ' + IntToStr(GetMapItem(MapIndex).MapInfo.Height div 64);
+@@ -2766,6 +2778,8 @@
+ procedure TBattleForm.StartRectPaintBoxPaint(Sender: TObject);
+ var
+   s: string;
++  i,j: integer;
++  metal: int64;
+ begin
+   with (Sender as TPaintBox), (Sender as TPaintBox).Canvas do
+   begin
+@@ -2793,10 +2807,15 @@
+       end;
+       Pen.Color := clRed;
+     end;
+-
+     Rectangle((Sender as TPaintBox).ClientRect);
+ 
++    metal := 0;
++    for i:=Round(BattleState.StartRects[(Sender as TPaintBox).Tag].Rect.Top*MapMetalHeight/100) to Round(BattleState.StartRects[(Sender as TPaintBox).Tag].Rect.Bottom*MapMetalHeight/100)-1 do
++      for j:=Round(BattleState.StartRects[(Sender as TPaintBox).Tag].Rect.Left*MapMetalWidth/100)+1 to Round(BattleState.StartRects[(Sender as TPaintBox).Tag].Rect.Right*MapMetalWidth/100) do
++        metal := metal + Ord(MapMetal[i*MapMetalWidth+j]);
++
+     s := IntToStr((Sender as TPaintBox).Tag + 1);
++    s := s + '/M='+FloatToStr(RoundTo(metal*100/TotalMetal,-1))+'%';
+     Brush.Style := bsClear;
+     Font.Style := [fsBold];
+     
+@@ -6662,4 +6681,18 @@
+   RefreshStartRectsPosAndSize;
+ end;
+ 
++procedure TBattleForm.Button1Click(Sender: TObject);
++var
++  width,height : integer;
++  r: TMapData;
++  totalMetal: int64;
++  i: integer;
++begin
++  r := Utility.getMetalMap(Utility.MapList[CurrentMapIndex],width,height);
++  totalMetal := 0;
++  for i:=1 to Length(r) do
++    totalMetal := totalMetal + Ord(r[i]);
++  MainForm.AddMainLog(IntToStr(totalMetal),Colors.Normal);
++end;
++
+ end.
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2008-11-22 14:08:08 UTC (rev 7082)
++++ Lobby/TASClient/TASClient.dof	2008-11-22 16:37:18 UTC (rev 7083)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=3
+ Release=0
+-Build=506
++Build=507
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TA Spring lobby client
+-FileVersion=0.3.0.506
++FileVersion=0.3.0.507
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+Modified: Lobby/TASClient/Utility.pas
+===================================================================
+--- Lobby/TASClient/Utility.pas	2008-11-22 14:08:08 UTC (rev 7082)
++++ Lobby/TASClient/Utility.pas	2008-11-22 16:37:18 UTC (rev 7083)
+@@ -43,6 +43,9 @@
+   PMinimapData = ^TMinimapData;
+   TMinimapData = array[0..1024*1024-1] of Word; // raw bitmap data returned by GetMinimap function from UnitSync.dll
+ 
++  TMapData = array of Char;
++  PMapData = ^TMapData;
++
+ function InitLib: Boolean;
+ function ReInitLib: Boolean;
+ function ReInitLibWithDialog: Boolean; // uses InitWaitForm to (re)initialize library
+@@ -67,6 +70,7 @@
+ function GetModShortName: String;
+ function ReadVFSFile(fileName: string): string;
+ function ExtractVFSDir(Dir: string;ExtractTo: string): boolean;
++function getMetalMap(mapName: string; var width: integer; var height: integer): TMapData;
+ 
+ { I assume bools are 1 byte in size (not 4) in unitsync.dll (from MSDN: &quot;In Visual C++ 4.2,
+   the Standard C++ header files contained a typedef that equated bool with int.
+@@ -204,6 +208,9 @@
+ {since 0.77}function lpGetStrKeyFloatVal(const key: PChar;defVal: Float):Float; stdcall; external 'UnitSync.dll' name 'lpGetStrKeyFloatVal';
+ {since 0.77}function lpGetIntKeyStrVal(key: Integer;const defVal: PCHar):PChar; stdcall; external 'UnitSync.dll' name 'lpGetIntKeyStrVal';
+ {since 0.77}function lpGetStrKeyStrVal(const key: PChar;const defVal: PChar):PChar; stdcall; external 'UnitSync.dll' name 'lpGetStrKeyStrVal';
++{------------------------------------------------------------------------------}
++{since 0.77b5}function GetInfoMapSize(const filename: PChar;const name: PChar;var width: integer;var height: integer):Integer; stdcall; external 'UnitSync.dll' name 'GetInfoMapSize';
++{since 0.77b5}function GetInfoMap(const filename: PChar;const name: PChar;data : PChar; typeHint: integer):Integer; stdcall; external 'UnitSync.dll' name 'GetInfoMap';
+ 
+ var
+   ModList: TStrings; // names of mods
+@@ -1028,6 +1035,12 @@
+       ExtractVFSDir(subDirs[i],ExtractTo+'\'+ExtractAfterLastSlash(LeftStr(subDirs[i],Length(subDirs[i])-1)));
+   end;
+ end;
++function getMetalMap(mapName: string; var width: integer; var height: integer): TMapData;
++begin
++  GetInfoMapSize(PChar(mapName),'metal',width,height);
++  SetLength(Result,width*height);
++  GetInfoMap(PChar(mapName),'metal'<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">, at Result</A>[1],1);
++end;
+ 
+ 
+ { ------------------------------------------------------------------------ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001851.html">[Taspring-linux-commit] r7082 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="001853.html">[Taspring-linux-commit] r7084 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1852">[ date ]</a>
+              <a href="thread.html#1852">[ thread ]</a>
+              <a href="subject.html#1852">[ subject ]</a>
+              <a href="author.html#1852">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

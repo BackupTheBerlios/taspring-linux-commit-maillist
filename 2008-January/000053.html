@@ -1,0 +1,201 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5245 - trunk/rts/Rendering
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5245%20-%20trunk/rts/Rendering&In-Reply-To=%3CE1JAgik-0001vf-N8%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000052.html">
+   <LINK REL="Next"  HREF="000054.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5245 - trunk/rts/Rendering</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5245%20-%20trunk/rts/Rendering&In-Reply-To=%3CE1JAgik-0001vf-N8%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5245 - trunk/rts/Rendering">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Jan  4 08:11:58 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000052.html">[Taspring-linux-commit] r5244 - in trunk/rts: Game Sim
+</A></li>
+        <LI>Next message: <A HREF="000054.html">[Taspring-linux-commit] r5246 - trunk/rts/Rendering
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#53">[ date ]</a>
+              <a href="thread.html#53">[ thread ]</a>
+              <a href="subject.html#53">[ subject ]</a>
+              <a href="author.html#53">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-01-04 08:11:57 +0100 (Fri, 04 Jan 2008)
+New Revision: 5245
+
+Modified:
+   trunk/rts/Rendering/GroundDecalHandler.cpp
+Log:
+improve the rendering speed of groundscars by allocating
+VA's for them rather than recalculating the vertex- and
+texcoors of the quads forming their texture every frame
+(note that this precludes the use of scar-&gt;alphaFalloff
+for now, will need some creative use of draw indices)
+
+
+Modified: trunk/rts/Rendering/GroundDecalHandler.cpp
+===================================================================
+--- trunk/rts/Rendering/GroundDecalHandler.cpp	2008-01-04 01:07:31 UTC (rev 5244)
++++ trunk/rts/Rendering/GroundDecalHandler.cpp	2008-01-04 07:11:57 UTC (rev 5245)
+@@ -16,7 +16,7 @@
+ #include &quot;ShadowHandler.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
+-CGroundDecalHandler* groundDecals=0;
++CGroundDecalHandler* groundDecals = 0;
+ using namespace std;
+ 
+ CGroundDecalHandler::CGroundDecalHandler(void)
+@@ -262,63 +262,79 @@
+ 	}
+ 
+ 	glBindTexture(GL_TEXTURE_2D, scarTex);
++
+ 	CVertexArray* va = GetVertexArray();
+ 	va-&gt;Initialize();
+ 	glPolygonOffset(-10, -400);
+ 
+-
+-
+-	// &quot;draw&quot; ground scars
++	// create the 16x16 quads for each ground scar
+ 	for (std::list&lt;Scar*&gt;::iterator si = scars.begin(); si != scars.end(); ) {
+ 		Scar* scar = *si;
++
+ 		if (scar-&gt;lifeTime &lt; gs-&gt;frameNum) {
++			delete scar-&gt;scarQuads;
+ 			RemoveScar(*si, false);
+ 			si = scars.erase(si);
+ 			continue;
+ 		}
+ 
+ 		if (camera-&gt;InView(scar-&gt;pos, scar-&gt;radius + 16)) {
+-			float3 pos = scar-&gt;pos;
+-			float radius = scar-&gt;radius;
+-			float tx = scar-&gt;texOffsetX;
+-			float ty = scar-&gt;texOffsetY;
++			if (!scar-&gt;scarQuads) {
++				scar-&gt;scarQuads = SAFE_NEW CVertexArray();
++				scar-&gt;scarQuads-&gt;Initialize();
+ 
+-			if (scar-&gt;creationTime + 10 &gt; gs-&gt;frameNum)
+-				color[3] = (int) (scar-&gt;startAlpha * (gs-&gt;frameNum - scar-&gt;creationTime) * 0.1f);
+-			else
+-				color[3] = (int) (scar-&gt;startAlpha - (gs-&gt;frameNum - scar-&gt;creationTime) * scar-&gt;alphaFalloff);
++				float3 pos = scar-&gt;pos;
++				float radius = scar-&gt;radius;
++				float tx = scar-&gt;texOffsetX;
++				float ty = scar-&gt;texOffsetY;
+ 
+-			int sx = (int) max(0.f,                  (pos.x - radius) / 16.0f);
+-			int ex = (int) min(float(gs-&gt;hmapx - 1), (pos.x + radius) / 16.0f);
+-			int sz = (int) max(0.f,                  (pos.z - radius) / 16.0f);
+-			int ez = (int) min(float(gs-&gt;hmapy - 1), (pos.z + radius) / 16.0f);
+-			float* heightmap = readmap-&gt;GetHeightmap();
++				if (scar-&gt;creationTime + 10 &gt; gs-&gt;frameNum)
++					color[3] = (int) (scar-&gt;startAlpha * (gs-&gt;frameNum - scar-&gt;creationTime) * 0.1f);
++				else
++					color[3] = (int) (scar-&gt;startAlpha - (gs-&gt;frameNum - scar-&gt;creationTime) * scar-&gt;alphaFalloff);
+ 
+-			for (int x = sx; x &lt;= ex; ++x) {
+-				for (int z = sz; z &lt;= ez; ++z) {
+-					float px1 = x * 16;
+-					float pz1 = z * 16;
+-					float px2 = px1 + 16;
+-					float pz2 = pz1 + 16;
++				color[3] = 95;
++				int sx = (int) max(0.f,                  (pos.x - radius) / 16.0f);
++				int ex = (int) min(float(gs-&gt;hmapx - 1), (pos.x + radius) / 16.0f);
++				int sz = (int) max(0.f,                  (pos.z - radius) / 16.0f);
++				int ez = (int) min(float(gs-&gt;hmapy - 1), (pos.z + radius) / 16.0f);
++				float* heightmap = readmap-&gt;GetHeightmap();
+ 
+-					float tx1 = min(0.5f, (pos.x - px1) / (radius * 4.0f) + 0.25f);
+-					float tx2 = max(0.0f, (pos.x - px2) / (radius * 4.0f) + 0.25f);
+-					float tz1 = min(0.5f, (pos.z - pz1) / (radius * 4.0f) + 0.25f);
+-					float tz2 = max(0.0f, (pos.z - pz2) / (radius * 4.0f) + 0.25f);
++				// create the scar texture-quads
++				for (int x = sx; x &lt;= ex; ++x) {
++					for (int z = sz; z &lt;= ez; ++z) {
++						float px1 = x * 16;
++						float pz1 = z * 16;
++						float px2 = px1 + 16;
++						float pz2 = pz1 + 16;
++	
++						float tx1 = min(0.5f, (pos.x - px1) / (radius * 4.0f) + 0.25f);
++						float tx2 = max(0.0f, (pos.x - px2) / (radius * 4.0f) + 0.25f);
++						float tz1 = min(0.5f, (pos.z - pz1) / (radius * 4.0f) + 0.25f);
++						float tz2 = max(0.0f, (pos.z - pz2) / (radius * 4.0f) + 0.25f);
+ 
+-					va-&gt;AddVertexTC(float3(px1, heightmap[(z * 2)     * (gs-&gt;mapx + 1) + x * 2    ] + 0.5f, pz1), tx1 + tx, tz1 + ty, color);
+-					va-&gt;AddVertexTC(float3(px2, heightmap[(z * 2)     * (gs-&gt;mapx + 1) + x * 2 + 2] + 0.5f, pz1), tx2 + tx, tz1 + ty, color);
+-					va-&gt;AddVertexTC(float3(px2, heightmap[(z * 2 + 2) * (gs-&gt;mapx + 1) + x * 2 + 2] + 0.5f, pz2), tx2 + tx, tz2 + ty, color);
+-					va-&gt;AddVertexTC(float3(px1, heightmap[(z * 2 + 2) * (gs-&gt;mapx + 1) + x * 2    ] + 0.5f, pz2), tx1 + tx, tz2 + ty, color);
++						va-&gt;AddVertexTC(float3(px1, heightmap[(z * 2)     * (gs-&gt;mapx + 1) + x * 2    ] + 0.5f, pz1), tx1 + tx, tz1 + ty, color);
++						va-&gt;AddVertexTC(float3(px2, heightmap[(z * 2)     * (gs-&gt;mapx + 1) + x * 2 + 2] + 0.5f, pz1), tx2 + tx, tz1 + ty, color);
++						va-&gt;AddVertexTC(float3(px2, heightmap[(z * 2 + 2) * (gs-&gt;mapx + 1) + x * 2 + 2] + 0.5f, pz2), tx2 + tx, tz2 + ty, color);
++						va-&gt;AddVertexTC(float3(px1, heightmap[(z * 2 + 2) * (gs-&gt;mapx + 1) + x * 2    ] + 0.5f, pz2), tx1 + tx, tz2 + ty, color);
++
++						scar-&gt;scarQuads-&gt;AddVertexTC(float3(px1, heightmap[(z * 2)     * (gs-&gt;mapx + 1) + x * 2    ] + 0.5f, pz1), tx1 + tx, tz1 + ty, color);
++						scar-&gt;scarQuads-&gt;AddVertexTC(float3(px2, heightmap[(z * 2)     * (gs-&gt;mapx + 1) + x * 2 + 2] + 0.5f, pz1), tx2 + tx, tz1 + ty, color);
++						scar-&gt;scarQuads-&gt;AddVertexTC(float3(px2, heightmap[(z * 2 + 2) * (gs-&gt;mapx + 1) + x * 2 + 2] + 0.5f, pz2), tx2 + tx, tz2 + ty, color);
++						scar-&gt;scarQuads-&gt;AddVertexTC(float3(px1, heightmap[(z * 2 + 2) * (gs-&gt;mapx + 1) + x * 2    ] + 0.5f, pz2), tx1 + tx, tz2 + ty, color);
++					}
+ 				}
+ 			}
++			else {
++				scar-&gt;scarQuads-&gt;DrawArrayTC(GL_QUADS);
++			}
+ 		}
++
+ 		++si;
+ 	}
+-	va-&gt;DrawArrayTC(GL_QUADS);
+ 
++
+ 	glDisable(GL_POLYGON_OFFSET_FILL);
+-//	glDisable(GL_ALPHA_TEST);
+ 	glDepthMask(1);
+ 	glDisable(GL_BLEND);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000052.html">[Taspring-linux-commit] r5244 - in trunk/rts: Game Sim
+</A></li>
+	<LI>Next message: <A HREF="000054.html">[Taspring-linux-commit] r5246 - trunk/rts/Rendering
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#53">[ date ]</a>
+              <a href="thread.html#53">[ thread ]</a>
+              <a href="subject.html#53">[ subject ]</a>
+              <a href="author.html#53">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

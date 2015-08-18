@@ -1,0 +1,185 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6097 - trunk/game/LuaUI/Widgets
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6097%20-%20trunk/game/LuaUI/Widgets&In-Reply-To=%3C20080701211952.2F6D648A3%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="000878.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6097 - trunk/game/LuaUI/Widgets</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6097%20-%20trunk/game/LuaUI/Widgets&In-Reply-To=%3C20080701211952.2F6D648A3%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6097 - trunk/game/LuaUI/Widgets">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Jul  1 23:19:51 CEST 2008</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="000878.html">[Taspring-linux-commit] r6098 - trunk/tools/DedicatedServer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#877">[ date ]</a>
+              <a href="thread.html#877">[ thread ]</a>
+              <a href="subject.html#877">[ subject ]</a>
+              <a href="author.html#877">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: trepan
+Date: 2008-07-01 23:19:50 +0200 (Tue, 01 Jul 2008)
+New Revision: 6097
+
+Modified:
+   trunk/game/LuaUI/Widgets/unit_immobile_buider.lua
+Log:
+
+- reset idling immobile builders
+
+
+
+Modified: trunk/game/LuaUI/Widgets/unit_immobile_buider.lua
+===================================================================
+--- trunk/game/LuaUI/Widgets/unit_immobile_buider.lua	2008-06-30 15:52:50 UTC (rev 6096)
++++ trunk/game/LuaUI/Widgets/unit_immobile_buider.lua	2008-07-01 21:19:50 UTC (rev 6097)
+@@ -31,8 +31,10 @@
+ local CMD_MOVE_STATE    = CMD.MOVE_STATE
+ local CMD_PATROL        = CMD.PATROL
+ local CMD_STOP          = CMD.STOP
++local spGetGameFrame    = Spring.GetGameFrame
+ local spGetMyTeamID     = Spring.GetMyTeamID
+ local spGetTeamUnits    = Spring.GetTeamUnits
++local spGetUnitCommands = Spring.GetUnitCommands
+ local spGetUnitDefID    = Spring.GetUnitDefID
+ local spGetUnitPosition = Spring.GetUnitPosition
+ local spGiveOrderToUnit = Spring.GiveOrderToUnit
+@@ -41,21 +43,37 @@
+ --------------------------------------------------------------------------------
+ --------------------------------------------------------------------------------
+ 
++-- if this is &gt;0, then commands are re-issued for immobile
++-- builders that have been idling for the number of game frames
++-- (in case a player accidentally STOPs them)
++
++local idleFrames = 30
++
++
++--------------------------------------------------------------------------------
++--------------------------------------------------------------------------------
++
++local function IsImmobileBuilder(ud)
++  return (ud and ud.builder and not ud.canMove)
++end
++
++
+ local function SetupUnit(unitID)
+   -- set immobile builders (nanotowers?) to the ROAM movestate,
+   -- and give them a PATROL order (does not matter where, afaict)
+   local x, y, z = spGetUnitPosition(unitID)
+-  spGiveOrderToUnit(unitID, CMD_STOP, {}, {})
+-  spGiveOrderToUnit(unitID, CMD_MOVE_STATE, { 2 }, {})
+-  spGiveOrderToUnit(unitID, CMD_PATROL, { x + 25, y, z - 25 }, {})
++  if (x) then
++    spGiveOrderToUnit(unitID, CMD_STOP, {}, {})
++    spGiveOrderToUnit(unitID, CMD_MOVE_STATE, { 2 }, {})
++    spGiveOrderToUnit(unitID, CMD_PATROL, { x + 25, y, z - 25 }, {})
++  end
+ end
+ 
+ 
+ function widget:Initialize()
+   for _,unitID in ipairs(spGetTeamUnits(spGetMyTeamID())) do
+     local unitDefID = spGetUnitDefID(unitID)
+-    local ud = unitDefID and UnitDefs[unitDefID] or nil
+-    if (ud and ud.builder and not ud.canMove) then
++    if (IsImmobileBuilder(UnitDefs[unitDefID])) then
+       SetupUnit(unitID)
+     end
+   end
+@@ -66,8 +84,7 @@
+   if (unitTeam ~= spGetMyTeamID()) then
+     return
+   end
+-  local ud = UnitDefs[unitDefID]
+-  if (ud and ud.builder and not ud.canMove) then
++  if (IsImmobileBuilder(UnitDefs[unitDefID])) then
+     SetupUnit(unitID)
+   end
+ end
+@@ -80,3 +97,44 @@
+ 
+ --------------------------------------------------------------------------------
+ --------------------------------------------------------------------------------
++
++if (idleFrames &gt; 0) then
++
++  local idlers = {}
++
++
++  function widget:GameFrame(frame)
++    for unitID, f in pairs(idlers) do
++      local idler = idlers[k]
++      if ((frame - f) &gt; idleFrames) then
++        local cmds = spGetUnitCommands(unitID)
++        if (cmds and (#cmds &lt;= 0)) then
++          SetupUnit(unitID)
++        else
++          idlers[unitID] = nil
++        end
++      end
++    end  
++  end
++
++
++  function widget:UnitDestroyed(unitID, unitDefID, unitTeam)
++    idlers[unitID] = nil
++  end
++
++
++  function widget:UnitIdle(unitID, unitDefID, unitTeam)
++    if (unitTeam ~= spGetMyTeamID()) then
++      return
++    end
++    if (IsImmobileBuilder(UnitDefs[unitDefID])) then
++      idlers[unitID] = spGetGameFrame()
++    end
++  end
++
++
++end
++
++
++--------------------------------------------------------------------------------
++--------------------------------------------------------------------------------
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="000878.html">[Taspring-linux-commit] r6098 - trunk/tools/DedicatedServer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#877">[ date ]</a>
+              <a href="thread.html#877">[ thread ]</a>
+              <a href="subject.html#877">[ subject ]</a>
+              <a href="author.html#877">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

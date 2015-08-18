@@ -1,0 +1,1571 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5626 - trunk/rts/Map/SMF
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-March/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5626%20-%20trunk/rts/Map/SMF&In-Reply-To=%3C20080330174838.4A5284697%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000406.html">
+   <LINK REL="Next"  HREF="000408.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5626 - trunk/rts/Map/SMF</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5626%20-%20trunk/rts/Map/SMF&In-Reply-To=%3C20080330174838.4A5284697%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5626 - trunk/rts/Map/SMF">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Mar 30 19:48:37 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000406.html">[Taspring-linux-commit] r5625 - in trunk/tools/springie: Springie	Springie/autohost Springie/doc Springie/utils springie web
+</A></li>
+        <LI>Next message: <A HREF="000408.html">[Taspring-linux-commit] r5627 - trunk/rts/Sim/Projectiles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#407">[ date ]</a>
+              <a href="thread.html#407">[ thread ]</a>
+              <a href="subject.html#407">[ subject ]</a>
+              <a href="author.html#407">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-03-30 19:48:37 +0200 (Sun, 30 Mar 2008)
+New Revision: 5626
+
+Modified:
+   trunk/rts/Map/SMF/BFGroundDrawer.cpp
+   trunk/rts/Map/SMF/BFGroundDrawer.h
+   trunk/rts/Map/SMF/BFGroundTextures.cpp
+   trunk/rts/Map/SMF/BFGroundTextures.h
+Log:
+speed up the SMF map renderer
+
+Modified: trunk/rts/Map/SMF/BFGroundDrawer.cpp
+===================================================================
+--- trunk/rts/Map/SMF/BFGroundDrawer.cpp	2008-03-30 16:44:49 UTC (rev 5625)
++++ trunk/rts/Map/SMF/BFGroundDrawer.cpp	2008-03-30 17:48:37 UTC (rev 5626)
+@@ -9,74 +9,75 @@
+ #include &quot;LogOutput.h&quot;
+ #include &quot;SmfReadMap.h&quot;
+ #include &quot;Rendering/ShadowHandler.h&quot;
+-#include &quot;Sim/Units/UnitDef.h&quot;
+ #include &quot;Rendering/GroundDecalHandler.h&quot;
+ #include &quot;Platform/ConfigHandler.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
+-using namespace std;
++using std::min;
++using std::max;
+ 
+-CBFGroundDrawer::CBFGroundDrawer(CSmfReadMap *rm)
++CBFGroundDrawer::CBFGroundDrawer(CSmfReadMap* rm)
+ {
+ 	map = rm;
+ 
+-	numBigTexX=gs-&gt;mapx/128;
+-	numBigTexY=gs-&gt;mapy/128;
++	bigSquareSize = 128;
++	numBigTexX = gs-&gt;mapx / bigSquareSize;
++	numBigTexY = gs-&gt;mapy / bigSquareSize;
+ 
+-	heightData=map-&gt;heightmap;
+-	heightDataX=gs-&gt;mapx+1;
++	heightData = map-&gt;heightmap;
++	heightDataX = gs-&gt;mapx + 1;
+ 
+-	if(shadowHandler-&gt;canUseShadows){
+-		groundVP=LoadVertexProgram(&quot;ground.vp&quot;);
+-		groundShadowVP=LoadVertexProgram(&quot;groundshadow.vp&quot;);
+-		if(shadowHandler-&gt;useFPShadows){
+-			groundFPShadow=LoadFragmentProgram(&quot;groundFPshadow.fp&quot;);
++	if (shadowHandler-&gt;canUseShadows) {
++		groundVP = LoadVertexProgram(&quot;ground.vp&quot;);
++		groundShadowVP = LoadVertexProgram(&quot;groundshadow.vp&quot;);
++
++		if (shadowHandler-&gt;useFPShadows) {
++			groundFPShadow = LoadFragmentProgram(&quot;groundFPshadow.fp&quot;);
+ 		}
+ 	}
+ 
+-	textures=SAFE_NEW CBFGroundTextures(map);
++	textures = SAFE_NEW CBFGroundTextures(map);
+ 
+-	viewRadius=configHandler.GetInt(&quot;GroundDetail&quot;,40);
+-	viewRadius+=viewRadius%2;
++	viewRadius = configHandler.GetInt(&quot;GroundDetail&quot;, 40);
++	viewRadius += (viewRadius &amp; 1);
++
++	waterDrawn = false;
+ }
+ 
+ CBFGroundDrawer::~CBFGroundDrawer(void)
+ {
+ 	delete textures;
+ 
+-	if(shadowHandler-&gt;canUseShadows){
+-		glSafeDeleteProgram( groundVP );
+-		glSafeDeleteProgram( groundShadowVP );
+-		if(shadowHandler-&gt;useFPShadows){
++	if (shadowHandler-&gt;canUseShadows) {
++		glSafeDeleteProgram(groundVP);
++		glSafeDeleteProgram(groundShadowVP);
++
++		if (shadowHandler-&gt;useFPShadows) {
+ 			glSafeDeleteProgram( groundFPShadow);
+ 		}
+ 	}
+ 
+-	configHandler.SetInt(&quot;GroundDetail&quot;,viewRadius);
++	configHandler.SetInt(&quot;GroundDetail&quot;, viewRadius);
+ }
+ 
+-static bool drawWater=false;
+-static float bigtexsubx,bigtexsuby;
+-static float invMapSizeX,invMapSizeY;
+ 
+-#define NUM_LODS 4
+ 
+-inline void CBFGroundDrawer::DrawVertexA(int x,int y)
++inline void CBFGroundDrawer::DrawVertexA(int x, int y)
+ {
+-	float height=heightData[y*heightDataX+x];
+-	if(drawWater &amp;&amp; height&lt;0){
+-		height*=2;
++	float height = heightData[y * heightDataX + x];
++	if (waterDrawn &amp;&amp; height &lt; 0) {
++		height *= 2;
+ 	}
+ 
+-	va-&gt;AddVertex0(float3(x*SQUARE_SIZE,height,y*SQUARE_SIZE));
++	va-&gt;AddVertex0(float3(x * SQUARE_SIZE, height, y * SQUARE_SIZE));
+ }
+ 
+-inline void CBFGroundDrawer::DrawVertexA(int x,int y,float height)
++inline void CBFGroundDrawer::DrawVertexA(int x, int y, float height)
+ {
+-	if(drawWater &amp;&amp; height&lt;0){
+-		height*=2;
++	if (waterDrawn &amp;&amp; height &lt; 0) {
++		height *= 2;
+ 	}
+-	va-&gt;AddVertex0(float3(x*SQUARE_SIZE,height,y*SQUARE_SIZE));
++	va-&gt;AddVertex0(float3(x * SQUARE_SIZE, height, y * SQUARE_SIZE));
+ }
+ 
+ inline void CBFGroundDrawer::EndStrip()
+@@ -84,7 +85,52 @@
+ 	va-&gt;EndStrip();
+ }
+ 
+-void CBFGroundDrawer::DrawGroundVertexArray()
++
++
++inline bool CBFGroundDrawer::BigTexSquareRowVisible(int bty) {
++	static int mapWidth = (gs-&gt;mapx &lt;&lt; 3);
++	static int bigTexH = (gs-&gt;mapy &lt;&lt; 3) / numBigTexY;
++
++	const int minx =                   0;
++	const int maxx =            mapWidth;
++	const int minz = bty * bigTexH;
++	const int maxz = minz + bigTexH;
++	const float miny = readmap-&gt;minheight;
++	const float maxy = fabsf(cam2-&gt;pos.y); // ??
++
++	const float3 mins(minx, miny, minz);
++	const float3 maxs(maxx, maxy, maxz);
++
++	return (cam2-&gt;InView(mins, maxs));
++}
++
++
++
++inline void CBFGroundDrawer::DrawWaterPlane(bool drawWaterReflection) {
++	if (!drawWaterReflection) {
++		glDisable(GL_TEXTURE_2D);
++		glColor3f(map-&gt;waterPlaneColor.x, map-&gt;waterPlaneColor.y, map-&gt;waterPlaneColor.z);
++		glBegin(GL_QUADS);
++
++		static const float xsize = (gs-&gt;mapx * SQUARE_SIZE) &gt;&gt; 2;
++		static const float ysize = (gs-&gt;mapy * SQUARE_SIZE) &gt;&gt; 2;
++		const bool camOutMap = (camera-&gt;pos.x &lt; 0 || camera-&gt;pos.z &lt; 0 || camera-&gt;pos.x &gt; float3::maxxpos || camera-&gt;pos.z &gt; float3::maxzpos);
++
++		for (int y = -4; y &lt; 8; ++y) {
++			for (int x = -4; x &lt; 8; ++x) {
++				if (x &gt; 3 || x &lt; 0 || y &gt; 3 || y &lt; 0 || camOutMap) {
++					glVertex3f( x      * xsize, -200,  y      * ysize);
++					glVertex3f((x + 1) * xsize, -200,  y      * ysize);
++					glVertex3f((x + 1) * xsize, -200, (y + 1) * ysize);
++					glVertex3f( x      * xsize, -200, (y + 1) * ysize);
++				}
++			}
++		}
++		glEnd();
++	}
++}
++
++inline void CBFGroundDrawer::DrawGroundVertexArray()
+ {
+ 	va-&gt;DrawArray0(GL_TRIANGLE_STRIP);
+ 	va = GetVertexArray();
+@@ -99,30 +145,28 @@
+ 		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+ 	}
+ 
+-	drawWater = drawWaterReflection;
++	waterDrawn = drawWaterReflection;
+ 	int baseViewRadius = max(4, viewRadius);
+ 
+-	if (drawUnitReflection)
+-		viewRadius = (viewRadius / 2) &amp; 0xfffffe;
++	if (drawUnitReflection) {
++		viewRadius = (viewRadius &gt;&gt; 1) &amp; 0xfffffe;
++	}
+ 
+-	float zoom = 45 / camera-&gt;GetFov();
++	float zoom = 45.0f / camera-&gt;GetFov();
+ 	viewRadius = (int) (viewRadius * sqrt(zoom));
+-	viewRadius += viewRadius % 2;
++	viewRadius += (viewRadius &amp; 1);
+ 
+ 	va = GetVertexArray();
+ 	va-&gt;Initialize();
+ 	textures-&gt;DrawUpdate();
+ 
+ 	int x, y;
++	const int neededLod = int((gu-&gt;viewRange * 0.125f) / viewRadius) &lt;&lt; 1;
+ 	const int maxIdx = ((gs-&gt;mapx + 1) * (gs-&gt;mapy + 1)) - 1;
+ 	#define CLAMP(i) std::max(0, std::min((i), maxIdx))
+ 
+-	int neededLod = int(gu-&gt;viewRange / 8 / viewRadius * 2);
+ 	UpdateCamRestraints();
+ 
+-	invMapSizeX = 1.0f / gs-&gt;mapx;
+-	invMapSizeY = 1.0f / gs-&gt;mapy;
+-
+ 	glDisable(GL_BLEND);
+ 	glEnable(GL_TEXTURE_2D);
+ 
+@@ -131,61 +175,62 @@
+ 
+ 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+ 
+-	SetupTextureUnits(drawWaterReflection,overrideVP);
++	SetupTextureUnits(drawWaterReflection, overrideVP);
+ 	bool inStrip = false;
+ 
+-	if (map-&gt;voidWater &amp;&amp; !drawWater) {
++	if (map-&gt;voidWater &amp;&amp; !waterDrawn) {
+ 		glEnable(GL_ALPHA_TEST);
+ 		glAlphaFunc(GL_GREATER, 0.9f);
+ 	}
+ 
+-	float camxpart = 0, oldcamxpart;
+-	float camypart = 0, oldcamypart;
++	float camxpart = 0.0f, oldcamxpart;
++	float camypart = 0.0f, oldcamypart;
+ 
+ 	for (int bty = 0; bty &lt; numBigTexY; ++bty) {
+-		// loop over the big texture squares (128 squares)
+-		bigtexsuby = bty;
++		if (!BigTexSquareRowVisible(bty)) {
++			// skip this entire row of squares if we can't see it
++			continue;
++		}
+ 
+ 		// only process the necessary big squares in the x direction
+ 		int sx = 0;
+ 		int ex = numBigTexX;
+-		float xtest, xtest2;
+-		const int bigSquareSize = 128;
++		float x0, x1;
+ 		std::vector&lt;fline&gt;::iterator fli;
+ 
++
+ 		for (fli = left.begin(); fli != left.end(); fli++) {
+-			xtest  = ((fli-&gt;base / SQUARE_SIZE + fli-&gt;dir *  (bty * bigSquareSize)                 ));
+-			xtest2 = ((fli-&gt;base / SQUARE_SIZE + fli-&gt;dir * ((bty * bigSquareSize) + bigSquareSize)));
++			x0 = ((fli-&gt;base / SQUARE_SIZE + fli-&gt;dir *  (bty * bigSquareSize)                 ));
++			x1 = ((fli-&gt;base / SQUARE_SIZE + fli-&gt;dir * ((bty * bigSquareSize) + bigSquareSize)));
+ 
+-			if (xtest &gt; xtest2)
+-				xtest = xtest2;
++			if (x0 &gt; x1)
++				x0 = x1;
+ 
+-			xtest = xtest / bigSquareSize;
++			x0 /= bigSquareSize;
+ 
+-			if (xtest &gt; sx)
+-				sx = (int) xtest;
++			if (x0 &gt; sx)
++				sx = (int) x0;
+ 		}
+-
+ 		for (fli = right.begin(); fli != right.end(); fli++) {
+-			xtest  = ((fli-&gt;base / SQUARE_SIZE + fli-&gt;dir *  (bty * bigSquareSize)                 )) + bigSquareSize;
+-			xtest2 = ((fli-&gt;base / SQUARE_SIZE + fli-&gt;dir * ((bty * bigSquareSize) + bigSquareSize))) + bigSquareSize;
++			x0 = ((fli-&gt;base / SQUARE_SIZE + fli-&gt;dir *  (bty * bigSquareSize)                 )) + bigSquareSize;
++			x1 = ((fli-&gt;base / SQUARE_SIZE + fli-&gt;dir * ((bty * bigSquareSize) + bigSquareSize))) + bigSquareSize;
+ 
+-			if (xtest &lt; xtest2)
+-				xtest = xtest2;
++			if (x0 &lt; x1)
++				x0 = x1;
+ 
+-			xtest = xtest / bigSquareSize;
++			x0 /= bigSquareSize;
+ 
+-			if (xtest &lt; ex)
+-				ex = (int) xtest;
++			if (x0 &lt; ex)
++				ex = (int) x0;
+ 		}
+ 
++
+ 		for (int btx = sx; btx &lt; ex; ++btx) {
+-			bigtexsubx = btx;
+-
+ 			// must be in drawLos mode or shadows must be off
+ 			if (DrawExtraTex() || !shadowHandler-&gt;drawShadows) {
+ 				textures-&gt;SetTexture(btx, bty);
+ 				SetTexGen(1.0f / 1024, 1.0f / 1024, -btx, -bty);
++
+ 				if (overrideVP) {
+ 					glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 11, -btx, -bty, 0, 0);
+ 				}
+@@ -193,29 +238,30 @@
+ 				textures-&gt;SetTexture(btx, bty);
+ 				glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 11, -btx, -bty, 0, 0);
+ 			}
+-			/// for (int lod = 1; (lod * 2) &lt; neededLod; lod *= 2) {
+-			for (int lod = 1; lod &lt; neededLod; lod *= 2) {
++
++			for (int lod = 1; lod &lt; neededLod; lod &lt;&lt;= 1) {
+ 				int cx = (int) (cam2-&gt;pos.x / (SQUARE_SIZE));
+ 				int cy = (int) (cam2-&gt;pos.z / (SQUARE_SIZE));
+ 
+ 				cx = (cx / lod) * lod;
+ 				cy = (cy / lod) * lod;
+ 				int hlod = lod &gt;&gt; 1;
+-				int ysquaremod = ((cy) % (2 * lod)) / lod;
+-				int xsquaremod = ((cx) % (2 * lod)) / lod;
++				int dlod = lod &lt;&lt; 1;
++				int ysquaremod = ((cy) % (dlod)) / lod;
++				int xsquaremod = ((cx) % (dlod)) / lod;
+ 
+ 				oldcamxpart = camxpart;
+-				float cx2 = (cx / (2 * lod)) * lod * 2;
+-				camxpart = (cam2-&gt;pos.x / (SQUARE_SIZE) - cx2) / (lod * 2);
++				float cx2 = (cx / (dlod)) * dlod;
++				camxpart = (cam2-&gt;pos.x / (SQUARE_SIZE) - cx2) / (dlod);
+ 
+ 				oldcamypart = camypart;
+-				float cy2 = (cy / (2 * lod)) * lod * 2;
+-				camypart = (cam2-&gt;pos.z / (SQUARE_SIZE) - cy2) / (lod * 2);
++				float cy2 = (cy / (dlod)) * dlod;
++				camypart = (cam2-&gt;pos.z / (SQUARE_SIZE) - cy2) / (dlod);
+ 
+-				int minty =  bty      * 128;
+-				int maxty = (bty + 1) * 128;
+-				int mintx =  btx      * 128;
+-				int maxtx = (btx + 1) * 128;
++				int minty =  bty      * bigSquareSize;
++				int maxty = (bty + 1) * bigSquareSize;
++				int mintx =  btx      * bigSquareSize;
++				int maxtx = (btx + 1) * bigSquareSize;
+ 
+ 				int minly = cy + (-viewRadius + 3 - ysquaremod) * lod;
+ 				int maxly = cy + ( viewRadius - 1 - ysquaremod) * lod;
+@@ -227,33 +273,29 @@
+ 				int ystart = max(minly, minty);
+ 				int yend   = min(maxly, maxty);
+ 
+-				/// for (y = ystart; (y + lod) &lt; yend; y += lod) {
+ 				for (y = ystart; y &lt; yend; y += lod) {
+ 					int xs = xstart;
+ 					int xe = xend;
+-					int xtest, xtest2;
++					int xt0, xt1;
+ 					std::vector&lt;fline&gt;::iterator fli;
+ 
++
+ 					for (fli = left.begin(); fli != left.end(); fli++) {
+-						xtest  = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir *  y       )) / lod * lod - lod;
+-						xtest2 = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir * (y + lod))) / lod * lod - lod;
++						xt0 = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir *  y       )) / lod * lod - lod;
++						xt1 = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir * (y + lod))) / lod * lod - lod;
+ 
+-						if (xtest &gt; xtest2)
+-							xtest = xtest2;
+-						if (xtest &gt; xs)
+-							xs = xtest;
++						if (xt0 &gt; xt1) xt0 = xt1;
++						if (xt0 &gt; xs) xs = xt0;
+ 					}
+ 					for (fli = right.begin(); fli != right.end(); fli++) {
+-						xtest  = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir *  y       )) / lod * lod + lod;
+-						xtest2 = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir * (y + lod))) / lod * lod + lod;
++						xt0 = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir *  y       )) / lod * lod + lod;
++						xt1 = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir * (y + lod))) / lod * lod + lod;
+ 
+-						if (xtest &lt; xtest2)
+-							xtest = xtest2;
+-						if (xtest &lt; xe)
+-							xe = xtest;
++						if (xt0 &lt; xt1) xt0 = xt1;
++						if (xt0 &lt; xe) xe = xt0;
+ 					}
+ 
+-					/// for (x = xs; (x + lod) &lt; xe; x += lod) {
++
+ 					for (x = xs; x &lt; xe; x += lod) {
+ 						if ((lod == 1) ||
+ 							(x &gt; (cx) + viewRadius * hlod) || (x &lt; (cx) - viewRadius * hlod) ||
+@@ -403,7 +445,7 @@
+ 						DrawVertexA(x, y      );
+ 						DrawVertexA(x, y + lod);
+ 
+-						if (y % (lod * 2)) {
++						if (y % (dlod)) {
+ 							int idx1 = CLAMP((y      ) * heightDataX + x), idx1LOD = CLAMP(idx1 + lod);
+ 							int idx2 = CLAMP((y + lod) * heightDataX + x), idx2LOD = CLAMP(idx2 + lod);
+ 							int idx3 = CLAMP((y - lod) * heightDataX + x), idx3LOD = CLAMP(idx3 + lod);
+@@ -414,9 +456,9 @@
+ 							DrawVertexA(x + lod, y,       h);
+ 							DrawVertexA(x + lod, y + lod   );
+ 						} else {
+-							int idx1 = CLAMP((y          ) * heightDataX + x), idx1LOD = CLAMP(idx1 + lod);
+-							int idx2 = CLAMP((y + lod    ) * heightDataX + x), idx2LOD = CLAMP(idx2 + lod);
+-							int idx3 = CLAMP((y + lod * 2) * heightDataX + x), idx3LOD = CLAMP(idx3 + lod);
++							int idx1 = CLAMP((y       ) * heightDataX + x), idx1LOD = CLAMP(idx1 + lod);
++							int idx2 = CLAMP((y +  lod) * heightDataX + x), idx2LOD = CLAMP(idx2 + lod);
++							int idx3 = CLAMP((y + dlod) * heightDataX + x), idx3LOD = CLAMP(idx3 + lod);
+ 							float h = (heightData[idx1LOD] +
+ 									   heightData[idx3LOD]) * 0.5f * (1 - camxpart) +
+ 									   heightData[idx2LOD] * (camxpart);
+@@ -431,7 +473,7 @@
+ 				if (minlx &gt; mintx &amp;&amp; minlx &lt; maxtx) {
+ 					x = minlx - lod;
+ 					for (y = max(ystart - lod, minty); y &lt; min(yend + lod, maxty); y += lod) {
+-						if (y % (lod * 2)) {
++						if (y % (dlod)) {
+ 							int idx1 = CLAMP((y      ) * heightDataX + x);
+ 							int idx2 = CLAMP((y + lod) * heightDataX + x);
+ 							int idx3 = CLAMP((y - lod) * heightDataX + x);
+@@ -442,9 +484,9 @@
+ 							DrawVertexA(x, y,       h);
+ 							DrawVertexA(x, y + lod   );
+ 						} else {
+-							int idx1 = CLAMP((y          ) * heightDataX + x);
+-							int idx2 = CLAMP((y + lod    ) * heightDataX + x);
+-							int idx3 = CLAMP((y + lod * 2) * heightDataX + x);
++							int idx1 = CLAMP((y       ) * heightDataX + x);
++							int idx2 = CLAMP((y +  lod) * heightDataX + x);
++							int idx3 = CLAMP((y + dlod) * heightDataX + x);
+ 							float h = (heightData[idx1] +
+ 									   heightData[idx3]) * 0.5f * (camxpart) +
+ 									   heightData[idx2] * (1 - camxpart);
+@@ -462,31 +504,29 @@
+ 					y = maxly;
+ 					int xs = max(xstart - lod, mintx);
+ 					int xe = min(xend + lod,   maxtx);
+-					int xtest, xtest2;
++					int xt0, xt1;
+ 					std::vector&lt;fline&gt;::iterator fli;
+ 
++
+ 					for (fli = left.begin(); fli != left.end(); fli++) {
+-						xtest  = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir *  y       )) / lod * lod - lod;
+-						xtest2 = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir * (y + lod))) / lod * lod - lod;
++						xt0 = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir *  y       )) / lod * lod - lod;
++						xt1 = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir * (y + lod))) / lod * lod - lod;
+ 
+-						if (xtest &gt; xtest2)
+-							xtest = xtest2;
+-						if (xtest &gt; xs)
+-							xs = xtest;
++						if (xt0 &gt; xt1) xt0 = xt1;
++						if (xt0 &gt; xs) xs = xt0;
+ 					}
+ 					for (fli = right.begin(); fli != right.end(); fli++) {
+-						xtest  = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir *  y       )) / lod * lod + lod;
+-						xtest2 = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir * (y + lod))) / lod * lod + lod;
++						xt0 = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir *  y       )) / lod * lod + lod;
++						xt1 = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir * (y + lod))) / lod * lod + lod;
+ 
+-						if (xtest &lt; xtest2)
+-							xtest = xtest2;
+-						if (xtest &lt; xe)
+-							xe = xtest;
++						if (xt0 &lt; xt1) xt0 = xt1;
++						if (xt0 &lt; xe) xe = xt0;
+ 					}
+ 
++
+ 					if (xs &lt; xe) {
+ 						x = xs;
+-						if (x % (lod * 2)) {
++						if (x % (dlod)) {
+ 							int idx2     = CLAMP((y + lod) * heightDataX + x),
+ 								idx2PLOD = CLAMP(idx2 + lod),
+ 								idx2MLOD = CLAMP(idx2 - lod);
+@@ -501,13 +541,13 @@
+ 							DrawVertexA(x, y + lod);
+ 						}
+ 						for (x = xs; x &lt; xe; x += lod) {
+-							if (x % (lod * 2)) {
++							if (x % (dlod)) {
+ 								DrawVertexA(x + lod, y      );
+ 								DrawVertexA(x + lod, y + lod);
+ 							} else {
+ 								int idx2      = CLAMP((y + lod) * heightDataX + x),
+-									idx2PLOD  = CLAMP(idx2 +     lod),
+-									idx2PLOD2 = CLAMP(idx2 + 2 * lod);
++									idx2PLOD  = CLAMP(idx2 +  lod),
++									idx2PLOD2 = CLAMP(idx2 + dlod);
+ 								float h = (heightData[idx2PLOD2] +
+ 										   heightData[idx2     ]) * 0.5f * (1 - camypart) +
+ 										   heightData[idx2PLOD ] * (camypart);
+@@ -524,31 +564,29 @@
+ 					y = minly - lod;
+ 					int xs = max(xstart - lod, mintx);
+ 					int xe = min(xend + lod,   maxtx);
+-					int xtest, xtest2;
++					int xt0, xt1;
+ 					std::vector&lt;fline&gt;::iterator fli;
+ 
++
+ 					for (fli = left.begin(); fli != left.end(); fli++) {
+-						xtest  = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir *  y       )) / lod * lod - lod;
+-						xtest2 = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir * (y + lod))) / lod * lod - lod;
++						xt0 = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir *  y       )) / lod * lod - lod;
++						xt1 = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir * (y + lod))) / lod * lod - lod;
+ 
+-						if (xtest &gt; xtest2)
+-							xtest = xtest2;
+-						if (xtest &gt; xs)
+-							xs = xtest;
++						if (xt0 &gt; xt1) xt0 = xt1;
++						if (xt0 &gt; xs) xs = xt0;
+ 					}
+ 					for (fli = right.begin(); fli != right.end(); fli++) {
+-						xtest  = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir *  y       )) / lod * lod + lod;
+-						xtest2 = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir * (y + lod))) / lod * lod + lod;
++						xt0 = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir *  y       )) / lod * lod + lod;
++						xt1 = ((int) (fli-&gt;base / (SQUARE_SIZE) + fli-&gt;dir * (y + lod))) / lod * lod + lod;
+ 
+-						if (xtest &lt; xtest2)
+-							xtest = xtest2;
+-						if (xtest &lt; xe)
+-							xe = xtest;
++						if (xt0 &lt; xt1) xt0 = xt1;
++						if (xt0 &lt; xe) xe = xt0;
+ 					}
+ 
++
+ 					if (xs &lt; xe) {
+ 						x = xs;
+-						if (x % (lod * 2)) {
++						if (x % (dlod)) {
+ 
+ 							int idx1     = CLAMP((y) * heightDataX + x),
+ 								idx1PLOD = CLAMP(idx1 + lod),
+@@ -565,13 +603,13 @@
+ 						}
+ 
+ 						for (x = xs; x &lt; xe; x+= lod) {
+-							if (x % (lod * 2)) {
++							if (x % (dlod)) {
+ 								DrawVertexA(x + lod, y      );
+ 								DrawVertexA(x + lod, y + lod);
+ 							} else {
+ 								int idx1      = CLAMP((y) * heightDataX + x),
+-									idx1PLOD  = CLAMP(idx1 +     lod),
+-									idx1PLOD2 = CLAMP(idx1 + 2 * lod);
++									idx1PLOD  = CLAMP(idx1 +  lod),
++									idx1PLOD2 = CLAMP(idx1 + dlod);
+ 								float h = (heightData[idx1PLOD2] +
+ 										   heightData[idx1     ]) * 0.5f * (camypart) +
+ 										   heightData[idx1PLOD ] * (1 - camypart);
+@@ -595,36 +633,17 @@
+ 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+ 	}
+ 
+-	if (map-&gt;voidWater &amp;&amp; !drawWater) {
++	if (map-&gt;voidWater &amp;&amp; !waterDrawn) {
+ 		glDisable(GL_ALPHA_TEST);
+ 	}
+ 
+ 	if (map-&gt;hasWaterPlane) {
+-		glDisable(GL_TEXTURE_2D);
+-		glColor3f(map-&gt;waterPlaneColor.x, map-&gt;waterPlaneColor.y, map-&gt;waterPlaneColor.z);
+-		glBegin(GL_QUADS); // water color edge of map &lt;0
+-
+-		if (!drawWaterReflection) {
+-			float xsize = gs-&gt;mapx * SQUARE_SIZE / 4;
+-			float ysize = gs-&gt;mapy * SQUARE_SIZE / 4;
+-
+-			for (y = -4; y &lt; 8; ++y) {
+-				for (int x = -4; x &lt; 8; ++x) {
+-					if (x &gt; 3 || x &lt; 0 || y &gt; 3 || y &lt; 0 || camera-&gt;pos.x &lt; 0 || camera-&gt;pos.z &lt; 0 || camera-&gt;pos.x &gt; float3::maxxpos || camera-&gt;pos.z &gt; float3::maxzpos) {
+-						glVertex3f( x      * xsize, -200,  y      * ysize);
+-						glVertex3f((x + 1) * xsize, -200,  y      * ysize);
+-						glVertex3f((x + 1) * xsize, -200, (y + 1) * ysize);
+-						glVertex3f( x      * xsize, -200, (y + 1) * ysize);
+-					}
+-				}
+-			}
+-		}
+-		glEnd();
++		DrawWaterPlane(drawWaterReflection);
+ 	}
+ 
+-
+-	if (groundDecals &amp;&amp; !(drawWaterReflection || drawUnitReflection))
++	if (groundDecals &amp;&amp; !(drawWaterReflection || drawUnitReflection)) {
+ 		groundDecals-&gt;Draw();
++	}
+ 
+ 	glEnable(GL_ALPHA_TEST);
+ 	glEnable(GL_TEXTURE_2D);
+@@ -683,65 +702,66 @@
+ 	va-&gt;Initialize();
+ 
+ //	glEnable(GL_CULL_FACE);
+-	bool inStrip=false;
++	bool inStrip = false;
++	const int NUM_LODS = 4;
+ 
+-	glPolygonOffset(1,1);
++	glPolygonOffset(1, 1);
+ 	glEnable(GL_POLYGON_OFFSET_FILL);
+ 
+ 	int x,y;
+-  float camxpart=0,oldcamxpart;
+-	float camypart=0,oldcamypart;
++	float camxpart = 0.0f, oldcamxpart;
++	float camypart = 0.0f, oldcamypart;
+ 
+-	glBindProgramARB( GL_VERTEX_PROGRAM_ARB, groundShadowVP );
+-	glEnable( GL_VERTEX_PROGRAM_ARB );
++	glBindProgramARB(GL_VERTEX_PROGRAM_ARB, groundShadowVP);
++	glEnable(GL_VERTEX_PROGRAM_ARB);
+ 
+-	for(int lod=1;lod&lt;(2&lt;&lt;NUM_LODS);lod*=2){
+-		int cx=(int)(camera-&gt;pos.x/(SQUARE_SIZE));
+-		int cy=(int)(camera-&gt;pos.z/(SQUARE_SIZE));
++	for (int lod = 1; lod &lt; (2 &lt;&lt; NUM_LODS); lod *= 2) {
++		int cx = (((int) (camera-&gt;pos.x / SQUARE_SIZE)) / lod) * lod;
++		int cy = (((int) (camera-&gt;pos.z / SQUARE_SIZE)) / lod) * lod;
+ 
+-		cx=(cx/lod)*lod;
+-		cy=(cy/lod)*lod;
+-		int hlod=lod&gt;&gt;1;
+-		int ysquaremod=((cy)%(2*lod))/lod;
+-		int xsquaremod=((cx)%(2*lod))/lod;
++		int hlod = lod &gt;&gt; 1;
++		int dlod = lod &lt;&lt; 1;
++		int ysquaremod = ((cy) % (dlod)) / lod;
++		int xsquaremod = ((cx) % (dlod)) / lod;
+ 
+-		oldcamxpart=camxpart;
+-		float cx2=(cx/(2*lod))*lod*2;
+-		camxpart=(camera-&gt;pos.x/(SQUARE_SIZE)-cx2)/(lod*2);
++		oldcamxpart = camxpart;
++		float cx2 = (cx / (dlod)) * dlod;
++		camxpart = (camera-&gt;pos.x / (SQUARE_SIZE) - cx2) / dlod;
+ 
+-		oldcamypart=camypart;
+-		float cy2=(cy/(2*lod))*lod*2;
+-		camypart=(camera-&gt;pos.z/(SQUARE_SIZE)-cy2)/(lod*2);
++		oldcamypart = camypart;
++		float cy2 = (cy / (dlod)) * dlod;
++		camypart = (camera-&gt;pos.z / (SQUARE_SIZE) - cy2) / dlod;
+ 
+-		int minty=0;
+-		int maxty=gs-&gt;mapy;
+-		int mintx=0;
+-		int maxtx=gs-&gt;mapx;
++		int minty = 0;
++		int maxty = gs-&gt;mapy;
++		int mintx = 0;
++		int maxtx = gs-&gt;mapx;
+ 
+-		int minly=cy+(-viewRadius+3-ysquaremod)*lod;
+-		int maxly=cy+(viewRadius-1-ysquaremod)*lod;
+-		int minlx=cx+(-viewRadius+3-xsquaremod)*lod;
+-		int maxlx=cx+(viewRadius-1-xsquaremod)*lod;
++		int minly = cy + (-viewRadius + 3 - ysquaremod) * lod;
++		int maxly = cy + ( viewRadius - 1 - ysquaremod) * lod;
++		int minlx = cx + (-viewRadius + 3 - xsquaremod) * lod;
++		int maxlx = cx + ( viewRadius - 1 - xsquaremod) * lod;
+ 
+-		int xstart=max(minlx,mintx);
+-		int xend=min(maxlx,maxtx);
+-		int ystart=max(minly,minty);
+-		int yend=min(maxly,maxty);
++		int xstart = max(minlx, mintx);
++		int xend   = min(maxlx, maxtx);
++		int ystart = max(minly, minty);
++		int yend   = min(maxly, maxty);
+ 
+-		for(y=ystart;y&lt;yend;y+=lod){
+-			int xs=xstart;
+-			int xe=xend;
+-				for(x=xs;x&lt;xe;x+=lod){
+-				if((lod==1) ||
+-					(x&gt;(cx)+viewRadius*hlod) || (x&lt;(cx)-viewRadius*hlod) ||
+-					(y&gt;(cy)+viewRadius*hlod) || (y&lt;(cy)-viewRadius*hlod)){  //normal terr&#65533;g
+-						if(!inStrip){
+-							DrawVertexA(x,y);
+-							DrawVertexA(x,y+lod);
+-							inStrip=true;
++		for (y = ystart; y &lt; yend; y += lod) {
++			int xs = xstart;
++			int xe = xend;
++
++			for (x = xs; x &lt; xe; x += lod) {
++				if ((lod == 1) ||
++					(x &gt; (cx) + viewRadius * hlod) || (x &lt; (cx) - viewRadius * hlod) ||
++					(y &gt; (cy) + viewRadius * hlod) || (y &lt; (cy) - viewRadius * hlod)) {
++						if (!inStrip) {
++							DrawVertexA(x, y      );
++							DrawVertexA(x, y + lod);
++							inStrip = true;
+ 						}
+-						DrawVertexA(x+lod,y);
+-						DrawVertexA(x+lod,y+lod);
++						DrawVertexA(x + lod, y      );
++						DrawVertexA(x + lod, y + lod);
+ 					} else {  //inre begr&#65533;sning mot f&#65533;eg&#65533;nde lod
+ 						if((x&gt;=(cx)+viewRadius*hlod)){
+ 							float h1=(heightData[(y)*heightDataX+x]+heightData[(y+lod)*heightDataX+x])*0.5f*(1-oldcamxpart)+heightData[(y+hlod)*heightDataX+x]*(oldcamxpart);
+@@ -941,32 +961,35 @@
+ 				EndStrip();
+ 			}
+ 		}
++
+ 		DrawGroundVertexArray();
+ 	}
+ 
+ 	glDisable(GL_POLYGON_OFFSET_FILL);
+ 	glDisable(GL_CULL_FACE);
+-	glDisable( GL_VERTEX_PROGRAM_ARB );
++	glDisable(GL_VERTEX_PROGRAM_ARB);
+ }
+ 
+ 
+ void CBFGroundDrawer::SetupTextureUnits(bool drawReflection, unsigned int overrideVP)
+ {
+-	glColor4f(1,1,1,1);
++	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
++
+ 	if (DrawExtraTex()) {
+ 		glActiveTextureARB(GL_TEXTURE1_ARB);
+ 		glEnable(GL_TEXTURE_2D);
+ 		glBindTexture(GL_TEXTURE_2D, map-&gt;GetShadingTexture());
+-		SetTexGen(1.0f/(gs-&gt;pwr2mapx*SQUARE_SIZE),1.0f/(gs-&gt;pwr2mapy*SQUARE_SIZE),0,0);
+-		glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_MODULATE);
++		SetTexGen(1.0f / (gs-&gt;pwr2mapx * SQUARE_SIZE), 1.0f / (gs-&gt;pwr2mapy * SQUARE_SIZE), 0, 0);
++		glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+ 
+ 		glActiveTextureARB(GL_TEXTURE2_ARB);
+ 		glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_COMBINE_ARB);
++
+ 		if (map-&gt;detailTex) {
+ 			glEnable(GL_TEXTURE_2D);
+-			glBindTexture(GL_TEXTURE_2D,  map-&gt;detailTex);
+-			glTexEnvi(GL_TEXTURE_ENV,GL_COMBINE_RGB_ARB,GL_ADD_SIGNED_ARB);
+-			SetTexGen(0.02f,0.02f,-floor(camera-&gt;pos.x*0.02f),-floor(camera-&gt;pos.z*0.02f));
++			glBindTexture(GL_TEXTURE_2D, map-&gt;detailTex);
++			glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB_ARB, GL_ADD_SIGNED_ARB);
++			SetTexGen(0.02f,0.02f, -floor(camera-&gt;pos.x * 0.02f), -floor(camera-&gt;pos.z * 0.02f));
+ 		} else {
+ 			glDisable (GL_TEXTURE_2D);
+ 		}
+@@ -974,42 +997,45 @@
+ 		glActiveTextureARB(GL_TEXTURE3_ARB);
+ 		glEnable(GL_TEXTURE_2D);
+ 		glBindTexture(GL_TEXTURE_2D, infoTex);
+-		glTexEnvi(GL_TEXTURE_ENV,GL_COMBINE_RGB_ARB,GL_ADD_SIGNED_ARB);
+-		glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_COMBINE_ARB);
+-		SetTexGen(1.0f/(gs-&gt;pwr2mapx*SQUARE_SIZE),1.0f/(gs-&gt;pwr2mapy*SQUARE_SIZE),0,0);
++		glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB_ARB, GL_ADD_SIGNED_ARB);
++		glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE_ARB);
++		SetTexGen(1.0f / (gs-&gt;pwr2mapx * SQUARE_SIZE), 1.0f / (gs-&gt;pwr2mapy * SQUARE_SIZE), 0, 0);
+ 
+-		if(overrideVP){
+- 			glEnable( GL_VERTEX_PROGRAM_ARB );
+- 			glBindProgramARB( GL_VERTEX_PROGRAM_ARB, overrideVP );
+-			glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,10, 1.0f/(gs-&gt;pwr2mapx*SQUARE_SIZE),1.0f/(gs-&gt;pwr2mapy*SQUARE_SIZE),0,1);
+-			glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,12, 1.0f/1024,1.0f/1024,0,1);
+-			glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,13, -floor(camera-&gt;pos.x*0.02f),-floor(camera-&gt;pos.z*0.02f),0,0);
+-			glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,14, 0.02f,0.02f,0,1);
+- 			if(drawReflection){
+- 				glAlphaFunc(GL_GREATER,0.9f);
+- 				glEnable(GL_ALPHA_TEST);
+- 			}
+- 		}
++		if (overrideVP) {
++			glEnable(GL_VERTEX_PROGRAM_ARB);
++			glBindProgramARB(GL_VERTEX_PROGRAM_ARB, overrideVP);
++			glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 10, 1.0f / (gs-&gt;pwr2mapx * SQUARE_SIZE), 1.0f / (gs-&gt;pwr2mapy * SQUARE_SIZE), 0, 1);
++			glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 12, 1.0f / 1024, 1.0f / 1024, 0, 1);
++			glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 13, -floor(camera-&gt;pos.x * 0.02f), -floor(camera-&gt;pos.z * 0.02f), 0, 0);
++			glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 14, 0.02f, 0.02f, 0, 1);
++
++			if (drawReflection) {
++				glAlphaFunc(GL_GREATER, 0.9f);
++				glEnable(GL_ALPHA_TEST);
++			}
++		}
+ 	}
+ 	else if (shadowHandler-&gt;drawShadows) {
+-		glBindProgramARB( GL_FRAGMENT_PROGRAM_ARB, groundFPShadow );
+-		glEnable( GL_FRAGMENT_PROGRAM_ARB );
+-		float3 ac=map-&gt;ambientColor*(210.0f/255.0f);
+-		glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB,10, ac.x,ac.y,ac.z,1);
+-		glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB,11, 0,0,0,map-&gt;shadowDensity);
++		glBindProgramARB(GL_FRAGMENT_PROGRAM_ARB, groundFPShadow);
++		glEnable(GL_FRAGMENT_PROGRAM_ARB);
++		float3 ac = map-&gt;ambientColor * (210.0f / 255.0f);
++		glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB, 10, ac.x, ac.y, ac.z, 1);
++		glProgramEnvParameter4fARB(GL_FRAGMENT_PROGRAM_ARB, 11, 0, 0, 0, map-&gt;shadowDensity);
+ 
+ 		glActiveTextureARB(GL_TEXTURE0_ARB);
+ 		glActiveTextureARB(GL_TEXTURE1_ARB);
+ 		glBindTexture(GL_TEXTURE_2D, map-&gt;GetShadingTexture());
+ 		glActiveTextureARB(GL_TEXTURE2_ARB);
++
+ 		if (map-&gt;detailTex) {
+-			glBindTexture(GL_TEXTURE_2D,  map-&gt;detailTex);
++			glBindTexture(GL_TEXTURE_2D, map-&gt;detailTex);
+ 		} else {
+ 			glBindTexture(GL_TEXTURE_2D, 0);
+ 		}
++
+ 		glActiveTextureARB(GL_TEXTURE3_ARB);
+ 		glActiveTextureARB(GL_TEXTURE4_ARB);
+-		glBindTexture(GL_TEXTURE_2D,  shadowHandler-&gt;shadowTexture);
++		glBindTexture(GL_TEXTURE_2D, shadowHandler-&gt;shadowTexture);
+ 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE_ARB, GL_COMPARE_R_TO_TEXTURE);
+ 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC_ARB, GL_LEQUAL);
+ 		glTexParameteri(GL_TEXTURE_2D, GL_DEPTH_TEXTURE_MODE_ARB, GL_LUMINANCE);
+@@ -1017,60 +1043,64 @@
+ 		glActiveTextureARB(GL_TEXTURE0_ARB);
+ 
+ 		if (drawReflection) {
+-			glAlphaFunc(GL_GREATER,0.8f);
++			glAlphaFunc(GL_GREATER, 0.8f);
+ 			glEnable(GL_ALPHA_TEST);
+ 		}
+ 		if (overrideVP) {
+-			glBindProgramARB( GL_VERTEX_PROGRAM_ARB, overrideVP );
++			glBindProgramARB(GL_VERTEX_PROGRAM_ARB, overrideVP);
+ 		} else {
+-			glBindProgramARB( GL_VERTEX_PROGRAM_ARB, groundVP );
++			glBindProgramARB(GL_VERTEX_PROGRAM_ARB, groundVP);
+ 		}
+-		glEnable( GL_VERTEX_PROGRAM_ARB );
+-		glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,10, 1.0f/(gs-&gt;pwr2mapx*SQUARE_SIZE),1.0f/(gs-&gt;pwr2mapy*SQUARE_SIZE),0,1);
+-		glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,12, 1.0f/1024,1.0f/1024,0,1);
+-		glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,13, -floor(camera-&gt;pos.x*0.02f),-floor(camera-&gt;pos.z*0.02f),0,0);
+-		glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,14, 0.02f,0.02f,0,1);
+ 
++		glEnable(GL_VERTEX_PROGRAM_ARB);
++		glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 10, 1.0f / (gs-&gt;pwr2mapx * SQUARE_SIZE), 1.0f / (gs-&gt;pwr2mapy * SQUARE_SIZE), 0, 1);
++		glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 12, 1.0f / 1024, 1.0f / 1024, 0, 1);
++		glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 13, -floor(camera-&gt;pos.x * 0.02f), -floor(camera-&gt;pos.z * 0.02f), 0, 0);
++		glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB, 14, 0.02f, 0.02f, 0, 1);
++
+ 		glMatrixMode(GL_MATRIX0_ARB);
+ 		glLoadMatrixf(shadowHandler-&gt;shadowMatrix.m);
+ 		glMatrixMode(GL_MODELVIEW);
+ 	} else {
+ 		glActiveTextureARB(GL_TEXTURE1_ARB);
+ 		glEnable(GL_TEXTURE_2D);
+-		glBindTexture(GL_TEXTURE_2D, map-&gt;GetShadingTexture ());
+-		SetTexGen(1.0f/(gs-&gt;pwr2mapx*SQUARE_SIZE),1.0f/(gs-&gt;pwr2mapy*SQUARE_SIZE),0,0);
++		glBindTexture(GL_TEXTURE_2D, map-&gt;GetShadingTexture());
++		SetTexGen(1.0f / (gs-&gt;pwr2mapx * SQUARE_SIZE), 1.0f / (gs-&gt;pwr2mapy * SQUARE_SIZE), 0, 0);
+ 		glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_MODULATE);
++		glActiveTextureARB(GL_TEXTURE2_ARB);
+ 
+-		glActiveTextureARB(GL_TEXTURE2_ARB);
+ 		if (map-&gt;detailTex) {
+ 			glEnable(GL_TEXTURE_2D);
+-			glBindTexture(GL_TEXTURE_2D,  map-&gt;detailTex);
+-			glTexEnvi(GL_TEXTURE_ENV,GL_COMBINE_RGB_ARB,GL_ADD_SIGNED_ARB);
+-			glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_COMBINE_ARB);
+-			SetTexGen(0.02f,0.02f,-floor(camera-&gt;pos.x*0.02f),-floor(camera-&gt;pos.z*0.02f));
++			glBindTexture(GL_TEXTURE_2D, map-&gt;detailTex);
++			glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB_ARB, GL_ADD_SIGNED_ARB);
++			glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE_ARB);
++			SetTexGen(0.02f, 0.02f, -floor(camera-&gt;pos.x * 0.02f), -floor(camera-&gt;pos.z * 0.02f));
+ 		} else {
+ 			glDisable (GL_TEXTURE_2D);
+ 		}
++
+ 		if (overrideVP) {
+- 			glEnable( GL_VERTEX_PROGRAM_ARB );
+- 			glBindProgramARB( GL_VERTEX_PROGRAM_ARB, overrideVP );
+-			glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,10, 1.0f/(gs-&gt;pwr2mapx*SQUARE_SIZE),1.0f/(gs-&gt;pwr2mapy*SQUARE_SIZE),0,1);
+-			glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,12, 1.0f/1024,1.0f/1024,0,1);
+-			glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,13, -floor(camera-&gt;pos.x*0.02f),-floor(camera-&gt;pos.z*0.02f),0,0);
+-			glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,14, 0.02f,0.02f,0,1);
+- 			if (drawReflection) {
+- 				glAlphaFunc(GL_GREATER,0.9f);
+- 				glEnable(GL_ALPHA_TEST);
+- 			}
+- 		}
++			glEnable(GL_VERTEX_PROGRAM_ARB);
++			glBindProgramARB(GL_VERTEX_PROGRAM_ARB, overrideVP);
++			glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,10, 1.0f / (gs-&gt;pwr2mapx * SQUARE_SIZE), 1.0f / (gs-&gt;pwr2mapy * SQUARE_SIZE), 0, 1);
++			glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,12, 1.0f / 1024, 1.0f / 1024, 0, 1);
++			glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,13, -floor(camera-&gt;pos.x * 0.02f),-floor(camera-&gt;pos.z * 0.02f), 0, 0);
++			glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,14, 0.02f, 0.02f, 0,1);
++
++			if (drawReflection) {
++				glAlphaFunc(GL_GREATER, 0.9f);
++				glEnable(GL_ALPHA_TEST);
++			}
++		}
+ 	}
++
+ 	glActiveTextureARB(GL_TEXTURE0_ARB);
+ }
+ 
+ 
+-void CBFGroundDrawer::ResetTextureUnits(bool drawReflection,unsigned int overrideVP)
++void CBFGroundDrawer::ResetTextureUnits(bool drawReflection, unsigned int overrideVP)
+ {
+-	if(DrawExtraTex() || !shadowHandler-&gt;drawShadows){
++	if (DrawExtraTex() || !shadowHandler-&gt;drawShadows) {
+ 		glDisable(GL_TEXTURE_GEN_S);
+ 		glDisable(GL_TEXTURE_GEN_T);
+ 		glDisable(GL_TEXTURE_2D);
+@@ -1087,21 +1117,23 @@
+ 		glDisable(GL_TEXTURE_GEN_S);
+ 		glDisable(GL_TEXTURE_GEN_T);
+ 		glActiveTextureARB(GL_TEXTURE0_ARB);
+-		if(overrideVP){
+- 			glDisable( GL_VERTEX_PROGRAM_ARB );
+- 			if(drawReflection){
+- 				glDisable(GL_ALPHA_TEST);
+- 			}
+- 		}
++
++		if (overrideVP) {
++			glDisable(GL_VERTEX_PROGRAM_ARB);
++
++			if (drawReflection) {
++				glDisable(GL_ALPHA_TEST);
++			}
++		}
+ 	} else {
+-		glDisable( GL_VERTEX_PROGRAM_ARB );
+-		glDisable( GL_FRAGMENT_PROGRAM_ARB );
++		glDisable(GL_VERTEX_PROGRAM_ARB);
++		glDisable(GL_FRAGMENT_PROGRAM_ARB);
+ 
+ 		glActiveTextureARB(GL_TEXTURE4_ARB);
+ 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE_ARB, GL_NONE);
+ 		glActiveTextureARB(GL_TEXTURE0_ARB);
+ 
+-		if(drawReflection){
++		if (drawReflection) {
+ 			glDisable(GL_ALPHA_TEST);
+ 		}
+ 	}
+@@ -1112,26 +1144,30 @@
+ void CBFGroundDrawer::AddFrustumRestraint(const float3&amp; side)
+ {
+ 	fline temp;
+-	float3 up(0,1,0);
++	float3 up(0, 1, 0);
+ 
+-	float3 b=up.cross(side);		//get vector for collision between frustum and horizontal plane
+-	if(fabs(b.z)&lt;0.0001f)
+-		b.z=0.0001f;
++	// get vector for collision between frustum and horizontal plane
++	float3 b = up.cross(side);
++
++	if (fabs(b.z) &lt; 0.0001f)
++		b.z = 0.0001f;
++
+ 	{
+-		temp.dir=b.x/b.z;				//set direction to that
+-		float3 c=b.cross(side);			//get vector from camera to collision line
+-		float3 colpoint;				//a point on the collision line
++		temp.dir = b.x / b.z;				// set direction to that
++		float3 c = b.cross(side);			// get vector from camera to collision line
++		float3 colpoint;					// a point on the collision line
+ 
+-		if(side.y&gt;0)
+-			colpoint=cam2-&gt;pos-c*((cam2-&gt;pos.y-(readmap-&gt;minheight-100))/c.y);
++		if (side.y &gt; 0)
++			colpoint = cam2-&gt;pos - c * ((cam2-&gt;pos.y - (readmap-&gt;minheight - 100)) / c.y);
+ 		else
+-			colpoint=cam2-&gt;pos-c*((cam2-&gt;pos.y-(readmap-&gt;maxheight+30))/c.y);
++			colpoint = cam2-&gt;pos - c * ((cam2-&gt;pos.y - (readmap-&gt;maxheight +  30)) / c.y);
+ 
++		// get intersection between colpoint and z axis
++		temp.base = colpoint.x - colpoint.z * temp.dir;
+ 
+-		temp.base=colpoint.x-colpoint.z*temp.dir;	//get intersection between colpoint and z axis
+-		if(b.z&gt;0){
++		if (b.z &gt; 0) {
+ 			left.push_back(temp);
+-		}else{
++		} else {
+ 			right.push_back(temp);
+ 		}
+ 	}
+@@ -1142,35 +1178,38 @@
+ 	left.clear();
+ 	right.clear();
+ 
+-	//Add restraints for camera sides
++	// add restraints for camera sides
+ 	AddFrustumRestraint(cam2-&gt;bottom);
+ 	AddFrustumRestraint(cam2-&gt;top);
+ 	AddFrustumRestraint(cam2-&gt;rightside);
+ 	AddFrustumRestraint(cam2-&gt;leftside);
+ 
+-	//Add restraint for maximum view distance
++	// add restraint for maximum view distance
+ 	fline temp;
+-	float3 up(0,1,0);
+-	float3 side=cam2-&gt;forward;
+-	float3 camHorizontal=cam2-&gt;forward;
+-	camHorizontal.y=0;
++	float3 up(0, 1, 0);
++	float3 side = cam2-&gt;forward;
++	float3 camHorizontal = cam2-&gt;forward;
++	camHorizontal.y = 0;
+ 	camHorizontal.Normalize();
+-	float3 b=up.cross(camHorizontal);			//get vector for collision between frustum and horizontal plane
+-	if(fabs(b.z)&gt;0.0001f){
+-		temp.dir=b.x/b.z;				//set direction to that
+-		float3 c=b.cross(camHorizontal);			//get vector from camera to collision line
+-		float3 colpoint;				//a point on the collision line
++	// get vector for collision between frustum and horizontal plane
++	float3 b = up.cross(camHorizontal);
+ 
+-		if(side.y&gt;0)
+-			colpoint=cam2-&gt;pos+camHorizontal*gu-&gt;viewRange*1.05f-c*(cam2-&gt;pos.y/c.y);
++	if (fabs(b.z) &gt; 0.0001f) {
++		temp.dir = b.x / b.z;					// set direction to that
++		float3 c = b.cross(camHorizontal);		// get vector from camera to collision line
++		float3 colpoint;						// a point on the collision line
++
++		if (side.y &gt; 0)
++			colpoint = cam2-&gt;pos + camHorizontal * gu-&gt;viewRange * 1.05f - c * (cam2-&gt;pos.y / c.y);
+ 		else
+-			colpoint=cam2-&gt;pos+camHorizontal*gu-&gt;viewRange*1.05f-c*((cam2-&gt;pos.y-255/3.5f)/c.y);
++			colpoint = cam2-&gt;pos + camHorizontal * gu-&gt;viewRange * 1.05f - c * ((cam2-&gt;pos.y - 255 / 3.5f) / c.y);
+ 
++		// get intersection between colpoint and z axis
++		temp.base = colpoint.x - colpoint.z * temp.dir;
+ 
+-		temp.base=colpoint.x-colpoint.z*temp.dir;	//get intersection between colpoint and z axis
+-		if(b.z&gt;0){
++		if (b.z &gt; 0) {
+ 			left.push_back(temp);
+-		}else{
++		} else {
+ 			right.push_back(temp);
+ 		}
+ 	}
+@@ -1180,12 +1219,12 @@
+ 
+ void CBFGroundDrawer::IncreaseDetail()
+ {
+-	viewRadius+=2;
++	viewRadius += 2;
+ 	logOutput &lt;&lt; &quot;ViewRadius is now &quot; &lt;&lt; viewRadius &lt;&lt; &quot;\n&quot;;
+ }
+ 
+ void CBFGroundDrawer::DecreaseDetail()
+ {
+-	viewRadius-=2;
++	viewRadius -= 2;
+ 	logOutput &lt;&lt; &quot;ViewRadius is now &quot; &lt;&lt; viewRadius &lt;&lt; &quot;\n&quot;;
+ }
+
+Modified: trunk/rts/Map/SMF/BFGroundDrawer.h
+===================================================================
+--- trunk/rts/Map/SMF/BFGroundDrawer.h	2008-03-30 16:44:49 UTC (rev 5625)
++++ trunk/rts/Map/SMF/BFGroundDrawer.h	2008-03-30 17:48:37 UTC (rev 5626)
+@@ -18,20 +18,21 @@
+ 	public CBaseGroundDrawer
+ {
+ public:
+-	CBFGroundDrawer(CSmfReadMap *rm);
++	CBFGroundDrawer(CSmfReadMap* rm);
+ 	~CBFGroundDrawer(void);
+-	void Draw(bool drawWaterReflection=false,bool drawUnitReflection=false,unsigned int overrideVP=0);
++	void Draw(bool drawWaterReflection = false, bool drawUnitReflection = false, unsigned int overrideVP = 0);
+ 
+ 	void IncreaseDetail();
+ 	void DecreaseDetail();
+ 
+ protected:
+ 	int viewRadius;
+-	CSmfReadMap *map;
+-	CBFGroundTextures *textures;
++	CSmfReadMap* map;
++	CBFGroundTextures* textures;
+ 
+ 	int numBigTexX;
+ 	int numBigTexY;
++	int bigSquareSize;
+ 
+ 	float* heightData;
+ 	int heightDataX;
+@@ -49,17 +50,20 @@
+ 	unsigned int groundVP;
+ 	unsigned int groundShadowVP;
+ 	unsigned int groundFPShadow;
++	bool waterDrawn;
+ 
+-	inline void DrawVertexA(int x,int y);
+-	inline void DrawVertexA(int x,int y,float height);
++	inline void DrawVertexA(int x, int y);
++	inline void DrawVertexA(int x, int y, float height);
+ 	inline void EndStrip();
+-	void DrawGroundVertexArray();
+-	void SetupTextureUnits(bool drawReflection,unsigned int overrideVP);
+-	void ResetTextureUnits(bool drawReflection,unsigned int overrideVP);
++	inline void DrawWaterPlane(bool);
++	inline bool BigTexSquareRowVisible(int);
++	inline void DrawGroundVertexArray();
++	void SetupTextureUnits(bool drawReflection, unsigned int overrideVP);
++	void ResetTextureUnits(bool drawReflection, unsigned int overrideVP);
+ 
+ 	void AddFrustumRestraint(const float3&amp; side);
+ 	void UpdateCamRestraints();
+-	void Update(){}
++	void Update() {}
+ public:
+ 	void DrawShadowPass();
+ };
+
+Modified: trunk/rts/Map/SMF/BFGroundTextures.cpp
+===================================================================
+--- trunk/rts/Map/SMF/BFGroundTextures.cpp	2008-03-30 16:44:49 UTC (rev 5625)
++++ trunk/rts/Map/SMF/BFGroundTextures.cpp	2008-03-30 17:48:37 UTC (rev 5626)
+@@ -12,95 +12,98 @@
+ 
+ using namespace std;
+ 
+-CBFGroundTextures::CBFGroundTextures(CSmfReadMap *rm)
++CBFGroundTextures::CBFGroundTextures(CSmfReadMap* rm)
+ {
+-	CFileHandler *ifs = rm-&gt;ifs;
++	CFileHandler* ifs = rm-&gt;ifs;
+ 	map = rm;
+ 
+-	numBigTexX=gs-&gt;mapx/128;
+-	numBigTexY=gs-&gt;mapy/128;
++	bigSquareSize = 128;
++	numBigTexX = gs-&gt;mapx / bigSquareSize;
++	numBigTexY = gs-&gt;mapy / bigSquareSize;
+ 
+-	MapHeader* header=&amp;map-&gt;header;
++	MapHeader* header = &amp;map-&gt;header;
+ 	ifs-&gt;Seek(header-&gt;tilesPtr);
+ 
+ 	tileSize = header-&gt;tilesize;
+ 
+ 	MapTileHeader tileHeader;
+-	READPTR_MAPTILEHEADER(tileHeader,ifs);
++	READPTR_MAPTILEHEADER(tileHeader, ifs);
+ 
+-	tileMap = SAFE_NEW int[(header-&gt;mapx*header-&gt;mapy)/16];
+-	tiles = SAFE_NEW char[tileHeader.numTiles*SMALL_TILE_SIZE];
+-	int curTile=0;
++	tileMap = SAFE_NEW int[(header-&gt;mapx * header-&gt;mapy) / 16];
++	tiles = SAFE_NEW char[tileHeader.numTiles * SMALL_TILE_SIZE];
++	int curTile = 0;
+ 
+-	for(int a=0;a&lt;tileHeader.numTileFiles;++a){
++	for (int a = 0; a &lt; tileHeader.numTileFiles; ++a) {
+ 		PrintLoadMsg(&quot;Loading tile file&quot;);
+ 
+ 		int size;
+-		ifs-&gt;Read(&amp;size,4);
++		ifs-&gt;Read(&amp;size, 4);
+ 		size = swabdword(size);
+ 		string name;
+ 
+-		while(true){
++		while (true) {
+ 			char ch;
+-			ifs-&gt;Read(&amp;ch,1);
++			ifs-&gt;Read(&amp;ch, 1);
+ 			/* char, no swab */
+-			if(ch==0)
++			if (ch == 0)
+ 				break;
+-			name+=ch;
++
++			name += ch;
+ 		}
+-		name=string(&quot;maps/&quot;)+name;
+ 
++		name = string(&quot;maps/&quot;) + name;
+ 		CFileHandler tileFile(name);
+-		if(!tileFile.FileExists()){
+-			logOutput.Print(&quot;Couldnt find tile file %s&quot;,name.c_str());
+-			memset(&amp;tiles[curTile*SMALL_TILE_SIZE],0xaa,size*SMALL_TILE_SIZE);
+-			curTile+=size;
++
++		if (!tileFile.FileExists()) {
++			logOutput.Print(&quot;Couldnt find tile file %s&quot;, name.c_str());
++			memset(&amp;tiles[curTile * SMALL_TILE_SIZE], 0xaa, size * SMALL_TILE_SIZE);
++			curTile += size;
+ 			continue;
+ 		}
+ 
+ 		PrintLoadMsg(&quot;Reading tiles&quot;);
+ 
+ 		TileFileHeader tfh;
+-		READ_TILEFILEHEADER(tfh,tileFile);
++		READ_TILEFILEHEADER(tfh, tileFile);
+ 
+-		if(strcmp(tfh.magic,&quot;spring tilefile&quot;)!=0 || tfh.version!=1 || tfh.tileSize!=32 || tfh.compressionType!=1){
++		if (strcmp(tfh.magic, &quot;spring tilefile&quot;) != 0 || tfh.version != 1 || tfh.tileSize != 32 || tfh.compressionType != 1) {
+ 			char t[500];
+-			sprintf(t,&quot;Error couldnt open tile file %s&quot;,name.c_str());
+-			handleerror(0,t,&quot;Error when reading tile file&quot;,0);
++			sprintf(t,&quot;Error couldnt open tile file %s&quot;, name.c_str());
++			handleerror(0, t, &quot;Error when reading tile file&quot;, 0);
+ 			exit(0);
+ 		}
+ 
+-		for(int b=0;b&lt;size;++b){
+-			tileFile.Read(&amp;tiles[curTile*SMALL_TILE_SIZE],SMALL_TILE_SIZE);
++		for (int b = 0; b &lt; size; ++b) {
++			tileFile.Read(&amp;tiles[curTile * SMALL_TILE_SIZE], SMALL_TILE_SIZE);
+ 			curTile++;
+ 		}
+ 	}
+ 
+ 	PrintLoadMsg(&quot;Reading tile map&quot;);
+ 
+-	int count = (header-&gt;mapx*header-&gt;mapy)/16;
++	int count = (header-&gt;mapx * header-&gt;mapy) / 16;
++	ifs-&gt;Read(tileMap, count * sizeof(int));
+ 
+-	ifs-&gt;Read(tileMap, count*sizeof(int));
+-
+ 	for (int i = 0; i &lt; count; i++) {
+ 		tileMap[i] = swabdword(tileMap[i]);
+ 	}
+ 
+-	tileMapXSize = header-&gt;mapx/4;
+-	tileMapYSize = header-&gt;mapy/4;
++	tileMapXSize = header-&gt;mapx / 4;
++	tileMapYSize = header-&gt;mapy / 4;
+ 
+-	squares=SAFE_NEW GroundSquare[numBigTexX*numBigTexY];
++	squares = SAFE_NEW GroundSquare[numBigTexX * numBigTexY];
+ 
+-	for(int y=0;y&lt;numBigTexY;++y){
+-		for(int x=0;x&lt;numBigTexX;++x){
+-			GroundSquare* square=&amp;squares[y*numBigTexX+x];
+-			square-&gt;texLevel=1;
+-			square-&gt;lastUsed=-100;
++	for (int y = 0; y &lt; numBigTexY; ++y) {
++		for (int x = 0; x &lt; numBigTexX; ++x) {
++			GroundSquare* square = &amp;squares[y * numBigTexX + x];
++			square-&gt;texLevel = 1;
++			square-&gt;lastUsed = -100;
+ 
+-			LoadSquare(x,y,2);
++			LoadSquare(x, y, 2);
+ 		}
+ 	}
+-	inRead=false;
++
++	inRead = false;
+ }
+ 
+ CBFGroundTextures::~CBFGroundTextures(void)
+@@ -113,60 +116,85 @@
+ 
+ void CBFGroundTextures::SetTexture(int x, int y)
+ {
+-	GroundSquare* square = &amp;squares[y*numBigTexX+x];
++	GroundSquare* square = &amp;squares[y * numBigTexX + x];
+ 	glBindTexture(GL_TEXTURE_2D, square-&gt;texture);
+ 	square-&gt;lastUsed = gs-&gt;frameNum;
+ }
+ 
++inline bool CBFGroundTextures::TexSquareInView(int btx, int bty) {
++	const float* heightData = map-&gt;GetHeightmap();
++	static const int heightDataX = gs-&gt;mapx + 1;
++	static const int bigTexW = (gs-&gt;mapx &lt;&lt; 3) / numBigTexX;
++	static const int bigTexH = (gs-&gt;mapy &lt;&lt; 3) / numBigTexY;
++	static const float bigTexSquareRadius = sqrt(float(bigTexW * bigTexW + bigTexH * bigTexH));
++
++	const int x = btx * bigTexW + (bigTexW &gt;&gt; 1);
++	const int y = bty * bigTexH + (bigTexH &gt;&gt; 1);
++	const int idx = (y &gt;&gt; 3) * heightDataX + (x &gt;&gt; 3);
++	const float3 bigTexSquarePos(x, heightData[idx], y);
++
++	return (cam2-&gt;InView(bigTexSquarePos, bigTexSquareRadius));
++}
++
+ void CBFGroundTextures::DrawUpdate(void)
+ {
+-	float maxDif=0;
+-	float totalDif=0;
++	float maxDif = 0;
++	float totalDif = 0;
+ 	int maxX;
+ 	int maxY;
+ 	int wantedNew;
+ 	int currentReadWantedLevel;
+ 
+-	for(int y=0;y&lt;numBigTexY;++y){
+-		float dy=cam2-&gt;pos.z - y*128*SQUARE_SIZE-64*SQUARE_SIZE;
+-		dy=max(0.0f,float(fabs(dy)-64.f*SQUARE_SIZE));
+-		for(int x=0;x&lt;numBigTexX;++x){
+-			GroundSquare* square=&amp;squares[y*numBigTexX+x];
++	for (int y = 0; y &lt; numBigTexY; ++y) {
++		float dy = cam2-&gt;pos.z - y * bigSquareSize * SQUARE_SIZE - 64 * SQUARE_SIZE;
++		dy = max(0.0f, float(fabs(dy) - 64.0f * SQUARE_SIZE));
+ 
+-			float dx=cam2-&gt;pos.x - x*128*SQUARE_SIZE-64*SQUARE_SIZE;
+-			dx=max(0.0f,float(fabs(dx)-64.f*SQUARE_SIZE));
+-			float dist=sqrt(dx*dx+dy*dy);
++		for (int x = 0; x &lt; numBigTexX; ++x) {
++			if (!TexSquareInView(x, y)) {
++				// no need to update this square's
++				// texture if we can't even see it
++				continue;
++			}
+ 
+-			if(square-&gt;lastUsed&lt;gs-&gt;frameNum-60)
+-				dist=8000;
++			GroundSquare* square = &amp;squares[y * numBigTexX + x];
+ 
+-			float wantedLevel=dist/1000;
+-			if(wantedLevel&gt;2.5f)
+-				wantedLevel=2.5f;
+-			if(wantedLevel&lt;square-&gt;texLevel-1)
+-				wantedLevel=square-&gt;texLevel-1;
++			float dx = cam2-&gt;pos.x - x * bigSquareSize * SQUARE_SIZE - 64 * SQUARE_SIZE;
++			dx = max(0.0f, float(fabs(dx) - 64.0f * SQUARE_SIZE));
++			float dist = sqrt(dx * dx + dy * dy);
+ 
+-			float dif=square-&gt;texLevel+0.5f-wantedLevel;
+-			if(dif&lt;0)
+-				dif*=-0.5f;
++			if (square-&gt;lastUsed &lt; gs-&gt;frameNum - 60)
++				dist = 8000;
+ 
+-			if((int)wantedLevel!=square-&gt;texLevel){
+-				if(dist&lt;8)
+-					dif+=5;
+-				totalDif+=dif;
+-				if(dif&gt;maxDif){
+-					maxDif=dif;
+-					maxX=x;
+-					maxY=y;
+-					wantedNew=(int) wantedLevel;
++			float wantedLevel = dist / 1000;
++
++			if (wantedLevel &gt; 2.5f)
++				wantedLevel = 2.5f;
++			if (wantedLevel &lt; square-&gt;texLevel - 1)
++				wantedLevel = square-&gt;texLevel - 1;
++
++			float dif = square-&gt;texLevel + 0.5f - wantedLevel;
++			if (dif &lt; 0)
++				dif *= -0.5f;
++
++			if ((int) wantedLevel != square-&gt;texLevel) {
++				if (dist &lt; 8)
++					dif += 5;
++
++				totalDif += dif;
++
++				if (dif &gt; maxDif) {
++					maxDif = dif;
++					maxX = x;
++					maxY = y;
++					wantedNew = (int) wantedLevel;
+ 				}
+ 			}
+-			if(inRead &amp;&amp; x==readX &amp;&amp; y==readY){
+-					currentReadWantedLevel=(int) wantedLevel;
++			if (inRead &amp;&amp; x == readX &amp;&amp; y == readY) {
++				currentReadWantedLevel = (int) wantedLevel;
+ 			}
+-			if(square-&gt;texLevel!=(int)wantedLevel){
+-				glDeleteTextures(1,&amp;square-&gt;texture);
+-				LoadSquare(x,y,(int)wantedLevel);
++			if (square-&gt;texLevel != (int) wantedLevel) {
++				glDeleteTextures(1, &amp;square-&gt;texture);
++				LoadSquare(x, y, (int) wantedLevel);
+ 			}
+ 		}
+ 	}
+@@ -176,29 +204,23 @@
+ 
+ void CBFGroundTextures::LoadSquare(int x, int y, int level)
+ {
+-	GroundSquare* square=&amp;squares[y*numBigTexX+x];
+-	square-&gt;texLevel=level;
++	GroundSquare* square = &amp;squares[y * numBigTexX + x];
++	square-&gt;texLevel = level;
+ 
+-	int size=1024&gt;&gt;level;
+-	//int hsize=size/2;
++	int size = 1024 &gt;&gt; level;
++	char* buf = SAFE_NEW char[size * size / 2];
++	int numblocks = 8 / (1 &lt;&lt; level);
+ 
+-	char* buf=SAFE_NEW char[size*size/2];
++	for (int y1 = 0; y1 &lt; 32; y1++) {
++		for (int x1 = 0; x1 &lt; 32; x1++) {
++			char* tile = &amp;tiles[tileMap[(x1 + x * 32) + (y1 + y * 32) * tileMapXSize] * SMALL_TILE_SIZE + tileoffset[level]];
+ 
+-	int numblocks = 8/(1&lt;&lt;level);
++			for (int yt = 0; yt &lt; numblocks; yt++) {
++				for (int xt = 0; xt &lt; numblocks; xt++) {
++					char* sbuf = &amp;tile[(xt + yt * numblocks) * 8];
++					char* dbuf = &amp;buf[(x1 * numblocks+xt + (y1 * numblocks + yt) * (numblocks * 32)) * 8];
+ 
+-	for(int y1=0; y1&lt;32; y1++)
+-	{
+-		for(int x1=0; x1&lt;32; x1++)
+-		{
+-			char *tile = &amp;tiles[tileMap[(x1+x*32)+(y1+y*32)*tileMapXSize]*SMALL_TILE_SIZE + tileoffset[level]];
+-			for(int yt=0; yt&lt;numblocks; yt++)
+-			{
+-				for(int xt=0; xt&lt;numblocks; xt++)
+-				{
+-					char *sbuf = &amp;tile[(xt+yt*numblocks)*8];
+-					char *dbuf = &amp;buf[(x1*numblocks+xt + (y1*numblocks+yt)*(numblocks*32))*8];
+-					for(int i=0; i&lt;8; i++)
+-					{
++					for (int i = 0; i &lt; 8; i++) {
+ 						dbuf[i] = sbuf[i];
+ 					}
+ 				}
+@@ -208,14 +230,16 @@
+ 
+ 	glGenTextures(1, &amp;square-&gt;texture);
+ 	glBindTexture(GL_TEXTURE_2D, square-&gt;texture);
+-	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+-	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+-	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+-	glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
++	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
++	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++
+ 	if (map-&gt;anisotropy != 0.0f) {
+ 		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, map-&gt;anisotropy);
+ 	}
+-	glCompressedTexImage2DARB(GL_TEXTURE_2D, 0, GL_COMPRESSED_RGBA_S3TC_DXT1_EXT, size, size, 0, size*size/2, buf);
+ 
++	glCompressedTexImage2DARB(GL_TEXTURE_2D, 0, GL_COMPRESSED_RGBA_S3TC_DXT1_EXT, size, size, 0, size * size / 2, buf);
++
+ 	delete[] buf;
+ }
+
+Modified: trunk/rts/Map/SMF/BFGroundTextures.h
+===================================================================
+--- trunk/rts/Map/SMF/BFGroundTextures.h	2008-03-30 16:44:49 UTC (rev 5625)
++++ trunk/rts/Map/SMF/BFGroundTextures.h	2008-03-30 17:48:37 UTC (rev 5626)
+@@ -13,21 +13,22 @@
+ class CBFGroundTextures
+ {
+ public:
+-	CBFGroundTextures(CSmfReadMap *srm);
++	CBFGroundTextures(CSmfReadMap* srm);
+ 	~CBFGroundTextures(void);
+ 	void SetTexture(int x, int y);
+ 	void DrawUpdate(void);
+ 	void LoadSquare(int x, int y, int level);
+ 
+ protected:
+-	CSmfReadMap *map;
++	CSmfReadMap* map;
+ 
++	int bigSquareSize;
+ 	int numBigTexX;
+ 	int numBigTexY;
+ 
+ 	int* textureOffsets;
+ 
+-	struct GroundSquare{
++	struct GroundSquare {
+ 		int texLevel;
+ 		GLuint texture;
+ 		int lastUsed;
+@@ -35,7 +36,7 @@
+ 
+ 	GroundSquare* squares;
+ 
+-	//variables controlling background reading of textures
++	// variables controlling background reading of textures
+ 	bool inRead;
+ 	int readProgress;
+ 	int readX;
+@@ -45,13 +46,15 @@
+ 	unsigned char* readBuffer;
+ 	unsigned char* readTempLine;
+ 
+-	int *tileMap;
++	int* tileMap;
+ 	int tileSize;
+-	char *tiles;
++	char* tiles;
+ 	int tileMapXSize;
+ 	int tileMapYSize;
+ 
+ 	float anisotropy;
++
++	inline bool TexSquareInView(int, int);
+ };
+ 
+ #endif // __BF_GROUND_TEXTURES_H__
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000406.html">[Taspring-linux-commit] r5625 - in trunk/tools/springie: Springie	Springie/autohost Springie/doc Springie/utils springie web
+</A></li>
+	<LI>Next message: <A HREF="000408.html">[Taspring-linux-commit] r5627 - trunk/rts/Sim/Projectiles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#407">[ date ]</a>
+              <a href="thread.html#407">[ thread ]</a>
+              <a href="subject.html#407">[ subject ]</a>
+              <a href="author.html#407">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

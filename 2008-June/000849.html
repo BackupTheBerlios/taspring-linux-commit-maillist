@@ -1,0 +1,148 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6069 - in trunk/rts: Rendering/UnitModels	lib/gml
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-June/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6069%20-%20in%20trunk/rts%3A%20Rendering/UnitModels%0A%09lib/gml&In-Reply-To=%3C20080624224948.2554B4571%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000848.html">
+   <LINK REL="Next"  HREF="000850.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6069 - in trunk/rts: Rendering/UnitModels	lib/gml</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6069%20-%20in%20trunk/rts%3A%20Rendering/UnitModels%0A%09lib/gml&In-Reply-To=%3C20080624224948.2554B4571%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6069 - in trunk/rts: Rendering/UnitModels	lib/gml">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Jun 25 00:49:47 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000848.html">[Taspring-linux-commit] r6068 - in trunk: . rts/Game	rts/System/Platform/Linux tools/DedicatedServer
+</A></li>
+        <LI>Next message: <A HREF="000850.html">[Taspring-linux-commit] r6070 - trunk/tools/unitsync/test
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#849">[ date ]</a>
+              <a href="thread.html#849">[ thread ]</a>
+              <a href="subject.html#849">[ subject ]</a>
+              <a href="author.html#849">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zerver
+Date: 2008-06-25 00:49:46 +0200 (Wed, 25 Jun 2008)
+New Revision: 6069
+
+Modified:
+   trunk/rts/Rendering/UnitModels/UnitDrawer.cpp
+   trunk/rts/lib/gml/gml.cpp
+   trunk/rts/lib/gml/gmlcls.h
+Log:
+Removed TLS requirement if MT is disabled
+
+Modified: trunk/rts/Rendering/UnitModels/UnitDrawer.cpp
+===================================================================
+--- trunk/rts/Rendering/UnitModels/UnitDrawer.cpp	2008-06-24 16:05:48 UTC (rev 6068)
++++ trunk/rts/Rendering/UnitModels/UnitDrawer.cpp	2008-06-24 22:49:46 UTC (rev 6069)
+@@ -401,12 +401,20 @@
+ #if GML_ENABLE_DRAWUNIT
+ 	mt_drawReflection=drawReflection; // these member vars will be accessed by DoDrawUnitMT
+ 	mt_drawRefraction=drawRefraction;
++#ifdef DIRECT_CONTROL_ALLOWED
+ 	mt_excludeUnit=excludeUnit;
++#endif
+ 	gmlProcessor.Work(NULL,NULL,&amp;CUnitDrawer::DoDrawUnitMT,this,gmlThreadCount,FALSE,&amp;uh-&gt;activeUnits,uh-&gt;activeUnits.size(),50,100,TRUE);
+ #else
+ 	for (std::list&lt;CUnit*&gt;::iterator usi = uh-&gt;activeUnits.begin(); usi != uh-&gt;activeUnits.end(); ++usi) {
+ 		CUnit* unit = *usi;
+-		DoDrawUnit(unit,drawReflection,drawRefraction,excludeUnit);
++		DoDrawUnit(unit,drawReflection,drawRefraction,
++#ifdef DIRECT_CONTROL_ALLOWED
++								excludeUnit
++#else
++								NULL
++#endif
++							);
+ 	}
+ #endif
+ 
+
+Modified: trunk/rts/lib/gml/gml.cpp
+===================================================================
+--- trunk/rts/lib/gml/gml.cpp	2008-06-24 16:05:48 UTC (rev 6068)
++++ trunk/rts/lib/gml/gml.cpp	2008-06-24 22:49:46 UTC (rev 6069)
+@@ -38,11 +38,15 @@
+ #define EXEC_RES (BYTE *)-2
+ 
+ // TLS (thread local storage) thread identifier
++#if GML_ENABLE
+ #ifdef _MSC_VER
+ __declspec(thread) int gmlThreadNumber=0;
+ #else
+ __thread int gmlThreadNumber=0;
+ #endif
++#else
++int gmlThreadNumber=0;
++#endif
+ int gmlThreadCount=GML_CPU_COUNT; // number of threads to use
+ int gmlThreadCountOverride=0; // number of threads to use (can be manually overridden here)
+ int gmlItemsConsumed=0;
+
+Modified: trunk/rts/lib/gml/gmlcls.h
+===================================================================
+--- trunk/rts/lib/gml/gmlcls.h	2008-06-24 16:05:48 UTC (rev 6068)
++++ trunk/rts/lib/gml/gmlcls.h	2008-06-24 22:49:46 UTC (rev 6069)
+@@ -64,12 +64,20 @@
+ #endif
+ 
+ #ifdef _MSC_VER
+-extern __declspec(thread) int gmlThreadNumber;
+ #define GML_TYPENAME typename
+ #else
+-extern __thread int gmlThreadNumber;
+ #define GML_TYPENAME
+ #endif
++
++#if GML_ENABLE
++#ifdef _MSC_VER
++extern __declspec(thread) int gmlThreadNumber;
++#else
++extern __thread int gmlThreadNumber;
++#endif
++#else
++extern int gmlThreadNumber;
++#endif
+ extern int gmlThreadCount;
+ extern int gmlThreadCountOverride;
+ extern unsigned gmlCPUCount();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000848.html">[Taspring-linux-commit] r6068 - in trunk: . rts/Game	rts/System/Platform/Linux tools/DedicatedServer
+</A></li>
+	<LI>Next message: <A HREF="000850.html">[Taspring-linux-commit] r6070 - trunk/tools/unitsync/test
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#849">[ date ]</a>
+              <a href="thread.html#849">[ thread ]</a>
+              <a href="subject.html#849">[ subject ]</a>
+              <a href="author.html#849">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

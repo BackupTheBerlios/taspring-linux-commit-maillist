@@ -1,0 +1,233 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6374 - in trunk/tools/ArchiveMoverLinux: .	libmlsevenzip
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6374%20-%20in%20trunk/tools/ArchiveMoverLinux%3A%20.%0A%09libmlsevenzip&In-Reply-To=%3C20080906032619.D904749AF%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001143.html">
+   <LINK REL="Next"  HREF="001145.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6374 - in trunk/tools/ArchiveMoverLinux: .	libmlsevenzip</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6374%20-%20in%20trunk/tools/ArchiveMoverLinux%3A%20.%0A%09libmlsevenzip&In-Reply-To=%3C20080906032619.D904749AF%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6374 - in trunk/tools/ArchiveMoverLinux: .	libmlsevenzip">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Sep  6 05:26:19 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001143.html">[Taspring-linux-commit] r6373 - trunk/rts/System/Sync
+</A></li>
+        <LI>Next message: <A HREF="001145.html">[Taspring-linux-commit] r6375 - in trunk/Lobby/TASClient: .	Lobby/Var
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1144">[ date ]</a>
+              <a href="thread.html#1144">[ thread ]</a>
+              <a href="subject.html#1144">[ subject ]</a>
+              <a href="author.html#1144">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: det
+Date: 2008-09-06 05:26:19 +0200 (Sat, 06 Sep 2008)
+New Revision: 6374
+
+Modified:
+   trunk/tools/ArchiveMoverLinux/datadir.ml
+   trunk/tools/ArchiveMoverLinux/libmlsevenzip/ml_sevenzip.c
+   trunk/tools/ArchiveMoverLinux/libmlsevenzip/sevenzip.ml
+Log:
+ArchiveMoverLinux
+ * The 7Zip binding now correctly interacts with the garbage collector
+
+
+Modified: trunk/tools/ArchiveMoverLinux/datadir.ml
+===================================================================
+--- trunk/tools/ArchiveMoverLinux/datadir.ml	2008-09-06 02:02:46 UTC (rev 6373)
++++ trunk/tools/ArchiveMoverLinux/datadir.ml	2008-09-06 03:26:19 UTC (rev 6374)
+@@ -9,10 +9,9 @@
+   try
+     let springrc = Filename.concat home_dir &quot;.springrc&quot; in
+     let in_file = open_in springrc in
+-    let input = IO.input_channel in_file in
+     let rec loop option =
+       try 
+-        let line = IO.read_line input in
++        let line = input_line in_file in
+           try
+             let (key, value) = String.split line &quot;=&quot; in
+               if key = &quot;SpringData&quot; then
+@@ -20,7 +19,7 @@
+               else
+                 loop option
+           with Invalid_string -&gt; loop option
+-      with IO.No_more_input -&gt; option in
++      with End_of_file -&gt; option in
+     let option = loop None in
+       close_in in_file;
+       option
+
+Modified: trunk/tools/ArchiveMoverLinux/libmlsevenzip/ml_sevenzip.c
+===================================================================
+--- trunk/tools/ArchiveMoverLinux/libmlsevenzip/ml_sevenzip.c	2008-09-06 02:02:46 UTC (rev 6373)
++++ trunk/tools/ArchiveMoverLinux/libmlsevenzip/ml_sevenzip.c	2008-09-06 03:26:19 UTC (rev 6374)
+@@ -91,23 +91,34 @@
+ 
+ SRes ml_sevenzip_read(void *object, void **buffer, size_t *size)
+ {
+-  value readable = ((CFileInStream *)object)-&gt;readable;
+-  value read = Field(readable, 0);
+-  value tuple = caml_callback(read, Val_int(*size));
+-  value ml_string = Field(tuple, 0);
+-  value ml_size = Field(tuple, 1);
++
++  CFileInStream *archive_in = (CFileInStream *) object;
++  value readable = (archive_in-&gt;readable);
++  CAMLparam1 (readable);
++  CAMLlocal4 (read, tuple, ml_string, ml_size);
++
++  read = Field(readable, 0);
++  tuple = caml_callback(read, Val_int(*size));
++  ml_string = Field(tuple, 0);
++  ml_size = Field(tuple, 1);
+   *buffer = String_val(ml_string);
+   *size = Int_val(ml_size);
+ 
+-  return SZ_OK;
++  /* The GC might have moved the readable pointer */
++  archive_in-&gt;readable = readable;
++
++  CAMLreturnT(SRes, SZ_OK);
+ }
+ 
+ SRes ml_sevenzip_seek(void *object, CFileSize pos, ESzSeek origin)
+ {
+-  value readable = ((CFileInStream *)object)-&gt;readable;
+-  value seek = Field(readable, 1);
+-  value term;
++  CFileInStream *archive_in = (CFileInStream *) object;
++  value readable = archive_in-&gt;readable;
++  CAMLparam1 (readable);
++  CAMLlocal2 (seek, term);
+ 
++  seek = Field(readable, 1);
++
+   switch (origin) {
+ 
+   case SZ_SEEK_SET: term = Val_int(0); break;
+@@ -118,7 +129,10 @@
+ 
+   caml_callback2(seek, Val_int(pos), term);
+ 
+-  return SZ_OK;
++  /* The GC might have moved the readable pointer */
++  archive_in-&gt;readable = readable;
++
++  CAMLreturnT(SRes, SZ_OK);
+ }
+ 
+ /* Sevenzip.open_readable */
+@@ -126,18 +140,18 @@
+ value ml_sevenzip_open_readable (value readable)
+ {
+   CAMLparam1 (readable);
++  CAMLlocal1 (sevenzip);
+ 
+-  CFileInStream archiveStream;
++  CFileInStream archive_in;
+   CSzArEx db;
+   SRes res;
+-  value sevenzip;
+ 
+-  archiveStream.funcs.Read = ml_sevenzip_read;
+-  archiveStream.funcs.Seek = ml_sevenzip_seek;
+-  archiveStream.readable = readable;
++  archive_in.funcs.Read = ml_sevenzip_read;
++  archive_in.funcs.Seek = ml_sevenzip_seek;
++  archive_in.readable = readable;
+ 
+   SzArEx_Init(&amp;db);
+-  res = SzArEx_Open(&amp;db, &amp;archiveStream.funcs, &amp;allocImp, &amp;allocTempImp);
++  res = SzArEx_Open(&amp;db, &amp;archive_in.funcs, &amp;allocImp, &amp;allocTempImp);
+ 
+   switch (res) {
+ 
+
+Modified: trunk/tools/ArchiveMoverLinux/libmlsevenzip/sevenzip.ml
+===================================================================
+--- trunk/tools/ArchiveMoverLinux/libmlsevenzip/sevenzip.ml	2008-09-06 02:02:46 UTC (rev 6373)
++++ trunk/tools/ArchiveMoverLinux/libmlsevenzip/sevenzip.ml	2008-09-06 03:26:19 UTC (rev 6374)
+@@ -3,8 +3,6 @@
+ external init: unit -&gt; unit = &quot;ml_sevenzip_init&quot;
+ let () = init ()
+ 
+-type in_file
+-
+ type origin = SeekSet | SeekCur | SeekEnd
+ 
+ type readable = {
+@@ -12,6 +10,9 @@
+   seek: int -&gt; origin -&gt; unit
+ }
+ 
++type db
++type in_file = readable * db
++
+ type entry = {
+   index: int;
+   filename: string;
+@@ -19,17 +20,18 @@
+   is_directory: bool
+ }
+ 
+-external _open_readable: readable -&gt; in_file = &quot;ml_sevenzip_open_readable&quot;
++external _open_readable: readable -&gt; db = &quot;ml_sevenzip_open_readable&quot;
+ let open_readable readable =
+   try
+-    _open_readable readable
++    (readable, _open_readable readable)
+   with
+       Failure s -&gt; raise (Error s)
+ 
+-external entries: in_file -&gt; entry array = &quot;ml_sevenzip_entries&quot;
++external _entries: db -&gt; entry array = &quot;ml_sevenzip_entries&quot;
++let entries (_, db) = _entries db
+ 
+ let open_in path =
+-  let file = open_in path in
++  let file = open_in_bin path in
+   let buffer = String.create 65536 in
+     
+   let read n =
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001143.html">[Taspring-linux-commit] r6373 - trunk/rts/System/Sync
+</A></li>
+	<LI>Next message: <A HREF="001145.html">[Taspring-linux-commit] r6375 - in trunk/Lobby/TASClient: .	Lobby/Var
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1144">[ date ]</a>
+              <a href="thread.html#1144">[ thread ]</a>
+              <a href="subject.html#1144">[ subject ]</a>
+              <a href="author.html#1144">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

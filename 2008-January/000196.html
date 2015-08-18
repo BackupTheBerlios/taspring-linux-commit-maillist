@@ -1,0 +1,336 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5389 - trunk/AI/Global/KAIK-0.13
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5389%20-%20trunk/AI/Global/KAIK-0.13&In-Reply-To=%3CE1JIYzq-0000A4-21%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000195.html">
+   <LINK REL="Next"  HREF="000197.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5389 - trunk/AI/Global/KAIK-0.13</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5389%20-%20trunk/AI/Global/KAIK-0.13&In-Reply-To=%3CE1JIYzq-0000A4-21%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5389 - trunk/AI/Global/KAIK-0.13">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Jan 26 01:34:10 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000195.html">[Taspring-linux-commit] r5388 - trunk/rts/Lua
+</A></li>
+        <LI>Next message: <A HREF="000197.html">[Taspring-linux-commit] r5390 - trunk/AI/Global/KAIK-0.13
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#196">[ date ]</a>
+              <a href="thread.html#196">[ thread ]</a>
+              <a href="subject.html#196">[ subject ]</a>
+              <a href="author.html#196">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-01-26 01:34:09 +0100 (Sat, 26 Jan 2008)
+New Revision: 5389
+
+Modified:
+   trunk/AI/Global/KAIK-0.13/Defines.h
+   trunk/AI/Global/KAIK-0.13/GlobalAI.cpp
+   trunk/AI/Global/KAIK-0.13/UnitHandler.cpp
+   trunk/AI/Global/KAIK-0.13/UnitHandler.h
+   trunk/AI/Global/KAIK-0.13/UnitTable.cpp
+   trunk/AI/Global/KAIK-0.13/UnitTable.h
+Log:
+fix the cause of a failing KAIK assertion
+
+Modified: trunk/AI/Global/KAIK-0.13/Defines.h
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/Defines.h	2008-01-25 22:36:05 UTC (rev 5388)
++++ trunk/AI/Global/KAIK-0.13/Defines.h	2008-01-26 00:34:09 UTC (rev 5389)
+@@ -2,7 +2,7 @@
+ #define DEFINES_H
+ 
+ #define AI_NAME			&quot;KAIK 0.13 Unofficial&quot;
+-#define AI_DATE			&quot;24/01/2008&quot;
++#define AI_DATE			&quot;25/01/2008&quot;
+ #define AI_VERSION		AI_NAME &quot; (rev. &quot; AI_DATE &quot;)&quot;
+ #define AI_CREDITS		&quot;(original developer: Krogothe, current maintainer: Kloot)&quot;
+ 
+
+Modified: trunk/AI/Global/KAIK-0.13/GlobalAI.cpp
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/GlobalAI.cpp	2008-01-25 22:36:05 UTC (rev 5388)
++++ trunk/AI/Global/KAIK-0.13/GlobalAI.cpp	2008-01-26 00:34:09 UTC (rev 5389)
+@@ -320,6 +320,19 @@
+ }
+ 
+ void CGlobalAI::UnitIdle(int unit) {
++	if (ai-&gt;uh-&gt;lastCapturedUnitFrame == ai-&gt;cb-&gt;GetCurrentFrame()) {
++		if (unit == ai-&gt;uh-&gt;lastCapturedUnitID) {
++			// KLOOTNOTE: for some reason this also gets called when one
++			// of our units is captured (in the same frame as, but after
++			// HandleEvent(AI_EVENT_UNITCAPTURED)), *before* the unit has
++			// actually changed teams (ie. for any unit that is no longer
++			// on our team but still registers as such)
++			ai-&gt;uh-&gt;lastCapturedUnitFrame = -1;
++			ai-&gt;uh-&gt;lastCapturedUnitID = -1;
++			return;
++		}
++	}
++
+ 	// AttackHandler handles cat_g_attack units
+ 	if (GCAT(unit) == CAT_G_ATTACK &amp;&amp; ai-&gt;MyUnits.at(unit)-&gt;groupID != -1) {
+ 		// attackHandler-&gt;UnitIdle(unit);
+@@ -393,6 +406,10 @@
+ 			if ((cte-&gt;oldteam) == (ai-&gt;cb-&gt;GetMyTeam())) {
+ 				// lost a unit
+ 				UnitDestroyed(cte-&gt;unit, 0);
++
++				// FIXME: multiple units captured during same frame?
++				ai-&gt;uh-&gt;lastCapturedUnitFrame = ai-&gt;cb-&gt;GetCurrentFrame();
++				ai-&gt;uh-&gt;lastCapturedUnitID = cte-&gt;unit;
+ 			}
+ 		} break;
+ 	}
+
+Modified: trunk/AI/Global/KAIK-0.13/UnitHandler.cpp
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/UnitHandler.cpp	2008-01-25 22:36:05 UTC (rev 5388)
++++ trunk/AI/Global/KAIK-0.13/UnitHandler.cpp	2008-01-26 00:34:09 UTC (rev 5389)
+@@ -27,7 +27,11 @@
+ 
+ CUnitHandler::CUnitHandler(AIClasses* ai) {
+ 	this-&gt;ai = ai;
++
+ 	taskPlanCounter = 1;
++	lastCapturedUnitFrame = -1;
++	lastCapturedUnitID = -1;
++
+ 	IdleUnits.resize(LASTCATEGORY);
+ 	BuildTasks.resize(LASTCATEGORY);
+ 	TaskPlans.resize(LASTCATEGORY);
+
+Modified: trunk/AI/Global/KAIK-0.13/UnitHandler.h
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/UnitHandler.h	2008-01-25 22:36:05 UTC (rev 5388)
++++ trunk/AI/Global/KAIK-0.13/UnitHandler.h	2008-01-26 00:34:09 UTC (rev 5389)
+@@ -79,6 +79,9 @@
+ 
+ 		CMetalMaker* metalMaker;
+ 
++		int lastCapturedUnitFrame;
++		int lastCapturedUnitID;
++
+ 	private:
+ 		AIClasses* ai;
+ 		int taskPlanCounter;
+
+Modified: trunk/AI/Global/KAIK-0.13/UnitTable.cpp
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/UnitTable.cpp	2008-01-25 22:36:05 UTC (rev 5388)
++++ trunk/AI/Global/KAIK-0.13/UnitTable.cpp	2008-01-26 00:34:09 UTC (rev 5389)
+@@ -47,16 +47,16 @@
+ 	energy_storages = new vector&lt;int&gt;[numOfSides];
+ 	nuke_silos = new vector&lt;int&gt;[numOfSides];
+ 
+-	all_lists.push_back(ground_factories);
+-	all_lists.push_back(ground_builders);
+-	all_lists.push_back(ground_attackers);
+-	all_lists.push_back(metal_extractors);
+-	all_lists.push_back(metal_makers);
+-	all_lists.push_back(ground_energy);
+-	all_lists.push_back(ground_defences);
+-	all_lists.push_back(metal_storages);
+-	all_lists.push_back(energy_storages);
+-	all_lists.push_back(nuke_silos);
++	all_lists.push_back(ground_factories);	// CAT_FACTORY  (idx: 0, cat enum:  7)
++	all_lists.push_back(ground_builders);	// CAT_BUILDER  (idx: 1, cat enum:  4)
++	all_lists.push_back(ground_attackers);	// CAT_G_ATTACK (idx: 2, cat enum:  9)
++	all_lists.push_back(metal_extractors);	// CAT_MEX      (idx: 3, cat enum:  2)
++	all_lists.push_back(metal_makers);		// CAT_MMAKER   (idx: 4, cat enum:  3)
++	all_lists.push_back(ground_energy);		// CAT_ENERGY   (idx: 5, cat enum:  1)
++	all_lists.push_back(ground_defences);	// CAT_DEFENCE  (idx: 6, cat enum:  8)
++	all_lists.push_back(metal_storages);	// CAT_MSTOR    (idx: 7, cat enum:  6)
++	all_lists.push_back(energy_storages);	// CAT_ESTOR    (idx: 8, cat enum:  5)
++	all_lists.push_back(nuke_silos);		// CAT_NUKE     (idx: 9, cat enum: 10)
+ }
+ 
+ CUnitTable::~CUnitTable() {
+@@ -147,6 +147,7 @@
+ void CUnitTable::ReadModConfig() {
+ 	const char* modName = ai-&gt;cb-&gt;GetModName();
+ 	char configFileName[1024] = {0};
++	char logMsg[2048] = {0};
+ 	snprintf(configFileName, 1023, &quot;%s%s.cfg&quot;, CFGFOLDER, modName);
+ 	ai-&gt;cb-&gt;GetValue(AIVAL_LOCATE_FILE_W, configFileName);
+ 
+@@ -169,36 +170,68 @@
+ 			const UnitDef* udef = ai-&gt;cb-&gt;GetUnitDef(name);
+ 
+ 			if ((i == 4) &amp;&amp; udef) {
+-				unitTypes[udef-&gt;id].costMultiplier = costMult;
+-				unitTypes[udef-&gt;id].techLevel = techLvl;
++				UnitType* utype = &amp;unitTypes[udef-&gt;id];
++				utype-&gt;costMultiplier = costMult;
++				utype-&gt;techLevel = techLvl;
+ 
++				// TODO: enable, but look for any possible side-effects
++				// that might arise from overriding categories like this
++				/*
+ 				if (category &gt;= 0 &amp;&amp; category &lt; LASTCATEGORY) {
+-					// overwrite the category set in Init()
+-					// TODO: also push udef-&gt;id onto proper
+-					// list (eg. ground_factories if .cfg
+-					// category is CAT_FACTORY), but this
+-					// requires looking up its side(s)
+-					// unitTypes[udef-&gt;id].category = category;
++					// maps unit categories to indices into all_lists
++					// FIXME: hackish, poorly maintainable, bad style
++					int cat2idx[] = {0, 5, 3, 4, 1, 8, 7, 0, 6, 2, 9};
++
++					// index of sublist (eg. ground_builders) that ::Init() thinks it belongs to
++					int idx1 = cat2idx[utype-&gt;category];
++					// index of sublist (eg. ground_attackers) that mod .cfg says it belongs to
++					int idx2 = cat2idx[category];
++
++					if (idx1 != idx2) {
++						std::vector&lt;int&gt;* lst1 = all_lists[idx1];	// old category
++						std::vector&lt;int&gt;* lst2 = all_lists[idx2];	// new category
++						std::set&lt;int&gt;::iterator sit;
++						std::vector&lt;int&gt;::iterator vit;
++
++						for (sit = utype-&gt;sides.begin(); sit != utype-&gt;sides.end(); sit++) {
++							int side = *sit;
++
++							for (vit = lst1[side].begin(); vit != lst1[side].end(); vit++) {
++								int udefID = *vit;
++
++								if (udefID == udef-&gt;id) {
++									lst1[side].erase(vit);
++									lst2[side].push_back(udef-&gt;id);
++								}
++							}
++						}
++
++						utype-&gt;category = category;
++					}
+ 				}
++				*/
+ 			}
+ 		}
++
++		sprintf(logMsg, &quot;read mod configuration file %s&quot;, configFileName);
+ 	} else {
+-		// write a new file with default values
+-		// for each UnitType in unitTypes array
++		// write a new .cfg file with default values
+ 		f = fopen(configFileName, &quot;w&quot;);
+ 		fprintf(f, &quot;// unitName costMultiplier techLevel category\n&quot;);
+ 
+ 		for (int i = 1; i &lt;= numOfUnits; i++) {
+ 			UnitType* utype = &amp;unitTypes[i];
+-			// assign and write default values (costMultiplier
+-			// and techLevel values are not set in Init(), but
+-			// category is)
++			// assign and write default values for costMultiplier
++			// and techLevel, category is already set in ::Init()
+ 			utype-&gt;costMultiplier = 1.0f;
+ 			utype-&gt;techLevel = -1;
+-			fprintf(f, &quot;%s %f %d %d\n&quot;, utype-&gt;def-&gt;name.c_str(), utype-&gt;costMultiplier, utype-&gt;techLevel, utype-&gt;category);
++			fprintf(f, &quot;%s %.2f %d %d\n&quot;, utype-&gt;def-&gt;name.c_str(), utype-&gt;costMultiplier, utype-&gt;techLevel, utype-&gt;category);
+ 		}
++
++		sprintf(logMsg, &quot;wrote mod configuration file %s&quot;, configFileName);
+ 	}
+ 
++	ai-&gt;cb-&gt;SendTextMsg(logMsg, 0);
+ 	fclose(f);
+ }
+ 
+@@ -475,6 +508,7 @@
+ 	float Hitpoints = udef-&gt;health;
+ 	float buildTime = udef-&gt;buildTime + 0.1f;
+ 	float benefit = 0.0f;
++	float aoe = 0.0f;
+ 	float dps = 0.0f;
+ 	int unitcounter = 0;
+ 	bool candevelop = false;
+@@ -519,6 +553,7 @@
+ 
+ 		case CAT_G_ATTACK: {
+ 			dps = GetCurrentDamageScore(udef);
++			aoe = ((udef-&gt;weapons.size())? ((udef-&gt;weapons.front()).def)-&gt;areaOfEffect: 0.0f);
+ 
+ 			if (udef-&gt;canfly &amp;&amp; !udef-&gt;hoverAttack) {
+ 				// TODO: improve to set reload-time to the bomber's
+@@ -526,7 +561,7 @@
+ 				dps /= 6;
+ 			}
+ 
+-			benefit = pow((udef-&gt;weapons.front().def-&gt;areaOfEffect + 80), 1.5f)
++			benefit = pow((aoe + 80), 1.5f)
+ 					* pow(GetMaxRange(udef) + 200, 1.5f)
+ 					* pow(dps, 1.0f)
+ 					* pow(udef-&gt;speed + 40, 1.0f)
+@@ -543,7 +578,8 @@
+ 		} break;
+ 
+ 		case CAT_DEFENCE: {
+-			benefit = pow((udef-&gt;weapons.front().def-&gt;areaOfEffect + 80), 1.5f)
++			aoe = ((udef-&gt;weapons.size())? ((udef-&gt;weapons.front()).def)-&gt;areaOfEffect: 0.0f);
++			benefit = pow((aoe + 80), 1.5f)
+ 					* pow(GetMaxRange(udef), 2.0f)
+ 					* pow(GetCurrentDamageScore(udef), 1.5f)
+ 					* pow(Hitpoints, 0.5f)
+@@ -973,7 +1009,6 @@
+ 			}
+ 		}
+ 
+-		fprintf(file, &quot;\nTech-Level: %d&quot;, utype-&gt;techLevel);
+ 		fprintf(file, &quot;\n\n&quot;);
+ 	}
+ 
+
+Modified: trunk/AI/Global/KAIK-0.13/UnitTable.h
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/UnitTable.h	2008-01-25 22:36:05 UTC (rev 5388)
++++ trunk/AI/Global/KAIK-0.13/UnitTable.h	2008-01-26 00:34:09 UTC (rev 5389)
+@@ -75,6 +75,7 @@
+ 		UnitType* unitTypes;
+ 		int numOfUnits;
+ 
++		// KLOOTNOTE: unused for now
+ 		int minTechLevel;
+ 		int maxTechLevel;
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000195.html">[Taspring-linux-commit] r5388 - trunk/rts/Lua
+</A></li>
+	<LI>Next message: <A HREF="000197.html">[Taspring-linux-commit] r5390 - trunk/AI/Global/KAIK-0.13
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#196">[ date ]</a>
+              <a href="thread.html#196">[ thread ]</a>
+              <a href="subject.html#196">[ subject ]</a>
+              <a href="author.html#196">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

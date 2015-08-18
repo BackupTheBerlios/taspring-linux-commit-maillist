@@ -1,0 +1,721 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6015 - in trunk:	installer/builddata/springcontent/gamedata rts/System/FileSystem
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-June/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6015%20-%20in%20trunk%3A%0A%09installer/builddata/springcontent/gamedata%20rts/System/FileSystem&In-Reply-To=%3C20080609211352.1861E4858%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000794.html">
+   <LINK REL="Next"  HREF="000796.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6015 - in trunk:	installer/builddata/springcontent/gamedata rts/System/FileSystem</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6015%20-%20in%20trunk%3A%0A%09installer/builddata/springcontent/gamedata%20rts/System/FileSystem&In-Reply-To=%3C20080609211352.1861E4858%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6015 - in trunk:	installer/builddata/springcontent/gamedata rts/System/FileSystem">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon Jun  9 23:13:51 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000794.html">[Taspring-linux-commit] r6014 - in trunk: AI/Group/EconomyAI	rts/Rendering/Textures rts/System rts/System/Net	rts/System/Platform/Linux tools/unitsync
+</A></li>
+        <LI>Next message: <A HREF="000796.html">[Taspring-linux-commit] r6016 -	trunk/installer/builddata/springcontent/gamedata
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#795">[ date ]</a>
+              <a href="thread.html#795">[ thread ]</a>
+              <a href="subject.html#795">[ subject ]</a>
+              <a href="author.html#795">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: FLOZi
+Date: 2008-06-09 23:13:51 +0200 (Mon, 09 Jun 2008)
+New Revision: 6015
+
+Added:
+   trunk/installer/builddata/springcontent/gamedata/scanutils.lua
+Modified:
+   trunk/installer/builddata/springcontent/gamedata/modrules.lua
+   trunk/rts/System/FileSystem/Archive7Zip.cpp
+   trunk/rts/System/FileSystem/ArchiveScanner.cpp
+   trunk/rts/System/FileSystem/ArchiveScanner.h
+   trunk/rts/System/FileSystem/ArchiveZip.cpp
+Log:
+modinfo.tdf --&gt; modinfo.lua
+ArchiveCacheV6.txt --&gt; ArchiveCacheV7.lua (requested changes to fix 0 file size bug made)
+Addition of scanutils.lua (contains MakeArray function for helping parsing TDF modinfos)
+
+Modified: trunk/installer/builddata/springcontent/gamedata/modrules.lua
+===================================================================
+--- trunk/installer/builddata/springcontent/gamedata/modrules.lua	2008-06-09 19:18:43 UTC (rev 6014)
++++ trunk/installer/builddata/springcontent/gamedata/modrules.lua	2008-06-09 21:13:51 UTC (rev 6015)
+@@ -2,8 +2,8 @@
+ --------------------------------------------------------------------------------
+ --
+ --  file:    modrules.lua
+---  brief:   modrules.tdf lua parser
+---  author:  Dave Rodgers
++--  brief:   modrules.tdf and sensors.tdf lua parser
++--  author:  Dave Rodgers, Craig Lawrence
+ --  notes:   Spring.GetModOptions() is available
+ --
+ --  Copyright (C) 2007.
+@@ -22,10 +22,15 @@
+ end
+ 
+ local modrules, err = TDF.Parse('gamedata/modrules.tdf')
++local sensors, err2 = TDF.Parse('gamedata/sensors.tdf')
+ if (modrules == nil) then
+   error('Error parsing modrules.tdf: ' .. err)
+ end
++if (sensors == nil and VFS.FileExists('gamedata/sensors.tdf'))
++	error('Error parsing sensors.tdf: ' .. err2)
++end
+ 
++modrules['sensors'] = sensors
+ --------------------------------------------------------------------------------
+ 
+ return modrules
+
+Added: trunk/installer/builddata/springcontent/gamedata/scanutils.lua
+===================================================================
+--- trunk/installer/builddata/springcontent/gamedata/scanutils.lua	                        (rev 0)
++++ trunk/installer/builddata/springcontent/gamedata/scanutils.lua	2008-06-09 21:13:51 UTC (rev 6015)
+@@ -0,0 +1,86 @@
++--------------------------------------------------------------------------------
++--------------------------------------------------------------------------------
++--
++--  file:    scanutils.lua
++--  brief:   contains functions for use when scanning for modinfo tdfs
++--  author:  Dave Rodgers, Craig Lawrence
++--
++--  Copyright (C) 2007.
++--  Licensed under the terms of the GNU GPL, v2 or later.
++--
++--------------------------------------------------------------------------------
++--------------------------------------------------------------------------------
++
++local function MakeArray(t, prefix)
++	if (type(t) ~= 'table') then
++		return nil
++	end
++
++	local sorted = {}
++	for k,v in pairs(t) do
++		if ((type(k) == 'string') and (type(v) == 'string')) then
++			local s, e, p, num = k:find('(%D*)(%d*)')
++			num = tonumber(num)
++			if ((p == prefix) and num) then
++				table.insert(sorted, { num, v })
++			end
++		end
++	end
++	table.sort(sorted, function(a, b)
++		if (a[1] &lt; b[1]) then return true  end
++		if (b[1] &lt; a[1]) then return false end
++		return (a[2] &lt; b[2])
++	end)
++
++	local newTable = {}
++	for _,numVal in ipairs(sorted) do
++		table.insert(newTable, numVal[2])
++	end
++	return newTable
++end
++
++--------------------------------------------------------------------------------
++--------------------------------------------------------------------------------
++--------------------------------------------------------------------------------
++--------------------------------------------------------------------------------
++--
++--  file:    scanutils.lua
++--  brief:   contains functions for use when scanning for modinfo tdfs
++--  author:  Dave Rodgers, Craig Lawrence
++--
++--  Copyright (C) 2007.
++--  Licensed under the terms of the GNU GPL, v2 or later.
++--
++--------------------------------------------------------------------------------
++--------------------------------------------------------------------------------
++
++local function MakeArray(t, prefix)
++	if (type(t) ~= 'table') then
++		return nil
++	end
++
++	local sorted = {}
++	for k,v in pairs(t) do
++		if ((type(k) == 'string') and (type(v) == 'string')) then
++			local s, e, p, num = k:find('(%D*)(%d*)')
++			num = tonumber(num)
++			if ((p == prefix) and num) then
++				table.insert(sorted, { num, v })
++			end
++		end
++	end
++	table.sort(sorted, function(a, b)
++		if (a[1] &lt; b[1]) then return true  end
++		if (b[1] &lt; a[1]) then return false end
++		return (a[2] &lt; b[2])
++	end)
++
++	local newTable = {}
++	for _,numVal in ipairs(sorted) do
++		table.insert(newTable, numVal[2])
++	end
++	return newTable
++end
++
++--------------------------------------------------------------------------------
++--------------------------------------------------------------------------------
+
+Modified: trunk/rts/System/FileSystem/Archive7Zip.cpp
+===================================================================
+--- trunk/rts/System/FileSystem/Archive7Zip.cpp	2008-06-09 19:18:43 UTC (rev 6014)
++++ trunk/rts/System/FileSystem/Archive7Zip.cpp	2008-06-09 21:13:51 UTC (rev 6015)
+@@ -55,9 +55,7 @@
+ 	// Get contents of archive and store name-&gt;int mapping
+ 	for (unsigned i = 0; i &lt; db.Database.NumFiles; ++i) {
+ 		CFileItem* fi = db.Database.Files + i;
+-		// NOTE: fix this on next CArchiveScanner INTERNAL_VER bump.
+-		// It should be `if (fi-&gt;Size &gt;= 0) {' because now zero-size files are ignored.
+-		if (fi-&gt;Size &gt; 0) {
++		if (fi-&gt;Size &gt;= 0) { 		//  zero-size files are ignored.
+ 			std::string name = fi-&gt;Name;
+ 			//SetSlashesForwardToBack(name);
+ 
+
+Modified: trunk/rts/System/FileSystem/ArchiveScanner.cpp
+===================================================================
+--- trunk/rts/System/FileSystem/ArchiveScanner.cpp	2008-06-09 19:18:43 UTC (rev 6014)
++++ trunk/rts/System/FileSystem/ArchiveScanner.cpp	2008-06-09 21:13:51 UTC (rev 6015)
+@@ -6,14 +6,15 @@
+ #include &lt;sys/types.h&gt;
+ #include &lt;sys/stat.h&gt;
+ 
+-#include &quot;ArchiveFactory.h&quot;
+-#include &quot;ArchiveBuffered.h&quot;
+-#include &quot;CRC.h&quot;
+-#include &quot;FileFilter.h&quot;
+-#include &quot;FileHandler.h&quot;
+-#include &quot;Platform/FileSystem.h&quot;
+-#include &quot;TdfParser.h&quot;
+-#include &quot;LogOutput.h&quot;
++#include &quot;StdAfx.h&quot;
++#include &quot;Lua/LuaParser.h&quot;
++#include &quot;System/LogOutput.h&quot;
++#include &quot;System/FileSystem/ArchiveFactory.h&quot;
++#include &quot;System/FileSystem/ArchiveBuffered.h&quot;
++#include &quot;System/FileSystem/CRC.h&quot;
++#include &quot;System/FileSystem/FileFilter.h&quot;
++#include &quot;System/FileSystem/FileHandler.h&quot;
++#include &quot;System/Platform/FileSystem.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
+ // fix for windows
+@@ -30,9 +31,7 @@
+  * is not slow, but mapping them all every time to make the list is)
+  */
+ 
+-// NOTE: on the next version bump, be sure to fix the zero-file-size bug in
+-// Archive7zip.cpp and ArchiveZip.cpp  (search for NOTE)
+-#define INTERNAL_VER	6
++#define INTERNAL_VER	7
+ 
+ 
+ CArchiveScanner* archiveScanner = NULL;
+@@ -54,42 +53,36 @@
+ std::string CArchiveScanner::GetFilename()
+ {
+ 	char buf[32];
+-	sprintf(buf, &quot;ArchiveCacheV%i.txt&quot;, INTERNAL_VER);
++	sprintf(buf, &quot;ArchiveCacheV%i.lua&quot;, INTERNAL_VER);
+ 	return std::string(buf);
+ }
+ 
+-
+-CArchiveScanner::ModData CArchiveScanner::GetModData(TdfParser* p, const std::string&amp; section)
++CArchiveScanner::ModData CArchiveScanner::GetModData(const LuaTable* modTable)
+ {
+ 	ModData md;
+ 	md.name = &quot;&quot;;
+ 
+-	if (!p-&gt;SectionExist(section)) {
++	if (!modTable-&gt;IsValid()) {
+ 		return md;
+ 	}
+ 
+-	md.name        = p-&gt;SGetValueDef(&quot;&quot;, section + &quot;\\Name&quot;);
+-	md.shortName   = p-&gt;SGetValueDef(&quot;&quot;, section + &quot;\\ShortName&quot;);
+-	md.version     = p-&gt;SGetValueDef(&quot;&quot;, section + &quot;\\Version&quot;);
+-	md.mutator     = p-&gt;SGetValueDef(&quot;&quot;, section + &quot;\\Mutator&quot;);
+-	md.game        = p-&gt;SGetValueDef(&quot;&quot;, section + &quot;\\Game&quot;);
+-	md.shortGame   = p-&gt;SGetValueDef(&quot;&quot;, section + &quot;\\ShortGame&quot;);
+-	md.description = p-&gt;SGetValueDef(&quot;&quot;, section + &quot;\\Description&quot;);
++	md.name        = modTable-&gt;GetString(&quot;name&quot;, &quot;&quot;);
++	md.shortName   = modTable-&gt;GetString(&quot;shortName&quot;, &quot;&quot;);
++	md.version     = modTable-&gt;GetString(&quot;version&quot;, &quot;&quot;);
++	md.mutator     = modTable-&gt;GetString(&quot;mutator&quot;, &quot;&quot;);
++	md.game        = modTable-&gt;GetString(&quot;game&quot;, &quot;&quot;);
++	md.shortGame   = modTable-&gt;GetString(&quot;shortGame&quot;, &quot;&quot;);
++	md.description = modTable-&gt;GetString(&quot;description&quot;, &quot;&quot;);
++	md.modType     = modTable-&gt;GetInt(&quot;modType&quot;, 0);
+ 
+-	md.modType = atoi(p-&gt;SGetValueDef(&quot;0&quot;, section + &quot;\\ModType&quot;).c_str());
+-
+-	int numDep = atoi(p-&gt;SGetValueDef(&quot;0&quot;, section + &quot;\\NumDependencies&quot;).c_str());
+-	for (int dep = 0; dep &lt; numDep; ++dep) {
+-		char key[100];
+-		sprintf(key, &quot;%s\\Depend%d&quot;, section.c_str(), dep);
+-		md.dependencies.push_back(p-&gt;SGetValueDef(&quot;&quot;, key));
++	const LuaTable dependencies = modTable-&gt;SubTable(&quot;depend&quot;);
++	for (int dep = 1; dependencies.KeyExists(dep); ++dep) {
++		md.dependencies.push_back(dependencies.GetString(dep, &quot;&quot;));
+ 	}
+ 
+-	int numReplace = atoi(p-&gt;SGetValueDef(&quot;0&quot;, (section + &quot;\\NumReplaces&quot;).c_str()).c_str());
+-	for (int rep = 0; rep &lt; numReplace; ++rep) {
+-		char key[100];
+-		sprintf(key, &quot;%s\\Replace%d&quot;, section.c_str(), rep);
+-		md.replaces.push_back(p-&gt;SGetValueDef(&quot;&quot;, key));
++	const LuaTable replaces = modTable-&gt;SubTable(&quot;replace&quot;);
++	for (int rep = 1; replaces.KeyExists(rep); ++rep) {
++		md.replaces.push_back(replaces.GetString(rep, &quot;&quot;));
+ 	}
+ 
+ 	// HACK needed until lobbies, lobbyserver and unitsync are sorted out
+@@ -97,7 +90,7 @@
+ 	// (at time of this writing they use name only)
+ 
+ 	// NOTE when changing this, this function is used both by the code that
+-	// reads ArchiveCache.txt and the code that reads modinfo.tdf from the mod.
++	// reads ArchiveCache.lua and the code that reads modinfo.lua from the mod.
+ 	// so make sure it doesn't keep adding stuff to the name everytime
+ 	// Spring/unitsync is loaded.
+ 
+@@ -108,11 +101,57 @@
+ 	return md;
+ }
+ 
++void CArchiveScanner::PreScan(const std::string&amp; curPath)
++{
++	const int flags = (FileSystem::INCLUDE_DIRS | FileSystem::RECURSE);
++	std::vector&lt;std::string&gt; found = filesystem.FindFiles(curPath, &quot;springcontent.sdz&quot;, flags);
++	if (!found.empty()) {
++		CArchiveBase* ar = CArchiveFactory::OpenArchive(found[0]);
++		if (ar) {
++			int cur;
++			std::string name;
++			int size;
+ 
++			cur = ar-&gt;FindFiles(0, &amp;name, &amp;size);
++			while (cur != 0) {
++				if (name.find(&quot;parse_tdf.lua&quot;) != string::npos) {
++					int fh = ar-&gt;OpenFile(name);
++					if (fh) {
++						int fsize = ar-&gt;FileSize(fh);
++						char* buf = SAFE_NEW char[fsize];
++						ar-&gt;ReadFile(fh, buf, fsize);
++						ar-&gt;CloseFile(fh);
++						parse_tdf.append(buf,fsize);
++						delete [] buf;
++					}
++				}
++				if (name.find(&quot;scanutils.lua&quot;) != string::npos) {
++					int fh = ar-&gt;OpenFile(name);
++					if (fh) {
++						int fsize = ar-&gt;FileSize(fh);
++						char* buf = SAFE_NEW char[fsize];
++						ar-&gt;ReadFile(fh, buf, fsize);
++						ar-&gt;CloseFile(fh);
++						scanutils.append(buf,fsize);
++						delete [] buf;
++					}
++				}
++				cur = ar-&gt;FindFiles(cur, &amp;name, &amp;size);
++			}
++			delete ar;
++			parse_tdf.erase(parse_tdf.find_last_of(&quot;}&quot;) + 1); // we don't want to return the table
++		}
++	}
++}
++
+ void CArchiveScanner::Scan(const std::string&amp; curPath, bool checksum)
+ {
+ 	isDirty = true;
+ 
++	if (curPath.find(&quot;base&quot;) != string::npos) { // perform the scan for parse_tdf.lua only when scanning base files
++	  PreScan(curPath);
++	}
++	
+ 	const int flags = (FileSystem::INCLUDE_DIRS | FileSystem::RECURSE);
+ 	std::vector&lt;std::string&gt; found = filesystem.FindFiles(curPath, &quot;*&quot;, flags);
+ 
+@@ -163,7 +202,7 @@
+ 					in all .sdd's always need to be stat()'ed, which really slows
+ 					down program startup.
+ 
+-					An update can be forced anyway by removing ArchiveCacheV*.txt
++					An update can be forced anyway by removing ArchiveCacheV*.lua
+ 					or renaming the archive.
+ 				*/
+ 
+@@ -206,7 +245,6 @@
+ 					cur = ar-&gt;FindFiles(0, &amp;name, &amp;size);
+ 					while (cur != 0) {
+ 						//printf(&quot;found %s %d\n&quot;, name.c_str(), size);
+-
+ 						std::string ext = StringToLower(name.substr(name.find_last_of('.') + 1));
+ 
+ 						// only accept new format maps
+@@ -228,24 +266,58 @@
+ 							}
+ 							ai.mapData.push_back(md);
+ 						}
++								
++						if (name == &quot;modinfo.lua&quot;) {
++							int fh = ar-&gt;OpenFile(name);
++							if (fh) {
++								int fsize = ar-&gt;FileSize(fh);
+ 
++								char* buf = SAFE_NEW char[fsize];
++								ar-&gt;ReadFile(fh, buf, fsize);
++								ar-&gt;CloseFile(fh);
++								
++								std::string cleanbuf;
++								cleanbuf.append(buf, fsize);
++								delete [] buf;
++								LuaParser p(cleanbuf, SPRING_VFS_MOD);
++								if (!p.Execute()) {
++									logOutput.Print(p.GetErrorLog());
++								}
++								const LuaTable modTable = p.GetRoot();
++								ai.modData = GetModData(&amp;modTable);
++							}
++						}
++						
+ 						if (name == &quot;modinfo.tdf&quot;) {
+-							int fh = ar-&gt;OpenFile(name);
++						  int fh = ar-&gt;OpenFile(name);
+ 							if (fh) {
+ 								int fsize = ar-&gt;FileSize(fh);
+ 
+ 								char* buf = SAFE_NEW char[fsize];
+ 								ar-&gt;ReadFile(fh, buf, fsize);
+ 								ar-&gt;CloseFile(fh);
+-								try {
+-									TdfParser p( buf, fsize );
+-									ai.modData = GetModData(&amp;p, &quot;mod&quot;);
+-								} catch (const TdfParser::parse_error&amp;) {
+-									// Silently ignore mods with parse errors
++								std::string cleanbuf;
++								cleanbuf.append(buf, fsize);
++								delete [] buf;
++								if (parse_tdf.length() != 0 &amp;&amp; scanutils.length() != 0) {
++									std::string luaFile = parse_tdf + &quot;\n\n&quot; + scanutils + &quot;\n\n&quot;
++																				+ &quot;local tdfModinfo, err = TDFparser.ParseText([[\n&quot; 
++																				+ cleanbuf + &quot;]])\n\n&quot;
++																				+ &quot;if (tdfModinfo == nil) then\n&quot;
++																				+ &quot;    error('Error parsing modinfo.tdf: ' .. err)\n&quot;
++																				+ &quot;end\n\n&quot;
++																				+ &quot;tdfModinfo.mod['depend'] = MakeArray(tdfModinfo.mod, 'depend')\n&quot;
++																				+ &quot;tdfModinfo.mod['replace'] = MakeArray(tdfModinfo.mod, 'replace')\n\n&quot;
++																				+ &quot;return tdfModinfo.mod\n&quot;;
++									LuaParser p(luaFile, SPRING_VFS_MOD);
++									if (!p.Execute()) {
++										logOutput.Print(p.GetErrorLog());
++									}
++									const LuaTable modTable = p.GetRoot();
++									ai.modData = GetModData(&amp;modTable);
+ 								}
+-								delete [] buf;
++								// silently ignore tdf mods if parse_tdf.lua  or scanutils.lua not found in base
+ 							}
+-
+ 						}
+ 
+ 						cur = ar-&gt;FindFiles(cur, &amp;name, &amp;size);
+@@ -382,49 +454,43 @@
+ 
+ void CArchiveScanner::ReadCacheData(const std::string&amp; filename)
+ {
+-	TdfParser p;
+-
+-	try {
+-		p.LoadFile(filename);
+-	} catch (const content_error&amp;) {
+-		return;
++  LuaParser p(filename, SPRING_VFS_RAW, SPRING_VFS_ALL);
++	
++	if (!p.Execute()) {
++		logOutput.Print(p.GetErrorLog());
+ 	}
+-
++	const LuaTable archiveCache = p.GetRoot();
++	const LuaTable archives = archiveCache.SubTable(&quot;archives&quot;);
++	
+ 	// Do not load old version caches
+-	int ver = atoi(p.SGetValueDef(&quot;0&quot;, &quot;archivecache\\internalver&quot;).c_str());
++	int ver = archiveCache.GetInt(&quot;internalVer&quot;, 0);
+ 	if (ver != INTERNAL_VER)
+ 		return;
+ 
+-	int numArs = atoi(p.SGetValueDef(&quot;0&quot;, &quot;archivecache\\numarchives&quot;).c_str());
+-	for (int i = 0; i &lt; numArs; ++i) {
++	for (int i = 1; archives.KeyExists(i); ++i) {
++	  const LuaTable curArchive = archives.SubTable(i);
++		const LuaTable maps = curArchive.SubTable(&quot;maps&quot;);
++		const LuaTable mod = curArchive.SubTable(&quot;modData&quot;);
+ 		ArchiveInfo ai;
+-		char keyb[100];
+-		sprintf(keyb, &quot;ArchiveCache\\Archive%d\\&quot;, i);
+-		std::string key = keyb;
+ 
+-		ai.origName = p.SGetValueDef(&quot;&quot;, key + &quot;Name&quot;);
+-
+-		ai.path = p.SGetValueDef(&quot;&quot;, key + &quot;Path&quot;);
+-		ai.modified = strtoul(p.SGetValueDef(&quot;0&quot;, key + &quot;Modified&quot;).c_str(), 0, 10);
+-		ai.checksum = strtoul(p.SGetValueDef(&quot;0&quot;, key + &quot;Checksum&quot;).c_str(), 0, 10);
++		ai.origName = curArchive.GetString(&quot;name&quot;, &quot;&quot;);
++		ai.path = curArchive.GetString(&quot;path&quot;, &quot;&quot;);
++		// don't use GetInt for modified and checksum as lua uses 32bit ints, no longs
++		ai.modified = strtoul(curArchive.GetString(&quot;modified&quot;, &quot;0&quot;).c_str(), 0, 10);
++		ai.checksum = strtoul(curArchive.GetString(&quot;checksum&quot;, &quot;0&quot;).c_str(), 0, 10);
+ 		ai.updated = false;
+ 
+-		int numMaps = atoi(p.SGetValueDef(&quot;0&quot;, key + &quot;NumMaps&quot;).c_str());
+-		for (int m = 0; m &lt; numMaps; ++m) {
+-			char mapb[100];
+-			sprintf(mapb, &quot;%sMap%d\\&quot;, key.c_str(), m);
+-			std::string map = mapb;
++		for (int m = 1; maps.KeyExists(m); ++m) {
++			const LuaTable curMap = maps.SubTable(m);
+ 
+ 			MapData md;
+-			md.name = p.SGetValueDef(&quot;&quot;, map + &quot;Name&quot;);
+-			md.virtualPath = p.SGetValueDef(&quot;&quot;, map + &quot;VirtualPath&quot;);
++			md.name = curMap.GetString(&quot;name&quot;, &quot;&quot;);
++			md.virtualPath = curMap.GetString(&quot;virtualPath&quot;, &quot;&quot;);
+ 
+ 			ai.mapData.push_back(md);
+ 		}
+ 
+-		if (p.SectionExist(key + &quot;Mod&quot;)) {
+-			ai.modData = GetModData(&amp;p, key + &quot;Mod&quot;);
+-		}
++		ai.modData = GetModData(&amp;mod);
+ 
+ 		std::string lcname = StringToLower(ai.origName);
+ 
+@@ -454,77 +520,72 @@
+ 		i = next;
+ 	}
+ 
+-	fprintf(out, &quot;[ARCHIVECACHE]\n{\n&quot;);
+-	fprintf(out, &quot;\tNumArchives=%d;\n&quot;, archiveInfo.size());
+-	fprintf(out, &quot;\tInternalVer=%d;\n&quot;, INTERNAL_VER);
+-	int cur = 0;
++	fprintf(out, &quot;local archiveCache = {\n&quot;);
++	fprintf(out, &quot;    internalVer = %d,\n&quot;, INTERNAL_VER);
++	fprintf(out, &quot;    archives = {\n&quot;);
+ 	for (std::map&lt;std::string, ArchiveInfo&gt;::iterator i = archiveInfo.begin(); i != archiveInfo.end(); ++i) {
+-		fprintf(out, &quot;\t[ARCHIVE%d]\n\t{\n&quot;, cur);
+-		fprintf(out, &quot;\t\tName=%s;\n&quot;, i-&gt;second.origName.c_str());
+-		fprintf(out, &quot;\t\tPath=%s;\n&quot;, i-&gt;second.path.c_str());
+-		fprintf(out, &quot;\t\tModified=%u;\n&quot;, i-&gt;second.modified);
+-		fprintf(out, &quot;\t\tChecksum=%u;\n&quot;, i-&gt;second.checksum);
+-		fprintf(out, &quot;\t\tReplaced=%s;\n&quot;, i-&gt;second.replaced.c_str());
++		fprintf(out, &quot;        {\n&quot;);
++		fprintf(out, &quot;            name = \&quot;%s\&quot;,\n&quot;, i-&gt;second.origName.c_str());
++		fprintf(out, &quot;            path = [[%s]],\n&quot;, i-&gt;second.path.c_str()); // path contains '.\'s, use [[...]] format
++		fprintf(out, &quot;            modified = \&quot;%u\&quot;,\n&quot;, i-&gt;second.modified);
++		fprintf(out, &quot;            checksum = \&quot;%u\&quot;,\n&quot;, i-&gt;second.checksum);
++		fprintf(out, &quot;            replaced = \&quot;%s\&quot;,\n&quot;, i-&gt;second.replaced.c_str());
+ 
+-		fprintf(out, &quot;\t\tNumMaps=%d;\n&quot;, i-&gt;second.mapData.size());
+-		int curmap = 0;
++		fprintf(out, &quot;            maps = {\n&quot;);
+ 		for (std::vector&lt;MapData&gt;::iterator mi = i-&gt;second.mapData.begin(); mi != i-&gt;second.mapData.end(); ++mi) {
+-			fprintf(out, &quot;\t\t[MAP%d]\n\t\t{\n&quot;, curmap);
+-			//WriteData(out, *mi);
+-			fprintf(out, &quot;\t\t\tName=%s;\n&quot;, (*mi).name.c_str());
+-			fprintf(out, &quot;\t\t\tVirtualPath=%s;\n&quot;, (*mi).virtualPath.c_str());
+-			//fprintf(out, &quot;\t\t\tDescription=%s;\n&quot;, (*mi).description.c_str());
+-			fprintf(out, &quot;\t\t}\n&quot;);
+-			curmap++;
++			fprintf(out, &quot;                {\n&quot;);
++			fprintf(out, &quot;                    name = \&quot;%s\&quot;,\n&quot;, (*mi).name.c_str());
++			fprintf(out, &quot;                    virtualPath = \&quot;%s\&quot;,\n&quot;, (*mi).virtualPath.c_str());
++			fprintf(out, &quot;                },\n&quot;);
+ 		}
++		fprintf(out, &quot;            },\n&quot;);
+ 
+ 		// Any mod info? or just a map archive?
+ 		if (i-&gt;second.modData.name != &quot;&quot;) {
+ 			const ModData&amp; md = i-&gt;second.modData;
+-			fprintf(out, &quot;\t\t[MOD]\n\t\t{\n&quot;);
+-			fprintf(out, &quot;\t\t\tName=%s;\n&quot;,          md.name.c_str());
++			fprintf(out, &quot;            modData = {\n&quot;);
++			fprintf(out, &quot;                name = \&quot;%s\&quot;,\n&quot;,          md.name.c_str());
+ 
+ 			if (!md.shortName.empty()) {
+-				fprintf(out, &quot;\t\t\tShortName=%s;\n&quot;,   md.shortName.c_str());
++				fprintf(out, &quot;                shortName = \&quot;%s\&quot;,\n&quot;,   md.shortName.c_str());
+ 			}
+ 			if (!md.version.empty()) {
+-				fprintf(out, &quot;\t\t\tVersion=%s;\n&quot;,     md.version.c_str());
++				fprintf(out, &quot;                version = \&quot;%s\&quot;,\n&quot;,     md.version.c_str());
+ 			}
+ 			if (!md.mutator.empty()) {
+-				fprintf(out, &quot;\t\t\tMutator=%s;\n&quot;,     md.mutator.c_str());
++				fprintf(out, &quot;                mutator = \&quot;%s\&quot;,\n&quot;,     md.mutator.c_str());
+ 			}
+ 			if (!md.game.empty()) {
+-				fprintf(out, &quot;\t\t\tGame=%s;\n&quot;,        md.game.c_str());
++				fprintf(out, &quot;                game = \&quot;%s\&quot;,\n&quot;,        md.game.c_str());
+ 			}
+ 			if (!md.shortGame.empty()) {
+-				fprintf(out, &quot;\t\t\tShortGame=%s;\n&quot;,   md.shortGame.c_str());
++				fprintf(out, &quot;                shortGame = \&quot;%s\&quot;,\n&quot;,   md.shortGame.c_str());
+ 			}
+ 			if (!md.description.empty()) {
+-				fprintf(out, &quot;\t\t\tDescription=%s;\n&quot;, md.description.c_str());
++				fprintf(out, &quot;                description = \&quot;%s\&quot;,\n&quot;, md.description.c_str());
+ 			}
+-
+-			fprintf(out, &quot;\t\t\tModType=%d;\n&quot;,     md.modType);
+-
+-			fprintf(out, &quot;\t\t\tNumDependencies=%d;\n&quot;, i-&gt;second.modData.dependencies.size());
+-			int curdep = 0;
++			fprintf(out, &quot;                modType = %d,\n&quot;,     md.modType);
++			
++			fprintf(out, &quot;                depend = {\n&quot;);
+ 			for (std::vector&lt;std::string&gt;::iterator dep = i-&gt;second.modData.dependencies.begin(); dep != i-&gt;second.modData.dependencies.end(); ++dep) {
+-				fprintf(out, &quot;\t\t\tDepend%d=%s;\n&quot;, curdep, (*dep).c_str());
+-				curdep++;
++				fprintf(out, &quot;                    \&quot;%s\&quot;,\n&quot;, (*dep).c_str());
+ 			}
+-
+-			fprintf(out, &quot;\t\t\tNumReplaces=%d;\n&quot;, i-&gt;second.modData.replaces.size());
+-			int currep = 0;
++			fprintf(out, &quot;                },\n&quot;);
++			
++			fprintf(out, &quot;                replace = {\n&quot;);
+ 			for (std::vector&lt;std::string&gt;::iterator rep = i-&gt;second.modData.replaces.begin(); rep != i-&gt;second.modData.replaces.end(); ++rep) {
+-				fprintf(out, &quot;\t\t\tReplace%d=%s;\n&quot;, currep++, (*rep).c_str());
++				fprintf(out, &quot;                    \&quot;%s\&quot;,\n&quot;, (*rep).c_str());
+ 			}
+-
+-			fprintf(out, &quot;\t\t}\n&quot;);
++			
++			fprintf(out, &quot;                },\n&quot;);
++			fprintf(out, &quot;            },\n&quot;);
+ 		}
+ 
+-		fprintf(out, &quot;\t}\n&quot;);
+-		cur++;
++		fprintf(out, &quot;        },\n&quot;);
+ 	}
+-	fprintf(out, &quot;}\n&quot;);
++	fprintf(out, &quot;    }\n&quot;);
++	fprintf(out, &quot;}\n\n&quot;);
++	fprintf(out, &quot;return archiveCache&quot;);
+ 	fclose(out);
+ 
+ 	isDirty = false;
+@@ -707,7 +768,8 @@
+ 	unsigned int checksum = 0;
+ 	std::vector&lt;std::string&gt; ars = GetArchives(root);
+ 
+-	for (std::vector&lt;std::string&gt;::iterator i = ars.begin(); i != ars.end(); ++i) {
++	for (std::vector&lt;std::string&gt;::iterator i = ars.begin(); i != ars.end(); ++i)
++	{
+ 		unsigned tmp = GetArchiveChecksum(*i);
+ 		logOutput.Print(&quot;mod checksum %s: %u/%d&quot;, i-&gt;c_str(), tmp, (int)tmp);
+ 		checksum ^= tmp;
+
+Modified: trunk/rts/System/FileSystem/ArchiveScanner.h
+===================================================================
+--- trunk/rts/System/FileSystem/ArchiveScanner.h	2008-06-09 19:18:43 UTC (rev 6014)
++++ trunk/rts/System/FileSystem/ArchiveScanner.h	2008-06-09 21:13:51 UTC (rev 6015)
+@@ -7,7 +7,8 @@
+ 
+ class CArchiveBase;
+ class IFileFilter;
+-class TdfParser;
++class LuaParser;
++class LuaTable;
+ 
+ /*
+  * This class searches through a given directory and its subdirectories looking for archive files.
+@@ -43,6 +44,7 @@
+ 	void ReadCacheData(const std::string&amp; filename);
+ 	void WriteCacheData(const std::string&amp; filename);
+ 	virtual ~CArchiveScanner(void);
++	void PreScan(const std::string&amp; curPath);
+ 	void Scan(const std::string&amp; curPath, bool checksum = false);
+ 	std::vector&lt;ModData&gt; GetPrimaryMods() const;
+ 	std::vector&lt;ModData&gt; GetAllMods() const;
+@@ -72,10 +74,12 @@
+ 		std::string replaced;					// If not empty, use that archive instead
+ 	};
+ 	std::map&lt;std::string, ArchiveInfo&gt; archiveInfo;
+-	ModData GetModData(TdfParser* p, const std::string&amp; section);
++	ModData GetModData(const LuaTable* modTable);
+ 	IFileFilter* CreateIgnoreFilter(CArchiveBase* ar);
+ 	unsigned int GetCRC(const std::string&amp; filename);
+ 	bool isDirty;
++	std::string parse_tdf;
++	std::string scanutils;
+ };
+ 
+ extern CArchiveScanner* archiveScanner;
+
+Modified: trunk/rts/System/FileSystem/ArchiveZip.cpp
+===================================================================
+--- trunk/rts/System/FileSystem/ArchiveZip.cpp	2008-06-09 19:18:43 UTC (rev 6014)
++++ trunk/rts/System/FileSystem/ArchiveZip.cpp	2008-06-09 21:13:51 UTC (rev 6015)
+@@ -25,10 +25,8 @@
+ 
+ 		unzGetCurrentFileInfo(zip, &amp;info, fname, 512, NULL, 0, NULL, 0);
+ 
+-		// NOTE: fix this on next CArchiveScanner INTERNAL_VER bump.
+-		// It should be `if (info.uncompressed_size &gt;= 0) {' because now
+ 		// zero-size files are ignored.
+-		if (info.uncompressed_size &gt; 0) {
++		if (info.uncompressed_size &gt;= 0) {
+ 			name = StringToLower(fname);
+ //			SetSlashesForwardToBack(name);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000794.html">[Taspring-linux-commit] r6014 - in trunk: AI/Group/EconomyAI	rts/Rendering/Textures rts/System rts/System/Net	rts/System/Platform/Linux tools/unitsync
+</A></li>
+	<LI>Next message: <A HREF="000796.html">[Taspring-linux-commit] r6016 -	trunk/installer/builddata/springcontent/gamedata
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#795">[ date ]</a>
+              <a href="thread.html#795">[ thread ]</a>
+              <a href="subject.html#795">[ subject ]</a>
+              <a href="author.html#795">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

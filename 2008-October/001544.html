@@ -1,0 +1,142 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6775 - in trunk/rts: Game System
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6775%20-%20in%20trunk/rts%3A%20Game%20System&In-Reply-To=%3C20081016174919.1EFC24656%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001543.html">
+   <LINK REL="Next"  HREF="001545.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6775 - in trunk/rts: Game System</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6775%20-%20in%20trunk/rts%3A%20Game%20System&In-Reply-To=%3C20081016174919.1EFC24656%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6775 - in trunk/rts: Game System">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Oct 16 19:49:18 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001543.html">[Taspring-linux-commit] r6774 - trunk/rts/Game
+</A></li>
+        <LI>Next message: <A HREF="001545.html">[Taspring-linux-commit] r6776 - trunk/tools/unitsync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1544">[ date ]</a>
+              <a href="thread.html#1544">[ thread ]</a>
+              <a href="subject.html#1544">[ subject ]</a>
+              <a href="author.html#1544">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-10-16 19:49:17 +0200 (Thu, 16 Oct 2008)
+New Revision: 6775
+
+Modified:
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/System/AutohostInterface.cpp
+   trunk/rts/System/AutohostInterface.h
+Log:
+* send the chatmessage destination to the autohost
+
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-10-16 15:52:25 UTC (rev 6774)
++++ trunk/rts/Game/GameServer.cpp	2008-10-16 17:49:17 UTC (rev 6775)
+@@ -1467,7 +1467,7 @@
+ 	Broadcast(boost::shared_ptr&lt;const RawPacket&gt;(msg.Pack()));
+ 	if (hostif &amp;&amp; msg.fromPlayer != SERVER_PLAYER) {
+ 		// don't echo packets to autohost
+-		hostif-&gt;SendPlayerChat(msg.fromPlayer, msg.msg);
++		hostif-&gt;SendPlayerChat(msg.fromPlayer, msg.destination,  msg.msg);
+ 	}
+ }
+ 
+
+Modified: trunk/rts/System/AutohostInterface.cpp
+===================================================================
+--- trunk/rts/System/AutohostInterface.cpp	2008-10-16 15:52:25 UTC (rev 6774)
++++ trunk/rts/System/AutohostInterface.cpp	2008-10-16 17:49:17 UTC (rev 6775)
+@@ -38,8 +38,15 @@
+  
+ 	/// Player has updated its ready-state (uchar playernumber, uchar state (0: not ready, 1: ready, 2: state not changed) )
+ 	PLAYER_READY = 12,
+- 
+-	/// Player has sent a chat message (uchar playernumber, string text)
++
++	/**
++	@brief Player has sent a chat message (uchar playernumber, uchar destination, string text)
++	Destination can be any of: a playernumber [0-32]
++	static const int TO_ALLIES = 127;
++	static const int TO_SPECTATORS = 126;
++	static const int TO_EVERYONE = 125;
++	(copied from Game/ChatMessage.h)
++	*/
+ 	PLAYER_CHAT = 13,
+  
+ 	/// Player has been defeated (uchar playernumber)
+@@ -104,13 +111,14 @@
+ 	autohost-&gt;Send(msg, 3);
+ }
+ 
+-void AutohostInterface::SendPlayerChat(uchar playerNum, const std::string&amp; chatmsg) const
++void AutohostInterface::SendPlayerChat(uchar playerNum, uchar destination, const std::string&amp; chatmsg) const
+ {
+-	unsigned msgsize = 2*sizeof(uchar)+chatmsg.size();
++	unsigned msgsize = 3*sizeof(uchar)+chatmsg.size();
+ 	uchar* msg = new uchar[msgsize];
+ 	msg[0] = PLAYER_CHAT;
+ 	msg[1] = playerNum;
+-	strncpy((char*)msg+2, chatmsg.c_str(), chatmsg.size());
++	msg[2] = destination;
++	strncpy((char*)msg+3, chatmsg.c_str(), chatmsg.size());
+ 	autohost-&gt;Send(msg, msgsize);
+ 	delete[] msg;
+ }
+
+Modified: trunk/rts/System/AutohostInterface.h
+===================================================================
+--- trunk/rts/System/AutohostInterface.h	2008-10-16 15:52:25 UTC (rev 6774)
++++ trunk/rts/System/AutohostInterface.h	2008-10-16 17:49:17 UTC (rev 6775)
+@@ -32,7 +32,7 @@
+ 	void SendPlayerJoined(uchar playerNum, const std::string&amp; name) const;
+ 	void SendPlayerLeft(uchar playerNum, uchar reason) const;
+ 	void SendPlayerReady(uchar playerNum, uchar readyState) const;
+-	void SendPlayerChat(uchar playerNum, const std::string&amp; msg) const;
++	void SendPlayerChat(uchar playerNum, uchar destination, const std::string&amp; msg) const;
+ 	void SendPlayerDefeated(uchar playerNum) const;
+ 	
+ 	void Message(const std::string&amp; message);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001543.html">[Taspring-linux-commit] r6774 - trunk/rts/Game
+</A></li>
+	<LI>Next message: <A HREF="001545.html">[Taspring-linux-commit] r6776 - trunk/tools/unitsync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1544">[ date ]</a>
+              <a href="thread.html#1544">[ thread ]</a>
+              <a href="subject.html#1544">[ subject ]</a>
+              <a href="author.html#1544">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

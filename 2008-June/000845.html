@@ -1,0 +1,153 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6065 - in trunk/rts: System/Platform/Linux	build/vstudio8
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-June/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6065%20-%20in%20trunk/rts%3A%20System/Platform/Linux%0A%09build/vstudio8&In-Reply-To=%3C20080623220719.B1298488E%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000844.html">
+   <LINK REL="Next"  HREF="000846.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6065 - in trunk/rts: System/Platform/Linux	build/vstudio8</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6065%20-%20in%20trunk/rts%3A%20System/Platform/Linux%0A%09build/vstudio8&In-Reply-To=%3C20080623220719.B1298488E%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6065 - in trunk/rts: System/Platform/Linux	build/vstudio8">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Jun 24 00:07:19 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000844.html">[Taspring-linux-commit] r6064 - trunk/rts/System/Platform/Linux
+</A></li>
+        <LI>Next message: <A HREF="000846.html">[Taspring-linux-commit] r6066 - in trunk/rts: Map/SMF	Rendering/UnitModels
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#845">[ date ]</a>
+              <a href="thread.html#845">[ thread ]</a>
+              <a href="subject.html#845">[ subject ]</a>
+              <a href="author.html#845">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zerver
+Date: 2008-06-24 00:07:19 +0200 (Tue, 24 Jun 2008)
+New Revision: 6065
+
+Modified:
+   trunk/rts/System/Platform/Linux/DataDirLocater.cpp
+   trunk/rts/System/Platform/Linux/UnixFileSystemHandler.cpp
+   trunk/rts/build/vstudio8/rts.vcproj
+Log:
+Updated datadirlocater for win32
+
+Modified: trunk/rts/System/Platform/Linux/DataDirLocater.cpp
+===================================================================
+--- trunk/rts/System/Platform/Linux/DataDirLocater.cpp	2008-06-23 18:12:46 UTC (rev 6064)
++++ trunk/rts/System/Platform/Linux/DataDirLocater.cpp	2008-06-23 22:07:19 UTC (rev 6065)
+@@ -10,7 +10,8 @@
+ #include &quot;DataDirLocater.h&quot;
+ #ifdef WIN32
+ 	#include &lt;io.h&gt;
+-	#include &lt;windows.h&gt;
++  #include &lt;direct.h&gt;
++  #include &lt;windows.h&gt;
+ 	#include &lt;shlobj.h&gt;
+ 	#include &lt;shlwapi.h&gt;
+ 	#ifndef SHGFP_TYPE_CURRENT
+@@ -131,6 +132,7 @@
+ 	// Note: we check for executable bit otherwise we can't browse the directory
+ 	// Note: we fail to test whether the path actually is a directory
+ 	// Note: modifying permissions while or after this function runs has undefined behaviour
++#ifndef _WIN32
+ 	if (access(d-&gt;path.c_str(), R_OK | X_OK | F_OK) == 0) {
+ 		// Note: disallow multiple write directories.
+ 		// There isn't really a use for it as every thing is written to the first one anyway,
+@@ -138,6 +140,10 @@
+ 		// like network mounted datadir lost connection and suddenly files end up in some
+ 		// other random writedir you didn't even remember you had added it.
+ 		if (!writedir &amp;&amp; access(d-&gt;path.c_str(), W_OK) == 0) {
++#else
++	if (_access(d-&gt;path.c_str(), 4) == 0) {
++		if (!writedir &amp;&amp; _access(d-&gt;path.c_str(), 2) == 0) {
++#endif
+ 			d-&gt;writable = true;
+ 			writedir = &amp;*d;
+ 		}
+@@ -293,8 +299,11 @@
+ 	// all AIs still just assume it's ok to put their stuff in the current directory after all
+ 	// Not only safety anymore, it's just easier if other code can safely assume that
+ 	// writedir == current working directory
++#ifndef _WIN32
+ 	chdir(GetWriteDir()-&gt;path.c_str());
+-
++#else
++	_chdir(GetWriteDir()-&gt;path.c_str());
++#endif
+ 	// Logging MAY NOT start before the chdir, otherwise the logfile ends up
+ 	// in the wrong directory.
+ 	for (std::vector&lt;DataDir&gt;::const_iterator d = datadirs.begin(); d != datadirs.end(); ++d) {
+
+Modified: trunk/rts/System/Platform/Linux/UnixFileSystemHandler.cpp
+===================================================================
+--- trunk/rts/System/Platform/Linux/UnixFileSystemHandler.cpp	2008-06-23 18:12:46 UTC (rev 6064)
++++ trunk/rts/System/Platform/Linux/UnixFileSystemHandler.cpp	2008-06-23 22:07:19 UTC (rev 6065)
+@@ -212,7 +212,7 @@
+ {
+ #ifdef _WIN32
+ 	WIN32_FIND_DATA wfd;
+-  HANDLE hFind = FindFirstFile((dir+&quot;*&quot;).c_str(), &amp;wfd);
++  HANDLE hFind = FindFirstFile((dir+&quot;\\*&quot;).c_str(), &amp;wfd);
+ 
+ 	if (hFind != INVALID_HANDLE_VALUE) {
+ 		do {
+
+Modified: trunk/rts/build/vstudio8/rts.vcproj
+===================================================================
+--- trunk/rts/build/vstudio8/rts.vcproj	2008-06-23 18:12:46 UTC (rev 6064)
++++ trunk/rts/build/vstudio8/rts.vcproj	2008-06-23 22:07:19 UTC (rev 6065)
+@@ -5105,6 +5105,14 @@
+ 						&gt;
+ 					&lt;/File&gt;
+ 					&lt;File
++						RelativePath=&quot;..\..\System\Platform\Linux\DataDirLocater.cpp&quot;
++						&gt;
++					&lt;/File&gt;
++					&lt;File
++						RelativePath=&quot;..\..\System\Platform\Linux\DataDirLocater.h&quot;
++						&gt;
++					&lt;/File&gt;
++					&lt;File
+ 						RelativePath=&quot;..\..\System\Platform\Win\DllLib.cpp&quot;
+ 						&gt;
+ 						&lt;FileConfiguration
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000844.html">[Taspring-linux-commit] r6064 - trunk/rts/System/Platform/Linux
+</A></li>
+	<LI>Next message: <A HREF="000846.html">[Taspring-linux-commit] r6066 - in trunk/rts: Map/SMF	Rendering/UnitModels
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#845">[ date ]</a>
+              <a href="thread.html#845">[ thread ]</a>
+              <a href="subject.html#845">[ subject ]</a>
+              <a href="author.html#845">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

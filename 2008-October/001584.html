@@ -1,0 +1,235 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6815 - trunk/rts/Game/Camera
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6815%20-%20trunk/rts/Game/Camera&In-Reply-To=%3C20081018171316.A2B71472A%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001583.html">
+   <LINK REL="Next"  HREF="001585.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6815 - trunk/rts/Game/Camera</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6815%20-%20trunk/rts/Game/Camera&In-Reply-To=%3C20081018171316.A2B71472A%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6815 - trunk/rts/Game/Camera">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Oct 18 19:13:16 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001583.html">[Taspring-linux-commit] r6814 - trunk/rts/System
+</A></li>
+        <LI>Next message: <A HREF="001585.html">[Taspring-linux-commit] r6816 - in trunk/rts: Game/UI Lua Map	Sim/Units/UnitTypes System/Platform/Linux
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1584">[ date ]</a>
+              <a href="thread.html#1584">[ thread ]</a>
+              <a href="subject.html#1584">[ subject ]</a>
+              <a href="author.html#1584">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-10-18 19:13:15 +0200 (Sat, 18 Oct 2008)
+New Revision: 6815
+
+Modified:
+   trunk/rts/Game/Camera/OrbitController.cpp
+   trunk/rts/Game/Camera/OrbitController.h
+Log:
+make the orbit-controller speeds configurable
+
+Modified: trunk/rts/Game/Camera/OrbitController.cpp
+===================================================================
+--- trunk/rts/Game/Camera/OrbitController.cpp	2008-10-18 15:07:26 UTC (rev 6814)
++++ trunk/rts/Game/Camera/OrbitController.cpp	2008-10-18 17:13:15 UTC (rev 6815)
+@@ -26,6 +26,14 @@
+ 	elevation(0.0f), cElevation(0.0f)
+ {
+ 	enabled = !!configHandler.GetInt(&quot;OrbitControllerEnabled&quot;, 1);
++
++	orbitSpeedFact = configHandler.GetFloat(&quot;OrbitControllerOrbitSpeed&quot;, 0.25f);
++	panSpeedFact   = configHandler.GetFloat(&quot;OrbitControllerPanSpeed&quot;,   2.00f);
++	zoomSpeedFact  = configHandler.GetFloat(&quot;OrbitControllerZoomSpeed&quot;,  5.00f);
++
++	orbitSpeedFact = std::max(0.1f, std::min(10.0f, orbitSpeedFact));
++	panSpeedFact   = std::max(0.1f, std::min(10.0f, panSpeedFact));
++	zoomSpeedFact  = std::max(0.1f, std::min(10.0f, zoomSpeedFact));
+ }
+ 
+ void COrbitController::Init(const float3&amp; p, const float3&amp; tar)
+@@ -73,14 +81,7 @@
+ }
+ 
+ 
+-void COrbitController::KeyMove(float3 move)
+-{
+-	// higher framerate means we take smaller steps per frame
+-	// (x and y are lastFrameTime in secs., 200FPS ==&gt; 0.005s)
+-	Pan(int(move.x * -1000), int(move.y * 1000));
+-}
+ 
+-
+ void COrbitController::MousePress(int x, int y, int button)
+ {
+ 	lastMousePressX = x;
+@@ -113,16 +114,14 @@
+ 
+ void COrbitController::MyMouseMove(int dx, int dy, int rdx, int rdy, int button)
+ {
+-	CCamera* cam = camera;
+-
+ 	switch (button) {
+ 		case SDL_BUTTON_LEFT: {
+-			rotation = cRotation - (dx * 0.25f);
+-			elevation = cElevation - (dy * 0.25f);
++			rotation = cRotation - (dx * orbitSpeedFact);
++			elevation = cElevation - (dy * orbitSpeedFact);
+ 		} break;
+ 
+ 		case SDL_BUTTON_RIGHT: {
+-			distance = cDistance - (dy * 0.5f * 10.0f);
++			distance = cDistance - (dy * zoomSpeedFact);
+ 		} break;
+ 	}
+ 
+@@ -132,33 +131,42 @@
+ 
+ 	switch (button) {
+ 		case SDL_BUTTON_LEFT: {
+-			cam-&gt;pos = cen + GetOrbitPos();
+-			cam-&gt;pos.y = std::max(cam-&gt;pos.y, ground-&gt;GetHeight2(cam-&gt;pos.x, cam-&gt;pos.z));
+-			cam-&gt;forward = (cen - cam-&gt;pos).Normalize();
+-			cam-&gt;up = YVEC;
++			Orbit();
+ 		} break;
+ 
+-		case SDL_BUTTON_RIGHT: {
+-			cam-&gt;pos = cen - (cam-&gt;forward * distance);
+-		} break;
+-
+ 		case SDL_BUTTON_MIDDLE: {
+ 			Pan(rdx, rdy);
+ 		} break;
++
++		case SDL_BUTTON_RIGHT: {
++			Zoom();
++		} break;
+ 	}
+ }
+ 
++
++
++void COrbitController::Orbit()
++{
++	CCamera* cam = camera;
++
++	cam-&gt;pos = cen + GetOrbitPos();
++	cam-&gt;pos.y = std::max(cam-&gt;pos.y, ground-&gt;GetHeight2(cam-&gt;pos.x, cam-&gt;pos.z));
++	cam-&gt;forward = (cen - cam-&gt;pos).Normalize();
++	cam-&gt;up = YVEC;
++}
++
+ void COrbitController::Pan(int rdx, int rdy)
+ {
+ 	CCamera* cam = camera;
+ 
+ 	// horizontal pan
+-	cam-&gt;pos += (cam-&gt;right * -rdx * 2);
+-	cen += (cam-&gt;right * -rdx * 2);
++	cam-&gt;pos += (cam-&gt;right * -rdx * panSpeedFact);
++	cen += (cam-&gt;right * -rdx * panSpeedFact);
+ 
+ 	// vertical pan
+-	cam-&gt;pos += (cam-&gt;up * rdy * 2);
+-	cen += (cam-&gt;up * rdy * 2);
++	cam-&gt;pos += (cam-&gt;up * rdy * panSpeedFact);
++	cen += (cam-&gt;up * rdy * panSpeedFact);
+ 
+ 
+ 	// don't allow orbit center or ourselves to drop below the terrain
+@@ -177,8 +185,23 @@
+ 	}
+ }
+ 
++void COrbitController::Zoom()
++{
++	camera-&gt;pos = cen - (camera-&gt;forward * distance);
++}
++
++
++
++void COrbitController::KeyMove(float3 move)
++{
++	// higher framerate means we take smaller steps per frame
++	// (x and y are lastFrameTime in secs., 200FPS ==&gt; 0.005s)
++	Pan(int(move.x * -1000), int(move.y * 1000));
++}
++
+ void COrbitController::ScreenEdgeMove(float3 move)
+ {
++	Pan(int(move.x * -1000), int(move.y * 1000));
+ }
+ 
+ void COrbitController::MouseWheelMove(float move)
+
+Modified: trunk/rts/Game/Camera/OrbitController.h
+===================================================================
+--- trunk/rts/Game/Camera/OrbitController.h	2008-10-18 15:07:26 UTC (rev 6814)
++++ trunk/rts/Game/Camera/OrbitController.h	2008-10-18 17:13:15 UTC (rev 6815)
+@@ -31,7 +31,10 @@
+ 
+ 	private:
+ 		void MyMouseMove(int, int, int, int, int);
++		void Orbit();
+ 		void Pan(int, int);
++		void Zoom();
++
+ 		float3 GetOrbitPos() const;
+ 
+ 		int lastMouseMoveX;
+@@ -43,9 +46,12 @@
+ 		float distance, cDistance;
+ 		float rotation, cRotation;
+ 		float elevation, cElevation;
++		float orbitSpeedFact;
++		float panSpeedFact;
++		float zoomSpeedFact;
+ 		float3 cen;
+ 
+-		enum States {None, Orbiting, Zooming, Panning};
++		enum States {None, Orbiting, Panning, Zooming};
+ };
+ 
+ #endif
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001583.html">[Taspring-linux-commit] r6814 - trunk/rts/System
+</A></li>
+	<LI>Next message: <A HREF="001585.html">[Taspring-linux-commit] r6816 - in trunk/rts: Game/UI Lua Map	Sim/Units/UnitTypes System/Platform/Linux
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1584">[ date ]</a>
+              <a href="thread.html#1584">[ thread ]</a>
+              <a href="subject.html#1584">[ subject ]</a>
+              <a href="author.html#1584">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

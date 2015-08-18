@@ -1,0 +1,562 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7361 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7361%20-%20Lobby/TASClient&In-Reply-To=%3C20091002140159.D4DB13B6F2%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002131.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7361 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7361%20-%20Lobby/TASClient&In-Reply-To=%3C20091002140159.D4DB13B6F2%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7361 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Oct  2 16:01:59 CEST 2009</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002131.html">[Taspring-linux-commit] r7362 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2130">[ date ]</a>
+              <a href="thread.html#2130">[ thread ]</a>
+              <a href="subject.html#2130">[ subject ]</a>
+              <a href="author.html#2130">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2009-10-02 16:01:58 +0200 (Fri, 02 Oct 2009)
+New Revision: 7361
+
+Modified:
+   Lobby/TASClient/BattleFormUnit.pas
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/ManageGroups.dfm
+   Lobby/TASClient/ManageGroups.pas
+   Lobby/TASClient/Misc.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* user id and battle ban server flags supported
+* groups now support usernames (if you want to add someone offline) and ids
+* temp battle ban list by id now
+
+Modified: Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.pas	2009-09-27 22:08:45 UTC (rev 7360)
++++ Lobby/TASClient/BattleFormUnit.pas	2009-10-02 14:01:58 UTC (rev 7361)
+@@ -691,7 +691,7 @@
+     ResizingX : ShortInt; // distance between the rect border and where you click
+     ResizingY : ShortInt;
+     SelectedStartRect: Shortint; // if -1, no start rect is selected
+-    BanList:TStringList;
++    BanList:TIntegerList;
+     DisabledUnits: TStringList;
+     TryingToJoinLadderBattle: Boolean;
+   end;
+@@ -2133,7 +2133,7 @@
+             team := StrToInt(tmp);
+           end;
+ 
+-          client := TClient.Create(name, 0, 'xx', 0);
++          client := TClient.Create(name, 0, 'xx', 0,-1);
+           client.SetMode(BoolToInt(not spec));
+           client.SetTeamNo(team);
+           client.SetReadyStatus(True);
+@@ -2513,6 +2513,7 @@
+   else
+     Script.AddOrChangeKeyValue('GAME/Demofile','multiplayer replay');
+ 
++
+   Script.AddOrChangeKeyValue('GAME/MyPlayerName',Status.Me.Name);
+   Script.AddOrChangeKeyValue('GAME/IsHost',BoolToStr(BattleState.Status = Hosting));
+ 
+@@ -5012,7 +5013,7 @@
+   Client: TClient;
+ begin
+     MainForm.TryToSendCommand('SAYBATTLEEX', 'removed '+(Sender as TSpTBXItem).Caption+' from ban list');
+-    Client := MainForm.GetClient(BattleState.BanList[(Sender as TSpTBXItem).Tag]);
++    Client := MainForm.GetClientById(BattleState.BanList.Items[(Sender as TSpTBXItem).Tag]);
+     if Client &lt;&gt; nil then
+       Client.AutoKickMsgSent := 0;
+     BattleState.BanList.Delete((Sender as TSpTBXItem).Tag);
+@@ -5439,10 +5440,10 @@
+   begin
+     GetNodeClient(VDTBattleClients.FocusedNode.Index,RealIndex,WhatToDraw);
+     if WhatToDraw = NormalClient then begin
+-      if not Misc.Contains(TClient(BattleState.Battle.Clients[RealIndex]).Name,BattleState.BanList) then begin
++      if BattleState.BanList.IndexOf(TClient(BattleState.Battle.Clients[RealIndex]).Id) = -1 then begin
+         MainForm.TryToSendCommand('SAYBATTLEEX', 'added '+TClient(BattleState.Battle.Clients[RealIndex]).Name+' to ban list');
+         MainForm.TryToSendCommand('KICKFROMBATTLE', TClient(BattleState.Battle.Clients[RealIndex]).Name);
+-        BattleState.BanList.add(TClient(BattleState.Battle.Clients[RealIndex]).Name);
++        BattleState.BanList.add(TClient(BattleState.Battle.Clients[RealIndex]).Id);
+       end;
+     end;
+   end;
+@@ -5477,7 +5478,7 @@
+       UnbanSubitem.Add(TSpTBXItem.Create(UnbanSubitem));
+       with UnbanSubitem.Items[UnbanSubitem.Count-1] as TSpTBXItem do
+       begin
+-        Caption := BattleState.BanList[i];
++        Caption := MainForm.GetClientById(BattleState.BanList.Items[i]).Name;
+         Tag := i;
+         OnClick := UnbanItemClick;
+       end;
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2009-09-27 22:08:45 UTC (rev 7360)
++++ Lobby/TASClient/MainUnit.pas	2009-10-02 14:01:58 UTC (rev 7361)
+@@ -402,7 +402,7 @@
+   );
+ 
+ const
+-  VERSION_NUMBER = '0.52'; // Must be float value! (with a period as a decimal seperator)
++  VERSION_NUMBER = '0.53'; // Must be float value! (with a period as a decimal seperator)
+   CHECK_BETA_LOBBY_URL = '<A HREF="http://tasclient.no-ip.org/TASClient_update_v3.txt">http://tasclient.no-ip.org/TASClient_update_v3.txt</A>';
+   PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER;
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+@@ -617,6 +617,7 @@
+     Name: string;
+     Color: integer;
+     Clients: TStrings;
++    ClientsIds: TIntegerList;
+     AutoKick : boolean;
+     AutoSpec : boolean;
+     NotifyOnHost : boolean;
+@@ -643,7 +644,7 @@
+   private
+     Group: TClientGroup;
+   public
+-
++    Id: integer;
+     Name: WideString; // client's username
+     RecentNames: string; // use for modos with FINDIP
+     FStatus: Integer; // client's status (normal, in game)
+@@ -653,8 +654,6 @@
+     Country: string; // two-character country code based on ISO 3166
+     CPU: Integer; // CPU's speed in MHz (or equivalent if AMD). Value of 0 means that client couldn't figure out its CPU speed.
+     StatusRefreshed : Boolean;
+-    SprinkMarkScore : integer; // -1 downloading, -2 n/a, 0&gt; score
+-    SpringMarkData : string; // system info : <A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">cpu at freq</A>
+     CurrentLadderId : integer; // ladder id of the current ladder information
+     CurrentLadderRank : integer; // since its the rank of the client in the current ladder, it must be set to -1 each time he join a battle
+     CurrentLadderRating : integer; // same as the rank
+@@ -670,7 +669,7 @@
+ 
+     ScriptIcons: TIntegerList;
+ 
+-    constructor Create(Name: WideString; Status: Integer; Country: string; CPU: Integer);
++    constructor Create(Name: WideString; Status: Integer; Country: string; CPU: Integer; id: integer);
+ 
+     function GetChatTextColor: TColor;
+ 
+@@ -1467,10 +1466,11 @@
+ 
+     procedure ClearAllClientsList;
+     procedure ClearClientsLists; // clears all clients list (in channels, private chats, battle, local tab, ...)
+-    procedure AddClientToAllClientsList(Name: WideString; Status2: Integer; Country: string; CPU: Integer);
++    procedure AddClientToAllClientsList(Name: WideString; Status2: Integer; Country: string; CPU: Integer; id :integer);
+     function RemoveClientFromAllClientsList(Name: string): Boolean;
+     function GetClient(Name: WideString): TClient; // returns nil if not found
+     function GetClientByIP(IP: string): TClient; // returns nil if not found
++    function GetClientById(Id: integer): TClient; // returns nil if not found
+     function GetClientIndexEx(Name: WideString; ClientList: TList): Integer;
+ 
+     function GetGroup(Name: string): TClientGroup; // returns nil if not found
+@@ -2331,15 +2331,13 @@
+   UpdateClientsListBox;
+ end;
+ 
+-procedure TMainForm.AddClientToAllClientsList(Name: WideString; Status2: Integer; Country: string; CPU: Integer);
++procedure TMainForm.AddClientToAllClientsList(Name: WideString; Status2: Integer; Country: string; CPU: Integer; id :integer);
+ var
+   Client: TClient;
+   i: integer;
+   tmp: TClient;
+ begin
+-  Client := TClient.Create(Name, Status2, Country, CPU);
+-  Client.SprinkMarkScore := -1;
+-  Client.SpringMarkData := '';
++  Client := TClient.Create(Name, Status2, Country, CPU,id);
+   Client.CurrentLadderRank := -1;
+   Client.CurrentLadderRating := -1;
+   AllClients.Add(Client);
+@@ -2408,15 +2406,30 @@
+ var
+   i: Integer;
+ begin
+-  for i := 0 to AllClients.Count - 1 do if TClient(AllClients[i]).IP = IP then
+-  begin
+-    Result := TClient(AllClients[i]);
+-    Exit;
+-  end;
++  for i := 0 to AllClients.Count - 1 do
++    if TClient(AllClients[i]).IP = IP then
++    begin
++      Result := TClient(AllClients[i]);
++      Exit;
++    end;
+ 
+   Result := nil;
+ end;
+ 
++function TMainForm.GetClientById(Id: integer): TClient;
++var
++  i: Integer;
++begin
++  for i := 0 to AllClients.Count - 1 do
++    if TClient(AllClients[i]).Id = Id then
++    begin
++      Result := TClient(AllClients[i]);
++      Exit;
++    end;
++
++  Result := nil;
++end;
++
+ function TMainForm.GetClientIndexEx(Name: WideString; ClientList: TList): Integer;
+ var
+   i: Integer;
+@@ -2504,10 +2517,11 @@
+ 
+ { TClient }
+ 
+-constructor TClient.Create(Name: WideString; Status: Integer; Country: string; CPU: Integer);
++constructor TClient.Create(Name: WideString; Status: Integer; Country: string; CPU: Integer; id: integer);
+ var
+   i,j: integer;
+ begin
++  Self.Id := id;
+   Self.Name := Name;
+   Self.Status := Status;
+   Self.BattleStatus := 0;
+@@ -2529,12 +2543,24 @@
+       Self.ScriptIcons.Add(-1);
+   end;
+   for i:=0 to ClientGroups.Count-1 do
+-    for j:=0 to TClientGroup(ClientGroups[i]).Clients.Count-1 do
+-      if TClientGroup(ClientGroups[i]).Clients[j] = Name then
+-      begin
+-        Self.Group := TClientGroup(ClientGroups[i]);
+-        Exit;
+-      end;
++  begin
++    j := TClientGroup(ClientGroups[i]).Clients.IndexOf(Name);
++    if j &gt; -1 then
++    begin
++      Self.Group := TClientGroup(ClientGroups[i]);
++      TClientGroup(ClientGroups[i]).Clients.Delete(j);
++      if TClientGroup(ClientGroups[i]).ClientsIds.IndexOf(id) = -1 then
++        TClientGroup(ClientGroups[i]).ClientsIds.Add(id);
++      Exit;
++    end;
++    j := TClientGroup(ClientGroups[i]).ClientsIds.IndexOf(id);
++    if j &gt; -1 then
++    begin
++      Self.Group := TClientGroup(ClientGroups[i]);
++      Exit;
++    end;
++  end;
++
+ end;
+ 
+ function TClient.GetChatTextColor: TColor;
+@@ -3686,7 +3712,7 @@
+ 
+   ChatTabs := TList.Create;
+ 
+-  BattleState.BanList := TStringList.Create;
++  BattleState.BanList := TIntegerList.Create;
+   autoCompletionHint := THintWindow.Create(MainForm);
+   MainLogCS := TCriticalSection.Create;
+ 
+@@ -5410,7 +5436,7 @@
+     end
+     else if sl[0] = 'ADDUSER' then
+     begin
+-      if sl.Count &lt;&gt; 4 then
++      if sl.Count &lt;&gt; 5 then
+       begin
+         AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 8);
+         Exit;
+@@ -5423,7 +5449,14 @@
+         Exit;
+       end;
+ 
+-      AddClientToAllClientsList(sl[1], 0, LowerCase(sl[2]), tmpint); // server will update client's status later
++      try
++        tmpInt2 := StrToInt(sl[4]);
++      except
++        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error, 8);
++        Exit;
++      end;
++
++      AddClientToAllClientsList(sl[1], 0, LowerCase(sl[2]), tmpint,tmpInt2); // server will update client's status later
+       if sl[1] = Status.Username then Status.Me := GetClient(Status.Username);
+ 
+       if (lastActiveTab.Caption = LOCAL_TAB) and (not Status.ReceivingLoginInfo) then UpdateClientsListBox;
+@@ -6515,6 +6548,25 @@
+       BattleForm.SendBattleDetailsToServer;
+       BattleForm.SendLuaOptionsDetailsToServer;
+     end
++    else if sl[0] = 'JOINBATTLEREQUEST' then
++    begin
++      if sl.Count &lt;&gt; 3 then
++      begin
++        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error);
++        Exit;
++      end;
++      Client := GetClient(sl[1]);
++      if Client = nil then
++      begin
++        AddMainLog(_('Error: Server sent ambiguous command!'), Colors.Error);
++        Exit;
++      end;
++      Client.IP := sl[2];
++      if ((Client.GetGroup &lt;&gt; nil) and (Client.GetGroup.AutoKick)) or (BattleState.BanList.IndexOf(Client.Id) &gt; -1) then
++        TryToSendCommand('JOINBATTLEDENY',Client.Name + #9 + 'Banned group Member')
++      else
++        TryToSendCommand('JOINBATTLEACCEPT',Client.Name);
++    end
+     else if sl[0] = 'JOINEDBATTLE' then
+     begin
+       if sl.Count &lt;&gt; 3 then
+@@ -6578,7 +6630,7 @@
+           BattleForm.UpdateClientsListBox;
+           if BattleState.Status = Hosting then
+           begin
+-            if Misc.Contains(Client.Name,BattleState.BanList) then begin
++            if BattleState.BanList.IndexOf(Client.Id) &gt; -1 then begin
+               if Client.AutoKickMsgSent &lt; MAX_AUTOSENDMSG then
+               begin
+                 MainForm.TryToSendCommand('SAYBATTLEEX', '*** Banned player auto-kick ***');
+@@ -7206,11 +7258,14 @@
+       end;
+       tmp := MakeSentenceWS(sl, 1);
+       AddMainLog(_('* Message from server: ') + tmp, Colors.Info);
+-      if (Pos(_('Your account has been renamed'),tmp) &gt; 0) and (Preferences.LadderPassword &lt;&gt; '') then // handleRename
++      if Pos('Your account has been renamed',tmp) &gt; 0then // handleRename
+       begin
+         tmp := MidStr(tmp,Pos('&lt;',tmp)+1,500000);
+         tmp := LeftStr(tmp,Pos('&gt;',tmp)-1);
+-        RenameThread := TLadderRenameAccountThread.Create(False,tmp);
++        //if Preferences.LadderPassword &lt;&gt; '' then
++        //  RenameThread := TLadderRenameAccountThread.Create(False,tmp);
++        Preferences.Username := tmp;
++        PreferencesForm.UpdatePreferencesFrom(Preferences);
+       end;
+       if Pos('''s IP is ',tmp)&gt;0 then // retreiving ip
+       begin
+@@ -8064,7 +8119,7 @@
+   if ip = '' then ip := '*';
+   if ((Password = '') or (Status.ServerMode = 1{LAN MODE}) and not Debug.LoginWithPasswordOnLan) then Password := '*'; // probably local LAN mode. We have to send something as a password, so we just send an &quot;*&quot;.
+   userid := IntToHex(Misc.GetLobbyUserID, 1);
+-  TryToSendCommand('LOGIN', Username + ' ' + Password + ' ' + IntToStr(Status.MyCPU) + ' ' + ip + ' TASClient ' + VERSION_NUMBER + '.' + IntToStr(Misc.GetLobbyRevision) + IFF(userid &lt;&gt; '0', #9 + userid, ''));
++  TryToSendCommand('LOGIN', Username + ' ' + Password + ' ' + IntToStr(Status.MyCPU) + ' ' + ip + ' TASClient ' + VERSION_NUMBER + '.' + IntToStr(Misc.GetLobbyRevision) + IFF(userid &lt;&gt; '0', #9 + userid, #9+'0')+#9+'ab');
+ end;
+ 
+ procedure TMainForm.TryToRegister(Username, Password: string);
+@@ -9951,6 +10006,7 @@
+ constructor TClientGroup.Create(Name: string; Color: Integer);
+ begin
+   Self.Clients := TStringList.Create;
++  Self.ClientsIds := TIntegerList.Create;
+   Self.Name := Name;
+   Self.Color := Color;
+   Self.AutoKick := False;
+@@ -9991,20 +10047,28 @@
+ var
+   c: TClient;
+ begin
+-  Clients.Add(nickName);
+   c := MainForm.GetClient(nickName);
+   if c &lt;&gt; nil then
++  begin
++    ClientsIds.Add(c.Id);
+     c.SetGroup(Self);
++  end
++  else
++    Clients.Add(nickName);
+   MainForm.SaveGroups;
+ end;
+ procedure TClientGroup.RemoveClient(nickName: string);
+ var
+   c: TClient;
+ begin
+-  Clients.Delete(Clients.IndexOf(nickName));
+   c := MainForm.GetClient(nickName);
+   if c &lt;&gt; nil then
++  begin
++    ClientsIds.Remove(c.Id);
+     c.SetGroup(nil);
++  end
++  else
++    Clients.Delete(Clients.IndexOf(nickName));
+ end;
+ 
+ procedure TMainForm.mnuManageGroupsClick(Sender: TObject);
+@@ -10101,7 +10165,8 @@
+ var
+   FileName: String;
+   Ini : TIniFile;
+-  i:integer;
++  i,j:integer;
++  tmpStr: string;
+ begin
+   try
+     FileName := ExtractFilePath(Application.ExeName) + GROUPS_FILE;
+@@ -10125,6 +10190,10 @@
+       Ini.WriteString(IntToStr(i), 'BalanceInSameTeam', BoolToStr(TClientGroup(ClientGroups[i]).BalanceInSameTeam));
+       Ini.WriteString(IntToStr(i), 'Ignore', BoolToStr(TClientGroup(ClientGroups[i]).Ignore));
+       Ini.WriteString(IntToStr(i), 'Clients', Misc.JoinStringList(TClientGroup(ClientGroups[i]).Clients,' '));
++      tmpStr := '';
++      for j:=0 to TClientGroup(ClientGroups[i]).ClientsIds.Count-1 do
++        tmpStr := tmpStr+IntToStr(TClientGroup(ClientGroups[i]).ClientsIds.Items[j])+' ';
++      Ini.WriteString(IntToStr(i), 'ClientsIds', tmpStr);
+     end;
+     Ini.Free;
+   except
+@@ -10135,10 +10204,11 @@
+ procedure TMainForm.LoadGroups;
+ var
+   Ini : TIniFile;
+-  i:integer;
++  i,j:integer;
+   cg : TClientGroup;
+   FileName: String;
+   tmp: string;
++  sl: TStringList;
+ begin
+   FileName := ExtractFilePath(Application.ExeName) + GROUPS_FILE;
+   Ini := TIniFile.Create(FileName);
+@@ -10163,6 +10233,18 @@
+     tmp := Ini.ReadString(IntToStr(i), 'Clients', '');
+     if tmp &lt;&gt; '' then
+       Misc.ParseDelimited(cg.Clients,tmp,' ','');
++    tmp := Ini.ReadString(IntToStr(i), 'ClientsIds', '');
++    if tmp &lt;&gt; '' then
++    begin
++      sl := TStringList.Create;
++      Misc.ParseDelimited(sl,tmp,' ','');
++      for j:=0 to sl.Count-1 do
++        try
++          cg.ClientsIds.Add(StrToInt(sl[j]));
++        except
++        end;
++      sl.Free;
++    end;
+     ClientGroups.Add(cg);
+     i := i+1;
+   end;
+
+Modified: Lobby/TASClient/ManageGroups.dfm
+===================================================================
+--- Lobby/TASClient/ManageGroups.dfm	2009-09-27 22:08:45 UTC (rev 7360)
++++ Lobby/TASClient/ManageGroups.dfm	2009-10-02 14:01:58 UTC (rev 7361)
+@@ -6,8 +6,8 @@
+   ClientHeight = 441
+   ClientWidth = 516
+   Color = clBtnFace
+-  Constraints.MaxHeight = 750
+-  Constraints.MaxWidth = 1280
++  Constraints.MaxHeight = 1000
++  Constraints.MaxWidth = 1680
+   Font.Charset = DEFAULT_CHARSET
+   Font.Color = clWindowText
+   Font.Height = -11
+
+Modified: Lobby/TASClient/ManageGroups.pas
+===================================================================
+--- Lobby/TASClient/ManageGroups.pas	2009-09-27 22:08:45 UTC (rev 7360)
++++ Lobby/TASClient/ManageGroups.pas	2009-10-02 14:01:58 UTC (rev 7361)
+@@ -125,8 +125,9 @@
+   i: Integer;
+ begin
+   lstClients.Clear;
+-  for i:=0 to TClientGroup(ClientGroups[cmbGroups.ItemIndex]).Clients.Count-1 do
+-    lstClients.Items.Add(TClientGroup(ClientGroups[cmbGroups.ItemIndex]).Clients[i]);
++  lstClients.Items.AddStrings(TClientGroup(ClientGroups[cmbGroups.ItemIndex]).Clients);
++  for i:=0 to TClientGroup(ClientGroups[cmbGroups.ItemIndex]).ClientsIds.Count-1 do
++    lstClients.Items.Add(MainForm.GetClientById(TClientGroup(ClientGroups[cmbGroups.ItemIndex]).ClientsIds.Items[i]).Name);
+   ColorPanel.Color := TClientGroup(ClientGroups[cmbGroups.ItemIndex]).Color;
+   txtName.Text := TClientGroup(ClientGroups[cmbGroups.ItemIndex]).Name;
+   AutoKickCheckBox.Checked := TClientGroup(ClientGroups[cmbGroups.ItemIndex]).AutoKick;
+
+Modified: Lobby/TASClient/Misc.pas
+===================================================================
+--- Lobby/TASClient/Misc.pas	2009-09-27 22:08:45 UTC (rev 7360)
++++ Lobby/TASClient/Misc.pas	2009-10-02 14:01:58 UTC (rev 7361)
+@@ -2938,7 +2938,7 @@
+    osVerInfo: TOSVersionInfo;
+    majorVersion, minorVersion: Integer;
+ begin
+-   Result := 'Unknown';
++   Result := 'Seven';
+    osVerInfo.dwOSVersionInfoSize := SizeOf(TOSVersionInfo) ;
+    if GetVersionEx(osVerInfo) then
+    begin
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2009-09-27 22:08:45 UTC (rev 7360)
++++ Lobby/TASClient/TASClient.dof	2009-10-02 14:01:58 UTC (rev 7361)
+@@ -113,9 +113,9 @@
+ IncludeVerInfo=1
+ AutoIncBuild=1
+ MajorVer=0
+-MinorVer=50
++MinorVer=53
+ Release=0
+-Build=707
++Build=710
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.50.0.707
++FileVersion=0.53.0.710
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002131.html">[Taspring-linux-commit] r7362 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2130">[ date ]</a>
+              <a href="thread.html#2130">[ thread ]</a>
+              <a href="subject.html#2130">[ subject ]</a>
+              <a href="author.html#2130">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

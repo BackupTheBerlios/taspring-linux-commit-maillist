@@ -1,0 +1,1411 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5686 - in trunk/rts: ExternalAI Lua System	System/Platform System/Platform/Linux System/Platform/Win
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5686%20-%20in%20trunk/rts%3A%20ExternalAI%20Lua%20System%0A%09System/Platform%20System/Platform/Linux%20System/Platform/Win&In-Reply-To=%3C20080409174459.D214E46AE%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000466.html">
+   <LINK REL="Next"  HREF="000468.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5686 - in trunk/rts: ExternalAI Lua System	System/Platform System/Platform/Linux System/Platform/Win</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5686%20-%20in%20trunk/rts%3A%20ExternalAI%20Lua%20System%0A%09System/Platform%20System/Platform/Linux%20System/Platform/Win&In-Reply-To=%3C20080409174459.D214E46AE%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5686 - in trunk/rts: ExternalAI Lua System	System/Platform System/Platform/Linux System/Platform/Win">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Apr  9 19:44:59 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000466.html">[Taspring-linux-commit] r5685 - in trunk/rts: Game Map
+</A></li>
+        <LI>Next message: <A HREF="000468.html">[Taspring-linux-commit] r5687 - trunk/rts/System/Net
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#467">[ date ]</a>
+              <a href="thread.html#467">[ thread ]</a>
+              <a href="subject.html#467">[ subject ]</a>
+              <a href="author.html#467">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-04-09 19:44:58 +0200 (Wed, 09 Apr 2008)
+New Revision: 5686
+
+Modified:
+   trunk/rts/ExternalAI/AICallback.h
+   trunk/rts/ExternalAI/IAICallback.h
+   trunk/rts/Lua/LuaUnsyncedCtrl.cpp
+   trunk/rts/Lua/LuaUnsyncedCtrl.h
+   trunk/rts/System/Platform/Linux/OggStream.cpp
+   trunk/rts/System/Platform/Linux/OggStream.h
+   trunk/rts/System/Platform/Linux/OpenALSound.cpp
+   trunk/rts/System/Platform/Linux/OpenALSound.h
+   trunk/rts/System/Platform/NullSound.h
+   trunk/rts/System/Platform/Win/DxSound.cpp
+   trunk/rts/System/Platform/Win/DxSound.h
+   trunk/rts/System/Platform/Win/OggStream.cpp
+   trunk/rts/System/Platform/Win/OggStream.h
+   trunk/rts/System/Sound.h
+Log:
+* fix the broken Ogg-stream volume controls
+* add pausing to the DSound Ogg decoder
+* supply a few more Lua callouts:
+	GetSoundStreamTime() --&gt; number, how long the stream has been playing (seconds)
+	SetSoundStreamVolume(number) --&gt; nil, allows doing fade-ins and fade-outs
+
+
+Modified: trunk/rts/ExternalAI/AICallback.h
+===================================================================
+--- trunk/rts/ExternalAI/AICallback.h	2008-04-09 11:50:18 UTC (rev 5685)
++++ trunk/rts/ExternalAI/AICallback.h	2008-04-09 17:44:58 UTC (rev 5686)
+@@ -74,9 +74,9 @@
+ 
+ 	int GetEnemyUnits(int* units);
+ 	int GetEnemyUnitsInRadarAndLos(int* units);
+-	int GetEnemyUnits(int* units, const float3&amp; pos,float radius);
++	int GetEnemyUnits(int* units, const float3&amp; pos, float radius);
+ 	int GetFriendlyUnits(int* units);
+-	int GetFriendlyUnits(int* units, const float3&amp; pos,float radius);
++	int GetFriendlyUnits(int* units, const float3&amp; pos, float radius);
+ 	int GetNeutralUnits(int* units);
+ 	int GetNeutralUnits(int* units, const float3&amp; pos, float radius);
+ 
+
+Modified: trunk/rts/ExternalAI/IAICallback.h
+===================================================================
+--- trunk/rts/ExternalAI/IAICallback.h	2008-04-09 11:50:18 UTC (rev 5685)
++++ trunk/rts/ExternalAI/IAICallback.h	2008-04-09 17:44:58 UTC (rev 5686)
+@@ -185,7 +185,7 @@
+ 	// * do NOT modify or delete any of the pointers returned
+ 	// * the maps are stored from top left and each data position is 8*8 in size
+ 	// * to get info about a position (x, y) look at location (int(y / 8)) * GetMapWidth() + (int(x / 8))
+-	// * note that some of the maps are stored in a lower resolution than this
++	// * note that some of the type-maps are stored in a lower resolution than this
+ 	virtual int GetMapWidth() = 0;
+ 	virtual int GetMapHeight() = 0;
+ 	virtual const float* GetHeightMap() = 0;			// this is the height for the center of the squares, this differs slightly from the drawn map since it uses the height at the corners
+
+Modified: trunk/rts/Lua/LuaUnsyncedCtrl.cpp
+===================================================================
+--- trunk/rts/Lua/LuaUnsyncedCtrl.cpp	2008-04-09 11:50:18 UTC (rev 5685)
++++ trunk/rts/Lua/LuaUnsyncedCtrl.cpp	2008-04-09 17:44:58 UTC (rev 5686)
+@@ -63,6 +63,9 @@
+ 	REGISTER_LUA_CFUNC(PlaySoundFile);
+ 	REGISTER_LUA_CFUNC(PlaySoundStream);
+ 	REGISTER_LUA_CFUNC(StopSoundStream);
++	REGISTER_LUA_CFUNC(PauseSoundStream);
++	REGISTER_LUA_CFUNC(GetSoundStreamTime);
++	REGISTER_LUA_CFUNC(SetSoundStreamVolume);
+ 
+ 	REGISTER_LUA_CFUNC(SetCameraState);
+ 	REGISTER_LUA_CFUNC(SetCameraTarget);
+@@ -485,12 +488,31 @@
+ 	}
+ }
+ 
+-
+ int LuaUnsyncedCtrl::StopSoundStream(lua_State*)
+ {
+ 	sound-&gt;StopStream();
+ 	return 0;
+ }
++int LuaUnsyncedCtrl::PauseSoundStream(lua_State*)
++{
++	sound-&gt;PauseStream();
++	return 0;
++}
++int LuaUnsyncedCtrl::GetSoundStreamTime(lua_State* L)
++{
++	lua_pushnumber(L, sound-&gt;GetStreamTime());
++	return 1;
++}
++int LuaUnsyncedCtrl::SetSoundStreamVolume(lua_State* L)
++{
++	const int args = lua_gettop(L);
++	if (args == 1) {
++		sound-&gt;SetStreamVolume(lua_tonumber(L, 1));
++	} else {
++		luaL_error(L, &quot;Incorrect arguments to SetSoundStreamVolume(v)&quot;);
++	}
++	return 0;
++}
+ 
+ 
+ /******************************************************************************/
+
+Modified: trunk/rts/Lua/LuaUnsyncedCtrl.h
+===================================================================
+--- trunk/rts/Lua/LuaUnsyncedCtrl.h	2008-04-09 11:50:18 UTC (rev 5685)
++++ trunk/rts/Lua/LuaUnsyncedCtrl.h	2008-04-09 17:44:58 UTC (rev 5686)
+@@ -31,6 +31,9 @@
+ 		static int PlaySoundFile(lua_State* L);
+ 		static int PlaySoundStream(lua_State* L);
+ 		static int StopSoundStream(lua_State* L);
++		static int PauseSoundStream(lua_State* L);
++		static int GetSoundStreamTime(lua_State* L);
++		static int SetSoundStreamVolume(lua_State* L);
+ 
+ 		static int SetCameraState(lua_State* L);
+ 		static int SetCameraTarget(lua_State* L);
+
+Modified: trunk/rts/System/Platform/Linux/OggStream.cpp
+===================================================================
+--- trunk/rts/System/Platform/Linux/OggStream.cpp	2008-04-09 11:50:18 UTC (rev 5685)
++++ trunk/rts/System/Platform/Linux/OggStream.cpp	2008-04-09 17:44:58 UTC (rev 5686)
+@@ -49,15 +49,16 @@
+ 	alGenBuffers(2, buffers); CheckErrors();
+ 	alGenSources(1, &amp;source); CheckErrors();
+ 
++	SetVolume(volume, true);
++
+ 	alSource3f(source, AL_POSITION,        pos.x, pos.y, pos.z);
+ 	alSource3f(source, AL_VELOCITY,        0.0f,  0.0f,  0.0f );
+ 	alSource3f(source, AL_DIRECTION,       0.0f,  0.0f,  0.0f );
+ 	alSourcef( source, AL_ROLLOFF_FACTOR,  0.0f               );
+-	alSourcef( source, AL_GAIN,            volume             );
+ 	alSourcei( source, AL_SOURCE_RELATIVE, false              );
+ 
+ 	if (!StartPlaying()) {
+-		Release();
++		ReleaseBuffers();
+ 	} else {
+ 		secsPlayed = 0;
+ 		lastTick = SDL_GetTicks();
+@@ -67,6 +68,14 @@
+ }
+ 
+ 
++void COggStream::SetVolume(float volume, bool b) {
++	if (!stopped || b) {
++		volume = std::max(0.0f, std::min(volume, 1.0f));
++
++		alSourcef(source, AL_GAIN, volume);
++	}
++}
++
+ // display Ogg info and comments
+ void COggStream::DisplayInfo() {
+ 	logOutput.Print(&quot;version:           %d&quot;, vorbisInfo-&gt;version);
+@@ -85,8 +94,10 @@
+ 
+ 
+ // clean up the OpenAL resources
+-void COggStream::Release() {
++void COggStream::ReleaseBuffers() {
+ 	stopped = true;
++	paused = false;
++
+ 	alSourceStop(source); EmptyBuffers();
+ 
+ 	alDeleteBuffers(2, buffers); CheckErrors();
+@@ -100,10 +111,10 @@
+ // returns true if both buffers were
+ // filled with data from the stream
+ bool COggStream::StartPlaying() {
+-	if (!Stream(buffers[0]))
++	if (!DecodeStream(buffers[0]))
+ 		return false;
+ 
+-	if (!Stream(buffers[1]))
++	if (!DecodeStream(buffers[1]))
+ 		return false;
+ 
+ 	alSourceQueueBuffers(source, 2, buffers);
+@@ -124,8 +135,8 @@
+ 
+ // stops the currently playing stream
+ void COggStream::Stop() {
+-	if (IsPlaying() || paused) {
+-		Release();
++	if (!stopped) {
++		ReleaseBuffers();
+ 	}
+ }
+ 
+@@ -157,7 +168,7 @@
+ 		alSourceUnqueueBuffers(source, 1, &amp;buffer); CheckErrors();
+ 
+ 		// false if we've reached end of stream
+-		active = Stream(buffer);
++		active = DecodeStream(buffer);
+ 
+ 		alSourceQueueBuffers(source, 1, &amp;buffer); CheckErrors();
+ 	}
+@@ -165,28 +176,40 @@
+ 	return active;
+ }
+ 
++void COggStream::UpdateTimer() {
++	unsigned int tick = SDL_GetTicks();
+ 
++	if (paused) {
++		lastTick = tick;
++	}
++
++	if ((tick - lastTick) &gt;= 1000) {
++		secsPlayed += (tick - lastTick) / 1000;
++		lastTick = tick;
++	}
++}
++
++
+ void COggStream::Update() {
+-	if (!stopped &amp;&amp; !paused) {
+-		if (SDL_GetTicks() - lastTick &gt; 1000) {
+-			lastTick = SDL_GetTicks();
+-			secsPlayed += 1;
+-		}
++	if (!stopped) {
++		UpdateTimer();
+ 
+-		if (UpdateBuffers()) {
+-			if (!IsPlaying()) {
+-				// source state changed
+-				if (!StartPlaying()) {
+-					// stream stopped
+-					Release();
+-				} else {
+-					// stream interrupted
+-					Release();
++		if (!paused) {
++			if (UpdateBuffers()) {
++				if (!IsPlaying()) {
++					// source state changed
++					if (!StartPlaying()) {
++						// stream stopped
++						ReleaseBuffers();
++					} else {
++						// stream interrupted
++						ReleaseBuffers();
++					}
+ 				}
++			} else {
++				// EOS, nothing left to do
++				ReleaseBuffers();
+ 			}
+-		} else {
+-			// EOS, nothing left to do
+-			Release();
+ 		}
+ 	}
+ }
+@@ -194,7 +217,7 @@
+ 
+ 
+ // read decoded data from audio stream into PCM buffer
+-bool COggStream::Stream(ALuint buffer) {
++bool COggStream::DecodeStream(ALuint buffer) {
+ 	char pcm[BUFFER_SIZE];
+ 	int size = 0;
+ 	int section = 0;
+
+Modified: trunk/rts/System/Platform/Linux/OggStream.h
+===================================================================
+--- trunk/rts/System/Platform/Linux/OggStream.h	2008-04-09 11:50:18 UTC (rev 5685)
++++ trunk/rts/System/Platform/Linux/OggStream.h	2008-04-09 17:44:58 UTC (rev 5686)
+@@ -20,16 +20,19 @@
+ 		void Stop();
+ 		void TogglePause();
+ 		void Update();
++		unsigned int GetPlayTime() const { return ((!stopped)? secsPlayed: 0); }
++		void SetVolume(float, bool b = false);
+ 
+     private:
+-		void Release();
+ 		void DisplayInfo();
+ 		bool IsPlaying();
+ 		bool StartPlaying();
+ 
+-		bool Stream(ALuint buffer);
++		bool DecodeStream(ALuint buffer);
+ 		void EmptyBuffers();
++		void ReleaseBuffers();
+ 		bool UpdateBuffers();
++		void UpdateTimer();
+ 		void CheckErrors();
+ 		std::string ErrorString(int code);
+ 
+
+Modified: trunk/rts/System/Platform/Linux/OpenALSound.cpp
+===================================================================
+--- trunk/rts/System/Platform/Linux/OpenALSound.cpp	2008-04-09 11:50:18 UTC (rev 5685)
++++ trunk/rts/System/Platform/Linux/OpenALSound.cpp	2008-04-09 17:44:58 UTC (rev 5686)
+@@ -161,18 +161,13 @@
+ 	oggStream.Play(path, pos * posScale, volume);
+ }
+ 
+-void COpenALSound::StopStream()
+-{
+-	oggStream.Stop();
+-}
++void COpenALSound::StopStream() { oggStream.Stop(); }
++void COpenALSound::PauseStream() { oggStream.TogglePause(); }
++unsigned int COpenALSound::GetStreamTime() { return oggStream.GetPlayTime(); }
++void COpenALSound::SetStreamVolume(float v) { oggStream.SetVolume(v); }
+ 
+-void COpenALSound::PauseStream()
+-{
+-	oggStream.TogglePause();
+-}
+ 
+ 
+-
+ void COpenALSound::SetVolume(float v)
+ {
+ 	globalVolume = v;
+@@ -199,32 +194,30 @@
+ 	assert(volume &gt;= 0.0f);
+ 
+ 	ALuint source;
+-	alGenSources(1,&amp;source);
++	alGenSources(1, &amp;source);
+ 
+ 	/* it seems OpenAL running on Windows is giving problems when too many sources are allocated at a time,
+ 	in which case it still generates errors. */
+-	if (alGetError () != AL_NO_ERROR)
++	if (alGetError() != AL_NO_ERROR)
+ 		return;
+-//	if (!CheckError(&quot;error generating OpenAL sound source&quot;))
+-//		return;
+ 
+ 	if (Sources[cur]) {
+ 		/* The Linux port of OpenAL generates an &quot;Illegal call&quot; error if we
+ 		delete a playing source, so we must stop it first. -- tvo */
+ 		alSourceStop(Sources[cur]);
+-		alDeleteSources(1,&amp;Sources[cur]);
++		alDeleteSources(1, &amp;Sources[cur]);
+ 	}
+ 	Sources[cur++] = source;
+ 	if (cur == maxSounds)
+ 		cur = 0;
+ 
+ 	alSourcei(source, AL_BUFFER, id);
+-	alSourcef(source, AL_PITCH, 1.0f );
+-	alSourcef(source, AL_GAIN, volume );
++	alSourcef(source, AL_PITCH, 1.0f);
++	alSourcef(source, AL_GAIN, volume);
+ 
+ 	float3 pos = p * posScale;
+ 	alSource3f(source, AL_POSITION, pos.x, pos.y, pos.z);
+-	alSource3f(source, AL_VELOCITY, 0.0f,0.0f,0.0f);
++	alSource3f(source, AL_VELOCITY, 0.0f, 0.0f, 0.0f);
+ 	alSourcei(source, AL_LOOPING, false);
+ 	alSourcei(source, AL_SOURCE_RELATIVE, relative);
+ 	alSourcePlay(source);
+@@ -261,7 +254,7 @@
+ 		return;
+ 	}
+ 	float3 pos = camera-&gt;pos * posScale;
+-	alListener3f(AL_POSITION, pos.x,pos.y,pos.z);
++	alListener3f(AL_POSITION, pos.x, pos.y, pos.z);
+ 	alListener3f(AL_VELOCITY, 0.0f, 0.0f, 0.0f);
+ 	ALfloat ListenerOri[] = {camera-&gt;forward.x, camera-&gt;forward.y, camera-&gt;forward.z, camera-&gt;up.x, camera-&gt;up.y, camera-&gt;up.z};
+ 	alListenerfv(AL_ORIENTATION, ListenerOri);
+
+Modified: trunk/rts/System/Platform/Linux/OpenALSound.h
+===================================================================
+--- trunk/rts/System/Platform/Linux/OpenALSound.h	2008-04-09 11:50:18 UTC (rev 5685)
++++ trunk/rts/System/Platform/Linux/OpenALSound.h	2008-04-09 17:44:58 UTC (rev 5686)
+@@ -21,12 +21,14 @@
+ 	ALuint GetWaveId(const string&amp; path, bool hardFail);
+ 	void Update();
+ 	void PlaySample(int id, float volume);
+-	void PlaySample(int id,const float3&amp; p,float volume);
++	void PlaySample(int id, const float3&amp; p, float volume);
+ 
+ 	void PlayStream(const std::string&amp; path, float volume = 1.0f,
+ 					const float3&amp; pos = ZeroVector, bool loop = false);
+ 	void StopStream();
+ 	void PauseStream();
++	unsigned int GetStreamTime();
++	void SetStreamVolume(float);
+ 
+ 	void SetVolume(float v);
+ 
+@@ -34,7 +36,7 @@
+ 	virtual ~COpenALSound();
+ 
+ private:
+-	bool ReadWAV(const char *name, Uint8 *buf, int size, ALuint albuffer);
++	bool ReadWAV(const char* name, Uint8* buf, int size, ALuint albuffer);
+ 
+ private:
+ 	ALuint LoadALBuffer(const string&amp; path);
+
+Modified: trunk/rts/System/Platform/NullSound.h
+===================================================================
+--- trunk/rts/System/Platform/NullSound.h	2008-04-09 11:50:18 UTC (rev 5685)
++++ trunk/rts/System/Platform/NullSound.h	2008-04-09 17:44:58 UTC (rev 5686)
+@@ -12,13 +12,15 @@
+ 
+ 	unsigned int GetWaveId(const std::string&amp; path, bool hardFail) { return 0; }
+ 	void Update() { return; }
+-	void PlaySample(int id, float volume=1) { return; }
+-	void PlaySample(int id,const float3&amp; p,float volume=1) { return; }
++	void PlaySample(int id, float volume = 1.0f) { return; }
++	void PlaySample(int id, const float3&amp; p, float volume = 1.0f) { return; }
+ 
+ 	void PlayStream(const std::string&amp; path, float volume,
+ 					const float3&amp; pos, bool loop)  { return; }
+ 	void StopStream() { return; }
+ 	void PauseStream() { return; }
++	unsigned int GetStreamTime() { return 0; }
++	void SetStreamVolume(float) { return; }
+ 
+ 	void SetVolume(float vol) { return; }
+ };
+
+Modified: trunk/rts/System/Platform/Win/DxSound.cpp
+===================================================================
+--- trunk/rts/System/Platform/Win/DxSound.cpp	2008-04-09 11:50:18 UTC (rev 5685)
++++ trunk/rts/System/Platform/Win/DxSound.cpp	2008-04-09 17:44:58 UTC (rev 5686)
+@@ -19,8 +19,8 @@
+ #include &quot;FileSystem/FileHandler.h&quot;
+ #include &lt;SDL_syswm.h&gt;
+ 
+-#define SAFE_DELETE(p)  { if(p) { delete (p);     (p)=NULL; } }
+-#define SAFE_RELEASE(p) { if(p) { (p)-&gt;Release(); (p)=NULL; } }
++#define SAFE_DELETE(p)  { if(p) { delete (p);     (p) = NULL; } }
++#define SAFE_RELEASE(p) { if(p) { (p)-&gt;Release(); (p) = NULL; } }
+ 
+ 
+ // Ogg-Vorbis audio stream object
+@@ -29,14 +29,14 @@
+ 
+ CDxSound::CDxSound()
+ {
+-	maxSounds=ConfigHandler::GetInstance().GetInt(&quot;MaxSounds&quot;,16);
++	maxSounds = ConfigHandler::GetInstance().GetInt(&quot;MaxSounds&quot;, 16);
+ 	if (maxSounds &lt;= 0) {
+ 		throw content_error(&quot;Internal error, (maxSounds &lt;= 0) in CDxSound&quot;);
+ 	}
+ 
+-	curThreshhold=0.1f;
+-	wantedSounds=maxSounds*0.75f;
+-	globalVolume=1.0f;
++	curThreshhold = 0.1f;
++	wantedSounds = maxSounds * 0.75f;
++	globalVolume = 1.0f;
+ 
+ 	m_pDS  = NULL;
+ 	m_hWnd = NULL;
+@@ -48,6 +48,7 @@
+ 	// Get window from SDL
+ 	SDL_SysWMinfo wmInfo;
+ 	SDL_VERSION(&amp;wmInfo.version);
++
+ 	if (SDL_GetWMInfo (&amp;wmInfo) != 1) {
+ 		throw &quot;DxSound: Could not get window from SDL&quot;;
+ 	}
+@@ -60,34 +61,35 @@
+ 	}
+ 
+ 	// Create IDirectSound using the primary sound device
+-	if( FAILED( hr = DirectSoundCreate( NULL, &amp;m_pDS, NULL ) ) ){
++	if (FAILED(hr = DirectSoundCreate(NULL, &amp;m_pDS, NULL))) {
+ 		throw &quot;DxSound: Could not create direct sound object&quot;;
+ 	}
+ 
+     // Set coop level to DSSCL_PRIORITY
+-	if( FAILED( hr = m_pDS-&gt;SetCooperativeLevel( m_hWnd, DSSCL_PRIORITY ) ) ){
++	if (FAILED(hr = m_pDS-&gt;SetCooperativeLevel(m_hWnd, DSSCL_PRIORITY))) {
+ 		throw &quot;DxSound: Could not set cooperative level&quot;;
+ 	}
+ 	
+-	// Get the primary buffer 
++	// Get the primary buffer
+ 	DSBUFFERDESC dsbd;
+-	ZeroMemory( &amp;dsbd, sizeof(DSBUFFERDESC) );
++	ZeroMemory(&amp;dsbd, sizeof(DSBUFFERDESC));
++
+ 	dsbd.dwSize        = sizeof(DSBUFFERDESC);
+ 	dsbd.dwFlags       = DSBCAPS_PRIMARYBUFFER;
+ 	dsbd.dwBufferBytes = 0;
+ 	dsbd.lpwfxFormat   = NULL;
+ 	
+-	if( FAILED( hr = m_pDS-&gt;CreateSoundBuffer( &amp;dsbd, &amp;pDSBPrimary, NULL ) ) ){
++	if (FAILED(hr = m_pDS-&gt;CreateSoundBuffer(&amp;dsbd, &amp;pDSBPrimary, NULL))) {
+ 		throw &quot;DxSound: Could not create primary sound buffer&quot;;
+ 	}
+ 	
+ 	// Set primary buffer format to 22kHz and 16-bit output.
+ 	WAVEFORMATEX wfx;
+-	ZeroMemory( &amp;wfx, sizeof(WAVEFORMATEX) ); 
+-	wfx.wFormatTag      = WAVE_FORMAT_PCM; 
++	ZeroMemory(&amp;wfx, sizeof(WAVEFORMATEX));
++	wfx.wFormatTag      = WAVE_FORMAT_PCM;
+ 	wfx.nChannels       = 2; 
+-	wfx.nSamplesPerSec  = 22050; 
+-	wfx.wBitsPerSample  = 16; 
++	wfx.nSamplesPerSec  = 22050;
++	wfx.wBitsPerSample  = 16;
+ 	wfx.nBlockAlign     = wfx.wBitsPerSample / 8 * wfx.nChannels;
+ 	wfx.nAvgBytesPerSec = wfx.nSamplesPerSec * wfx.nBlockAlign;
+ 	
+@@ -95,9 +97,9 @@
+ 		throw &quot;DxSound: Could not initialize primary sound format&quot;;
+ 	}
+ 	
+-	SAFE_RELEASE( pDSBPrimary );
+-	waveid[&quot;&quot;]=0;
+-	SoundInfo* si=SAFE_NEW SoundInfo;
++	SAFE_RELEASE(pDSBPrimary);
++	waveid[&quot;&quot;] = 0;
++	SoundInfo* si = SAFE_NEW SoundInfo;
+ 	loadedSounds.push_back(si);
+ }
+ 
+@@ -105,13 +107,13 @@
+ CDxSound::~CDxSound()
+ {
+     // Release DirectSound interfaces
+-	while(!buffers.empty()){
++	while (!buffers.empty()) {
+ 		SAFE_RELEASE(buffers.back());
+ 		buffers.pop_back();
+ 	}
+-	SAFE_RELEASE(m_pDS); 
++	SAFE_RELEASE(m_pDS);
+ 
+-	for(vector&lt;SoundInfo*&gt;::iterator si=loadedSounds.begin();si!=loadedSounds.end();++si)
++	for (vector&lt;SoundInfo*&gt;::iterator si = loadedSounds.begin(); si != loadedSounds.end(); ++si)
+ 		delete *si;
+ 
+ 	// Release COM
+@@ -121,87 +123,92 @@
+ 
+ 
+ void CDxSound::PlayStream(const std::string&amp; path, float volume,
+-							const float3&amp; pos, bool loop)
++							const float3&amp; pos, bool)
+ {
+-	oggStream.setDSoundObject(m_pDS);
+-	oggStream.play(path, volume, pos);
++	oggStream.SetDSoundObject(m_pDS);
++	oggStream.Play(path, volume, pos);
+ }
+ 
+-void CDxSound::StopStream()
+-{
+-	oggStream.stop();
+-}
++void CDxSound::StopStream() { oggStream.Stop(); }
++void CDxSound::PauseStream() { oggStream.TogglePause(); }
++unsigned int CDxSound::GetStreamTime() { oggStream.GetPlayTime(); }
++void CDxSound::SetStreamVolume(float v) { oggStream.SetVolume(v); }
+ 
+ 
+ 
+ int CDxSound::InitFile(const string&amp; name)
+ {
+-	if(m_pDS==0) {
++	if (m_pDS == 0) {
+ 		return -1;
+ 	}
+ 
+ 	// Create the sound buffer object from the wave file data
+-	if(!CreateStaticBuffer(name.c_str()) )
+-	{   
++	if (!CreateStaticBuffer(name.c_str())) {
+ 		logOutput &lt;&lt; &quot;no such sound: &quot; &lt;&lt; name.c_str() &lt;&lt; &quot;\n&quot;;
+ 		return -1;
+ 	}
+ 
+-	waveid[name]=loadedSounds.size();
++	waveid[name] = loadedSounds.size();
+ 	buf2id.push_back(loadedSounds.size());
+-	SoundInfo* si=SAFE_NEW SoundInfo;
+-	si-&gt;firstBuf=buffers.size()-1;
+-	si-&gt;freebufs.push_back(buffers.size()-1);
++	SoundInfo* si = SAFE_NEW SoundInfo;
++	si-&gt;firstBuf = buffers.size() - 1;
++	si-&gt;freebufs.push_back(buffers.size() - 1);
+ 	loadedSounds.push_back(si);
+ 
+-	return buffers.size()-1;
++	return (buffers.size() - 1);
+ }
+ 
+ unsigned int CDxSound::GetWaveId(const string &amp;name, bool _hardFail)
+ {
+ 	PUSH_CODE_MODE;
+ 	ENTER_MIXED;
+-	map&lt;string,int&gt;::iterator si = waveid.find(name);
++	map&lt;string, int&gt;::iterator si = waveid.find(name);
++
+ 	if (si == waveid.end()) {
+ 		hardFail = _hardFail;
+ 		InitFile(name);
+ 		si = waveid.find(name);
+ 	}
+-	int ret = (si != waveid.end()) ? si-&gt;second : 0;
++
++	int ret = (si != waveid.end())? si-&gt;second: 0;
+ 	POP_CODE_MODE;
+ 	return ret;
+ }
+ 
+-int CDxSound::GetBuf(int id,float volume)
++int CDxSound::GetBuf(int id, float volume)
+ {
+-	if(id&lt;=0 || id&gt;=loadedSounds.size())
++	if (id &lt;= 0 || id &gt;= loadedSounds.size())
+ 		return -1;
+-	SoundInfo* s=loadedSounds[id];
++
++	SoundInfo* s = loadedSounds[id];
+ 	int num;
+-	if(s-&gt;freebufs.empty()){
+-		LPDIRECTSOUNDBUFFER b=NULL;
++
++	if (s-&gt;freebufs.empty()) {
++		LPDIRECTSOUNDBUFFER b = NULL;
+ 		buffers.push_back(b);
+-		HRESULT r=m_pDS-&gt;DuplicateSoundBuffer(buffers[s-&gt;firstBuf],&amp;(buffers.back()));
+-		if(r!=DS_OK){
+-			MessageBox(0,&quot;Couldnt duplicate sound buffer&quot;,&quot;Sound error&quot;,0);
++		HRESULT r = m_pDS-&gt;DuplicateSoundBuffer(buffers[s-&gt;firstBuf], &amp;(buffers.back()));
++		if (r != DS_OK) {
++			MessageBox(0, &quot;Couldn't duplicate sound buffer&quot;, &quot;Sound error&quot;, 0);
+ 			sound = SAFE_NEW CNullSound;
+ 			delete this;
+ 			return -2;
+ 		}
++
+ 		buf2id.push_back(id);
+-		s-&gt;freebufs.push_back(buffers.size()-1);
++		s-&gt;freebufs.push_back(buffers.size() - 1);
+ 	}
+-	num=s-&gt;freebufs.back();
++
++	num = s-&gt;freebufs.back();
+ 	s-&gt;freebufs.pop_back();
+ 	PlayingSound ps;
+-	ps.num=num;
+-	ps.volume=volume;
++	ps.num = num;
++	ps.volume = volume;
+ 	playingSounds.push_back(ps);
+ 
+ 	return num;
+ }
+ 
+-void CDxSound::SetVolume (float v)
++void CDxSound::SetVolume(float v)
+ {
+ 	// place the volume within the 0.5 to 1.0 range
+ 	if (v &lt; 0.01f) {
+@@ -211,55 +218,57 @@
+ 	}
+ }
+ 
+-void CDxSound::PlaySample(int id,float volume)
++
++
++void CDxSound::PlaySample(int id, float volume)
+ {
+ 	PUSH_CODE_MODE;
+ 	ENTER_MIXED;
+-	if(id&lt;=0 || id&gt;=loadedSounds.size() || playingSounds.size()&gt;=maxSounds){
++	if (id &lt;= 0 || id &gt;= loadedSounds.size() || playingSounds.size() &gt;= maxSounds) {
+ 		POP_CODE_MODE;
+ 		return;
+ 	}
+ 
+ 	const float v = 1.0f - (globalVolume * max(0.0f, min(1.0f, volume)));
++	int num = GetBuf(id, v);
+ 
+-	int num = GetBuf(id,v);
+ 	if (num == -2) {
+ 		return; // shutting down
+ 	}
+ 
+ 	// Restore the buffers if they are lost
+ 	HRESULT hr;
+-	if( FAILED( hr = RestoreBuffers(num) ) ){
++	if (FAILED( hr = RestoreBuffers(num))) {
+ 		POP_CODE_MODE;
+ 		return;
+ 	}
+-	
+-	buffers[num]-&gt;SetVolume(int(DSBVOLUME_MIN*v));
++
++	buffers[num]-&gt;SetVolume(int(DSBVOLUME_MIN * v));
+ 	buffers[num]-&gt;SetPan(0);
+-//	if(reset)
+-//		buffers[num]-&gt;SetCurrentPosition( 0L );    
+-	
+-	// Play buffer 
+-//	DWORD dwLooped = loop ? DSBPLAY_LOOPING : 0L;
+-	if( FAILED( hr = buffers[num]-&gt;Play( 0, 0, 0/*dwLooped*/ ) ) ){
+ 
++	// Play buffer
++	// DWORD dwLooped = loop? DSBPLAY_LOOPING: 0L;
++	if (FAILED(hr = buffers[num]-&gt;Play(0, 0, 0/*dwLooped*/))) {
+ 	}
++
+ 	POP_CODE_MODE;
+ }
+ 
+-void CDxSound::PlaySample(int id,const float3&amp; p,float volume)
++void CDxSound::PlaySample(int id, const float3&amp; p, float volume)
+ {
+ 	PUSH_CODE_MODE;
+ 	ENTER_MIXED;
+-	if(id&lt;=0 || id&gt;=loadedSounds.size()){
++
++	if (id &lt;= 0 || id &gt;= loadedSounds.size()) {
+ 		POP_CODE_MODE;
+ 		return;
+ 	}
+ 
+-	float3 dif=p - camera-&gt;pos;
+-	float dl=dif.Length();
+-	float pan=dif.dot(camera-&gt;right)*DSBPAN_RIGHT/dl;
+-	float v=0;
++	float3 dif = p - camera-&gt;pos;
++	float dl = dif.Length();
++	float pan = dif.dot(camera-&gt;right) * DSBPAN_RIGHT / dl;
++	float v = 0.0f;
++
+ 	if (volume != 0.0f) {
+ 		v = dl / ((globalVolume + 0.01f) * volume * 2000.0f);
+ 	}
+@@ -268,36 +277,36 @@
+ 		POP_CODE_MODE;
+ 		return; // too quiet
+ 	} else {
+-	  v = max(v, (1.0f - globalVolume)); // clamp so that it isn't too loud
++		v = max(v, (1.0f - globalVolume)); // clamp so that it isn't too loud
+ 	}
+ 
+-//	logOutput.Print(&quot;%i %i %f&quot;,maxSounds,playingSounds.size(),v);
+-
+-	if(v&gt;curThreshhold+(wantedSounds-playingSounds.size())/wantedSounds){
++	if (v &gt; curThreshhold + (wantedSounds - playingSounds.size()) / wantedSounds) {
+ 		POP_CODE_MODE;
+ 		return;
+ 	}
+ 
+-	int num = GetBuf(id,v);
++	int num = GetBuf(id, v);
+ 	if (num == -2) {
+ 		return; // shutting down
+ 	}
+-	
++
+ 	// Restore the buffers if they are lost
+ 	HRESULT hr;
+-	if( FAILED( hr = RestoreBuffers(num) ) )
++	if (FAILED( hr = RestoreBuffers(num)))
+ 		return;
+-	
++
+ 	buffers[num]-&gt;SetVolume(int(DSBVOLUME_MIN * v - 100));
+ 	buffers[num]-&gt;SetPan(int(pan));
+ 
+-	if( FAILED( hr = buffers[num]-&gt;Play( 0, 0, 0/*dwLooped*/ ) ) ){
++	if (FAILED(hr = buffers[num]-&gt;Play(0, 0, 0/*dwLooped*/))) {
++	}
+ 
+-	}
+ 	POP_CODE_MODE;
+ }
+ 
+ 
++
++
+ #pragma pack(push, 1)
+ 
+ // Header copied from WavLib by Michael McTernan
+@@ -345,7 +354,8 @@
+ #undef hswabword
+ #undef hswabdword
+ 
+-	if (header-&gt;format_tag != 1) { // Microsoft PCM format?
++	if (header-&gt;format_tag != 1) {
++		// Microsoft PCM format?
+ 		if (hardFail) {
+ 			handleerror(0,&quot;ReadWAV: invalid format tag.&quot;, name, 0);
+ 		}
+@@ -359,8 +369,8 @@
+ 	wf.wBitsPerSample = header-&gt;BitsPerSample;
+ 	wf.nBlockAlign = header-&gt;channels * header-&gt;BitsPerSample / 8;
+ 	wf.nAvgBytesPerSec = header-&gt;SamplesPerSec * wf.nBlockAlign;
+-	
+-	*bufferSize = header-&gt;datalen &gt; fileSize-sizeof(WAVHeader) ? fileSize-sizeof(WAVHeader) : header-&gt;datalen;
++
++	*bufferSize = header-&gt;datalen &gt; fileSize-sizeof(WAVHeader)? fileSize - sizeof(WAVHeader): header-&gt;datalen;
+ 	*soundData = buf + sizeof(WAVHeader);
+ 
+ 	return true;
+@@ -368,58 +378,59 @@
+ 
+ bool CDxSound::CreateStaticBuffer(const string&amp; path)
+ {
+-	HRESULT hr; 
+-	
+-	// Open the wav file and copy it to a buffer	
+-	Uint8 *buf = 0;
++	HRESULT hr;
++
++	// Open the wav file and copy it to a buffer
++	Uint8* buf = 0;
+ 	CFileHandler file(path);
+ 	int fileSize = file.FileSize();
+-	if(file.FileExists()){
++
++	if (file.FileExists()) {
+ 		buf = SAFE_NEW Uint8[fileSize];
+ 		file.Read(buf, fileSize);
+ 	} else {
+-		//handleerror(0, &quot;Couldnt open wav file&quot;,path.c_str(),0);
+ 		return false;
+ 	}
++
+ 	// Read the WAV file
+ 	Uint8* sampleData = 0;
+ 	Uint32 bufferSize;
+ 	WAVEFORMATEX wf;
+-	if(!ReadWAV (path.c_str(), buf, fileSize, &amp;sampleData, &amp;bufferSize, wf))
+-	{
++
++	if (!ReadWAV(path.c_str(), buf, fileSize, &amp;sampleData, &amp;bufferSize, wf)) {
+ 		delete[] buf;
+ 		return false;
+ 	}
+ 
+-	LPDIRECTSOUNDBUFFER b=NULL;
++	LPDIRECTSOUNDBUFFER b = NULL;
+ 	buffers.push_back(b);
+-	buffers.back()=0;
+-	
++	buffers.back() = 0;
++
+ 	// Set up the direct sound buffer, and only request the flags needed
+ 	// since each requires some overhead and limits if the buffer can 
+ 	// be hardware accelerated
+ 	DSBUFFERDESC dsbd;
+-	ZeroMemory( &amp;dsbd, sizeof(DSBUFFERDESC) );
++	ZeroMemory(&amp;dsbd, sizeof(DSBUFFERDESC));
++
+ 	dsbd.dwSize        = sizeof(DSBUFFERDESC);
+ 	dsbd.dwFlags       = DSBCAPS_STATIC | DSBCAPS_CTRLPAN | DSBCAPS_CTRLVOLUME;
+ 	dsbd.dwBufferBytes = bufferSize;
+ 	dsbd.lpwfxFormat   = &wf;
+-	
+-	// Create the static DirectSound buffer 
+-	if( FAILED( hr = m_pDS-&gt;CreateSoundBuffer( &amp;dsbd, &amp;buffers.back(), NULL ) ) ) {
++
++	// Create the static DirectSound buffer
++	if (FAILED(hr = m_pDS-&gt;CreateSoundBuffer(&amp;dsbd, &amp;buffers.back(), NULL))) {
+ 		delete[] buf;
+ 		return false;
+ 	}
+-	
++
+ 	VOID*   pbData  = NULL;
+ 	VOID*   pbData2 = NULL;
+ 	DWORD   dwLength;
+ 	DWORD   dwLength2;
+ 
+ 	// Lock the buffer down
+-	if( FAILED( hr = buffers.back()-&gt;Lock( 0, bufferSize, &amp;pbData, &amp;dwLength, 
+-		&amp;pbData2, &amp;dwLength2, 0L ) ) ) 
+-	{
++	if (FAILED(hr = buffers.back()-&gt;Lock(0, bufferSize, &amp;pbData, &amp;dwLength,
++		&amp;pbData2, &amp;dwLength2, 0L))) {
+ 		delete[] buf;
+ 		return false;
+ 	}
+@@ -427,7 +438,7 @@
+ 	memcpy(pbData, sampleData, bufferSize);
+ 
+ 	// Unlock the buffer, we don't need it anymore.
+-	buffers.back()-&gt;Unlock( pbData, bufferSize, NULL, 0 );
++	buffers.back()-&gt;Unlock(pbData, bufferSize, NULL, 0);
+ 	delete[] buf;
+ 	return true;
+ }
+@@ -435,55 +446,50 @@
+ 
+ HRESULT CDxSound::RestoreBuffers(int num)
+ {
+-    HRESULT hr;
++	HRESULT hr;
+ 
+-    if( NULL == buffers[num] )
+-        return S_OK;
++	if (NULL == buffers[num])
++		return S_OK;
+ 
+-    DWORD dwStatus;
+-    if( FAILED( hr = buffers[num]-&gt;GetStatus( &amp;dwStatus ) ) )
+-        return hr;
++	DWORD dwStatus;
++	if (FAILED(hr = buffers[num]-&gt;GetStatus( &amp;dwStatus)))
++		return hr;
+ 
+-    if( dwStatus &amp; DSBSTATUS_BUFFERLOST )
+-    {
+-        // Since the app could have just been activated, then
+-        // DirectSound may not be giving us control yet, so 
+-        // the restoring the buffer may fail.  
+-        // If it does, sleep until DirectSound gives us control.
+-        do 
+-        {
+-            hr = buffers[num]-&gt;Restore();
+-            if( hr == DSERR_BUFFERLOST )
+-                SleepEx(10, true);
+-        }
+-        while( FAILED(hr) );
++	if (dwStatus &amp; DSBSTATUS_BUFFERLOST) {
++		// Since the app could have just been activated, then
++		// DirectSound may not be giving us control yet, so
++		// the restoring the buffer may fail.
++		// If it does, sleep until DirectSound gives us control.
++		do {
++			hr = buffers[num]-&gt;Restore();
++			if (hr == DSERR_BUFFERLOST)
++				SleepEx(10, true);
++		}
++		while (FAILED(hr));
++	}
+ 
+-//        if( FAILED( hr = FillBuffer() ) )
+-  //          return hr;
+-    }
+-
+-    return S_OK;
+-
++	return S_OK;
+ }
+ 
+ void CDxSound::Update()
+ {
+-	oggStream.update();
++	oggStream.Update();
+ 
+-	float total=wantedSounds*0.5f;
+-	for(std::list&lt;PlayingSound&gt;::iterator pi=playingSounds.begin();pi!=playingSounds.end();){
+-		int num=pi-&gt;num;
++	float total = wantedSounds * 0.5f;
++
++	for (std::list&lt;PlayingSound&gt;::iterator pi = playingSounds.begin(); pi != playingSounds.end(); ) {
++		int num = pi-&gt;num;
+ 		DWORD status;
+ 		buffers[num]-&gt;GetStatus(&amp;status);
+-		if(!status &amp; DSBSTATUS_PLAYING){
+-			pi=playingSounds.erase(pi);
++		if (!status &amp; DSBSTATUS_PLAYING) {
++			pi = playingSounds.erase(pi);
+ 			loadedSounds[buf2id[num]]-&gt;freebufs.push_back(num);
+ 		} else {
+-			total-=(0.5f-pi-&gt;volume);
++			total -= (0.5f - pi-&gt;volume);
+ 			++pi;
+ 		}
+ 	}
+-	total/=wantedSounds;
+-	curThreshhold=(curThreshhold+total)*0.5f;
+-//	logOutput.Print(&quot;curt %.2f&quot;,curThreshhold);
++
++	total /= wantedSounds;
++	curThreshhold = (curThreshhold + total) * 0.5f;
+ }
+
+Modified: trunk/rts/System/Platform/Win/DxSound.h
+===================================================================
+--- trunk/rts/System/Platform/Win/DxSound.h	2008-04-09 11:50:18 UTC (rev 5685)
++++ trunk/rts/System/Platform/Win/DxSound.h	2008-04-09 17:44:58 UTC (rev 5686)
+@@ -36,7 +36,9 @@
+ 	void PlayStream(const std::string&amp; path, float volume = 1.0f,
+ 					const float3&amp; pos = ZeroVector, bool loop = false);
+ 	void StopStream();
+-	void PauseStream() { /* TODO */ }
++	void PauseStream();
++	unsigned int GetStreamTime();
++	void SetStreamVolume(float);
+ 
+ 	void SetVolume(float v);
+ 
+@@ -47,7 +49,7 @@
+ 	bool hardFail;
+ 
+ protected:
+-	int GetBuf(int id,float volume);
++	int GetBuf(int id, float volume);
+ 	int InitFile(const string&amp; name);
+ 
+ 	struct SoundInfo {
+@@ -59,7 +61,7 @@
+ 		float volume;
+ 	};
+ 
+-	map&lt;string,int&gt; waveid;
++	map&lt;string, int&gt; waveid;
+ 	vector&lt;SoundInfo*&gt; loadedSounds;
+ 	list&lt;PlayingSound&gt; playingSounds;
+ 	vector&lt;int&gt; buf2id;
+@@ -70,7 +72,7 @@
+ 	HRESULT RestoreBuffers(int num);
+ 	bool CreateStaticBuffer(const string&amp; name);
+ 	HRESULT FillBuffer();
+-	bool ReadWAV (const char *name, Uint8 *buf, int fileSize, Uint8 **soundData, Uint32* bufferSize, WAVEFORMATEX&amp; wf);
++	bool ReadWAV (const char* name, Uint8* buf, int fileSize, Uint8** soundData, Uint32* bufferSize, WAVEFORMATEX&amp; wf);
+ 
+ 	LPDIRECTSOUND		m_pDS;
+ 	DWORD               m_dwBufferBytes;
+
+Modified: trunk/rts/System/Platform/Win/OggStream.cpp
+===================================================================
+--- trunk/rts/System/Platform/Win/OggStream.cpp	2008-04-09 11:50:18 UTC (rev 5685)
++++ trunk/rts/System/Platform/Win/OggStream.cpp	2008-04-09 17:44:58 UTC (rev 5686)
+@@ -1,3 +1,5 @@
++#include &lt;SDL.h&gt;
++
+ #include &quot;OggStream.h&quot;
+ #include &quot;LogOutput.h&quot;
+ 
+@@ -3,16 +5,21 @@
+ 
+ COggStream::COggStream() {
+-	DS = 0;
+-	DSB = 0;
+-	oggFile = 0;
+-	vorbisInfo = 0;
+-	vorbisComment = 0;
++	DS = 0x0;
++	DSB = 0x0;
++	oggFile = 0x0;
++	vorbisInfo = 0x0;
++	vorbisComment = 0x0;
++
++	secsPlayed = 0;
++	lastTick = 0;
++
+ 	stopped = true;
++	paused = false;
+ 	isLastSection = true;
+ 	reachedEOS = true;
+ }
+ 
+ 
+-void COggStream::play(const std::string&amp; path, float volume, const float3&amp; position) {
++void COggStream::Play(const std::string&amp; path, float volume, const float3&amp; position) {
+ 	if (!stopped) {
+ 		return;
+@@ -34,7 +41,7 @@
+ 
+ 	vorbisInfo = ov_info(&amp;oggStream, -1);
+ 	vorbisComment = ov_comment(&amp;oggStream, -1);
+-	// display();
++	// DisplayInfo();
+ 
+ 	// set the wave format
+ 	WAVEFORMATEX wfm;
+@@ -49,11 +56,12 @@
+ 	wfm.nBlockAlign		= 2 * wfm.nChannels;
+ 	wfm.wFormatTag		= 1;
+ 
++
+ 	// set up the stream buffer
+ 	DSBUFFERDESC desc;
+ 
+ 	desc.dwSize         = sizeof(desc);
+-	desc.dwFlags        = 0;
++	desc.dwFlags        = DSBCAPS_CTRLVOLUME;
+ 	desc.lpwfxFormat    = &wfm;
+ 	desc.dwReserved     = 0;
+ 
+@@ -66,11 +74,13 @@
+ 	int ret = 1;
+ 	DWORD size = BUFSIZE * 2;
+ 
++	SetVolume(volume, true);
++
+ 	char* buf;
+ 	// offset to lock start, lock size, address of first lock part, size of first part, 0, 0, flag
+ 	DSB-&gt;Lock(0, size, (LPVOID*) &amp;buf, &amp;size, NULL, NULL, DSBLOCK_ENTIREBUFFER);
+-	DSB-&gt;SetVolume(int(DSBVOLUME_MIN * volume));
+ 
++
+ 	// read in the stream bits
+ 	while (ret &amp;&amp; pos &lt; size) {
+ 		ret = ov_read(&amp;oggStream, buf + pos, size - pos, 0, 2, 1, &amp;sec);
+@@ -82,7 +92,13 @@
+ 
+ 	curSection = 0;
+ 	lastSection = 0;
++
++	secsPlayed = 0;
++	lastTick = SDL_GetTicks();
++
+ 	stopped = false;
++	paused = false;
++
+ 	isLastSection = false;
+ 	reachedEOS = false;
+ }
+@@ -90,7 +106,7 @@
+ 
+ // stops the currently playing stream
+ // and cleans up the associated buffer
+-void COggStream::stop() {
++void COggStream::Stop() {
+ 	if (!stopped) {
+ 		stopped = true;
+ 		DSB-&gt;Stop();
+@@ -98,59 +114,104 @@
+ 	}
+ }
+ 
++void COggStream::SetVolume(float volume, bool b) {
++	if (!stopped || b) {
++		// clamp the volume to the interval [0, 1]
++		float v = std::max(0.0f, std::min(volume, 1.0f));
+ 
+-void COggStream::update() {
+-	if (stopped) {
+-		return;
++		// SetVolume() wants the volume level specified in hundredths of
++		// decibels between DSBVOLUME_MIN [-10.000] and DSBVOLUME_MAX [0]
++		// but we assume &lt;volume&gt; is between 0 and 1, linearly convert it
++		//
++		// 0.0 --&gt; -10000
++		// 0.1 --&gt;  -9000
++		// ..............
++		// 1.0 --&gt;      0
++		float db = (1.0f - v) * -10000;
++
++		DSB-&gt;SetVolume(db);
+ 	}
++}
+ 
+-	DWORD pos;
+-	DSB-&gt;GetCurrentPosition(&amp;pos, NULL);
+-	curSection = (pos &lt; BUFSIZE)? 0: 1;
++void COggStream::TogglePause() {
++	if (!stopped) {
++		paused = !paused;
+ 
+-	// buffer section changed?
+-	if (curSection != lastSection) {
+-		if (reachedEOS) {
+-			stop();
+-			return;
++		if (paused) {
++			DSB-&gt;Stop();
++		} else {
++			DSB-&gt;Play(0, 0, DSBPLAY_LOOPING);
+ 		}
+-		if (isLastSection) {
+-			reachedEOS = true;
+-		}
++	}
++}
+ 
+-		DWORD size = BUFSIZE;
+-		char* buf;
++void COggStream::UpdateTimer() {
++	unsigned int tick = SDL_GetTicks();
+ 
+-		// fill the section we switched from
+-		DSB-&gt;Lock(lastSection * BUFSIZE, size, (LPVOID*) &amp;buf, &amp;size, NULL, NULL, 0);
++	if (paused) {
++		lastTick = tick;
++	}
+ 
+-		DWORD pos = 0;
+-		int sec = 0;
+-		int ret = 1;
++	if ((tick - lastTick) &gt;= 1000) {
++		secsPlayed += (tick - lastTick) / 1000;
++		lastTick = tick;
++	}
++}
+ 
+-		while (ret &amp;&amp; pos &lt; size) {
+-			ret = ov_read(&amp;oggStream, buf + pos, size - pos, 0, 2, 1, &amp;sec);
+-			pos += ret;
+-		}
++void COggStream::Update() {
++	if (!stopped) {
++		UpdateTimer();
+ 
+-		if (!ret) {
+-			// EOS reached, zero rest of buffer
+-			while (pos &lt; size) {
+-				*(buf + pos++) = 0;
++		if (!paused) {
++			DWORD pos;
++			DSB-&gt;GetCurrentPosition(&amp;pos, NULL);
++			curSection = (pos &lt; BUFSIZE)? 0: 1;
++
++			// buffer section changed?
++			if (curSection != lastSection) {
++				if (reachedEOS) {
++					Stop();
++					return;
++				}
++				if (isLastSection) {
++					reachedEOS = true;
++				}
++
++				DWORD size = BUFSIZE;
++				char* buf;
++
++				// fill the section we switched from
++				DSB-&gt;Lock(lastSection * BUFSIZE, size, (LPVOID*) &amp;buf, &amp;size, NULL, NULL, 0);
++
++				DWORD pos = 0;
++				int sec = 0;
++				int ret = 1;
++
++				while (ret &amp;&amp; pos &lt; size) {
++					ret = ov_read(&amp;oggStream, buf + pos, size - pos, 0, 2, 1, &amp;sec);
++					pos += ret;
++				}
++
++				if (!ret) {
++					// EOS reached, zero rest of buffer
++					while (pos &lt; size) {
++						*(buf + pos++) = 0;
++					}
++
++					// only this buffer section to go
++					isLastSection = true;
++				}
++
++				DSB-&gt;Unlock(buf, size, NULL, 0);
++				lastSection = curSection;
+ 			}
+-
+-			// only this buffer section to go
+-			isLastSection = true;
+ 		}
+-
+-		DSB-&gt;Unlock(buf, size, NULL, 0);
+-		lastSection = curSection;
+ 	}
+ }
+ 
+ 
+ // display Ogg info and comments
+-void COggStream::display() {
++void COggStream::DisplayInfo() {
+ 	logOutput.Print(&quot;version:           %d&quot;, vorbisInfo-&gt;version);
+ 	logOutput.Print(&quot;channels:          %d&quot;, vorbisInfo-&gt;channels);
+ 	logOutput.Print(&quot;rate (Hz):         %d&quot;, vorbisInfo-&gt;rate);
+
+Modified: trunk/rts/System/Platform/Win/OggStream.h
+===================================================================
+--- trunk/rts/System/Platform/Win/OggStream.h	2008-04-09 11:50:18 UTC (rev 5685)
++++ trunk/rts/System/Platform/Win/OggStream.h	2008-04-09 17:44:58 UTC (rev 5686)
+@@ -17,14 +17,19 @@
+ 	public:
+ 		COggStream();
+ 
+-		inline void setDSoundObject(LPDIRECTSOUND _DS) { DS = _DS; }
++		inline void SetDSoundObject(LPDIRECTSOUND _DS) { DS = _DS; }
+ 
+-		void play(const std::string&amp; path, float volume, const float3&amp; position);
+-		void stop();
+-		void update();
+-		void display();
++		void Play(const std::string&amp; path, float volume, const float3&amp; position);
++		void Stop();
++		void TogglePause();
++		void Update();
++		unsigned int GetPlayTime() const { return ((!stopped)? secsPlayed: 0); }
++		void SetVolume(float, bool b = false);
+ 
+ 	private:
++		void UpdateTimer();
++		void DisplayInfo();
++
+ 		LPDIRECTSOUND DS;
+ 		LPDIRECTSOUNDBUFFER DSB;
+ 
+@@ -35,9 +40,14 @@
+ 
+ 		int curSection;
+ 		int lastSection;
+-		bool stopped;
+ 		bool isLastSection;
+ 		bool reachedEOS;
++
++		unsigned int secsPlayed;
++		unsigned int lastTick;
++
++		bool stopped;
++		bool paused;
+ };
+ 
+ #endif
+
+Modified: trunk/rts/System/Sound.h
+===================================================================
+--- trunk/rts/System/Sound.h	2008-04-09 11:50:18 UTC (rev 5685)
++++ trunk/rts/System/Sound.h	2008-04-09 17:44:58 UTC (rev 5686)
+@@ -16,8 +16,7 @@
+ 	
+ 	static CSound* GetSoundSystem();
+ 
+-	virtual unsigned int GetWaveId(const std::string&amp; path,
+-	                               bool hardFail = true) = 0;
++	virtual unsigned int GetWaveId(const std::string&amp; path, bool hardFail = true) = 0;
+ 	virtual void Update() = 0;
+ 	virtual void PlaySample(int id, float volume = 1.0f) = 0;
+ 	virtual void PlaySample(int id, const float3&amp; p, float volume = 1.0f) = 0;
+@@ -26,6 +25,8 @@
+ 							const float3&amp; pos = ZeroVector, bool loop = false) = 0;
+ 	virtual void StopStream() = 0;
+ 	virtual void PauseStream() = 0;
++	virtual unsigned int GetStreamTime() = 0;
++	virtual void SetStreamVolume(float) = 0;
+ 
+ 	virtual void SetVolume(float vol) = 0; // 1 = full volume
+ 	
+@@ -34,7 +35,7 @@
+ 	void PlayUnitActivate(int id, CUnit* p, float volume = 1.0f);
+ 	void NewFrame();
+ 
+-	void SetUnitReplyVolume(float vol); // also affected by global volume ( SetVolume() )
++	void SetUnitReplyVolume(float vol); // also affected by global volume (SetVolume())
+ 
+ private:
+ 	std::set&lt;unsigned int&gt; repliesPlayed;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000466.html">[Taspring-linux-commit] r5685 - in trunk/rts: Game Map
+</A></li>
+	<LI>Next message: <A HREF="000468.html">[Taspring-linux-commit] r5687 - trunk/rts/System/Net
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#467">[ date ]</a>
+              <a href="thread.html#467">[ thread ]</a>
+              <a href="subject.html#467">[ subject ]</a>
+              <a href="author.html#467">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

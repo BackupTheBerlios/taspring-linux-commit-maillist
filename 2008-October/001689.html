@@ -1,0 +1,325 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6920 - trunk/rts/Game
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6920%20-%20trunk/rts/Game&In-Reply-To=%3C20081027190625.24124474F%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001688.html">
+   <LINK REL="Next"  HREF="001690.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6920 - trunk/rts/Game</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6920%20-%20trunk/rts/Game&In-Reply-To=%3C20081027190625.24124474F%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6920 - trunk/rts/Game">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon Oct 27 20:06:25 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001688.html">[Taspring-linux-commit] r6919 - trunk/rts/Game
+</A></li>
+        <LI>Next message: <A HREF="001690.html">[Taspring-linux-commit] r6921 - trunk/rts/Sim/Misc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1689">[ date ]</a>
+              <a href="thread.html#1689">[ thread ]</a>
+              <a href="subject.html#1689">[ subject ]</a>
+              <a href="author.html#1689">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-10-27 20:06:24 +0100 (Mon, 27 Oct 2008)
+New Revision: 6920
+
+Modified:
+   trunk/rts/Game/GameHelper.cpp
+   trunk/rts/Game/GameHelper.h
+Log:
+* refactor CGameHelper::Explosion for readability
+
+Modified: trunk/rts/Game/GameHelper.cpp
+===================================================================
+--- trunk/rts/Game/GameHelper.cpp	2008-10-27 17:44:21 UTC (rev 6919)
++++ trunk/rts/Game/GameHelper.cpp	2008-10-27 19:06:24 UTC (rev 6920)
+@@ -68,9 +68,102 @@
+ }
+ 
+ 
++
++void CGameHelper::DoExplosionDamage(CUnit* unit,
++	const float3&amp; expPos, float expRad, float expSpeed,
++	bool ignoreOwner, CUnit* owner, float edgeEffectiveness,
++	const DamageArray&amp; damages, int weaponId)
++{
++	if (ignoreOwner &amp;&amp; (unit == owner)) {
++		return;
++	}
++
++	// dist is equal to the maximum of &quot;distance from center
++	// of unit to center of explosion&quot; and &quot;unit radius + 0.1&quot;,
++	// where &quot;center of unit&quot; is determined by the relative
++	// position of its collision volume and &quot;unit radius&quot; by
++	// the volume's minimally-bounding sphere
++	//
++	float3 dif = (unit-&gt;midPos + unit-&gt;collisionVolume-&gt;axisOffsets) - expPos;
++	float expDist = dif.Length();
++	const float volRad = unit-&gt;collisionVolume-&gt;volumeBoundingRadius;
++
++	expDist = std::max(expDist, volRad + 0.1f);
++
++	// expDist2 is the distance from the boundary of the
++	// _volume's_ minimally-bounding sphere (!) to the
++	// explosion center, unless unit-&gt;isUnderWater and
++	// the explosion is above water: then center2center
++	// distance is used
++	//
++	// NOTE #1: this will be only an approximation when
++	// the unit's collision volume is not a sphere, but
++	// a better one than when using unit-&gt;radius
++	//
++	// NOTE #2: if an explosion occurs right underneath
++	// a unit's map footprint, it can cause damage even
++	// if the unit's collision volume is greatly offset
++	// (because CQuadField is again based exclusively on
++	// unit-&gt;radius, so the iteration will include units
++	// that should not be touched)
++	float expDist2 = expDist - volRad;
++
++	if (unit-&gt;isUnderWater &amp;&amp; (expPos.y &gt; -1.0f)) {
++		// should make it harder to damage subs with above-water weapons
++		expDist2 += volRad;
++		expDist2 = std::min(expDist2, expRad);
++	}
++
++	// Clamp expDist to radius to prevent division by zero
++	// (expDist2 can never be &gt; radius). We still need the
++	// original expDist later to normalize dif.
++	float expDist1 = std::min(expDist, expRad);
++	float mod  = (expRad - expDist1) / (expRad - expDist1 * edgeEffectiveness);
++	float mod2 = (expRad - expDist2) / (expRad - expDist2 * edgeEffectiveness);
++	dif /= expDist;
++	dif.y += 0.12f;
++
++	DamageArray damageDone = damages * mod2;
++	float3 addedImpulse = dif * (damages.impulseFactor * mod * (damages[0] + damages.impulseBoost) * 3.2f);
++
++	if (expDist2 &lt; (expSpeed * 4.0f)) { //damage directly
++		unit-&gt;DoDamage(damageDone, owner, addedImpulse, weaponId);
++	} else { //damage later
++		WaitingDamage* wd = SAFE_NEW WaitingDamage((owner? owner-&gt;id: -1), unit-&gt;id, damageDone, addedImpulse, weaponId);
++		waitingDamages[(gs-&gt;frameNum + int(expDist2 / expSpeed) - 3) &amp; 127].push_front(wd);
++	}
++}
++
++void CGameHelper::DoExplosionDamage(CFeature* feature,
++	const float3&amp; expPos, float expRad, CUnit* owner, const DamageArray&amp; damages)
++{
++	CollisionVolume* cv = feature-&gt;collisionVolume;
++
++	if (cv) {
++		float3 dif = (feature-&gt;midPos + cv-&gt;axisOffsets) - expPos;
++		float expDist = std::max(dif.Length(), 0.1f);
++		float expMod = (expRad - expDist) / expRad;
++
++		// always do some damage with explosive stuff
++		// (DDM wreckage etc. is too big to normally
++		// be damaged otherwise, even by BB shells)
++		// NOTE: this will also be only approximate
++		// for non-spherical volumes
++		if ((expRad &gt; 8.0f) &amp;&amp; (expDist &lt; (cv-&gt;volumeBoundingRadius * 1.1f)) &amp;&amp; (expMod &lt; 0.1f)) {
++			expMod = 0.1f;
++		}
++		if (expMod &gt; 0.0f) {
++			feature-&gt;DoDamage(damages * expMod, owner,
++				dif * (damages.impulseFactor * expMod / expDist *
++				(damages[0] + damages.impulseBoost)));
++		}
++	}
++}
++
++
+ void CGameHelper::Explosion(float3 expPos, const DamageArray&amp; damages,
+                             float expRad, float edgeEffectiveness,
+-                            float explosionSpeed, CUnit* owner,
++                            float expSpeed, CUnit* owner,
+                             bool damageGround, float gfxMod, bool ignoreOwner,
+                             CExplosionGenerator* explosionGraphics, CUnit* hit,
+                             const float3&amp; impactDir, int weaponId)
+@@ -84,6 +177,7 @@
+ 			}
+ 		}
+ 	}
++
+ 	bool noGfx = eventHandler.Explosion(weaponId, expPos, owner);
+ 
+ #ifdef TRACE_SYNC
+@@ -96,101 +190,41 @@
+ 	expRad = std::max(expRad, 1.0f);
+ 	float height = std::max(expPos.y - h2, 0.0f);
+ 
++
++	// damage all units within the explosion radius
+ 	vector&lt;CUnit*&gt; units = qf-&gt;GetUnitsExact(expPos, expRad);
++	vector&lt;CUnit*&gt;::iterator ui;
++	bool hitUnitDamaged = false;
+ 
+-	// Damage Units
+-	for (vector&lt;CUnit*&gt;::iterator ui = units.begin(); ui != units.end(); ++ui) {
++	for (ui = units.begin(); ui != units.end(); ++ui) {
+ 		CUnit* unit = *ui;
+ 
+-		if (ignoreOwner &amp;&amp; (unit == owner)) {
+-			continue;
++		if (unit == hit) {
++			hitUnitDamaged = true;
+ 		}
+ 
+-		// dist is equal to the maximum of &quot;distance from center
+-		// of unit to center of explosion&quot; and &quot;unit radius + 0.1&quot;,
+-		// where &quot;center of unit&quot; is determined by the relative
+-		// position of its collision volume and &quot;unit radius&quot; by
+-		// the volume's minimally-bounding sphere
+-		//
+-		float3 dif = (unit-&gt;midPos + unit-&gt;collisionVolume-&gt;axisOffsets) - expPos;
+-		float expDist = dif.Length();
+-		const float volRad = unit-&gt;collisionVolume-&gt;volumeBoundingRadius;
++		DoExplosionDamage(unit, expPos, expRad, expSpeed, ignoreOwner, owner, edgeEffectiveness, damages, weaponId);
++	}
+ 
+-		expDist = std::max(expDist, volRad + 0.1f);
+-
+-		// expDist2 is the distance from the boundary of the
+-		// _volume's_ minimally-bounding sphere (!) to the
+-		// explosion center, unless unit-&gt;isUnderWater and
+-		// the explosion is above water: then center2center
+-		// distance is used
+-		//
+-		// NOTE #1: this will be only an approximation when
+-		// the unit's collision volume is not a sphere, but
+-		// a better one than when using unit-&gt;radius
+-		//
+-		// NOTE #2: if an explosion occurs right underneath
+-		// a unit's map footprint, it can cause damage even
+-		// if the unit's collision volume is greatly offset
+-		// (because CQuadField is again based exclusively on
+-		// unit-&gt;radius, so the iteration will include units
+-		// that should not be touched)
+-		float expDist2 = expDist - volRad;
+-
+-		if (unit-&gt;isUnderWater &amp;&amp; (expPos.y &gt; -1.0f)) {
+-			// should make it harder to damage subs with above-water weapons
+-			expDist2 += volRad;
+-			expDist2 = std::min(expDist2, expRad);
+-		}
+-
+-		// Clamp expDist to radius to prevent division by zero
+-		// (expDist2 can never be &gt; radius). We still need the
+-		// original expDist later to normalize dif.
+-		float expDist1 = std::min(expDist, expRad);
+-		float mod  = (expRad - expDist1) / (expRad - expDist1 * edgeEffectiveness);
+-		float mod2 = (expRad - expDist2) / (expRad - expDist2 * edgeEffectiveness);
+-		dif /= expDist;
+-		dif.y += 0.12f;
+-
+-		DamageArray damageDone = damages * mod2;
+-		float3 addedImpulse = dif * (damages.impulseFactor * mod * (damages[0] + damages.impulseBoost) * 3.2f);
+-
+-		if (expDist2 &lt; (explosionSpeed * 4.0f)) { //damage directly
+-			unit-&gt;DoDamage(damageDone, owner, addedImpulse, weaponId);
+-		} else { //damage later
+-			WaitingDamage* wd = SAFE_NEW WaitingDamage((owner? owner-&gt;id: -1), unit-&gt;id, damageDone, addedImpulse, weaponId);
+-			waitingDamages[(gs-&gt;frameNum + int(expDist2 / explosionSpeed) - 3) &amp; 127].push_front(wd);
+-		}
++	// HACK: for a unit with an offset coldet volume, the explosion
++	// (from an impacting projectile) position might not correspond
++	// to its quadfield position so we need to damage it separately
++	if (hit &amp;&amp; !hitUnitDamaged) {
++		DoExplosionDamage(hit, expPos, expRad, expSpeed, ignoreOwner, owner, edgeEffectiveness, damages, weaponId);
+ 	}
+ 
+ 
++	// damage all features within the explosion radius
+ 	vector&lt;CFeature*&gt; features = qf-&gt;GetFeaturesExact(expPos, expRad);
+ 	vector&lt;CFeature*&gt;::iterator fi;
+ 
+ 	for (fi = features.begin(); fi != features.end(); ++fi) {
+ 		CFeature* feature = *fi;
+-		CollisionVolume* cv = feature-&gt;collisionVolume;
+ 
+-		if (cv) {
+-			float3 dif = (feature-&gt;midPos + cv-&gt;axisOffsets) - expPos;
+-			float expDist = std::max(dif.Length(), 0.1f);
+-			float expMod = (expRad - expDist) / expRad;
+-
+-			// always do some damage with explosive stuff
+-			// (DDM wreckage etc. is too big to normally
+-			// be damaged otherwise, even by BB shells)
+-			// NOTE: this will also be only approximate
+-			// for non-spherical volumes
+-			if ((expRad &gt; 8.0f) &amp;&amp; (expDist &lt; (cv-&gt;volumeBoundingRadius * 1.1f)) &amp;&amp; (expMod &lt; 0.1f)) {
+-				expMod = 0.1f;
+-			}
+-			if (expMod &gt; 0.0f) {
+-				feature-&gt;DoDamage(damages * expMod, owner,
+-				    dif * (damages.impulseFactor * expMod / expDist *
+-					(damages[0] + damages.impulseBoost)));
+-			}
+-		}
++		DoExplosionDamage(feature, expPos, expRad, owner, damages);
+ 	}
+ 
++	// deform the map
+ 	if (damageGround &amp;&amp; !mapDamage-&gt;disabled &amp;&amp;
+ 	    (expRad &gt; height) &amp;&amp; (damages.craterMult &gt; 0.0f)) {
+ 		float damage = damages[0] * (1.0f - (height / expRad));
+
+Modified: trunk/rts/Game/GameHelper.h
+===================================================================
+--- trunk/rts/Game/GameHelper.h	2008-10-27 17:44:21 UTC (rev 6919)
++++ trunk/rts/Game/GameHelper.h	2008-10-27 19:06:24 UTC (rev 6920)
+@@ -43,7 +43,11 @@
+ 	float TraceRay(const float3&amp; start,const float3&amp; dir,float length,float power,CUnit* owner, CUnit*&amp; hit,int collisionFlags=0);
+ 	float GuiTraceRay(const float3&amp; start,const float3&amp; dir,float length, CUnit*&amp; hit,bool useRadar,CUnit* exclude=0);
+ 	float GuiTraceRayFeature(const float3&amp; start, const float3&amp; dir, float length,CFeature*&amp; feature);
+-	void Explosion(float3 pos,const DamageArray&amp; damages,float radius, float edgeEffectiveness, float explosionSpeed, CUnit* owner,bool damageGround,float gfxMod,bool ignoreOwner, CExplosionGenerator *explosionGraphics,CUnit *hit, const float3 &amp;impactDir, int weaponId);
++
++	void DoExplosionDamage(CUnit*, const float3&amp;, float, float, bool, CUnit*, float, const DamageArray&amp;, int);
++	void DoExplosionDamage(CFeature*, const float3&amp;, float, CUnit*, const DamageArray&amp;);
++	void Explosion(float3 pos, const DamageArray&amp; damages,float radius, float edgeEffectiveness, float explosionSpeed, CUnit* owner,bool damageGround,float gfxMod,bool ignoreOwner, CExplosionGenerator *explosionGraphics,CUnit *hit, const float3 &amp;impactDir, int weaponId);
++
+ 	float TraceRayTeam(const float3&amp; start,const float3&amp; dir,float length, CUnit*&amp; hit,bool useRadar,CUnit* exclude,int allyteam);
+ 	void BuggerOff(float3 pos, float radius,CUnit* exclude=0);
+ 	float3 Pos2BuildPos(const BuildInfo&amp; buildInfo);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001688.html">[Taspring-linux-commit] r6919 - trunk/rts/Game
+</A></li>
+	<LI>Next message: <A HREF="001690.html">[Taspring-linux-commit] r6921 - trunk/rts/Sim/Misc
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1689">[ date ]</a>
+              <a href="thread.html#1689">[ thread ]</a>
+              <a href="subject.html#1689">[ subject ]</a>
+              <a href="author.html#1689">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

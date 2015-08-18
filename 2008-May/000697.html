@@ -1,0 +1,430 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5917 - in trunk:	installer/builddata/springcontent/gamedata	rts/Game/StartScripts rts/Sim/Units
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5917%20-%20in%20trunk%3A%0A%09installer/builddata/springcontent/gamedata%0A%09rts/Game/StartScripts%20rts/Sim/Units&In-Reply-To=%3C20080520181758.99B86470D%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000696.html">
+   <LINK REL="Next"  HREF="000698.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5917 - in trunk:	installer/builddata/springcontent/gamedata	rts/Game/StartScripts rts/Sim/Units</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5917%20-%20in%20trunk%3A%0A%09installer/builddata/springcontent/gamedata%0A%09rts/Game/StartScripts%20rts/Sim/Units&In-Reply-To=%3C20080520181758.99B86470D%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5917 - in trunk:	installer/builddata/springcontent/gamedata	rts/Game/StartScripts rts/Sim/Units">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue May 20 20:17:57 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000696.html">[Taspring-linux-commit] r5916 - in trunk:	installer/builddata/springcontent/gamedata rts/Map	rts/Rendering rts/Rendering/Env rts/Sim/Projectiles
+</A></li>
+        <LI>Next message: <A HREF="000698.html">[Taspring-linux-commit] r5918 - in trunk/rts: Sim/Misc	System/FileSystem build/vstudio8
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#697">[ date ]</a>
+              <a href="thread.html#697">[ thread ]</a>
+              <a href="subject.html#697">[ subject ]</a>
+              <a href="author.html#697">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: FLOZi
+Date: 2008-05-20 20:17:56 +0200 (Tue, 20 May 2008)
+New Revision: 5917
+
+Added:
+   trunk/installer/builddata/springcontent/gamedata/sidedata.lua
+Modified:
+   trunk/rts/Game/StartScripts/CommanderScript.cpp
+   trunk/rts/Game/StartScripts/CommanderScript2.cpp
+   trunk/rts/Game/StartScripts/GlobalAITestScript.cpp
+   trunk/rts/Game/StartScripts/LoadScript.cpp
+   trunk/rts/Game/StartScripts/SpawnScript.cpp
+   trunk/rts/Sim/Units/UnitDefHandler.cpp
+Log:
+Sidedata.tdf -&gt; sidedata.lua
+Start scripts now no longer default to OTA commanders, content_error is thrown if a side's commander cannot be read
+For scripts with two sides, side1 defaults to side0 if it is missing, so mods no longer need two sides to work
+
+Added: trunk/installer/builddata/springcontent/gamedata/sidedata.lua
+===================================================================
+--- trunk/installer/builddata/springcontent/gamedata/sidedata.lua	                        (rev 0)
++++ trunk/installer/builddata/springcontent/gamedata/sidedata.lua	2008-05-20 18:17:56 UTC (rev 5917)
+@@ -0,0 +1,33 @@
++--------------------------------------------------------------------------------
++--------------------------------------------------------------------------------
++--
++--  file:    sidedata.lua
++--  brief:   sidedata.tdf lua parser
++--  author:  Craig Lawrence, Dave Rodgers
++--
++--  Copyright (C) 2007.
++--  Licensed under the terms of the GNU GPL, v2 or later.
++--
++--------------------------------------------------------------------------------
++--------------------------------------------------------------------------------
++
++local TDF = VFS.Include('gamedata/parse_tdf.lua')
++
++--------------------------------------------------------------------------------
++--------------------------------------------------------------------------------
++
++if (not VFS.FileExists('gamedata/sidedata.tdf')) then
++  return false
++end
++
++local sidedata, err = TDF.Parse('gamedata/sidedata.tdf')
++if (sidedata == nil) then
++  error('Error parsing sidedata.tdf: ' .. err)
++end
++
++--------------------------------------------------------------------------------
++
++return sidedata
++
++--------------------------------------------------------------------------------
++--------------------------------------------------------------------------------
+
+Modified: trunk/rts/Game/StartScripts/CommanderScript.cpp
+===================================================================
+--- trunk/rts/Game/StartScripts/CommanderScript.cpp	2008-05-19 23:57:14 UTC (rev 5916)
++++ trunk/rts/Game/StartScripts/CommanderScript.cpp	2008-05-20 18:17:56 UTC (rev 5917)
+@@ -1,24 +1,26 @@
+-#include &quot;StdAfx.h&quot;
+-#include &quot;CommanderScript.h&quot;
+-#include &quot;Sim/Units/UnitLoader.h&quot;
+-#include &quot;TdfParser.h&quot;
+ #include &lt;algorithm&gt;
+ #include &lt;cctype&gt;
+ #include &lt;map&gt;
++#include &quot;StdAfx.h&quot;
++#include &quot;CommanderScript.h&quot;
++#include &quot;ExternalAI/GlobalAIHandler.h&quot;
++#include &quot;Game/Game.h&quot;
++#include &quot;Game/GameSetup.h&quot;
+ #include &quot;Game/Team.h&quot;
+-#include &quot;Game/GameSetup.h&quot;
+-#include &quot;Game/Game.h&quot;
++#include &quot;Game/UI/MiniMap.h&quot;
++#include &quot;Game/UI/InfoConsole.h&quot;
++#include &quot;Lua/LuaParser.h&quot;
+ #include &quot;Map/MapInfo.h&quot;
++#include &quot;Map/ReadMap.h&quot;
+ #include &quot;Sim/Units/Unit.h&quot;
+ #include &quot;Sim/Units/UnitDefHandler.h&quot;
+-#include &quot;ExternalAI/GlobalAIHandler.h&quot;
+-#include &quot;Map/ReadMap.h&quot;
++#include &quot;Sim/Units/UnitLoader.h&quot;
++#include &quot;System/LogOutput.h&quot;
++#include &quot;System/TdfParser.h&quot; // still required for parsing map SMD for start positions
++#include &quot;System/FileSystem/FileHandler.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
+-#include &quot;Game/UI/MiniMap.h&quot;
+-#include &quot;Game/UI/InfoConsole.h&quot;
+ 
+-
+ extern std::string stupidGlobalMapname;
+ 
+ 
+@@ -36,17 +38,21 @@
+ void CCommanderScript::GameStart()
+ {
+ 	if (gameSetup) {
+-		TdfParser p(&quot;gamedata/SIDEDATA.TDF&quot;);
++		LuaParser p(&quot;gamedata/sidedata.lua&quot;, SPRING_VFS_MOD_BASE, SPRING_VFS_ZIP);
++		if (!p.Execute() || !p.IsValid())
++			logOutput.Print(p.GetErrorLog());
++			
++		const LuaTable sideTable = p.GetRoot();
+ 
+ 		// make a map of all side names  (assumes contiguous sections)
+ 		std::map&lt;std::string, std::string&gt; sideMap;
+ 		char sideText[64];
+ 		for (int side = 0;
+ 				 SNPRINTF(sideText, sizeof(sideText), &quot;side%i&quot;, side),
+-				 p.SectionExist(sideText); // the test
++				 sideTable.KeyExists(sideText); // the test
+ 				 side++) {
+ 			const std::string sideName =
+-				StringToLower(p.SGetValueDef(&quot;arm&quot;, std::string(sideText) + &quot;\\name&quot;));
++				StringToLower(sideTable.SubTable(std::string(sideText)).GetString(&quot;name&quot;, &quot;No Name&quot;));
+ 			sideMap[sideName] = sideText;
+ 		}
+ 
+@@ -75,8 +81,9 @@
+ 			if (it != sideMap.end()) {
+ 				const std::string&amp; sideSection = it-&gt;second;
+ 				const std::string cmdrType =
+-					StringToLower(p.SGetValueDef(&quot;armcom&quot;, sideSection + &quot;\\commander&quot;));
+-
++					StringToLower(sideTable.SubTable(sideSection).GetString(&quot;commander&quot;,&quot;&quot;));
++				if (cmdrType.length() == 0)
++					throw content_error (&quot;Unable to load a commander for SIDE&quot; + sideSection);
+ 				CUnit* unit = unitLoader.LoadUnit(cmdrType, team-&gt;startPos, a, false, 0, NULL);
+ 
+ 				team-&gt;lineageRoot = unit-&gt;id;
+@@ -91,10 +98,17 @@
+ 		}
+ 	}
+ 	else {
+-		TdfParser p(&quot;gamedata/SIDEDATA.TDF&quot;);
+-		const std::string s0 = StringToLower(p.SGetValueDef(&quot;armcom&quot;, &quot;side0\\commander&quot;));
+-		const std::string s1 = StringToLower(p.SGetValueDef(&quot;corcom&quot;, &quot;side1\\commander&quot;));
++		LuaParser p(&quot;gamedata/sidedata.lua&quot;, SPRING_VFS_MOD_BASE, SPRING_VFS_ZIP);
++		if (!p.Execute() || !p.IsValid())
++			logOutput.Print(p.GetErrorLog());
++		
++		const LuaTable sideTable = p.GetRoot();
++		const std::string s0 = StringToLower(sideTable.SubTable(&quot;side0&quot;).GetString(&quot;commander&quot;, &quot;&quot;));
++		const std::string s1 = StringToLower(sideTable.SubTable(&quot;side1&quot;).GetString(&quot;commander&quot;, s0)); // default to side 0, in case mod has only 1 side
+ 
++		if (s0.length() == 0)
++			throw content_error (&quot;Unable to load a commander for SIDE0&quot;);
++		
+ 		TdfParser p2;
+ 		CMapInfo::OpenTDF(stupidGlobalMapname, p2);
+ 
+
+Modified: trunk/rts/Game/StartScripts/CommanderScript2.cpp
+===================================================================
+--- trunk/rts/Game/StartScripts/CommanderScript2.cpp	2008-05-19 23:57:14 UTC (rev 5916)
++++ trunk/rts/Game/StartScripts/CommanderScript2.cpp	2008-05-20 18:17:56 UTC (rev 5917)
+@@ -1,10 +1,13 @@
+ #include &quot;StdAfx.h&quot;
+ #include &quot;CommanderScript2.h&quot;
+-#include &quot;Sim/Units/UnitLoader.h&quot;
+-#include &quot;TdfParser.h&quot;
+ #include &quot;Game/Team.h&quot;
++#include &quot;Lua/LuaParser.h&quot;
+ #include &quot;Map/MapInfo.h&quot;
+ #include &quot;Map/ReadMap.h&quot;
++#include &quot;Sim/Units/UnitLoader.h&quot;
++#include &quot;System/LogOutput.h&quot;
++#include &quot;System/TdfParser.h&quot;
++#include &quot;System/FileSystem/FileHandler.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
+ extern std::string stupidGlobalMapname;
+@@ -36,10 +39,17 @@
+ 		gs-&gt;Team(1)-&gt;metalIncome=1000;
+ 		gs-&gt;Team(1)-&gt;metalStorage=1000;
+ 
+-		TdfParser p(&quot;gamedata/SIDEDATA.TDF&quot;);
+-		std::string s0 = StringToLower(p.SGetValueDef(&quot;armcom&quot;, &quot;side0\\commander&quot;));
+-		std::string s1 = StringToLower(p.SGetValueDef(&quot;corcom&quot;, &quot;side1\\commander&quot;));
++		LuaParser p(&quot;gamedata/sidedata.lua&quot;, SPRING_VFS_MOD_BASE, SPRING_VFS_ZIP);
++		if (!p.Execute() || !p.IsValid())
++			logOutput.Print(p.GetErrorLog());
++		
++		const LuaTable sideTable = p.GetRoot();
++		const std::string s0 = StringToLower(sideTable.SubTable(&quot;side0&quot;).GetString(&quot;commander&quot;, &quot;&quot;));
++		const std::string s1 = StringToLower(sideTable.SubTable(&quot;side1&quot;).GetString(&quot;commander&quot;, s0)); // default to side 0, in case mod has only 1 side
+ 
++		if (s0.length() == 0)
++			throw content_error (&quot;Unable to load a commander for SIDE0&quot;);
++
+ 		TdfParser p2;
+ 		CMapInfo::OpenTDF (stupidGlobalMapname, p2);
+ 
+
+Modified: trunk/rts/Game/StartScripts/GlobalAITestScript.cpp
+===================================================================
+--- trunk/rts/Game/StartScripts/GlobalAITestScript.cpp	2008-05-19 23:57:14 UTC (rev 5916)
++++ trunk/rts/Game/StartScripts/GlobalAITestScript.cpp	2008-05-20 18:17:56 UTC (rev 5917)
+@@ -1,16 +1,18 @@
+-#include &quot;StdAfx.h&quot;
+-#include &quot;GlobalAITestScript.h&quot;
+-#include &quot;Sim/Units/UnitLoader.h&quot;
+-#include &quot;TdfParser.h&quot;
+ #include &lt;algorithm&gt;
+ #include &lt;cctype&gt;
++#include &quot;System/StdAfx.h&quot;
++#include &quot;GlobalAITestScript.h&quot;
++#include &quot;ExternalAI/GlobalAIHandler.h&quot;
+ #include &quot;Game/Team.h&quot;
+-#include &quot;Sim/Units/UnitDefHandler.h&quot;
+-#include &quot;ExternalAI/GlobalAIHandler.h&quot;
+-#include &quot;FileSystem/FileHandler.h&quot;
+-#include &quot;Platform/FileSystem.h&quot;
++#include &quot;Lua/LuaParser.h&quot;
+ #include &quot;Map/MapInfo.h&quot;
+ #include &quot;Map/ReadMap.h&quot;
++#include &quot;Sim/Units/UnitDefHandler.h&quot;
++#include &quot;Sim/Units/UnitLoader.h&quot;
++#include &quot;System/LogOutput.h&quot;
++#include &quot;System/TdfParser.h&quot;
++#include &quot;System/FileSystem/FileHandler.h&quot;
++#include &quot;System/Platform/FileSystem.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
+ extern std::string stupidGlobalMapname;
+@@ -41,10 +43,17 @@
+ 			gs-&gt;Team(1)-&gt;metal = 1000;
+ 			gs-&gt;Team(1)-&gt;metalStorage = 1000;
+ 
+-			TdfParser p(&quot;gamedata/sidedata.tdf&quot;);
+-			std::string s0 = p.SGetValueDef(&quot;armcom&quot;, &quot;side0\\commander&quot;);
+-			std::string s1 = p.SGetValueDef(&quot;corcom&quot;, &quot;side1\\commander&quot;);
++			LuaParser p(&quot;gamedata/sidedata.lua&quot;, SPRING_VFS_MOD_BASE, SPRING_VFS_ZIP);
++			if (!p.Execute() || !p.IsValid())
++				logOutput.Print(p.GetErrorLog());
++		
++			const LuaTable sideTable = p.GetRoot();
++			const std::string s0 = StringToLower(sideTable.SubTable(&quot;side0&quot;).GetString(&quot;commander&quot;, &quot;&quot;));
++			const std::string s1 = StringToLower(sideTable.SubTable(&quot;side1&quot;).GetString(&quot;commander&quot;, s0)); // default to side 0, in case mod has only 1 side
+ 
++			if (s0.length() == 0)
++				throw content_error (&quot;Unable to load a commander for SIDE0&quot;);
++
+ 			TdfParser p2;
+ 			CMapInfo::OpenTDF(stupidGlobalMapname, p2);
+ 
+
+Modified: trunk/rts/Game/StartScripts/LoadScript.cpp
+===================================================================
+--- trunk/rts/Game/StartScripts/LoadScript.cpp	2008-05-19 23:57:14 UTC (rev 5916)
++++ trunk/rts/Game/StartScripts/LoadScript.cpp	2008-05-20 18:17:56 UTC (rev 5917)
+@@ -1,15 +1,14 @@
+-#include &lt;vector&gt;
+ #include &lt;iostream&gt;
+-
++#include &lt;vector&gt;
+ #include &quot;StdAfx.h&quot;
+ #include &quot;LoadScript.h&quot;
+-#include &quot;LoadSaveHandler.h&quot;
+-#include &quot;FileSystem/FileHandler.h&quot;
+-#include &quot;Platform/FileSystem.h&quot;
+-#include &quot;Game/Team.h&quot;
+-#include &quot;Game/GameSetup.h&quot;
+ #include &quot;ExternalAI/GlobalAIHandler.h&quot;
++#include &quot;Game/GameSetup.h&quot;
++#include &quot;Game/Team.h&quot;
+ #include &quot;Sim/Units/UnitDefHandler.h&quot;
++#include &quot;System/LoadSaveHandler.h&quot;
++#include &quot;System/FileSystem/FileHandler.h&quot;
++#include &quot;System/Platform/FileSystem.h&quot;
+ 
+ extern std::string stupidGlobalMapname;
+ 
+
+Modified: trunk/rts/Game/StartScripts/SpawnScript.cpp
+===================================================================
+--- trunk/rts/Game/StartScripts/SpawnScript.cpp	2008-05-19 23:57:14 UTC (rev 5916)
++++ trunk/rts/Game/StartScripts/SpawnScript.cpp	2008-05-20 18:17:56 UTC (rev 5917)
+@@ -1,16 +1,19 @@
++#include &lt;fstream&gt;
++#include &lt;set&gt;
+ #include &quot;StdAfx.h&quot;
+ #include &quot;SpawnScript.h&quot;
+-#include &lt;fstream&gt;
+-#include &quot;TdfParser.h&quot;
++#include &quot;Game/Team.h&quot;
++#include &quot;Lua/LuaParser.h&quot;
++#include &quot;Map/MapInfo.h&quot;
++#include &quot;Map/ReadMap.h&quot;
+ #include &quot;Sim/Units/UnitLoader.h&quot;
+ #include &quot;Sim/Units/Unit.h&quot;
+ #include &quot;Sim/Units/UnitHandler.h&quot;
+-#include &quot;Game/Team.h&quot;
+-#include &lt;set&gt;
+ #include &quot;Sim/Units/CommandAI/Command.h&quot;
+ #include &quot;Sim/Units/CommandAI/CommandAI.h&quot;
+-#include &quot;Map/MapInfo.h&quot;
+-#include &quot;Map/ReadMap.h&quot;
++#include &quot;System/LogOutput.h&quot;
++#include &quot;System/TdfParser.h&quot;
++#include &quot;System/FileSystem/FileHandler.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
+ extern std::string stupidGlobalMapname;
+@@ -32,9 +35,16 @@
+ 	case 0:
+ 		LoadSpawns();
+ 
+-		TdfParser p(&quot;gamedata/sidedata.tdf&quot;);
+-		std::string s0=p.SGetValueDef(&quot;armcom&quot;,&quot;side0\\commander&quot;);
+-		std::string s1=p.SGetValueDef(&quot;corcom&quot;,&quot;side1\\commander&quot;);
++		LuaParser p(&quot;gamedata/sidedata.lua&quot;, SPRING_VFS_MOD_BASE, SPRING_VFS_ZIP);
++		if (!p.Execute() || !p.IsValid())
++			logOutput.Print(p.GetErrorLog());
++		
++		const LuaTable sideTable = p.GetRoot();
++		const std::string s0 = StringToLower(sideTable.SubTable(&quot;side0&quot;).GetString(&quot;commander&quot;, &quot;&quot;));
++		const std::string s1 = StringToLower(sideTable.SubTable(&quot;side1&quot;).GetString(&quot;commander&quot;, s0)); // default to side 0, in case mod has only 1 side
++		
++		if (s0.length() == 0)
++			throw content_error (&quot;Unable to load a commander for SIDE0&quot;);
+ 
+ 		TdfParser p2;
+ 		CMapInfo::OpenTDF (stupidGlobalMapname, p2);
+
+Modified: trunk/rts/Sim/Units/UnitDefHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-05-19 23:57:14 UTC (rev 5916)
++++ trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-05-20 18:17:56 UTC (rev 5917)
+@@ -29,7 +29,6 @@
+ #include &quot;Sim/Weapons/WeaponDefHandler.h&quot;
+ #include &quot;System/LogOutput.h&quot;
+ #include &quot;System/Sound.h&quot;
+-#include &quot;System/TdfParser.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
+ const char YARDMAP_CHAR = 'c';		//Need to be low case.
+@@ -222,17 +221,20 @@
+ 
+ void CUnitDefHandler::FindCommanders()
+ {
+-	TdfParser tdfparser;
+-	tdfparser.LoadFile(&quot;gamedata/SIDEDATA.TDF&quot;);
++	LuaParser p(&quot;gamedata/sidedata.lua&quot;, SPRING_VFS_MOD_BASE, SPRING_VFS_ZIP);
++	if (!p.Execute() || !p.IsValid())
++		logOutput.Print(p.GetErrorLog());
+ 
++	const LuaTable sideTable = p.GetRoot();
+ 	// get the commander UnitDef IDs
+ 	commanderIDs.clear();
+-	std::vector&lt;std::string&gt; sides = tdfparser.GetSectionList(&quot;&quot;);
++	std::vector&lt;std::string&gt; sides;
++	sideTable.GetKeys(sides);
+ 	for (unsigned int i = 0; i &lt; sides.size(); i++){
+ 		const std::string&amp; section = sides[i];
+ 		if ((section.find(&quot;side&quot;) == 0) &amp;&amp;
+ 		    (section.find_first_not_of(&quot;0123456789&quot;, 4) == std::string::npos)) {
+-			string commUnit = tdfparser.SGetValueDef(&quot;&quot;, section + &quot;\\COMMANDER&quot;);
++			string commUnit = sideTable.SubTable(section).GetString(&quot;commander&quot;, &quot;&quot;);
+ 			StringToLowerInPlace(commUnit);
+ 			if (!commUnit.empty()) {
+ 				std::map&lt;std::string, int&gt;::iterator it = unitID.find(commUnit);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000696.html">[Taspring-linux-commit] r5916 - in trunk:	installer/builddata/springcontent/gamedata rts/Map	rts/Rendering rts/Rendering/Env rts/Sim/Projectiles
+</A></li>
+	<LI>Next message: <A HREF="000698.html">[Taspring-linux-commit] r5918 - in trunk/rts: Sim/Misc	System/FileSystem build/vstudio8
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#697">[ date ]</a>
+              <a href="thread.html#697">[ thread ]</a>
+              <a href="subject.html#697">[ subject ]</a>
+              <a href="author.html#697">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,2555 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5641 - in trunk: rts/Game rts/Game/Server	rts/Game/UI rts/System rts/System/Net tools/DedicatedServer
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5641%20-%20in%20trunk%3A%20rts/Game%20rts/Game/Server%0A%09rts/Game/UI%20rts/System%20rts/System/Net%20tools/DedicatedServer&In-Reply-To=%3C20080401185748.40EFB46AE%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000421.html">
+   <LINK REL="Next"  HREF="000423.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5641 - in trunk: rts/Game rts/Game/Server	rts/Game/UI rts/System rts/System/Net tools/DedicatedServer</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5641%20-%20in%20trunk%3A%20rts/Game%20rts/Game/Server%0A%09rts/Game/UI%20rts/System%20rts/System/Net%20tools/DedicatedServer&In-Reply-To=%3C20080401185748.40EFB46AE%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5641 - in trunk: rts/Game rts/Game/Server	rts/Game/UI rts/System rts/System/Net tools/DedicatedServer">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Apr  1 20:57:48 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000421.html">[Taspring-linux-commit] r5640 - in trunk/rts: Game Game/UI Lua	Rendering Rendering/GL Rendering/UnitModels Sim/Units System
+</A></li>
+        <LI>Next message: <A HREF="000423.html">[Taspring-linux-commit] r5642 - in trunk/rts: Game/UI Sim/Units
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#422">[ date ]</a>
+              <a href="thread.html#422">[ thread ]</a>
+              <a href="subject.html#422">[ subject ]</a>
+              <a href="author.html#422">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-04-01 20:57:47 +0200 (Tue, 01 Apr 2008)
+New Revision: 5641
+
+Added:
+   trunk/rts/Game/Action.cpp
+   trunk/rts/Game/Action.h
+   trunk/rts/Game/CommandMessage.cpp
+   trunk/rts/Game/CommandMessage.h
+   trunk/rts/Game/Console.cpp
+   trunk/rts/Game/Console.h
+Modified:
+   trunk/rts/Game/CameraHandler.cpp
+   trunk/rts/Game/CameraHandler.h
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/Game.h
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameServer.h
+   trunk/rts/Game/Server/MsgStrings.h
+   trunk/rts/Game/UI/GuiHandler.cpp
+   trunk/rts/Game/UI/GuiHandler.h
+   trunk/rts/Game/UI/KeyBindings.cpp
+   trunk/rts/Game/UI/KeyBindings.h
+   trunk/rts/Game/UI/LuaUI.cpp
+   trunk/rts/System/BaseNetProtocol.cpp
+   trunk/rts/System/BaseNetProtocol.h
+   trunk/rts/System/DemoReader.cpp
+   trunk/rts/System/DemoReader.h
+   trunk/rts/System/Net/Net.cpp
+   trunk/rts/System/Net/Net.h
+   trunk/tools/DedicatedServer/CMakeLists.txt
+Log:
+* added publish-subscribe-modell for actions
+* added class to send actions over network and migrate all synced actions
+COMMAND CHANGE: .cheat, .give, .luarules, .kick etc. becomes /cheat, /give ...
+* skip shows the game isntead the progressbar, but it doesn't unsync
+* new command: &quot;/commands&quot; shows all registered commands in the console
+
+
+
+Added: trunk/rts/Game/Action.cpp
+===================================================================
+--- trunk/rts/Game/Action.cpp	                        (rev 0)
++++ trunk/rts/Game/Action.cpp	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -0,0 +1,18 @@
++#include &quot;Action.h&quot;
++
++#include &lt;vector&gt;
++
++#include &quot;System/FileSystem/SimpleParser.h&quot;
++
++Action::Action(const std::string&amp; line)
++{
++	rawline = line;
++	const std::vector&lt;std::string&gt; words = CSimpleParser::Tokenize(line, 1);
++	if (words.size() &gt; 0) {
++		command.resize(words[0].length());
++		std::transform(words[0].begin(), words[0].end(), command.begin(), (int (*)(int))tolower);
++	}
++	if (words.size() &gt; 1) {
++		extra = words[1];
++	}
++}
+
+Added: trunk/rts/Game/Action.h
+===================================================================
+--- trunk/rts/Game/Action.h	                        (rev 0)
++++ trunk/rts/Game/Action.h	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -0,0 +1,17 @@
++#ifndef ACTION_H
++#define ACTION_H
++
++#include &lt;string&gt;
++
++class Action
++{
++public:
++	Action() {};
++	Action(const std::string&amp; line);
++	std::string command;   // first word, lowercase
++	std::string extra;     // everything but the first word
++	std::string rawline;   // includes the command, case preserved
++	std::string boundWith; // the string that defined the binding keyset
++};
++
++#endif
+
+Modified: trunk/rts/Game/CameraHandler.cpp
+===================================================================
+--- trunk/rts/Game/CameraHandler.cpp	2008-04-01 14:07:07 UTC (rev 5640)
++++ trunk/rts/Game/CameraHandler.cpp	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -8,6 +8,7 @@
+ #include &quot;Game/Camera/OverviewController.h&quot;
+ #include &quot;Game/Camera/TWController.h&quot;
+ #include &quot;Game/Camera.h&quot;
++#include &quot;Game/Action.h&quot;
+ #include &quot;Platform/ConfigHandler.h&quot;
+ #include &quot;LogOutput.h&quot;
+ 
+@@ -36,10 +37,15 @@
+ 	currCamCtrl = camControllers[currCamCtrlNum];
+ 
+ 	const double z = 0.0; // casting problems...
+-	cameraTimeFactor =
+-			std::max(z, atof(configHandler.GetString(&quot;CamTimeFactor&quot;, &quot;1.0&quot;).c_str()));
+-	cameraTimeExponent =
+-			std::max(z, atof(configHandler.GetString(&quot;CamTimeExponent&quot;, &quot;4.0&quot;).c_str()));
++	cameraTimeFactor = std::max(z, atof(configHandler.GetString(&quot;CamTimeFactor&quot;, &quot;1.0&quot;).c_str()));
++	cameraTimeExponent = std::max(z, atof(configHandler.GetString(&quot;CamTimeExponent&quot;, &quot;4.0&quot;).c_str()));
++
++	RegisterAction(&quot;viewfps&quot;);		RegisterAction(&quot;viewta&quot;);
++	RegisterAction(&quot;viewtw&quot;);		RegisterAction(&quot;viewrot&quot;);
++	RegisterAction(&quot;viewfree&quot;);		RegisterAction(&quot;viewov&quot;);
++	RegisterAction(&quot;viewlua&quot;);		RegisterAction(&quot;viewtaflip&quot;);
++	RegisterAction(&quot;viewsave&quot;);		RegisterAction(&quot;viewload&quot;);
++	RegisterAction(&quot;toggleoverview&quot;);
+ }
+ 
+ 
+@@ -217,6 +223,51 @@
+ 	return LoadViewData(effective);
+ }
+ 
++void CCameraHandler::PushAction(const Action&amp; action)
++{
++	const std::string cmd = action.command;
++	if (cmd == &quot;viewfps&quot;) {
++		SetCameraMode(0);
++	}
++	else if (cmd == &quot;viewta&quot;) {
++		SetCameraMode(1);
++	}
++	else if (cmd == &quot;viewtw&quot;) {
++		SetCameraMode(2);
++	}
++	else if (cmd == &quot;viewrot&quot;) {
++		SetCameraMode(3);
++	}
++	else if (cmd == &quot;viewfree&quot;) {
++		SetCameraMode(4);
++	}
++	else if (cmd == &quot;viewov&quot;) {
++		SetCameraMode(5);
++	}
++	else if (cmd == &quot;viewlua&quot;) {
++		SetCameraMode(6);
++	}
++	else if (cmd == &quot;viewtaflip&quot;) {
++		COverheadController* taCam =
++				dynamic_cast&lt;COverheadController*&gt;(camControllers[1]);
++		if (taCam) {
++			if (!action.extra.empty()) {
++				taCam-&gt;flipped = !!atoi(action.extra.c_str());
++			} else {
++				taCam-&gt;flipped = !taCam-&gt;flipped;
++			}
++		}
++	}
++	else if (cmd == &quot;viewsave&quot;) {
++		SaveView(action.extra);
++	}
++	else if (cmd == &quot;viewload&quot;) {
++		LoadView(action.extra);
++	}
++	else if (cmd == &quot;toggleoverview&quot;) {
++		ToggleOverviewCamera();
++	}
++}
+ 
+ bool CCameraHandler::LoadViewData(const ViewData&amp; vd)
+ {
+
+Modified: trunk/rts/Game/CameraHandler.h
+===================================================================
+--- trunk/rts/Game/CameraHandler.h	2008-04-01 14:07:07 UTC (rev 5640)
++++ trunk/rts/Game/CameraHandler.h	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -6,11 +6,12 @@
+ #include &lt;string&gt;
+ #include &lt;stack&gt;
+ 
++#include &quot;Console.h&quot;
+ 
+ class CCameraController;
+ 
+ 
+-class CCameraHandler
++class CCameraHandler : public CommandReciever
+ {
+ public:
+ 	CCameraHandler();
+@@ -31,6 +32,8 @@
+ 	CCameraController* &currCamCtrl;
+ 	std::vector&lt;CCameraController*&gt; camControllers;
+ 	
++	virtual void PushAction(const Action&amp;);
++	
+ private:
+ 	std::stack&lt;unsigned&gt; controllerStack;
+ 	int currCamCtrlNum;
+@@ -54,7 +57,6 @@
+ 	std::map&lt;std::string, ViewData&gt; views;
+ };
+ 
+-
+ extern CCameraHandler* camHandler;
+ 
+ 
+
+Added: trunk/rts/Game/CommandMessage.cpp
+===================================================================
+--- trunk/rts/Game/CommandMessage.cpp	                        (rev 0)
++++ trunk/rts/Game/CommandMessage.cpp	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -0,0 +1,47 @@
++#include &quot;CommandMessage.h&quot;
++
++#include &lt;assert.h&gt;
++
++#include &quot;BaseNetProtocol.h&quot;
++#include &quot;Net/RawPacket.h&quot;
++#include &quot;Net/PackPacket.h&quot;
++
++using namespace netcode;
++
++CommandMessage::CommandMessage(const std::string&amp; cmd, int playernum)
++{
++	action = Action(cmd);
++	player = playernum;
++}
++
++CommandMessage::CommandMessage(const Action&amp; myaction, int playernum)
++{
++	action = myaction;
++	player = playernum;
++}
++
++CommandMessage::CommandMessage(UnpackPacket* packet)
++{
++	packet-&gt;Reset();
++	unsigned char ID;
++	unsigned short length;
++	*packet &gt;&gt; ID;
++	assert(ID == NETMSG_CCOMMAND);
++	*packet &gt;&gt; length;
++	*packet &gt;&gt; player;
++	*packet &gt;&gt; action.command;
++	*packet &gt;&gt; action.extra;
++}
++
++const netcode::RawPacket* CommandMessage::Pack() const
++{
++	unsigned short size = 3 + sizeof(player) + action.command.size() + action.extra.size() + 2;
++	PackPacket* buffer = new PackPacket(size);
++	*buffer &lt;&lt; (unsigned char)NETMSG_CCOMMAND;
++	*buffer &lt;&lt; size;
++	*buffer &lt;&lt; player;
++	*buffer &lt;&lt; action.command;
++	*buffer &lt;&lt; action.extra;
++	return buffer;
++}
++
+
+Added: trunk/rts/Game/CommandMessage.h
+===================================================================
+--- trunk/rts/Game/CommandMessage.h	                        (rev 0)
++++ trunk/rts/Game/CommandMessage.h	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -0,0 +1,29 @@
++#ifndef COMMANDMESSAGE_H
++#define COMMANDMESSAGE_H
++
++#include &lt;string&gt;
++
++#include &quot;Net/UnpackPacket.h&quot;
++#include &quot;Action.h&quot;
++
++namespace netcode {
++	class RawPacket;
++}
++
++/// send console commands over network
++class CommandMessage
++{
++public:
++	CommandMessage(const std::string&amp; cmd, int playernum);
++	CommandMessage(const Action&amp; action, int playernum);
++	CommandMessage(netcode::UnpackPacket* packet);
++
++	const netcode::RawPacket* Pack() const;
++
++	Action action;
++	int player;
++private:
++};
++
++#endif
++ 
+
+Added: trunk/rts/Game/Console.cpp
+===================================================================
+--- trunk/rts/Game/Console.cpp	                        (rev 0)
++++ trunk/rts/Game/Console.cpp	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -0,0 +1,53 @@
++#include &quot;Console.h&quot; 
++
++#include &quot;LogOutput.h&quot;
++#include &quot;Action.h&quot;
++
++void CommandReciever::RegisterAction(const std::string&amp; name)
++{
++	Console::Instance().AddCommandReciever(name, this);
++}
++
++Console&amp; Console::Instance()
++{
++	static Console myInstance;
++	return myInstance;
++}
++
++void Console::AddCommandReciever(const std::string&amp; name, CommandReciever* rec)
++{
++	if (commandMap.find(name) != commandMap.end())
++		logOutput.Print(&quot;Overwriting command: %s&quot;, name.c_str());
++	commandMap[name] = rec;
++}
++
++bool Console::ExecuteAction(const Action&amp; action)
++{
++	if (action.command == &quot;commands&quot;)
++	{
++		logOutput.Print(&quot;Registered commands:&quot;);
++		for (std::map&lt;const std::string, CommandReciever*&gt;::iterator it = commandMap.begin(); it != commandMap.end(); ++it)
++		{
++			logOutput.Print(it-&gt;first);
++		}
++		return true;
++	}
++	
++	std::map&lt;const std::string, CommandReciever*&gt;::iterator it = commandMap.find(action.command);
++	if (it == commandMap.end())
++		return false;
++	else
++	{
++		it-&gt;second-&gt;PushAction(action);
++		return true;
++	}
++}
++
++Console::Console()
++{
++}
++
++Console::~Console()
++{
++}
++
+
+Added: trunk/rts/Game/Console.h
+===================================================================
+--- trunk/rts/Game/Console.h	                        (rev 0)
++++ trunk/rts/Game/Console.h	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -0,0 +1,58 @@
++#ifndef CONSOLE_H
++#define CONSOLE_H
++
++#include &lt;map&gt;
++#include &lt;string&gt;
++
++class Action;
++
++/**
+<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">+ at brief</A> this class can recieve commands (actions)
++ */
++class CommandReciever
++{
++public:
++	CommandReciever() {};
++	virtual ~CommandReciever() {};
++	
++	/**
++	@brief callback function for all registered commands
++	*/
++	virtual void PushAction(const Action&amp;) = 0;
++
++protected:
++	/**
++	@brief register a command
++
++	PushAction will be called if this command is recieved by the console
++	*/
++	void RegisterAction(const std::string&amp; name);
++};
++
++/**
+<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">+ at brief</A> handles and forward commands
++*/
++class Console
++{
++public:
++	static Console&amp; Instance();
++	
++	/**
++	@brief register a command
++	@param name the name of the command (e.g. &quot;cheat&quot;)
++	@param rec the CommandReciever who want to recieve the command
++	*/
++	void AddCommandReciever(const std::string&amp; name, CommandReciever* rec);
++	
++	/**
++	@brief Execute an action
++	*/
++	bool ExecuteAction(const Action&amp;);
++
++private:
++	Console();
++	~Console();
++	std::map&lt;const std::string, CommandReciever*&gt; commandMap;
++};
++
++#endif
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-04-01 14:07:07 UTC (rev 5640)
++++ trunk/rts/Game/Game.cpp	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -30,6 +30,7 @@
+ #include &quot;FPUCheck.h&quot;
+ #include &quot;GameHelper.h&quot;
+ #include &quot;GameServer.h&quot;
++#include &quot;CommandMessage.h&quot;
+ #include &quot;GameSetup.h&quot;
+ #include &quot;GameVersion.h&quot;
+ #include &quot;LoadSaveHandler.h&quot;
+@@ -614,7 +615,7 @@
+ 	if (userWriting) {
+ 		int actionIndex;
+ 		for (actionIndex = 0; actionIndex &lt; (int)actionList.size(); actionIndex++) {
+-			const CKeyBindings::Action&amp; action = actionList[actionIndex];
++			const Action&amp; action = actionList[actionIndex];
+ 
+ 			if (action.command == &quot;edit_return&quot;) {
+ 				userWriting=false;
+@@ -638,7 +639,7 @@
+ 						writingPos = 0;
+ 						logOutput.Print(command);
+ 						CKeySet ks(k, false);
+-						CKeyBindings::Action fakeAction(actionLine);
++						Action fakeAction(actionLine);
+ 						ActionPressed(fakeAction, ks, isRepeat);
+ 					}
+ 				}
+@@ -830,7 +831,7 @@
+ }
+ 
+ 
+-bool CGame::ActionPressed(const CKeyBindings::Action&amp; action,
++bool CGame::ActionPressed(const Action&amp; action,
+                           const CKeySet&amp; ks, bool isRepeat)
+ {
+ 	// we may need these later
+@@ -940,44 +941,6 @@
+ 	else if (!isRepeat &amp;&amp; cmd == &quot;mouse5&quot;) {
+ 		mouse-&gt;MousePress (mouse-&gt;lastx, mouse-&gt;lasty, 5);
+ 	}
+-	else if (cmd == &quot;viewfps&quot;) {
+-		camHandler-&gt;SetCameraMode(0);
+-	}
+-	else if (cmd == &quot;viewta&quot;) {
+-		camHandler-&gt;SetCameraMode(1);
+-	}
+-	else if (cmd == &quot;viewtw&quot;) {
+-		camHandler-&gt;SetCameraMode(2);
+-	}
+-	else if (cmd == &quot;viewrot&quot;) {
+-		camHandler-&gt;SetCameraMode(3);
+-	}
+-	else if (cmd == &quot;viewfree&quot;) {
+-		camHandler-&gt;SetCameraMode(4);
+-	}
+-	else if (cmd == &quot;viewov&quot;) {
+-		camHandler-&gt;SetCameraMode(5);
+-	}
+-	else if (cmd == &quot;viewlua&quot;) {
+-		camHandler-&gt;SetCameraMode(6);
+-	}
+-	else if (cmd == &quot;viewtaflip&quot;) {
+-		COverheadController* taCam =
+-			dynamic_cast&lt;COverheadController*&gt;(camHandler-&gt;camControllers[1]);
+-		if (taCam) {
+-			if (!action.extra.empty()) {
+-				taCam-&gt;flipped = !!atoi(action.extra.c_str());
+-			} else {
+-				taCam-&gt;flipped = !taCam-&gt;flipped;
+-			}
+-		}
+-	}
+-	else if (cmd == &quot;viewsave&quot;) {
+-		camHandler-&gt;SaveView(action.extra);
+-	}
+-	else if (cmd == &quot;viewload&quot;) {
+-		camHandler-&gt;LoadView(action.extra);
+-	}
+ 	else if (cmd == &quot;viewselection&quot;) {
+ 		const CUnitSet&amp; selUnits = selectedUnits.selectedUnits;
+ 		if (!selUnits.empty()) {
+@@ -1133,9 +1096,6 @@
+ 	else if (cmd == &quot;trackmode&quot;) {
+ 		unitTracker.IncMode();
+ 	}
+-	else if (cmd == &quot;toggleoverview&quot;) {
+-		camHandler-&gt;ToggleOverviewCamera();
+-	}
+ 	else if (cmd == &quot;showhealthbars&quot;) {
+ 		if (action.extra.empty()) {
+ 			unitDrawer-&gt;showHealthBars = !unitDrawer-&gt;showHealthBars;
+@@ -1156,10 +1116,6 @@
+ 			lastframe = SDL_GetTicks(); // this required here?
+ 		}
+ 	}
+-	else if (cmd == &quot;singlestep&quot;) {
+-		if (gameServer &amp;&amp; gs-&gt;paused)
+-			gameServer-&gt;CreateNewFrame(false, true);
+-	}
+ 	else if (cmd == &quot;debug&quot;) {
+ 		if (gu-&gt;drawdebug)
+ 		{
+@@ -1484,39 +1440,6 @@
+ 		logOutput.Print(&quot;Input grabbing %s&quot;,
+ 		                (newMode == SDL_GRAB_ON) ? &quot;enabled&quot; : &quot;disabled&quot;);
+ 	}
+-	else if ((cmd == &quot;bind&quot;)         ||
+-	         (cmd == &quot;unbind&quot;)       ||
+-	         (cmd == &quot;unbindall&quot;)    ||
+-	         (cmd == &quot;unbindkeyset&quot;) ||
+-	         (cmd == &quot;unbindaction&quot;) ||
+-	         (cmd == &quot;keydebug&quot;)     ||
+-	         (cmd == &quot;fakemeta&quot;)) {
+-		keyBindings-&gt;Command(action.rawline);
+-	}
+-	else if (cmd == &quot;keyload&quot;) {
+-		keyBindings-&gt;Load(&quot;uikeys.txt&quot;);
+-	}
+-	else if (cmd == &quot;keyreload&quot;) {
+-		keyBindings-&gt;Command(&quot;unbindall&quot;);
+-		keyBindings-&gt;Command(&quot;unbind enter chat&quot;);
+-		keyBindings-&gt;Load(&quot;uikeys.txt&quot;);
+-	}
+-	else if (cmd == &quot;keysave&quot;) {
+-		if (keyBindings-&gt;Save(&quot;uikeys.tmp&quot;)) {  // tmp, not txt
+-			logOutput.Print(&quot;Saved uikeys.tmp&quot;);
+-		} else {
+-			logOutput.Print(&quot;Could not save uikeys.tmp&quot;);
+-		}
+-	}
+-	else if (cmd == &quot;keyprint&quot;) {
+-		keyBindings-&gt;Print();
+-	}
+-	else if (cmd == &quot;keysyms&quot;) {
+-		keyCodes-&gt;PrintNameToCode();
+-	}
+-	else if (cmd == &quot;keycodes&quot;) {
+-		keyCodes-&gt;PrintCodeToName();
+-	}
+ 	else if (cmd == &quot;clock&quot;) {
+ 		if (action.extra.empty()) {
+ 			showClock = !showClock;
+@@ -1791,15 +1714,68 @@
+ 			logOutput.Print(&quot;Unknown gamma format&quot;);
+ 		}
+ 	}
++	else if (cmd == &quot;crash&quot; &amp;&amp; gs-&gt;cheatEnabled) {
++		int *a=0;
++		*a=0;
++	}
++	else if (cmd == &quot;exception&quot; &amp;&amp; gs-&gt;cheatEnabled) {
++		throw std::runtime_error(&quot;Exception test&quot;);
++	}
++	else if (cmd == &quot;divbyzero&quot; &amp;&amp; gs-&gt;cheatEnabled) {
++		float a = 0;
++		logOutput.Print(&quot;Result: %f&quot;, 1.0f/a);
++	}
++	else if (cmd == &quot;give&quot; &amp;&amp; gs-&gt;cheatEnabled) {
++		if (action.extra.find('@') == string::npos) {
++			std::string msg = &quot;give &quot;; //FIXME lazyness
++			msg += action.extra;
++			float3 p;
++			CInputReceiver* ir = NULL;
++			if (!hideInterface)
++				ir = CInputReceiver::GetReceiverAt(mouse-&gt;lastx, mouse-&gt;lasty);
++			if (ir == minimap)
++				p = minimap-&gt;GetMapPosition(mouse-&gt;lastx, mouse-&gt;lasty);
++			else {
++				const float3&amp; pos = camera-&gt;pos;
++				const float3&amp; dir = mouse-&gt;dir;
++				const float dist = ground-&gt;LineGroundCol(pos, pos + (dir * 9000.0f));
++				p = pos + (dir * dist);
++			}
++			char buf[128];
++			SNPRINTF(buf, sizeof(buf), &quot; @%.0f,%.0f,%.0f&quot;, p.x, p.y, p.z);
++			msg += buf;
++			CommandMessage pckt(msg, gu-&gt;myPlayerNum);
++			net-&gt;SendData(pckt.Pack());
++		}
++		else {
++			CommandMessage pckt(action, gu-&gt;myPlayerNum);
++			net-&gt;SendData(pckt.Pack());
++		}
++	}
++	else if (cmd == &quot;send&quot;) {
++		CommandMessage pckt(Action(action.extra), gu-&gt;myPlayerNum);
++		net-&gt;SendData(pckt.Pack());
++	}
++	else if (cmd == &quot;atm&quot; ||
++			cmd == &quot;save&quot; ||
++#ifdef DEBUG
++			cmd == &quot;desync&quot; ||
++#endif
++			cmd == &quot;resync&quot; ||
++			cmd == &quot;take&quot;) {
++		//these are synced commands, forward only
++		CommandMessage pckt(action, gu-&gt;myPlayerNum);
++		net-&gt;SendData(pckt.Pack());
++	}
+ 	else {
+-		return false;
++		if (!Console::Instance().ExecuteAction(action))
++			return false;
+ 	}
+-
+-	return true;
++	 return true;
+ }
+ 
+ 
+-bool CGame::ActionReleased(const CKeyBindings::Action&amp; action)
++bool CGame::ActionReleased(const Action&amp; action)
+ {
+ 	const string&amp; cmd = action.command;
+ 
+@@ -1860,7 +1836,389 @@
+ 	return 0;
+ }
+ 
++void SetBoolArg(bool&amp; value, const std::string&amp; str)
++{
++	if (str.empty()) // toggle
++	{
++		value = !value;
++	}
++	else // set
++	{
++		const int num = atoi(str.c_str());
++		value = (num != 0);
++	}
++}
+ 
++void CGame::ActionRecieved(const Action&amp; action, int playernum)
++{
++	if (action.command == &quot;cheat&quot;) {
++		SetBoolArg(gs-&gt;cheatEnabled, action.extra);
++		if (gs-&gt;cheatEnabled)
++			logOutput.Print(&quot;Cheating!&quot;);
++		else
++			logOutput.Print(&quot;No more cheating&quot;);
++	}
++	else if (action.command == &quot;nohelp&quot;) {
++		SetBoolArg(gs-&gt;noHelperAIs, action.extra);
++		selectedUnits.PossibleCommandChange(NULL);
++		if (gs-&gt;noHelperAIs) {
++			// remove any current GroupAIs
++			CUnitSet&amp; teamUnits = gs-&gt;Team(gu-&gt;myTeam)-&gt;units;
++			CUnitSet::iterator it;
++			for(it = teamUnits.begin(); it != teamUnits.end(); ++it)
++			{
++				CUnit* unit = *it;
++				if (unit-&gt;group &amp;&amp; (unit-&gt;group-&gt;id &gt; 9)) {
++					unit-&gt;SetGroup(NULL);
++				}
++			}
++		}
++		logOutput.Print(&quot;GroupAI and LuaUI control is %s&quot;, gs-&gt;noHelperAIs ? &quot;disabled&quot; : &quot;enabled&quot;);
++	}
++	else if (action.command == &quot;godmode&quot;) {
++		if (!gs-&gt;cheatEnabled)
++			logOutput.Print(&quot;godmode requires .cheat&quot;);
++		else {
++			SetBoolArg(gs-&gt;godMode, action.extra);
++			CLuaUI::UpdateTeams();
++			if (gs-&gt;godMode)
++				logOutput.Print(&quot;God Mode Enabled&quot;);
++			else
++				logOutput.Print(&quot;God Mode Disabled&quot;);
++		}
++	}
++	else if (action.command == &quot;nocost&quot; &amp;&amp; gs-&gt;cheatEnabled) {
++		for(unsigned i=0; i&lt;unitDefHandler-&gt;numUnitDefs; i++)
++		{
++			unitDefHandler-&gt;unitDefs[i].metalCost = 1;
++			unitDefHandler-&gt;unitDefs[i].energyCost = 1;
++			unitDefHandler-&gt;unitDefs[i].buildTime = 10;
++			unitDefHandler-&gt;unitDefs[i].metalUpkeep = 0;
++			unitDefHandler-&gt;unitDefs[i].energyUpkeep = 0;
++		}
++		unitDefHandler-&gt;noCost=true;
++		logOutput.Print(&quot;Everything is for free!&quot;);
++	}
++	else if (action.command == &quot;give&quot; &amp;&amp; gs-&gt;cheatEnabled) {
++		std::string s = &quot;give &quot;; //FIXME lazyness
++		s += action.extra;
++
++		// .give [amount] &lt;unitName&gt; [team] &lt;@x,y,z&gt;
++		vector&lt;string&gt; args = CSimpleParser::Tokenize(s, 0);
++
++		if (args.size() &lt; 3) {
++			logOutput.Print(&quot;Someone is spoofing invalid .give messages!&quot;);
++			return;
++		}
++
++		float3 pos;
++		if (sscanf(args[args.size() - 1].c_str(), &quot;@%f,%f,%f&quot;, &amp;pos.x, &amp;pos.y, &amp;pos.z) != 3) {
++			logOutput.Print(&quot;Someone is spoofing invalid .give messages!&quot;);
++			return;
++		}
++
++		int amount = 1;
++		int team = gs-&gt;players[playernum]-&gt;team;
++
++		int amountArg = -1;
++		int teamArg = -1;
++
++		if (args.size() == 5) {
++			amountArg = 1;
++			teamArg = 3;
++		}
++		else if (args.size() == 4) {
++			if (args[1].find_first_not_of(&quot;0123456789&quot;) == string::npos) {
++				amountArg = 1;
++			} else {
++				teamArg = 2;
++			}
++		}
++
++		if (amountArg &gt;= 0) {
++			const string&amp; amountStr = args[amountArg];
++			amount = atoi(amountStr.c_str());
++			if ((amount &lt; 0) || (amountStr.find_first_not_of(&quot;0123456789&quot;) != string::npos)) {
++				logOutput.Print(&quot;Bad give amount: %s&quot;, amountStr.c_str());
++				return;
++								}
++		}
++
++		if (teamArg &gt;= 0) {
++			const string&amp; teamStr = args[teamArg];
++			team = atoi(teamStr.c_str());
++			if ((team &lt; 0) || (team &gt;= gs-&gt;activeTeams) || (teamStr.find_first_not_of(&quot;0123456789&quot;) != string::npos)) {
++				logOutput.Print(&quot;Bad give team: %s&quot;, teamStr.c_str());
++				return;
++			}
++		}
++
++		const string unitName = (amountArg &gt;= 0) ? args[2] : args[1];
++
++		if (unitName == &quot;all&quot;) {
++		// player entered &quot;.give all&quot;
++			int sqSize = (int) ceil(sqrt((float) unitDefHandler-&gt;numUnitDefs));
++			int currentNumUnits = gs-&gt;Team(team)-&gt;units.size();
++			int numRequestedUnits = unitDefHandler-&gt;numUnitDefs;
++
++		// make sure team unit-limit not exceeded
++			if ((currentNumUnits + numRequestedUnits) &gt; uh-&gt;maxUnits) {
++				numRequestedUnits = uh-&gt;maxUnits - currentNumUnits;
++			}
++
++			for (int a = 1; a &lt;= numRequestedUnits; ++a) {
++				float posx = pos.x + (a % sqSize - sqSize / 2) * 10 * SQUARE_SIZE;
++				float posz = pos.z + (a / sqSize - sqSize / 2) * 10 * SQUARE_SIZE;
++				float3 pos2 = float3(posx, pos.y, posz);
++				const string&amp; defName = unitDefHandler-&gt;unitDefs[a].name;
++				const CUnit* unit =
++						unitLoader.LoadUnit(defName, pos2, team, false, 0, NULL);
++
++				if (unit) {
++					unitLoader.FlattenGround(unit);
++				}
++			}
++		}
++		else if (!unitName.empty()) {
++			int numRequestedUnits = amount;
++			int currentNumUnits = gs-&gt;Team(team)-&gt;units.size();
++
++			if (currentNumUnits &gt;= uh-&gt;maxUnits) {
++				logOutput.Print(&quot;Unable to give any more units to team %i&quot;, team);
++				return;
++			}
++
++		// make sure team unit-limit not exceeded
++			if ((currentNumUnits + numRequestedUnits) &gt; uh-&gt;maxUnits) {
++				numRequestedUnits = uh-&gt;maxUnits - currentNumUnits;
++			}
++
++			const UnitDef* unitDef = unitDefHandler-&gt;GetUnitByName(unitName);
++
++			if (unitDef != NULL) {
++				int xsize = unitDef-&gt;xsize;
++				int zsize = unitDef-&gt;ysize;
++				int squareSize = (int) ceil(sqrt((float) numRequestedUnits));
++				int total = numRequestedUnits;
++
++				float3 minpos = pos;
++				minpos.x -= ((squareSize - 1) * xsize * SQUARE_SIZE) / 2;
++				minpos.z -= ((squareSize - 1) * zsize * SQUARE_SIZE) / 2;
++
++				for (int z = 0; z &lt; squareSize; ++z) {
++					for (int x = 0; x &lt; squareSize &amp;&amp; total &gt; 0; ++x) {
++						float minposx = minpos.x + x * xsize * SQUARE_SIZE;
++						float minposz = minpos.z + z * zsize * SQUARE_SIZE;
++						const float3 upos(minposx, minpos.y, minposz);
++						const CUnit* unit = unitLoader.LoadUnit(unitName, upos, team, false, 0, NULL);
++
++						if (unit) {
++							unitLoader.FlattenGround(unit);
++						}
++						--total;
++					}
++				}
++
++				logOutput.Print(&quot;Giving %i %s to team %i&quot;, numRequestedUnits, unitName.c_str(), team);
++			}
++			else {
++				if (teamArg &lt; 0) {
++					team = -1; // default to world features
++				}
++
++				const FeatureDef* featureDef = featureHandler-&gt;GetFeatureDef(unitName);
++				if (featureDef) {
++					int xsize = featureDef-&gt;xsize;
++					int zsize = featureDef-&gt;ysize;
++					int squareSize = (int) ceil(sqrt((float) numRequestedUnits));
++					int total = amount; // FIXME -- feature count limit?
++
++					float3 minpos = pos;
++					minpos.x -= ((squareSize - 1) * xsize * SQUARE_SIZE) / 2;
++					minpos.z -= ((squareSize - 1) * zsize * SQUARE_SIZE) / 2;
++
++					for (int z = 0; z &lt; squareSize; ++z) {
++						for (int x = 0; x &lt; squareSize &amp;&amp; total &gt; 0; ++x) {
++							float minposx = minpos.x + x * xsize * SQUARE_SIZE;
++							float minposz = minpos.z + z * zsize * SQUARE_SIZE;
++							float minposy = ground-&gt;GetHeight2(minposx, minposz);
++							const float3 upos(minposx, minposy, minposz);
++							CFeature* feature = SAFE_NEW CFeature();
++							feature-&gt;Initialize(upos, featureDef, 0, 0, team, &quot;&quot;);
++							--total;
++						}
++					}
++
++					logOutput.Print(&quot;Giving %i %s (feature) to team %i&quot;,
++									numRequestedUnits, unitName.c_str(), team);
++				}
++				else {
++					logOutput.Print(unitName + &quot; is not a valid unitname&quot;);
++				}
++			}
++		}
++	}
++	else if (action.command == &quot;nospectatorchat&quot;) {
++		SetBoolArg(noSpectatorChat, action.extra);
++		logOutput.Print(&quot;Spectators %s chat&quot;, noSpectatorChat ? &quot;can&quot; : &quot;can not&quot;);
++	}
++	else if (action.command == &quot;reloadcob&quot; &amp;&amp; gs-&gt;cheatEnabled) {
++		ReloadCOB(action.extra, playernum);
++	}
++	else if (action.command == &quot;devlua&quot; &amp;&amp; gs-&gt;cheatEnabled) {
++		bool devMode = CLuaHandle::GetDevMode();
++		SetBoolArg(devMode, action.extra);
++		CLuaHandle::SetDevMode(devMode);
++		if (devMode) {
++			logOutput.Print(&quot;Lua devmode enabled, this can cause desyncs&quot;);
++		} else {
++			logOutput.Print(&quot;Lua devmode disabled&quot;);
++		}
++	}
++	else if (action.command == &quot;editdefs&quot; &amp;&amp; gs-&gt;cheatEnabled) {
++		SetBoolArg(gs-&gt;editDefsEnabled, action.extra);
++		if (gs-&gt;editDefsEnabled)
++			logOutput.Print(&quot;Definition Editing!&quot;);
++		else
++			logOutput.Print(&quot;No definition Editing&quot;);
++	}
++	else if (action.command == &quot;luarules&quot; &amp;&amp; (gs-&gt;frameNum &gt; 1)) {
++		if (gs-&gt;useLuaRules) {
++			if (action.extra == &quot;reload&quot;) {
++				if (!gs-&gt;cheatEnabled) {
++					logOutput.Print(&quot;Cheating required to reload synced scripts\n&quot;);
++				} else {
++					CLuaRules::FreeHandler();
++					CLuaRules::LoadHandler();
++					if (luaRules)
++						logOutput.Print(&quot;LuaRules reloaded\n&quot;);
++					else
++						logOutput.Print(&quot;LuaRules reload failed\n&quot;);
++				}
++			}
++			else if (action.extra == &quot;disable&quot;) {
++				if (!gs-&gt;cheatEnabled) {
++					logOutput.Print(&quot;Cheating required to disable synced scripts\n&quot;);
++				} else {
++					CLuaRules::FreeHandler();
++					logOutput.Print(&quot;LuaRules disabled\n&quot;);
++				}
++			}
++			else if (luaRules) {
++				luaRules-&gt;GotChatMsg(action.extra, playernum);
++			}
++			else {
++				logOutput.Print(&quot;LuaRules is not enabled\n&quot;);
++			}
++		}
++	}
++	else if (action.command == &quot;luagaia&quot; &amp;&amp; (gs-&gt;frameNum &gt; 1)) {
++		if (gs-&gt;useLuaGaia) {
++			if (action.extra == &quot;reload&quot;) {
++				if (!gs-&gt;cheatEnabled) {
++					logOutput.Print(&quot;Cheating required to reload synced scripts\n&quot;);
++				} else {
++					CLuaGaia::FreeHandler();
++					CLuaGaia::LoadHandler();
++					if (luaGaia) {
++						logOutput.Print(&quot;LuaGaia reloaded\n&quot;);
++					} else {
++						logOutput.Print(&quot;LuaGaia reload failed\n&quot;);
++					}
++				}
++			}
++			else if (action.extra == &quot;disable&quot;) {
++				if (!gs-&gt;cheatEnabled) {
++					logOutput.Print(&quot;Cheating required to disable synced scripts\n&quot;);
++				} else {
++					CLuaGaia::FreeHandler();
++					logOutput.Print(&quot;LuaGaia disabled\n&quot;);
++				}
++			}
++			else if (luaGaia) {
++				luaGaia-&gt;GotChatMsg(action.extra, playernum);
++			}
++			else {
++				logOutput.Print(&quot;LuaGaia is not enabled\n&quot;);
++			}
++		}
++	}
++#ifdef DEBUG
++	if (action.command == &quot;desync&quot; &amp;&amp; gs-&gt;cheatEnabled) {
++		for (int i = MAX_UNITS - 1; i &gt;= 0; --i) {
++			if (uh-&gt;units[i]) {
++				if (playernum == gu-&gt;myPlayerNum) {
++					++uh-&gt;units[i]-&gt;midPos.x; // and desync...
++					++uh-&gt;units[i]-&gt;midPos.x;
++				} else {
++					// execute the same amount of flops on any other player, but don't desync (it's a NOP)...
++					++uh-&gt;units[i]-&gt;midPos.x;
++					--uh-&gt;units[i]-&gt;midPos.x;
++				}
++				break;
++			}
++		}
++		logOutput.Print(&quot;Desyncing in frame %d.&quot;, gs-&gt;frameNum);
++	}
++#endif
++	if (action.command == &quot;resync&quot; &amp;&amp; gs-&gt;cheatEnabled) {
++		CObject* o = CObject::GetSyncedObjects();
++		for (; o; o = o-&gt;GetNext()) {
++			creg::Class* c = o-&gt;GetClass();
++			logOutput.Print(&quot;%s\n&quot;, c-&gt;name.c_str());
++			for (std::vector&lt;creg::Class::Member*&gt;::const_iterator m = c-&gt;members.begin(); m != c-&gt;members.end(); ++m) {
++				logOutput.Print(&quot;  %s\n&quot;, (*m)-&gt;name);
++			}
++		}
++	}
++	else if (action.command == &quot;atm&quot; &amp;&amp; gs-&gt;cheatEnabled) {
++		int team = gs-&gt;players[playernum]-&gt;team;
++		gs-&gt;Team(team)-&gt;AddMetal(1000);
++		gs-&gt;Team(team)-&gt;AddEnergy(1000);
++	}
++	else if (action.command == &quot;take&quot; &amp;&amp; (!gs-&gt;players[playernum]-&gt;spectator || gs-&gt;cheatEnabled)) {
++		int sendTeam = gs-&gt;players[playernum]-&gt;team;
++		for (int a = 0; a &lt; gs-&gt;activeTeams; ++a) {
++			if (gs-&gt;AlliedTeams(a, sendTeam)) {
++				bool hasPlayer = false;
++				for (int b = 0; b &lt; gs-&gt;activePlayers; ++b) {
++					if (gs-&gt;players[b]-&gt;active &amp;&amp; gs-&gt;players[b]-&gt;team==a &amp;&amp; !gs-&gt;players[b]-&gt;spectator) {
++						hasPlayer = true;
++					}
++				}
++				if (!hasPlayer) {
++					for (std::list&lt;CUnit*&gt;::iterator ui=uh-&gt;activeUnits.begin();ui!=uh-&gt;activeUnits.end();++ui) {
++						CUnit* unit = *ui;
++						if ((unit-&gt;team == a) &amp;&amp; (unit-&gt;selfDCountdown == 0)) {
++							unit-&gt;ChangeTeam(sendTeam, CUnit::ChangeGiven);
++						}
++					}
++				}
++			}
++		}
++	}
++	else if (action.command == &quot;save &quot;) {//.save [-y ]&lt;savename&gt;
++		if (filesystem.CreateDirectory(&quot;Saves&quot;)) {
++			bool saveoverride = action.extra.find(&quot;-y &quot;) == 0;
++			std::string savename(action.extra.c_str()+(saveoverride?3:0));
++			savename=&quot;Saves/&quot;+savename+&quot;.ssf&quot;;
++			if (filesystem.GetFilesize(savename)==0 || saveoverride) {
++				logOutput.Print(&quot;Saving game to %s\n&quot;,savename.c_str());
++				CLoadSaveHandler ls;
++				ls.mapName = stupidGlobalMapname;
++				ls.modName = modInfo.filename;
++				ls.SaveGame(savename);
++			} else {
++				logOutput.Print(&quot;File %s allready exists(use /save -y to override)\n&quot;,savename.c_str());
++			}
++		}
++	}
++	else if (gs-&gt;frameNum &gt; 1) {
++		if (luaRules) luaRules-&gt;SyncedActionFallback(action.rawline, playernum);
++		if (luaGaia)  luaGaia-&gt;SyncedActionFallback(action.rawline, playernum);
++	}
++}
++
+ bool CGame::Update()
+ {
+ 	good_fpu_control_registers(&quot;CGame::Update&quot;);
+@@ -2922,12 +3280,15 @@
+ 
+ 			case NETMSG_KEYFRAME: {
+ 				int serverframenum = *(int*)(inbuf+1);
+-				if (gs-&gt;frameNum != (serverframenum - 1))
++				if (gs-&gt;frameNum == (serverframenum - 1))
+ 				{
++					// everything ok, fall through
++				}
++				else
++				{
+ 					// error
+-					logOutput.Print(&quot;Error Server framenum %i does not match client framenum %i&quot;, serverframenum - 1, gs-&gt;frameNum);
++					break;
+ 				}
+-				// fall through
+ 			}
+ 			case NETMSG_NEWFRAME: {
+ 				timeLeft -= 1.0f;
+@@ -3220,7 +3581,13 @@
+ 					gs-&gt;SetAlly(gs-&gt;AllyTeam(gs-&gt;players[player]-&gt;team), whichAllyTeam, allied);
+ 				else
+ 					logOutput.Print(&quot;Player %i sent out wrong allyTeam index in alliance message&quot;, player);
++				break;
+ 			}
++			case NETMSG_CCOMMAND: {
++				CommandMessage msg((netcode::UnpackPacket*)(packet));
++				ActionRecieved(msg.action, msg.player);
++				break;
++			}
+ 
+ #ifdef DIRECT_CONTROL_ALLOWED
+ 			case NETMSG_DIRECT_CONTROL: {
+@@ -3448,7 +3815,6 @@
+ }
+ 
+ 
+-
+ void CGame::MakeMemDump(void)
+ {
+ 	std::ofstream file(gameServer ? &quot;memdump.txt&quot; : &quot;memdumpclient.txt&quot;);
+@@ -3706,27 +4072,6 @@
+ 		return;
+ 	}
+ 	string msg = message;
+-	if ((msg.find(&quot;.give&quot;) == 0) &amp;&amp; (msg.find('@') == string::npos)) {
+-		float3 p;
+-		CInputReceiver* ir = NULL;
+-		if (!hideInterface) {
+-			ir = CInputReceiver::GetReceiverAt(mouse-&gt;lastx, mouse-&gt;lasty);
+-		}
+-		if (ir == minimap) {
+-			p = minimap-&gt;GetMapPosition(mouse-&gt;lastx, mouse-&gt;lasty);
+-		}
+-		else {
+-			const float3&amp; pos = camera-&gt;pos;
+-			const float3&amp; dir = mouse-&gt;dir;
+-			const float dist = ground-&gt;LineGroundCol(pos, pos + (dir * 9000.0f));
+-			p = pos + (dir * dist);
+-		}
+-
+-		char buf[128];
+-		SNPRINTF(buf, sizeof(buf), &quot; @%.0f,%.0f,%.0f&quot;, p.x, p.y, p.z);
+-		msg += buf;
+-	}
+-	
+ 	if (msg.size() &gt; 128) {
+ 		msg.resize(128); // safety
+ 	}
+@@ -3734,439 +4079,10 @@
+ }
+ 
+ 
+-static void SetBoolArg(bool&amp; value, const std::string&amp; str, const char* cmd)
+-{
+-	char* end;
+-	const char* start = str.c_str() + strlen(cmd);
+-	const int num = strtol(start, &amp;end, 10);
+-	if (end != start) {
+-		value = (num != 0);
+-	} else {
+-		value = !value;
+-	}
+-}
+-
+-
+ void CGame::HandleChatMsg(std::string s, int player)
+ {
+ 	globalAI-&gt;GotChatMsg(s.c_str(),player);
+ 	CScriptHandler::Instance().chosenScript-&gt;GotChatMsg(s, player);
+-
+-	if ((s.find(&quot;.cheat&quot;) == 0) &amp;&amp; (player == 0 || net-&gt;localDemoPlayback)) {
+-		SetBoolArg(gs-&gt;cheatEnabled, s, &quot;.cheat&quot;);
+-		if (gs-&gt;cheatEnabled) {
+-			logOutput.Print(&quot;Cheating!&quot;);
+-		} else {
+-			logOutput.Print(&quot;No more cheating&quot;);
+-		}
+-	}
+-	else if ((s.find(&quot;.godmode&quot;) == 0) &amp;&amp; (player == 0)) {
+-		if (!gs-&gt;cheatEnabled) {
+-			logOutput.Print(&quot;godmode requires .cheat&quot;);
+-		} else {
+-			SetBoolArg(gs-&gt;godMode, s, &quot;.godmode&quot;);
+-			if (gs-&gt;godMode) {
+-				logOutput.Print(&quot;God Mode Enabled&quot;);
+-			} else {
+-				logOutput.Print(&quot;God Mode Disabled&quot;);
+-			}
+-			CLuaUI::UpdateTeams();
+-		}
+-	}
+-	else if ((s.find(&quot;.nocost&quot;) == 0) &amp;&amp; (player == 0) &amp;&amp; gs-&gt;cheatEnabled) {
+-		for(unsigned i=0; i&lt;unitDefHandler-&gt;numUnitDefs; i++)
+-		{
+-			unitDefHandler-&gt;unitDefs[i].metalCost = 1;
+-			unitDefHandler-&gt;unitDefs[i].energyCost = 1;
+-			unitDefHandler-&gt;unitDefs[i].buildTime = 10;
+-			unitDefHandler-&gt;unitDefs[i].metalUpkeep = 0;
+-			unitDefHandler-&gt;unitDefs[i].energyUpkeep = 0;
+-		}
+-		unitDefHandler-&gt;noCost=true;
+-		logOutput.Print(&quot;Everything is for free!&quot;);
+-	}
+-	else if (s.find(&quot;.crash&quot;) == 0 &amp;&amp; gs-&gt;cheatEnabled) {
+-		int *a=0;
+-		*a=0;
+-	}
+-	else if (s.find(&quot;.exception&quot;) == 0 &amp;&amp; gs-&gt;cheatEnabled) {
+-		throw std::runtime_error(&quot;Exception test&quot;);
+-	}
+-	else if (s.find(&quot;.divbyzero&quot;) == 0 &amp;&amp; gs-&gt;cheatEnabled) {
+-		float a = 0;
+-		logOutput.Print(&quot;Result: %f&quot;, 1.0f/a);
+-	}
+-#ifdef DEBUG
+-	else if ((s.find(&quot;.desync&quot;) == 0) &amp;&amp; gs-&gt;cheatEnabled) {
+-		for (int i = MAX_UNITS - 1; i &gt;= 0; --i) {
+-			if (uh-&gt;units[i]) {
+-				if (player == gu-&gt;myPlayerNum) {
+-					++uh-&gt;units[i]-&gt;midPos.x; // and desync...
+-					++uh-&gt;units[i]-&gt;midPos.x;
+-				} else {
+-					// execute the same amount of flops on any other player, but don't desync (it's a NOP)...
+-					++uh-&gt;units[i]-&gt;midPos.x;
+-					--uh-&gt;units[i]-&gt;midPos.x;
+-				}
+-				break;
+-			}
+-		}
+-		logOutput.Print(&quot;Desyncing in frame %d.&quot;, gs-&gt;frameNum);
+-	}
+-#endif
+-	else if (s.find(&quot;.resync&quot;) == 0 &amp;&amp; gs-&gt;cheatEnabled) {
+-		CObject* o = CObject::GetSyncedObjects();
+-		for (; o; o = o-&gt;GetNext()) {
+-			creg::Class* c = o-&gt;GetClass();
+-			logOutput.Print(&quot;%s\n&quot;, c-&gt;name.c_str());
+-			for (std::vector&lt;creg::Class::Member*&gt;::const_iterator m = c-&gt;members.begin(); m != c-&gt;members.end(); ++m) {
+-				logOutput.Print(&quot;  %s\n&quot;, (*m)-&gt;name);
+-			}
+-		}
+-	}
+-#ifdef SYNCDEBUG
+-	else if ((s.find(&quot;.fakedesync&quot;) == 0) &amp;&amp; gs-&gt;cheatEnabled &amp;&amp; gameServer) {
+-		gameServer-&gt;fakeDesync = true;
+-		logOutput.Print(&quot;Fake desyncing.&quot;);
+-	}
+-	else if ((s.find(&quot;.reset&quot;) == 0) &amp;&amp; gs-&gt;cheatEnabled) {
+-		CSyncDebugger::GetInstance()-&gt;Reset();
+-		logOutput.Print(&quot;Resetting sync debugger.&quot;);
+-	}
+-#endif
+-	else if ((s.find(&quot;.atm&quot;) == 0) &amp;&amp; gs-&gt;cheatEnabled) {
+-		int team = gs-&gt;players[player]-&gt;team;
+-		gs-&gt;Team(team)-&gt;AddMetal(1000);
+-		gs-&gt;Team(team)-&gt;AddEnergy(1000);
+-	}
+-
+-	else if ((s.find(&quot;.give&quot;) == 0) &amp;&amp; gs-&gt;cheatEnabled) {
+-		// .give [amount] &lt;unitName&gt; [team] &lt;@x,y,z&gt;
+-		vector&lt;string&gt; args = CSimpleParser::Tokenize(s, 0);
+-
+-
+-		if (args.size() &lt; 3) {
+-			logOutput.Print(&quot;Someone is spoofing invalid .give messages!&quot;);
+-			return;
+-		}
+-
+-		float3 pos;
+-		if (sscanf(args[args.size() - 1].c_str(),
+-		           &quot;@%f,%f,%f&quot;, &amp;pos.x, &amp;pos.y, &amp;pos.z) != 3) {
+-			logOutput.Print(&quot;Someone is spoofing invalid .give messages!&quot;);
+-			return;
+-		}
+-
+-		int amount = 1;
+-		int team = gs-&gt;players[player]-&gt;team;
+-
+-		int amountArg = -1;
+-		int teamArg = -1;
+-
+-		if (args.size() == 5) {
+-			amountArg = 1;
+-			teamArg = 3;
+-		}
+-		else if (args.size() == 4) {
+-			if (args[1].find_first_not_of(&quot;0123456789&quot;) == string::npos) {
+-				amountArg = 1;
+-			} else {
+-				teamArg = 2;
+-			}
+-		}
+-
+-		if (amountArg &gt;= 0) {
+-			const string&amp; amountStr = args[amountArg];
+-			amount = atoi(amountStr.c_str());
+-			if ((amount &lt; 0) ||
+-			    (amountStr.find_first_not_of(&quot;0123456789&quot;) != string::npos)) {
+-				logOutput.Print(&quot;Bad .give amount: %s&quot;, amountStr.c_str());
+-				return;
+-			}
+-		}
+-
+-		if (teamArg &gt;= 0) {
+-			const string&amp; teamStr = args[teamArg];
+-			team = atoi(teamStr.c_str());
+-			if ((team &lt; 0) || (team &gt;= gs-&gt;activeTeams) ||
+-			    (teamStr.find_first_not_of(&quot;0123456789&quot;) != string::npos)) {
+-				logOutput.Print(&quot;Bad .give team: %s&quot;, teamStr.c_str());
+-				return;
+-			}
+-		}
+-
+-		const string unitName = (amountArg &gt;= 0) ? args[2] : args[1];
+-
+-		if (unitName == &quot;all&quot;) {
+-			// player entered &quot;.give all&quot;
+-			int sqSize = (int) ceil(sqrt((float) unitDefHandler-&gt;numUnitDefs));
+-			int currentNumUnits = gs-&gt;Team(team)-&gt;units.size();
+-			int numRequestedUnits = unitDefHandler-&gt;numUnitDefs;
+-
+-			// make sure team unit-limit not exceeded
+-			if ((currentNumUnits + numRequestedUnits) &gt; uh-&gt;maxUnits) {
+-				numRequestedUnits = uh-&gt;maxUnits - currentNumUnits;
+-			}
+-
+-			for (int a = 1; a &lt;= numRequestedUnits; ++a) {
+-				float posx = pos.x + (a % sqSize - sqSize / 2) * 10 * SQUARE_SIZE;
+-				float posz = pos.z + (a / sqSize - sqSize / 2) * 10 * SQUARE_SIZE;
+-				float3 pos2 = float3(posx, pos.y, posz);
+-				const string&amp; defName = unitDefHandler-&gt;unitDefs[a].name;
+-				const CUnit* unit =
+-					unitLoader.LoadUnit(defName, pos2, team, false, 0, NULL);
+-
+-				if (unit) {
+-					unitLoader.FlattenGround(unit);
+-				}
+-			}
+-		}
+-		else if (!unitName.empty()) {
+-			int numRequestedUnits = amount;
+-			int currentNumUnits = gs-&gt;Team(team)-&gt;units.size();
+-
+-			if (currentNumUnits &gt;= uh-&gt;maxUnits) {
+-				logOutput.Print(&quot;Unable to give any more units to team %i&quot;, team);
+-				return;
+-			}
+-
+-			// make sure team unit-limit not exceeded
+-			if ((currentNumUnits + numRequestedUnits) &gt; uh-&gt;maxUnits) {
+-				numRequestedUnits = uh-&gt;maxUnits - currentNumUnits;
+-			}
+-
+-			const UnitDef* unitDef = unitDefHandler-&gt;GetUnitByName(unitName);
+-
+-			if (unitDef != NULL) {
+-				int xsize = unitDef-&gt;xsize;
+-				int zsize = unitDef-&gt;ysize;
+-				int squareSize = (int) ceil(sqrt((float) numRequestedUnits));
+-				int total = numRequestedUnits;
+-
+-				float3 minpos = pos;
+-				minpos.x -= ((squareSize - 1) * xsize * SQUARE_SIZE) / 2;
+-				minpos.z -= ((squareSize - 1) * zsize * SQUARE_SIZE) / 2;
+-
+-				for (int z = 0; z &lt; squareSize; ++z) {
+-					for (int x = 0; x &lt; squareSize &amp;&amp; total &gt; 0; ++x) {
+-						float minposx = minpos.x + x * xsize * SQUARE_SIZE;
+-						float minposz = minpos.z + z * zsize * SQUARE_SIZE;
+-						const float3 upos(minposx, minpos.y, minposz);
+-						const CUnit* unit = unitLoader.LoadUnit(unitName, upos, team, false, 0, NULL);
+-
+-						if (unit) {
+-							unitLoader.FlattenGround(unit);
+-						}
+-						--total;
+-					}
+-				}
+-
+-				logOutput.Print(&quot;Giving %i %s to team %i&quot;,
+-				                numRequestedUnits, unitName.c_str(), team);
+-			}
+-			else {
+-				if (teamArg &lt; 0) {
+-					team = -1; // default to world features
+-				}
+-
+-				const FeatureDef* featureDef = featureHandler-&gt;GetFeatureDef(unitName);
+-				if (featureDef) {
+-					int xsize = featureDef-&gt;xsize;
+-					int zsize = featureDef-&gt;ysize;
+-					int squareSize = (int) ceil(sqrt((float) numRequestedUnits));
+-					int total = amount; // FIXME -- feature count limit?
+-
+-					float3 minpos = pos;
+-					minpos.x -= ((squareSize - 1) * xsize * SQUARE_SIZE) / 2;
+-					minpos.z -= ((squareSize - 1) * zsize * SQUARE_SIZE) / 2;
+-
+-					for (int z = 0; z &lt; squareSize; ++z) {
+-						for (int x = 0; x &lt; squareSize &amp;&amp; total &gt; 0; ++x) {
+-							float minposx = minpos.x + x * xsize * SQUARE_SIZE;
+-							float minposz = minpos.z + z * zsize * SQUARE_SIZE;
+-							float minposy = ground-&gt;GetHeight2(minposx, minposz);
+-							const float3 upos(minposx, minposy, minposz);
+-							CFeature* feature = SAFE_NEW CFeature();
+-							feature-&gt;Initialize(upos, featureDef, 0, 0, team, &quot;&quot;);
+-							--total;
+-						}
+-					}
+-
+-					logOutput.Print(&quot;Giving %i %s (feature) to team %i&quot;,
+-					                numRequestedUnits, unitName.c_str(), team);
+-				}
+-				else {
+-					logOutput.Print(unitName + &quot; is not a valid unitname&quot;);
+-				}
+-			}
+-		}
+-	}
+-
+-	else if ((s.find(&quot;.take&quot;) == 0) &amp;&amp; (!gs-&gt;players[player]-&gt;spectator || gs-&gt;cheatEnabled)) {
+-		int sendTeam = gs-&gt;players[player]-&gt;team;
+-		for (int a = 0; a &lt; gs-&gt;activeTeams; ++a) {
+-			if (gs-&gt;AlliedTeams(a, sendTeam)) {
+-				bool hasPlayer = false;
+-				for (int b = 0; b &lt; gs-&gt;activePlayers; ++b) {
+-					if (gs-&gt;players[b]-&gt;active &amp;&amp; gs-&gt;players[b]-&gt;team==a &amp;&amp; !gs-&gt;players[b]-&gt;spectator) {
+-						hasPlayer = true;
+-					}
+-				}
+-				if (!hasPlayer) {
+-					for (std::list&lt;CUnit*&gt;::iterator ui=uh-&gt;activeUnits.begin();ui!=uh-&gt;activeUnits.end();++ui) {
+-						CUnit* unit = *ui;
+-						if ((unit-&gt;team == a) &amp;&amp; (unit-&gt;selfDCountdown == 0)) {
+-							unit-&gt;ChangeTeam(sendTeam, CUnit::ChangeGiven);
+-						}
+-					}
+-				}
+-			}
+-		}
+-	}
+-	// .kick, .kickbynum and .nopause moved to CGameServer
+-	else if ((s.find(&quot;.nospectatorchat&quot;) == 0) &amp;&amp; (player == 0)) {
+-		SetBoolArg(noSpectatorChat, s, &quot;.nospectatorchat&quot;);
+-		logOutput.Print(&quot;Spectators %s chat&quot;, noSpectatorChat ? &quot;can&quot; : &quot;can not&quot;);
+-	}
+-	else if ((s.find(&quot;.nohelp&quot;) == 0) &amp;&amp; (player == 0)) {
+-		SetBoolArg(gs-&gt;noHelperAIs, s, &quot;.nohelp&quot;);
+-		selectedUnits.PossibleCommandChange(NULL);
+-		if (gs-&gt;noHelperAIs) {
+-			// remove any current GroupAIs
+-			CUnitSet&amp; teamUnits = gs-&gt;Team(gu-&gt;myTeam)-&gt;units;
+-			CUnitSet::iterator it;
+-      for(it = teamUnits.begin(); it != teamUnits.end(); ++it) {
+-      	CUnit* unit = *it;
+-				if (unit-&gt;group &amp;&amp; (unit-&gt;group-&gt;id &gt; 9)) {
+-					unit-&gt;SetGroup(NULL);
+-				}
+-			}
+-		}
+-		logOutput.Print(&quot;GroupAI and LuaUI control is %s&quot;,
+-		                gs-&gt;noHelperAIs ? &quot;disabled&quot; : &quot;enabled&quot;);
+-	}
+-	else if (s.find(&quot;.skip&quot;) == 0) {
+-		if (((player != 0) || !gs-&gt;cheatEnabled) &amp;&amp; !net-&gt;localDemoPlayback) {
+-			logOutput.Print(&quot;.skip only works in replay, and when cheating\n&quot;);
+-		} else if (gs-&gt;frameNum &lt; 1) {
+-			logOutput.Print(&quot;.skip only works after every demo-player has readied\n&quot;);
+-		} else if (s.size() &lt;= 6) {
+-			logOutput.Print(&quot;missing argument to .skip\n&quot;);
+-		} else {
+-			Skip(s);
+-		}
+-	}
+-	else if ((s.find(&quot;.reloadcob&quot;) == 0) &amp;&amp; gs-&gt;cheatEnabled &amp;&amp; (player == 0)) {
+-		ReloadCOB(s, player);
+-	}
+-	else if ((s.find(&quot;.devlua&quot;) == 0) &amp;&amp; (player == 0) &amp;&amp; gs-&gt;cheatEnabled) {
+-		bool devMode = CLuaHandle::GetDevMode();
+-		SetBoolArg(devMode, s, &quot;.devlua&quot;);
+-		CLuaHandle::SetDevMode(devMode);
+-		if (devMode) {
+-			logOutput.Print(&quot;Lua devmode enabled, this can cause desyncs&quot;);
+-		} else {
+-			logOutput.Print(&quot;Lua devmode disabled&quot;);
+-		}
+-	}
+-	else if ((s.find(&quot;.editdefs&quot;) == 0) &amp;&amp; (player == 0) &amp;&amp; gs-&gt;cheatEnabled) {
+-		SetBoolArg(gs-&gt;editDefsEnabled, s, &quot;.editdefs&quot;);
+-		if (gs-&gt;editDefsEnabled) {
+-			logOutput.Print(&quot;Definition Editing!&quot;);
+-		} else {
+-			logOutput.Print(&quot;No definition Editing&quot;);
+-		}
+-	}
+-	else if ((s.find(&quot;.luarules&quot;) == 0) &amp;&amp; (gs-&gt;frameNum &gt; 1)) {
+-		if (gs-&gt;useLuaRules) {
+-			if (s == &quot;.luarules reload&quot;) {
+-				if (player != 0) {
+-					logOutput.Print(&quot;Only the host player can reload synced scripts\n&quot;);
+-				} else if (!gs-&gt;cheatEnabled) {
+-					logOutput.Print(&quot;Cheating required to reload synced scripts\n&quot;);
+-				} else {
+-					CLuaRules::FreeHandler();
+-					CLuaRules::LoadHandler();
+-					if (luaRules) {
+-						logOutput.Print(&quot;LuaRules reloaded\n&quot;);
+-					} else {
+-						logOutput.Print(&quot;LuaRules reload failed\n&quot;);
+-					}
+-				}
+-			}
+-			else if (s == &quot;.luarules disable&quot;) {
+-				if (player != 0) {
+-					logOutput.Print(&quot;Only the host player can disable synced scripts\n&quot;);
+-				} else if (!gs-&gt;cheatEnabled) {
+-					logOutput.Print(&quot;Cheating required to disable synced scripts\n&quot;);
+-				} else {
+-					CLuaRules::FreeHandler();
+-					logOutput.Print(&quot;LuaRules disabled\n&quot;);
+-				}
+-			}
+-			else if (luaRules) {
+-				luaRules-&gt;GotChatMsg(s.substr(strlen(&quot;.luarules&quot;)), player);
+-			}
+-			else {
+-				logOutput.Print(&quot;LuaRules is not enabled\n&quot;);
+-			}
+-		}
+-	}
+-	else if ((s.find(&quot;.luagaia&quot;) == 0) &amp;&amp; (gs-&gt;frameNum &gt; 1)) {
+-		if (gs-&gt;useLuaGaia) {
+-			if (s == &quot;.luagaia reload&quot;) {
+-				if (player != 0) {
+-					logOutput.Print(&quot;Only the host player can reload synced scripts\n&quot;);
+-				} else if (!gs-&gt;cheatEnabled) {
+-					logOutput.Print(&quot;Cheating required to reload synced scripts\n&quot;);
+-				} else {
+-					CLuaGaia::FreeHandler();
+-					CLuaGaia::LoadHandler();
+-					if (luaGaia) {
+-						logOutput.Print(&quot;LuaGaia reloaded\n&quot;);
+-					} else {
+-						logOutput.Print(&quot;LuaGaia reload failed\n&quot;);
+-					}
+-				}
+-			}
+-			else if (s == &quot;.luagaia disable&quot;) {
+-				if (player != 0) {
+-					logOutput.Print(&quot;Only the host player can disable synced scripts\n&quot;);
+-				} else if (!gs-&gt;cheatEnabled) {
+-					logOutput.Print(&quot;Cheating required to disable synced scripts\n&quot;);
+-				} else {
+-					CLuaGaia::FreeHandler();
+-					logOutput.Print(&quot;LuaGaia disabled\n&quot;);
+-				}
+-			}
+-			else if (luaGaia) {
+-				luaGaia-&gt;GotChatMsg(s.substr(strlen(&quot;.luagaia&quot;)), player);
+-			}
+-			else {
+-				logOutput.Print(&quot;LuaGaia is not enabled\n&quot;);
+-			}
+-		}
+-	}
+-	else if (s.find(&quot;.save &quot;) == 0) {//.save [-y ]&lt;savename&gt;
+-		if (filesystem.CreateDirectory(&quot;Saves&quot;)) {
+-			bool saveoverride = s.find(&quot; -y &quot;) == 0;
+-			std::string savename(s.c_str()+(6+(saveoverride?3:0)));
+-			savename=&quot;Saves/&quot;+savename+&quot;.ssf&quot;;
+-			if (filesystem.GetFilesize(savename)==0 || saveoverride) {
+-				logOutput.Print(&quot;Saving game to %s\n&quot;,savename.c_str());
+-				CLoadSaveHandler ls;
+-				ls.mapName = stupidGlobalMapname;
+-				ls.modName = modInfo.filename;
+-				ls.SaveGame(savename);
+-			} else {
+-				logOutput.Print(&quot;File %s allready exists(use .save -y to override)\n&quot;,savename.c_str());
+-			}
+-		}
+-	}
+-	else if ((s[0] == '.') &amp;&amp; (gs-&gt;frameNum &gt; 1)) {
+-		if (luaRules &amp;&amp; luaRules-&gt;SyncedActionFallback(s, player)) { return; }
+-		if (luaGaia  &amp;&amp; luaGaia-&gt;SyncedActionFallback(s, player))  { return; }
+-	}
+ }
+ 
+ 
+@@ -4235,34 +4151,20 @@
+ }
+ 
+ 
+-void CGame::Skip(const std::string&amp; msg)
++void CGame::Skip(int targetframe)
+ {
+ 	if ((skipping &lt; 0) || (skipping &gt; 2)) {
+ 		logOutput.Print(&quot;ERROR: skipping appears to be busted (%i)\n&quot;, skipping);
+ 		skipping = 0;
+ 	}
+ 
+-	const string timeStr = msg.substr(6);
+ 	const int startFrame = gs-&gt;frameNum;
+-	int endFrame;
++	int endFrame = targetframe;
+ 
+-	// parse the skip time
+-	if (timeStr[0] == 'f') {        // skip to frame
+-		endFrame = atoi(timeStr.c_str() + 1);
+-	} else if (timeStr[0] == '+') { // relative time
+-		endFrame = startFrame + (GAME_SPEED * atoi(timeStr.c_str() + 1));
+-	} else {                        // absolute time
+-		endFrame = GAME_SPEED * atoi(timeStr.c_str());
+-	}
+-
+ 	if (endFrame &lt;= startFrame) {
+ 		logOutput.Print(&quot;Already passed %i (%i)\n&quot;, endFrame / GAME_SPEED, endFrame);
+ 		return;
+ 	}
+-	if (gs-&gt;paused) {
+-		logOutput.Print(&quot;Can not skip while paused\n&quot;);
+-		return;
+-	}
+ 
+ 	const int totalFrames = endFrame - startFrame;
+ 	const float seconds = (float)(totalFrames) / (float)GAME_SPEED;
+@@ -4284,9 +4186,6 @@
+ 			// FIXME: messes up the how-many-frames-are-left bar
+ 			Update();
+ 
+-			if (gameServer) {
+-				gameServer-&gt;SkipTo(gs-&gt;frameNum);
+-			}
+ 			// draw something so that users don't file bug reports
+ 			const Uint32 gfxTime = SDL_GetTicks();
+ 			if ((gfxTime - gfxLastTime) &gt; 100) { // 10fps
+@@ -4337,7 +4236,7 @@
+ 		logOutput.Print(&quot;reloadcob can only be used if cheating is enabled&quot;);
+ 		return;
+ 	}
+-	const string unitName = (msg.size() &gt;= 12)? msg.substr(11): &quot;&quot;;
++	const string unitName = msg;
+ 	if (unitName.empty()) {
+ 		logOutput.Print(&quot;Missing unit name&quot;);
+ 		return;
+
+Modified: trunk/rts/Game/Game.h
+===================================================================
+--- trunk/rts/Game/Game.h	2008-04-01 14:07:07 UTC (rev 5640)
++++ trunk/rts/Game/Game.h	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -15,9 +15,7 @@
+ #include &quot;Sim/Projectiles/ProjectileHandler.h&quot;
+ #include &quot;Player.h&quot;
+ #include &quot;GameController.h&quot;
+-#include &quot;UI/KeyBindings.h&quot;
+ 
+-
+ #define FRAME_HISTORY 16
+ 
+ class CScript;
+@@ -28,7 +26,9 @@
+ class CKeySet;
+ class CInfoConsole;
+ class LuaParser;
++class Action;
+ 
++
+ class CGame : public CGameController
+ {
+ public:
+@@ -48,8 +48,8 @@
+ 	void ResizeEvent();
+ 	virtual ~CGame();
+ 
+-	bool ActionPressed(const CKeyBindings::Action&amp;, const CKeySet&amp; ks, bool isRepeat);
+-	bool ActionReleased(const CKeyBindings::Action&amp;);
++	bool ActionPressed(const Action&amp;, const CKeySet&amp; ks, bool isRepeat);
++	bool ActionReleased(const Action&amp;);
+ 	
+ 	bool HasLag() const;
+ 
+@@ -131,20 +131,23 @@
+ protected:
+ 	/// show GameEnd-window, calculate mouse movement etc.
+ 	void GameEnd();
+-	void SendNetChat(const string&amp; message);
++	void SendNetChat(const std::string&amp; message);
+ 	void HandleChatMsg(std::string msg, int player);
++	
++	/// synced actions (recieved from server) go in here
++	void ActionRecieved(const Action&amp;, int playernum);
+ 
+ 	void DrawInputText();
+-	void ParseInputTextGeometry(const string&amp; geo);
++	void ParseInputTextGeometry(const std::string&amp; geo);
+ 
+-	void SelectUnits(const string&amp; line);
+-	void SelectCycle(const string&amp; command);
++	void SelectUnits(const std::string&amp; line);
++	void SelectCycle(const std::string&amp; command);
+ 
+ 	void ReColorTeams();
+ 
+-	void LogNetMsg(const string&amp; msg, int player);
+-	void ReloadCOB(const string&amp; msg, int player);
+-	void Skip(const string&amp; msg);
++	void LogNetMsg(const std::string&amp; msg, int player);
++	void ReloadCOB(const std::string&amp; msg, int player);
++	void Skip(int targetframe);
+ 
+ 	std::string hotBinding;
+ 	float inputTextPosX;
+@@ -170,7 +173,6 @@
+ 	std::map&lt;int, PlayerTrafficInfo&gt; playerTraffic;
+ 
+ private:
+-
+ 	// to smooth out SimFrame calls
+ 	int leastQue;       ///&lt; Lowest value of que in the past second.
+ 	float timeLeft;     ///&lt; How many SimFrame() calls we still may do.
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-04-01 14:07:07 UTC (rev 5640)
++++ trunk/rts/Game/GameServer.cpp	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -11,6 +11,8 @@
+ #endif
+ 
+ #include &quot;GameSetupData.h&quot;
++#include &quot;Action.h&quot;
++#include &quot;CommandMessage.h&quot;
+ #include &quot;System/StdAfx.h&quot;
+ #include &quot;System/BaseNetProtocol.h&quot;
+ #include &quot;System/DemoReader.h&quot;
+@@ -54,7 +56,22 @@
+ , team(0)
+ {
+ }
++namespace {
++void SetBoolArg(bool&amp; value, const std::string&amp; str)
++{
++	if (str.empty()) // toggle
++	{
++		value = !value;
++	}
++	else // set
++	{
++		const int num = atoi(str.c_str());
++		value = (num != 0);
++	}
++}
++}
+ 
++
+ CGameServer* gameServer=0;
+ 
+ CGameServer::CGameServer(int port, const GameData* const newGameData, const CGameSetupData* const mysetup = 0, const std::string&amp; demoName)
+@@ -111,6 +128,24 @@
+ 		demoReader = new CDemoReader(demoName, modGameTime+0.1f);
+ 	}
+ 
++	RestrictedAction(&quot;kick&quot;);			RestrictedAction(&quot;kickbynum&quot;);
++	RestrictedAction(&quot;setminspeed&quot;);	RestrictedAction(&quot;setmaxspeed&quot;);
++	RestrictedAction(&quot;nopause&quot;);
++	RestrictedAction(&quot;nohelp&quot;);
++	RestrictedAction(&quot;cheat&quot;); //TODO register cheats only after cheating is on
++	RestrictedAction(&quot;godmode&quot;);
++	RestrictedAction(&quot;nocost&quot;);
++	RestrictedAction(&quot;forcestart&quot;);
++	RestrictedAction(&quot;nospectatorchat&quot;);
++	if (demoReader)
++		RegisterAction(&quot;skip&quot;);
++	commandBlacklist.insert(&quot;skip&quot;);
++	RestrictedAction(&quot;reloadcob&quot;);
++	RestrictedAction(&quot;devlua&quot;);
++	RestrictedAction(&quot;editdefs&quot;);
++	RestrictedAction(&quot;luarules&quot;);
++	RestrictedAction(&quot;luagaia&quot;);
++	RestrictedAction(&quot;singlestep&quot;);
+ 	thread = new boost::thread(boost::bind&lt;void, CGameServer, CGameServer*&gt;(&amp;CGameServer::UpdateLoop, this));
+ 
+ #ifdef STREFLOP_H
+@@ -141,7 +176,7 @@
+ 
+ void CGameServer::AddLocalClient()
+ {
+-	boost::mutex::scoped_lock scoped_lock(gameServerMutex);
++	boost::recursive_mutex::scoped_lock scoped_lock(gameServerMutex);
+ 	serverNet-&gt;ServerInitLocalClient();
+ }
+ 
+@@ -149,7 +184,7 @@
+ {
+ 	if (hostif == 0)
+ 	{
+-		boost::mutex::scoped_lock scoped_lock(gameServerMutex);
++		boost::recursive_mutex::scoped_lock scoped_lock(gameServerMutex);
+ 		hostif = new AutohostInterface(remotePort);
+ 		hostif-&gt;SendStart();
+ 		log.Subscribe(hostif);
+@@ -159,15 +194,57 @@
+ 
+ void CGameServer::PostLoad(unsigned newlastTick, int newserverframenum)
+ {
+-	boost::mutex::scoped_lock scoped_lock(gameServerMutex);
++	boost::recursive_mutex::scoped_lock scoped_lock(gameServerMutex);
+ 	lastTick = newlastTick;
+ 	serverframenum = newserverframenum;
+ }
+ 
+ void CGameServer::SkipTo(int targetframe)
+ {
+-	boost::mutex::scoped_lock scoped_lock(gameServerMutex);
+-	serverframenum = targetframe;
++	if (targetframe &gt; serverframenum &amp;&amp; demoReader)
++	{
++		boost::recursive_mutex::scoped_lock scoped_lock(gameServerMutex);
++		// fast-read and send demo data
++		while (serverframenum &lt; targetframe)
++		{
++			unsigned char demobuffer[netcode::NETWORK_BUFFER_SIZE];
++			unsigned length = 0;
++	
++			if ( (length = demoReader-&gt;GetData(demobuffer, netcode::NETWORK_BUFFER_SIZE, modGameTime)) &gt; 0 )
++			{
++				if (demobuffer[0] == NETMSG_NEWFRAME || demobuffer[0] == NETMSG_KEYFRAME)
++				{
++					serverframenum++;
++					if (demobuffer[0] == NETMSG_KEYFRAME)
++						serverNet-&gt;SendKeyFrame(serverframenum);
++					else
++						serverNet-&gt;SendNewFrame();
++	
++				}
++				else if ( demobuffer[0] != NETMSG_GAMEDATA &amp;&amp;
++						demobuffer[0] != NETMSG_SETPLAYERNUM &amp;&amp;
++						demobuffer[0] != NETMSG_USER_SPEED &amp;&amp;
++						demobuffer[0] != NETMSG_INTERNAL_SPEED &amp;&amp;
++						demobuffer[0] != NETMSG_PAUSE) // dont send these from demo
++				{
++					serverNet-&gt;RawSend(demobuffer, length);
++				}
++			}
++			modGameTime = demoReader-&gt;GetNextReadTime()+0.1f; // skip time
++	
++			if (demoReader-&gt;ReachedEnd()) {
++				delete demoReader;
++				demoReader = 0;
++				log.Message(DemoEnd);
++				gameEndTime = SDL_GetTicks();
++				break;
++			}
++			if (serverframenum % 10 == 0)
++				serverNet-&gt;Update();
++		}
++		lastTick = SDL_GetTicks();
++		serverNet-&gt;Update();
++	}
+ }
+ 
+ std::string CGameServer::GetPlayerNames(const std::vector&lt;int&gt;&amp; indices) const
+@@ -755,7 +832,30 @@
+ 						else
+ 						{ // not allowed
+ 						}
++						break;
+ 					}
++					case NETMSG_CCOMMAND: {
++						CommandMessage msg(static_cast&lt;netcode::UnpackPacket*&gt;(packet));
++						if (msg.player == a)
++						{
++							if ((commandBlacklist.find(msg.action.command) != commandBlacklist.end()) &amp;&amp; players[a]-&gt;hasRights)
++							{
++								// command is restricted to server but player is allowed to execute it
++								PushAction(msg.action);
++							}
++							else if (commandBlacklist.find(msg.action.command) == commandBlacklist.end())
++							{
++								// command is save
++								serverNet-&gt;SendData(msg.Pack());
++							}
++							else
++							{
++								// hack!
++								log.Warning(boost::format(CommandNotAllowed) %msg.player %msg.action.command.c_str());
++							}
++						}
++						break;
++					}
+ 
+ 					// CGameServer should never get these messages
+ 					case NETMSG_GAMEID:
+@@ -942,9 +1042,115 @@
+ 	gamePausable = arg;
+ }
+ 
++void CGameServer::PushAction(const Action&amp; action)
++{
++	boost::recursive_mutex::scoped_lock scoped_lock(gameServerMutex);
++	if (action.command == &quot;kickbynum&quot;)
++	{
++		if (!action.extra.empty())
++		{
++			const int playerNum = atoi(action.extra.c_str());
++			KickPlayer(playerNum);
++		}
++	}
++	else if (action.command == &quot;kick&quot;)
++	{
++		if (!action.extra.empty())
++		{
++			std::string name = action.extra;
++			StringToLowerInPlace(name);
++			for (int a=1; a &lt; MAX_PLAYERS;++a)
++			{
++				if (players[a])
++				{
++					std::string playerLower = StringToLower(players[a]-&gt;name);
++					if (playerLower.find(name)==0)
++					{	//can kick on substrings of name
++						KickPlayer(a);
++					}
++				}
++			}
++		}
++	}
++	else if (action.command == &quot;nopause&quot;)
++	{
++		SetBoolArg(gamePausable, action.extra);
++	}
++	else if (action.command == &quot;nohelp&quot;)
++	{
++		SetBoolArg(noHelperAIs, action.extra);
++		// sent it because clients have to do stuff when this changes
++		CommandMessage msg(action, SERVER_PLAYER);
++		serverNet-&gt;SendData(msg.Pack());
++	}
++	else if (action.command == &quot;setmaxspeed&quot;)
++	{
++		maxUserSpeed = atof(action.extra.c_str());
++		if (userSpeedFactor &gt; maxUserSpeed) {
++			serverNet-&gt;SendUserSpeed(SERVER_PLAYER, maxUserSpeed);
++			userSpeedFactor = maxUserSpeed;
++			if (internalSpeed &gt; maxUserSpeed) {
++				serverNet-&gt;SendInternalSpeed(userSpeedFactor);
++				internalSpeed = userSpeedFactor;
++			}
++		}
++	}
++	else if (action.command == &quot;setminspeed&quot;)
++	{
++		minUserSpeed = atof(action.extra.c_str());
++		if (userSpeedFactor &lt; minUserSpeed) {
++			serverNet-&gt;SendUserSpeed(SERVER_PLAYER, minUserSpeed);
++			userSpeedFactor = minUserSpeed;
++			if (internalSpeed &lt; minUserSpeed) {
++				serverNet-&gt;SendInternalSpeed(userSpeedFactor);
++				internalSpeed = userSpeedFactor;
++			}
++		}
++	}
++	else if (action.command == &quot;forcestart&quot;)
++	{
++		if (!gameStartTime)
++			CheckForGameStart(true);
++	}
++	else if (action.command == &quot;skip&quot;)
++	{
++		if (demoReader &amp;&amp; serverframenum &gt; 1)
++		{
++			const std::string timeStr = action.extra;
++			int endFrame;
++			// parse the skip time
++			if (timeStr[0] == 'f') {        // skip to frame
++				endFrame = atoi(timeStr.c_str()) + 1;
++			} else if (timeStr[0] == '+') { // relative time
++				endFrame = serverframenum + (GAME_SPEED * atoi(timeStr.c_str() + 1));
++			} else {                        // absolute time
++				endFrame = GAME_SPEED * atoi(timeStr.c_str());
++			}
++			SkipTo(endFrame);
++		}
++	}
++	else if (action.command == &quot;cheat&quot;)
++	{
++		SetBoolArg(cheating, action.extra);
++		CommandMessage msg(action, SERVER_PLAYER);
++		serverNet-&gt;SendData(msg.Pack());
++	}
++	else if (action.command == &quot;singlestep&quot;)
++	{
++		if (IsPaused &amp;&amp; !demoReader)
++			gameServer-&gt;CreateNewFrame(true, true);
++	}
++	else
++	{
++		// only forward to players (send over network)
++		CommandMessage msg(action, SERVER_PLAYER);
++		serverNet-&gt;SendData(msg.Pack());
++	}
++}
++
+ bool CGameServer::HasFinished() const
+ {
+-	boost::mutex::scoped_lock scoped_lock(gameServerMutex);
++	boost::recursive_mutex::scoped_lock scoped_lock(gameServerMutex);
+ 	return quitServer;
+ }
+ 
+@@ -996,7 +1202,7 @@
+ 
+ void CGameServer::CreateNewFrame(bool fromServerThread, bool fixedFrameTime)
+ {
+-	boost::mutex::scoped_lock scoped_lock(gameServerMutex,!fromServerThread);
++	boost::recursive_mutex::scoped_lock scoped_lock(gameServerMutex,!fromServerThread);
+ 	CheckSync();
+ 	int newFrames = 1;
+ 
+@@ -1047,7 +1253,7 @@
+ 	while (!quitServer)
+ 	{
+ 		{
+-			boost::mutex::scoped_lock scoped_lock(gameServerMutex);
++			boost::recursive_mutex::scoped_lock scoped_lock(gameServerMutex);
+ 			Update();
+ 		}
+ 		SDL_Delay(10);
+@@ -1134,87 +1340,16 @@
+ 
+ void CGameServer::GotChatMessage(const std::string&amp; msg, unsigned player)
+ {
+-	bool canDoStuff = (player == SERVER_PLAYER || players[player]-&gt;hasRights);
+-	//TODO: migrate more stuff from CGame::HandleChatMessage here
+-	if ((msg.find(&quot;.kickbynum&quot;) == 0) &amp;&amp; canDoStuff) {
+-		if (msg.length() &gt;= 11) {
+-			int playerNum = atoi(msg.substr(11, string::npos).c_str());
+-			KickPlayer(playerNum);
+-		}
++	serverNet-&gt;SendChat(player, msg);
++	if (hostif &amp;&amp; player != SERVER_PLAYER) {
++		// don't echo packets to autohost
++		hostif-&gt;SendPlayerChat(player, msg);
+ 	}
+-	else if ((msg.find(&quot;.kick&quot;) == 0) &amp;&amp; canDoStuff) {
+-		if (msg.length() &gt;= 6) {
+-			std::string name = msg.substr(6,string::npos);
+-			if (!name.empty()){
+-				StringToLowerInPlace(name);
+-				for (int a=1; a &lt; MAX_PLAYERS;++a){
+-					if (players[a]){
+-						std::string playerLower = StringToLower(players[a]-&gt;name);
+-						if (playerLower.find(name)==0) {               //can kick on substrings of name
+-							KickPlayer(a);
+-						}
+-					}
+-				}
+-			}
+-		}
+-	}
+-	else if ((msg.find(&quot;.nopause&quot;) == 0) &amp;&amp; canDoStuff) {
+-		SetBoolArg(gamePausable, msg, &quot;.nopause&quot;);
+-	}
+-	else if ((msg.find(&quot;.nohelp&quot;) == 0) &amp;&amp; canDoStuff) {
+-		SetBoolArg(noHelperAIs, msg, &quot;.nohelp&quot;);
+-		// sent it because clients have to do stuff when this changes
+-		serverNet-&gt;SendChat(player, msg);
+-	}
+-	else if ((msg.find(&quot;.setmaxspeed&quot;) == 0) &amp;&amp; canDoStuff) {
+-		maxUserSpeed = atof(msg.substr(12).c_str());
+-		if (userSpeedFactor &gt; maxUserSpeed) {
+-			serverNet-&gt;SendUserSpeed(player, maxUserSpeed);
+-			userSpeedFactor = maxUserSpeed;
+-			if (internalSpeed &gt; maxUserSpeed) {
+-				serverNet-&gt;SendInternalSpeed(userSpeedFactor);
+-				internalSpeed = userSpeedFactor;
+-			}
+-		}
+-	}
+-	else if ((msg.find(&quot;.setminspeed&quot;) == 0) &amp;&amp; canDoStuff) {
+-		minUserSpeed = atof(msg.substr(12).c_str());
+-		if (userSpeedFactor &lt; minUserSpeed) {
+-			serverNet-&gt;SendUserSpeed(player, minUserSpeed);
+-			userSpeedFactor = minUserSpeed;
+-			if (internalSpeed &lt; minUserSpeed) {
+-				serverNet-&gt;SendInternalSpeed(userSpeedFactor);
+-				internalSpeed = userSpeedFactor;
+-			}
+-		}
+-	}
+-	else if ((msg.find(&quot;.forcestart&quot;) == 0) &amp;&amp; canDoStuff) {
+-		if (!gameStartTime)
+-			CheckForGameStart(true);
+-	}
+-	else if ((msg.find(&quot;.cheat&quot;) == 0) &amp;&amp; canDoStuff) {
+-		cheating = !cheating;
+-		serverNet-&gt;SendChat(player, msg);
+-		if (hostif)
+-			hostif-&gt;SendPlayerChat(player, msg);
+-	}
+-	else {
+-		serverNet-&gt;SendChat(player, msg);
+-		if (hostif &amp;&amp; player != SERVER_PLAYER) {
+-			// don't echo packets to autohost
+-			hostif-&gt;SendPlayerChat(player, msg);
+-		}
+-	}
+ }
+ 
+-void CGameServer::SetBoolArg(bool&amp; value, const std::string&amp; str, const char* cmd)
++void CGameServer::RestrictedAction(const std::string&amp; action)
+ {
+-	char* end;
+-	const char* start = str.c_str() + strlen(cmd);
+-	const int num = strtol(start, &amp;end, 10);
+-	if (end != start) {
+-		value = (num != 0);
+-	} else {
+-		value = !value;
+-	}
++	RegisterAction(action);
++	commandBlacklist.insert(action);
+ }
++
+
+Modified: trunk/rts/Game/GameServer.h
+===================================================================
+--- trunk/rts/Game/GameServer.h	2008-04-01 14:07:07 UTC (rev 5640)
++++ trunk/rts/Game/GameServer.h	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -1,13 +1,15 @@
+ #ifndef __GAME_SERVER_H__
+ #define __GAME_SERVER_H__
+ 
+-#include &lt;boost/thread/mutex.hpp&gt;
++#include &lt;boost/thread/recursive_mutex.hpp&gt;
+ #include &lt;boost/thread/thread.hpp&gt;
+ #include &lt;boost/scoped_ptr.hpp&gt;
+ #include &lt;string&gt;
+ #include &lt;map&gt;
+ #include &lt;deque&gt;
++#include &lt;set&gt;
+ 
++#include &quot;Console.h&quot;
+ #include &quot;GameData.h&quot;
+ #include &quot;System/GlobalStuff.h&quot;
+ #include &quot;System/UnsyncedRNG.h&quot;
+@@ -52,7 +54,7 @@
+ @brief Server class for game handling
+ This class represents a gameserver. It is responsible for recieving, checking and forwarding gamedata to the clients. It keeps track of the sync, cpu and other stats and informs all clients about events.
+ */
+-class CGameServer : private ServerLog
++class CGameServer : private ServerLog, public CommandReciever
+ {
+ 	friend class CLoadSaveHandler;     //For initialize server state after load
+ public:
+@@ -82,7 +84,9 @@
+ 	bool GameHasStarted() const;
+ 
+ 	void SetGamePausable(const bool arg);
+-	
++
++	virtual void PushAction(const Action&amp; action);
++
+ 	/// Is the server still running?
+ 	bool HasFinished() const;
+ 
+@@ -117,7 +121,6 @@
+ 	void CheckForGameEnd();
+ 
+ 	void GenerateAndSendGameID();
+-	void SetBoolArg(bool&amp; value, const std::string&amp; str, const char* cmd);
+ 	std::string GetPlayerNames(const std::vector&lt;int&gt;&amp; indices) const;
+ 	
+ 	void Message(const std::string&amp; message);
+@@ -170,12 +173,16 @@
+ 	int delayedSyncResponseFrame;
+ 
+ 	///////////////// internal stuff //////////////////
++	void RestrictedAction(const std::string&amp; action);
++	
++	/// If the server recieves a command, it will forward it to clients if it is not in this set
++	std::set&lt;std::string&gt; commandBlacklist;
+ 	CBaseNetProtocol* serverNet;
+ 	CDemoReader* demoReader;
+ 	AutohostInterface* hostif;
+ 	UnsyncedRNG rng;
+ 	boost::thread* thread;
+-	mutable boost::mutex gameServerMutex;
++	mutable boost::recursive_mutex gameServerMutex;
+ };
+ 
+ extern CGameServer* gameServer;
+
+Modified: trunk/rts/Game/Server/MsgStrings.h
+===================================================================
+--- trunk/rts/Game/Server/MsgStrings.h	2008-04-01 14:07:07 UTC (rev 5640)
++++ trunk/rts/Game/Server/MsgStrings.h	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -31,4 +31,6 @@
+ const std::string UnknownTeammsg = &quot;Unknown action in NETMSG_TEAM (%d) from player %d&quot;;
+ const std::string UnknownNetmsg = &quot;Unhandled net msg (%d) in server from %d&quot;;
+ 
++const std::string CommandNotAllowed = &quot;Player %d is not allowed to execute command %s&quot;;
++
+ #endif /*SERVERMSGSTRINGS_H_*/
+
+Modified: trunk/rts/Game/UI/GuiHandler.cpp
+===================================================================
+--- trunk/rts/Game/UI/GuiHandler.cpp	2008-04-01 14:07:07 UTC (rev 5640)
++++ trunk/rts/Game/UI/GuiHandler.cpp	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -1442,7 +1442,7 @@
+ 				if (outMods.shift == Required)  { keys[SDLK_LSHIFT] = 1; }
+ 				if (outMods.shift == Forbidden) { keys[SDLK_LSHIFT] = 0; }
+ 
+-				CKeyBindings::Action action(copy);
++				Action action(copy);
+ 				if (!ProcessLocalActions(action)) {
+ 					CKeySet ks;
+ 					game-&gt;ActionPressed(action, ks, false /*isRepeat*/);
+@@ -1568,7 +1568,7 @@
+ }
+ 
+ 
+-bool CGuiHandler::ProcessLocalActions(const CKeyBindings::Action&amp; action)
++bool CGuiHandler::ProcessLocalActions(const Action&amp; action)
+ {
+ 	// do not process these actions if the control panel is not visible
+ 	if (iconsCount &lt;= 0) {
+@@ -1704,7 +1704,7 @@
+ }
+ 
+ 
+-bool CGuiHandler::ProcessBuildActions(const CKeyBindings::Action&amp; action)
++bool CGuiHandler::ProcessBuildActions(const Action&amp; action)
+ {
+ 	const string arg = StringToLower(action.extra);
+ 	if (action.command == &quot;buildspacing&quot;) {
+@@ -1818,7 +1818,7 @@
+ 
+ 	for (int ali = 0; ali &lt; (int)al.size(); ++ali) {
+ 		const int actionIndex = (ali + tmpActionOffset) % (int)al.size();
+-		const CKeyBindings::Action&amp; action = al[actionIndex];
++		const Action&amp; action = al[actionIndex];
+ 		if (SetActiveCommand(action, ks, actionIndex)) {
+ 			return true;
+ 		}
+@@ -1828,7 +1828,7 @@
+ }
+ 
+ 
+-bool CGuiHandler::SetActiveCommand(const CKeyBindings::Action&amp; action,
++bool CGuiHandler::SetActiveCommand(const Action&amp; action,
+                                    const CKeySet&amp; ks, int actionIndex)
+ {
+ 	if (ProcessLocalActions(action)) {
+
+Modified: trunk/rts/Game/UI/GuiHandler.h
+===================================================================
+--- trunk/rts/Game/UI/GuiHandler.h	2008-04-01 14:07:07 UTC (rev 5640)
++++ trunk/rts/Game/UI/GuiHandler.h	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -68,8 +68,7 @@
+ 		bool SetActiveCommand(int cmdIndex,
+ 		                      int button, bool lmb, bool rmb,
+ 		                      bool alt, bool ctrl, bool meta, bool shift);
+-		bool SetActiveCommand(const CKeyBindings::Action&amp; action,
+-		                      const CKeySet&amp; ks, int actionIndex);
++		bool SetActiveCommand(const Action&amp; action, const CKeySet&amp; ks, int actionIndex);
+ 
+ 	public:
+ 		vector&lt;CommandDescription&gt; commands;
+@@ -139,8 +138,8 @@
+ 		bool LoadConfig(const std::string&amp; filename);
+ 		void ParseFillOrder(const std::string&amp; text);
+ 
+-		bool ProcessLocalActions(const CKeyBindings::Action&amp; action);
+-		bool ProcessBuildActions(const CKeyBindings::Action&amp; action);
++		bool ProcessLocalActions(const Action&amp; action);
++		bool ProcessBuildActions(const Action&amp; action);
+ 		int  GetIconPosCommand(int slot) const;
+ 		int  ParseIconSlot(const std::string&amp; text) const;
+ 
+
+Modified: trunk/rts/Game/UI/KeyBindings.cpp
+===================================================================
+--- trunk/rts/Game/UI/KeyBindings.cpp	2008-04-01 14:07:07 UTC (rev 5640)
++++ trunk/rts/Game/UI/KeyBindings.cpp	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -224,26 +224,6 @@
+ 
+ /******************************************************************************/
+ //
+-// CKeyBindings::Action
+-//
+-
+-CKeyBindings::Action::Action(const string&amp; line)
+-{
+-	rawline = line;
+-	command = &quot;&quot;;
+-	extra = &quot;&quot;;
+-	vector&lt;string&gt; words = CSimpleParser::Tokenize(line, 1);
+-	if (words.size() &gt; 0) {
+-		command = StringToLower(words[0]);
+-	}
+-	if (words.size() &gt; 1) {
+-		extra = words[1];
+-	}
+-}
+-
+-
+-/******************************************************************************/
+-//
+ // CKeyBindings
+ //
+ 
+@@ -262,6 +242,20 @@
+ 	statefulCommands.insert(&quot;movedown&quot;);
+ 	statefulCommands.insert(&quot;moveslow&quot;);
+ 	statefulCommands.insert(&quot;movefast&quot;);
++	
++	RegisterAction(&quot;bind&quot;);
++	RegisterAction(&quot;unbind&quot;);
++	RegisterAction(&quot;unbindall&quot;);
++	RegisterAction(&quot;unbindkeyset&quot;);
++	RegisterAction(&quot;unbindaction&quot;);
++	RegisterAction(&quot;keydebug&quot;);
++	RegisterAction(&quot;fakemeta&quot;);
++	RegisterAction(&quot;keyload&quot;);
++	RegisterAction(&quot;keyreload&quot;);
++	RegisterAction(&quot;keysave&quot;);
++	RegisterAction(&quot;keyprint&quot;);
++	RegisterAction(&quot;keysyms&quot;);
++	RegisterAction(&quot;keycodes&quot;);
+ }
+ 
+ 
+@@ -556,6 +550,34 @@
+ 	}
+ }
+ 
++void CKeyBindings::PushAction(const Action&amp; action)
++{
++	if (action.command == &quot;keyload&quot;)
++		Load(&quot;uikeys.txt&quot;);
++	else if (action.command == &quot;keyreload&quot;) {
++		Command(&quot;unbindall&quot;);
++		Command(&quot;unbind enter chat&quot;);
++		Load(&quot;uikeys.txt&quot;);
++	}
++	else if (action.command == &quot;keysave&quot;) {
++		if (Save(&quot;uikeys.tmp&quot;)) {  // tmp, not txt
++			logOutput.Print(&quot;Saved uikeys.tmp&quot;);
++		} else {
++			logOutput.Print(&quot;Could not save uikeys.tmp&quot;);
++		}
++	}
++	else if (action.command == &quot;keyprint&quot;) {
++		Print();
++	}
++	else if (action.command == &quot;keysyms&quot;) {
++		keyCodes-&gt;PrintNameToCode(); // move to CKeyCodes?
++	}
++	else if (action.command == &quot;keycodes&quot;) {
++		keyCodes-&gt;PrintCodeToName(); // move to CKeyCodes?
++	}
++	else
++		Command(action.rawline);
++}
+ 
+ bool CKeyBindings::Command(const string&amp; line)
+ {
+
+Modified: trunk/rts/Game/UI/KeyBindings.h
+===================================================================
+--- trunk/rts/Game/UI/KeyBindings.h	2008-04-01 14:07:07 UTC (rev 5640)
++++ trunk/rts/Game/UI/KeyBindings.h	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -9,16 +9,19 @@
+ #include &lt;vector&gt;
+ #include &lt;set&gt;
+ #include &lt;map&gt;
+-using namespace std;
++
+ #include &quot;KeySet.h&quot;
++#include &quot;Game/Console.h&quot;
++#include &quot;Game/Action.h&quot;
+ 
++using namespace std;
+ 
+ class CUnit;
+ class CFileHandler;
+ class CSimpleParser;
+ 
+ 
+-class CKeyBindings
++class CKeyBindings : public CommandReciever
+ {
+ 	public:
+ 		CKeyBindings();
+@@ -28,20 +31,13 @@
+ 		bool Save(const string&amp; filename) const;
+ 		void Print() const;
+ 
+-		struct Action {
+-			Action() {}
+-			Action(const string&amp; line);
+-			string command;   // first word, lowercase
+-			string extra;     // everything but the first word
+-			string rawline;   // includes the command, case preserved
+-			string boundWith; // the string that defined the binding keyset
+-		};
+ 		typedef vector&lt;Action&gt; ActionList;
+ 		typedef vector&lt;string&gt; HotkeyList;
+ 
+ 		const ActionList&amp; GetActionList(const CKeySet&amp; ks) const;
+ 		const HotkeyList&amp; GetHotkeys(const string&amp; action) const;
+ 
++		virtual void PushAction(const Action&amp;);
+ 		bool Command(const string&amp; line);
+ 
+ 		int GetFakeMetaKey() const { return fakeMetaKey; }
+
+Modified: trunk/rts/Game/UI/LuaUI.cpp
+===================================================================
+--- trunk/rts/Game/UI/LuaUI.cpp	2008-04-01 14:07:07 UTC (rev 5640)
++++ trunk/rts/Game/UI/LuaUI.cpp	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -811,7 +811,7 @@
+ 		return false;
+ 	}
+ 
+-	const int args = lua_gettop(L);
++	// const int args = lua_gettop(L); unused
+ 	if (!lua_isboolean(L, -1)) {
+ 		lua_pop(L, 1);
+ 		return false;
+@@ -1625,7 +1625,7 @@
+ 	}
+ 	const int args = lua_gettop(L); // number of arguments
+ 	const string text = lua_tostring(L, 1);
+-	const CKeyBindings::Action action(text);
++	const Action action(text);
+ 	CKeySet ks;
+ 	if (args &gt;= 2) {
+ 		const string ksText = lua_tostring(L, 2);
+@@ -2183,7 +2183,7 @@
+ 	const CKeyBindings::ActionList&amp;	actions = keyBindings-&gt;GetActionList(ks);
+ 	lua_newtable(L);
+ 	for (int i = 0; i &lt; (int)actions.size(); i++) {
+-		const CKeyBindings::Action&amp; action = actions[i];
++		const Action&amp; action = actions[i];
+ 		lua_pushnumber(L, i + 1);
+ 		lua_newtable(L);
+ 		lua_pushstring(L, action.command.c_str());
+
+Modified: trunk/rts/System/BaseNetProtocol.cpp
+===================================================================
+--- trunk/rts/System/BaseNetProtocol.cpp	2008-04-01 14:07:07 UTC (rev 5640)
++++ trunk/rts/System/BaseNetProtocol.cpp	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -45,6 +45,7 @@
+ 	RegisterMessage(NETMSG_TEAM, 4);
+ 	RegisterMessage(NETMSG_GAMEDATA, -2);
+ 	RegisterMessage(NETMSG_ALLIANCE, 4);
++	RegisterMessage(NETMSG_CCOMMAND, -2);
+ }
+ 
+ CBaseNetProtocol::~CBaseNetProtocol()
+
+Modified: trunk/rts/System/BaseNetProtocol.h
+===================================================================
+--- trunk/rts/System/BaseNetProtocol.h	2008-04-01 14:07:07 UTC (rev 5640)
++++ trunk/rts/System/BaseNetProtocol.h	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -72,6 +72,7 @@
+ 	NETMSG_TEAM             = 51, // uchar myPlayerNum, uchar action, uchar parameter1
+ 	NETMSG_GAMEDATA			= 52, // custom
+ 	NETMSG_ALLIANCE			= 53, // uchar myPlayerNum, uchar otherAllyTeam, uchar allianceState (0 = not allied / 1 = allied)
++ 	NETMSG_CCOMMAND			= 54, // custom
+ };
+ 
+ // action to do with NETMSG_TEAM 
+
+Modified: trunk/rts/System/DemoReader.cpp
+===================================================================
+--- trunk/rts/System/DemoReader.cpp	2008-04-01 14:07:07 UTC (rev 5640)
++++ trunk/rts/System/DemoReader.cpp	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -106,3 +106,8 @@
+ 	else
+ 		return false;
+ }
++
++float CDemoReader::GetNextReadTime() const
++{
++	return chunkHeader.modGameTime;
++}
+
+Modified: trunk/rts/System/DemoReader.h
+===================================================================
+--- trunk/rts/System/DemoReader.h	2008-04-01 14:07:07 UTC (rev 5640)
++++ trunk/rts/System/DemoReader.h	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -29,6 +29,8 @@
+ 	*/
+ 	bool ReachedEnd() const;
+ 
++	float GetNextReadTime() const;
++
+ private:
+ 	CFileHandler* playbackDemo;
+ 	float demoTimeOffset;
+
+Modified: trunk/rts/System/Net/Net.cpp
+===================================================================
+--- trunk/rts/System/Net/Net.cpp	2008-04-01 14:07:07 UTC (rev 5640)
++++ trunk/rts/System/Net/Net.cpp	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -188,6 +188,11 @@
+ 	}
+ }
+ 
++void CNet::SendData(const RawPacket* data)
++{
++	SendData(data-&gt;data, data-&gt;length);
++}
++
+ void CNet::SendData(const unsigned char* data,const unsigned length, const unsigned playerNum)
+ {
+ 	if (int(playerNum) &lt;= MaxConnectionID() &amp;&amp; connections[playerNum])
+
+Modified: trunk/rts/System/Net/Net.h
+===================================================================
+--- trunk/rts/System/Net/Net.h	2008-04-01 14:07:07 UTC (rev 5640)
++++ trunk/rts/System/Net/Net.h	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -169,6 +169,7 @@
+ 	@throw network_error Only when DEBUG is set: When the message identifier (data[0]) is not registered (through RegisterMessage())
+ 	*/
+ 	void SendData(const unsigned char* data,const unsigned length);
++	void SendData(const RawPacket* data);
+ 	
+ 	/**
+ 	@brief Send data to one client in particular
+
+Modified: trunk/tools/DedicatedServer/CMakeLists.txt
+===================================================================
+--- trunk/tools/DedicatedServer/CMakeLists.txt	2008-04-01 14:07:07 UTC (rev 5640)
++++ trunk/tools/DedicatedServer/CMakeLists.txt	2008-04-01 18:57:47 UTC (rev 5641)
+@@ -56,7 +56,7 @@
+ SET(filesystem_files ${fsfiles} ${platformfiles} ../../rts/System/TdfParser ../../rts/System/Platform/FileSystem ../../rts/System/Platform/ConfigHandler ../../rts/System/LogOutput)
+ 
+ AUX_SOURCE_DIRECTORY(../../rts/Game/Server serverfiles)
+-ADD_LIBRARY(server SHARED ${filesystem_files} ${serverfiles} ../../rts/Game/GameServer GameSetup ../../rts/Game/GameSetupData ../../rts/Game/GameData ../../rts/Game/GameVersion ../../rts/System/DemoReader ../../rts/System/Demo ../../rts/System/AutohostInterface  ../../rts/System/BaseNetProtocol ../../rts/System/UnsyncedRNG)
++ADD_LIBRARY(server SHARED ${filesystem_files} ${serverfiles} ../../rts/Game/GameServer GameSetup ../../rts/Game/GameSetupData ../../rts/Game/GameData ../../rts/Game/GameVersion ../../rts/Game/CommandMessage ../../rts/Game/Console ../../rts/Game/Action ../../rts/System/DemoReader ../../rts/System/Demo ../../rts/System/AutohostInterface  ../../rts/System/BaseNetProtocol ../../rts/System/UnsyncedRNG)
+ TARGET_LINK_LIBRARIES(server SDL boost_thread-mt net hpiutil2 7zip minizip boost_regex-mt)
+ 
+ ADD_EXECUTABLE(dedicated main EventPrinter)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000421.html">[Taspring-linux-commit] r5640 - in trunk/rts: Game Game/UI Lua	Rendering Rendering/GL Rendering/UnitModels Sim/Units System
+</A></li>
+	<LI>Next message: <A HREF="000423.html">[Taspring-linux-commit] r5642 - in trunk/rts: Game/UI Sim/Units
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#422">[ date ]</a>
+              <a href="thread.html#422">[ thread ]</a>
+              <a href="subject.html#422">[ subject ]</a>
+              <a href="author.html#422">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

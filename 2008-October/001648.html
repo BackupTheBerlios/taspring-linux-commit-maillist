@@ -1,0 +1,995 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6879 - in trunk/rts: ExternalAI Game	Game/UI Lua Map/SM3/terrain Sim/Misc System System/Platform/Linux
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6879%20-%20in%20trunk/rts%3A%20ExternalAI%20Game%0A%09Game/UI%20Lua%20Map/SM3/terrain%20Sim/Misc%20System%20System/Platform/Linux&In-Reply-To=%3C20081025132205.AE37F4742%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001647.html">
+   <LINK REL="Next"  HREF="001649.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6879 - in trunk/rts: ExternalAI Game	Game/UI Lua Map/SM3/terrain Sim/Misc System System/Platform/Linux</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6879%20-%20in%20trunk/rts%3A%20ExternalAI%20Game%0A%09Game/UI%20Lua%20Map/SM3/terrain%20Sim/Misc%20System%20System/Platform/Linux&In-Reply-To=%3C20081025132205.AE37F4742%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6879 - in trunk/rts: ExternalAI Game	Game/UI Lua Map/SM3/terrain Sim/Misc System System/Platform/Linux">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Oct 25 15:22:05 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001647.html">[Taspring-linux-commit] r6878 - trunk/rts/System
+</A></li>
+        <LI>Next message: <A HREF="001649.html">[Taspring-linux-commit] r6880 - in trunk/rts/System: . FileSystem
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1648">[ date ]</a>
+              <a href="thread.html#1648">[ thread ]</a>
+              <a href="subject.html#1648">[ subject ]</a>
+              <a href="author.html#1648">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-10-25 15:22:04 +0200 (Sat, 25 Oct 2008)
+New Revision: 6879
+
+Modified:
+   trunk/rts/ExternalAI/AICallback.cpp
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/UI/InfoConsole.cpp
+   trunk/rts/Game/UI/InfoConsole.h
+   trunk/rts/Game/UI/LuaUI.cpp
+   trunk/rts/Lua/LuaUnsyncedRead.cpp
+   trunk/rts/Map/SM3/terrain/TerrainBase.h
+   trunk/rts/Sim/Misc/DamageArrayHandler.cpp
+   trunk/rts/System/EventClient.cpp
+   trunk/rts/System/EventHandler.cpp
+   trunk/rts/System/EventHandler.h
+   trunk/rts/System/LogOutput.cpp
+   trunk/rts/System/LogOutput.h
+   trunk/rts/System/Platform/Linux/DataDirLocater.cpp
+Log:
+Added logging subsystem infrastructure.
+
+Logsubsystems can be defined using global variable:
+	static CLogSubsystem LOG_BLAH(&quot;blah&quot;);
+
+And can then be used as first argument to logOutput.Print:
+	logOutput.Print(LOG_BLAH, &quot;blabla&quot;);
+
+Each CLogSubsystem can be enabled/disabled independently.
+
+The CLogSubsystems link together in linked list, allowing for simple reflection.
+This is used by logOutput initialization code to enable all CLogSubsystems which
+occur in the configuration setting &quot;LogSubsystems&quot; or in the environment variable
+&quot;SPRING_LOG_SUBSYSTEMS&quot;. (This all happens automagically for all log subsystems..)
+
+The log subsystem name is put before the log message in infolog.txt / stdout.
+
+
+
+Modified: trunk/rts/ExternalAI/AICallback.cpp
+===================================================================
+--- trunk/rts/ExternalAI/AICallback.cpp	2008-10-25 12:52:51 UTC (rev 6878)
++++ trunk/rts/ExternalAI/AICallback.cpp	2008-10-25 13:22:04 UTC (rev 6879)
+@@ -87,9 +87,9 @@
+ void CAICallback::SendTextMsg(const char* text, int zone)
+ {
+ 	if (group)
+-		logOutput.Print(zone, &quot;Group%i: %s&quot;, group-&gt;id, text);
++		logOutput.Print(&quot;Group%i: %s&quot;, group-&gt;id, text);
+ 	else
+-		logOutput.Print(zone, &quot;GlobalAI%i: %s&quot;, team, text);
++		logOutput.Print(&quot;GlobalAI%i: %s&quot;, team, text);
+ }
+ 
+ void CAICallback::SetLastMsgPos(float3 pos)
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-10-25 12:52:51 UTC (rev 6878)
++++ trunk/rts/Game/Game.cpp	2008-10-25 13:22:04 UTC (rev 6879)
+@@ -544,10 +544,9 @@
+ 	SafeDelete(guihandler);
+ 
+ #ifndef NO_AVI
+-	if(creatingVideo){
+-		creatingVideo=false;
++	if(creatingVideo) {
++		creatingVideo = false;
+ 		SafeDelete(aviGenerator);
+-		aviGenerator = NULL;
+ 	}
+ #endif
+ 
+@@ -2535,7 +2534,7 @@
+ 		infoConsole-&gt;GetNewRawLines(lines);
+ 		for (unsigned int i = 0; i &lt; lines.size(); i++) {
+ 			const CInfoConsole::RawLine&amp; rawLine = lines[i];
+-			eventHandler.AddConsoleLine(rawLine.text, rawLine.zone);
++			eventHandler.AddConsoleLine(rawLine.text, *rawLine.subsystem);
+ 		}
+ 	}
+ 
+
+Modified: trunk/rts/Game/UI/InfoConsole.cpp
+===================================================================
+--- trunk/rts/Game/UI/InfoConsole.cpp	2008-10-25 12:52:51 UTC (rev 6878)
++++ trunk/rts/Game/UI/InfoConsole.cpp	2008-10-25 13:22:04 UTC (rev 6879)
+@@ -144,7 +144,7 @@
+ }
+ 
+ 
+-void CInfoConsole::NotifyLogMsg(int zone, const char *text)
++void CInfoConsole::NotifyLogMsg(CLogSubsystem&amp; subsystem, const char* text)
+ {
+ 	if (!font) return;
+ 
+@@ -152,11 +152,7 @@
+ 	ENTER_MIXED;
+ 	boost::recursive_mutex::scoped_lock scoped_lock(infoConsoleMutex);
+ 
+-	RawLine rl;
+-	rl.text = text;
+-	rl.zone = zone;
+-	rl.time = 0; // filled in later
+-	rl.id = rawId;
++	RawLine rl(text, &amp;subsystem, rawId);
+ 	rawId++;
+ 	rawData.push_back(rl);
+ 	if (rawData.size() &gt; maxRawLines) {
+
+Modified: trunk/rts/Game/UI/InfoConsole.h
+===================================================================
+--- trunk/rts/Game/UI/InfoConsole.h	2008-10-25 12:52:51 UTC (rev 6878)
++++ trunk/rts/Game/UI/InfoConsole.h	2008-10-25 13:22:04 UTC (rev 6879)
+@@ -23,7 +23,7 @@
+ 	void Draw();
+ 
+ 	// ILogSubscriber interface implementation
+-	void NotifyLogMsg(int zone, const char* txt);
++	void NotifyLogMsg(CLogSubsystem&amp; subsystem, const char* txt);
+ 
+ 
+ 	void SetLastMsgPos(const float3&amp; pos);
+@@ -60,8 +60,10 @@
+ 
+ 	static const int maxRawLines;
+ 	struct RawLine {
++		RawLine(const std::string&amp; text, CLogSubsystem* subsystem, int id)
++		: text(text), subsystem(subsystem), id(id), time(0) {}
+ 		std::string text;
+-		int zone;
++		CLogSubsystem* subsystem;
+ 		int id;
+ 		Uint32 time;
+ 	};
+
+Modified: trunk/rts/Game/UI/LuaUI.cpp
+===================================================================
+--- trunk/rts/Game/UI/LuaUI.cpp	2008-10-25 12:52:51 UTC (rev 6878)
++++ trunk/rts/Game/UI/LuaUI.cpp	2008-10-25 13:22:04 UTC (rev 6879)
+@@ -405,8 +405,10 @@
+ 			return true; // the call is not defined
+ 		}
+ 
++		// FIXME: migrate priority to subsystem...
+ 		lua_pushstring(L, rl.text.c_str());
+-		lua_pushnumber(L, rl.zone);
++		lua_pushnumber(L, 0 /*priority*/ );
++		//lua_pushstring(L, rl.subsystem-&gt;name);
+ 
+ 		// call the function
+ 		if (!RunCallIn(cmdStr, 2, 0)) {
+
+Modified: trunk/rts/Lua/LuaUnsyncedRead.cpp
+===================================================================
+--- trunk/rts/Lua/LuaUnsyncedRead.cpp	2008-10-25 12:52:51 UTC (rev 6878)
++++ trunk/rts/Lua/LuaUnsyncedRead.cpp	2008-10-25 13:22:04 UTC (rev 6879)
+@@ -360,7 +360,7 @@
+ 
+ 	lua_pushboolean(L, (x &gt;= x0) &amp;&amp; (x &lt; x1) &amp;&amp;
+ 	                   (y &gt;= y0) &amp;&amp; (y &lt; y1));
+-		
++
+ 	return 1;
+ }
+ 
+@@ -676,7 +676,7 @@
+ 				}
+ 			}
+ 
+-			const float testRadius = fixedRadius ? radius : (unit-&gt;radius + radius); 
++			const float testRadius = fixedRadius ? radius : (unit-&gt;radius + radius);
+ 			if (!camera-&gt;InView(unit-&gt;midPos, testRadius)) {
+ 				continue;
+ 			}
+@@ -838,7 +838,7 @@
+ 		return 0;
+ 	}
+ 	lua_pushboolean(L, game-&gt;hideInterface);
+-	return 1;	
++	return 1;
+ }
+ 
+ 
+@@ -849,7 +849,7 @@
+ 		return 0;
+ 	}
+ 	lua_pushboolean(L, shadowHandler-&gt;drawShadows);
+-	return 1;	
++	return 1;
+ }
+ 
+ 
+@@ -860,7 +860,7 @@
+ 		return 0;
+ 	}
+ 	lua_pushboolean(L, unitDrawer-&gt;advShading);
+-	return 1;	
++	return 1;
+ }
+ 
+ 
+@@ -881,7 +881,7 @@
+ 	}
+ 	lua_pushnumber(L, mode);
+ 	lua_pushstring(L, modeName);
+-	return 2;	
++	return 2;
+ }
+ 
+ 
+@@ -1602,9 +1602,10 @@
+ 			lua_pushstring(L, &quot;text&quot;);
+ 			lua_pushstring(L, lines[i].text.c_str());
+ 			lua_rawset(L, -3);
+-			// FIXME: how to migrate 'priority' to 'zone', will it break widgets?
++			// FIXME: migrate priority to subsystem...
+ 			lua_pushstring(L, &quot;priority&quot;);
+-			lua_pushnumber(L, lines[i].zone);
++			lua_pushnumber(L, 0 /*priority*/ );
++			//lua_pushstring(L, lines[i].subsystem-&gt;name);
+ 			lua_rawset(L, -3);
+ 		}
+ 		lua_rawset(L, -3);
+
+Modified: trunk/rts/Map/SM3/terrain/TerrainBase.h
+===================================================================
+--- trunk/rts/Map/SM3/terrain/TerrainBase.h	2008-10-25 12:52:51 UTC (rev 6878)
++++ trunk/rts/Map/SM3/terrain/TerrainBase.h	2008-10-25 13:22:04 UTC (rev 6879)
+@@ -43,7 +43,7 @@
+ typedef unsigned short ushort;
+ typedef unsigned char uchar;
+ 
+-#define d_puts(_C) logOutput.Print(0, std::string(_C));
++#define d_puts(_C) logOutput.Print(std::string(_C));
+ #define d_trace logOutput.Print
+ 
+ 
+
+Modified: trunk/rts/Sim/Misc/DamageArrayHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Misc/DamageArrayHandler.cpp	2008-10-25 12:52:51 UTC (rev 6878)
++++ trunk/rts/Sim/Misc/DamageArrayHandler.cpp	2008-10-25 13:22:04 UTC (rev 6879)
+@@ -43,7 +43,7 @@
+ 		typeList.insert(typeList.begin(), &quot;default&quot;);
+ 		name2type[&quot;default&quot;] = 0;
+ 
+-		logOutput.Print(1, &quot;Number of damage types: %d&quot;, numTypes);
++		logOutput.Print(&quot;Number of damage types: %d&quot;, numTypes);
+ 
+ 		for (int armorID = 1; armorID &lt; (int)typeList.size(); armorID++) {
+ 			const string armorName = StringToLower(typeList[armorID]);
+
+Modified: trunk/rts/System/EventClient.cpp
+===================================================================
+--- trunk/rts/System/EventClient.cpp	2008-10-25 12:52:51 UTC (rev 6878)
++++ trunk/rts/System/EventClient.cpp	2008-10-25 13:22:04 UTC (rev 6879)
+@@ -123,7 +123,7 @@
+ 
+ bool CEventClient::CommandNotify(const Command&amp; cmd) { return false; }
+ 
+-bool CEventClient::AddConsoleLine(const string&amp; msg, int zone) { return false; }
++bool CEventClient::AddConsoleLine(const string&amp; msg, CLogSubsystem&amp; subsystem) { return false; }
+ 
+ bool CEventClient::GroupChanged(int groupID) { return false; }
+ 
+
+Modified: trunk/rts/System/EventHandler.cpp
+===================================================================
+--- trunk/rts/System/EventHandler.cpp	2008-10-25 12:52:51 UTC (rev 6878)
++++ trunk/rts/System/EventHandler.cpp	2008-10-25 13:22:04 UTC (rev 6879)
+@@ -85,22 +85,22 @@
+ 	// unsynced call-ins
+ 	SETUP_EVENT(Update,         MANAGED_BIT | UNSYNCED_BIT);
+ 
+-  SETUP_EVENT(KeyPress,       MANAGED_BIT | UNSYNCED_BIT);
+-  SETUP_EVENT(KeyRelease,     MANAGED_BIT | UNSYNCED_BIT);
+-  SETUP_EVENT(MouseMove,      MANAGED_BIT | UNSYNCED_BIT);
+-  SETUP_EVENT(MousePress,     MANAGED_BIT | UNSYNCED_BIT);
+-  SETUP_EVENT(MouseRelease,   MANAGED_BIT | UNSYNCED_BIT);
+-  SETUP_EVENT(MouseWheel,     MANAGED_BIT | UNSYNCED_BIT);
+-  SETUP_EVENT(IsAbove,        MANAGED_BIT | UNSYNCED_BIT);
+-  SETUP_EVENT(GetTooltip,     MANAGED_BIT | UNSYNCED_BIT);
++	SETUP_EVENT(KeyPress,       MANAGED_BIT | UNSYNCED_BIT);
++	SETUP_EVENT(KeyRelease,     MANAGED_BIT | UNSYNCED_BIT);
++	SETUP_EVENT(MouseMove,      MANAGED_BIT | UNSYNCED_BIT);
++	SETUP_EVENT(MousePress,     MANAGED_BIT | UNSYNCED_BIT);
++	SETUP_EVENT(MouseRelease,   MANAGED_BIT | UNSYNCED_BIT);
++	SETUP_EVENT(MouseWheel,     MANAGED_BIT | UNSYNCED_BIT);
++	SETUP_EVENT(IsAbove,        MANAGED_BIT | UNSYNCED_BIT);
++	SETUP_EVENT(GetTooltip,     MANAGED_BIT | UNSYNCED_BIT);
+ 
+ 	SETUP_EVENT(DefaultCommand, MANAGED_BIT | UNSYNCED_BIT);
+-  SETUP_EVENT(CommandNotify,  MANAGED_BIT | UNSYNCED_BIT);
+-  SETUP_EVENT(AddConsoleLine, MANAGED_BIT | UNSYNCED_BIT);
+-  SETUP_EVENT(GroupChanged,   MANAGED_BIT | UNSYNCED_BIT);
+-  SETUP_EVENT(GameSetup,      MANAGED_BIT | UNSYNCED_BIT);
+-  SETUP_EVENT(WorldTooltip,   MANAGED_BIT | UNSYNCED_BIT);
+-  SETUP_EVENT(MapDrawCmd,     MANAGED_BIT | UNSYNCED_BIT);
++	SETUP_EVENT(CommandNotify,  MANAGED_BIT | UNSYNCED_BIT);
++	SETUP_EVENT(AddConsoleLine, MANAGED_BIT | UNSYNCED_BIT);
++	SETUP_EVENT(GroupChanged,   MANAGED_BIT | UNSYNCED_BIT);
++	SETUP_EVENT(GameSetup,      MANAGED_BIT | UNSYNCED_BIT);
++	SETUP_EVENT(WorldTooltip,   MANAGED_BIT | UNSYNCED_BIT);
++	SETUP_EVENT(MapDrawCmd,     MANAGED_BIT | UNSYNCED_BIT);
+ 
+ 	SETUP_EVENT(ViewResize,     MANAGED_BIT | UNSYNCED_BIT);
+ 
+@@ -278,8 +278,8 @@
+ 	}
+ 	ecList = newList;
+ }
+-		
+ 
++
+ /******************************************************************************/
+ /******************************************************************************/
+ 
+@@ -289,7 +289,7 @@
+ 	for (int i = 0; i &lt; count; i++) {
+ 		CEventClient* ec = listGamePreload[i];
+ 		ec-&gt;GamePreload();
+-	}	
++	}
+ }
+ 
+ void CEventHandler::GameStart()
+@@ -298,7 +298,7 @@
+ 	for (int i = 0; i &lt; count; i++) {
+ 		CEventClient* ec = listGameStart[i];
+ 		ec-&gt;GameStart();
+-	}	
++	}
+ }
+ 
+ void CEventHandler::GameOver()
+@@ -519,12 +519,12 @@
+ }
+ 
+ 
+-bool CEventHandler::AddConsoleLine(const string&amp; msg, int zone)
++bool CEventHandler::AddConsoleLine(const string&amp; msg, CLogSubsystem&amp; subsystem)
+ {
+ 	const int count = listAddConsoleLine.size();
+ 	for (int i = 0; i &lt; count; i++) {
+ 		CEventClient* ec = listAddConsoleLine[i];
+-		ec-&gt;AddConsoleLine(msg, zone);
++		ec-&gt;AddConsoleLine(msg, subsystem);
+ 	}
+ 	return true;
+ }
+
+Modified: trunk/rts/System/EventHandler.h
+===================================================================
+--- trunk/rts/System/EventHandler.h	2008-10-25 12:52:51 UTC (rev 6878)
++++ trunk/rts/System/EventHandler.h	2008-10-25 13:22:04 UTC (rev 6879)
+@@ -18,6 +18,7 @@
+ class CFeature;
+ class CProjectile;
+ struct Command;
++class CLogSubsystem;
+ 
+ 
+ class CEventHandler
+@@ -95,7 +96,7 @@
+ 
+ 		void StockpileChanged(const CUnit* unit,
+ 		                      const CWeapon* weapon, int oldCount);
+-	
++
+ 	public:
+ 		// Unsynced events
+ 		void Update();
+@@ -113,7 +114,7 @@
+ 
+ 		bool CommandNotify(const Command&amp; cmd);
+ 
+-		bool AddConsoleLine(const std::string&amp; msg, int zone);
++		bool AddConsoleLine(const std::string&amp; msg, CLogSubsystem&amp; zone);
+ 
+ 		bool GroupChanged(int groupID);
+ 
+@@ -151,7 +152,7 @@
+ 			UNSYNCED_BIT = (1 &lt;&lt; 1), // delivers unsynced information
+ 			CONTROL_BIT  = (1 &lt;&lt; 2)  // controls synced information
+ 		};
+-		
++
+ 		class EventInfo {
+ 			public:
+ 				EventInfo() : list(NULL), propBits(0) {}
+@@ -163,7 +164,7 @@
+ 				inline EventClientList* GetList() const { return list; }
+ 				inline int GetPropBits() const { return propBits; }
+ 				inline bool HasPropBit(int bit) const { return propBits &amp; bit; }
+-				
++
+ 			private:
+ 				std::string name;
+ 				EventClientList* list;
+
+Modified: trunk/rts/System/LogOutput.cpp
+===================================================================
+--- trunk/rts/System/LogOutput.cpp	2008-10-25 12:52:51 UTC (rev 6878)
++++ trunk/rts/System/LogOutput.cpp	2008-10-25 13:22:04 UTC (rev 6879)
+@@ -3,7 +3,6 @@
+ #include &quot;LogOutput.h&quot;
+ 
+ #include &lt;assert.h&gt;
+-#include &lt;cstdarg&gt;
+ #include &lt;fstream&gt;
+ #include &lt;string.h&gt;
+ #include &lt;boost/thread/recursive_mutex.hpp&gt;
+@@ -12,150 +11,320 @@
+ #include &lt;windows.h&gt;
+ #endif
+ 
+-#include &quot;mmgr.h&quot;
+ #include &quot;Util.h&quot;
+ #include &quot;float3.h&quot;
+ #include &quot;Game/GlobalSynced.h&quot;
++#include &quot;Platform/ConfigHandler.h&quot;
++#include &quot;mmgr.h&quot;
+ 
++using std::string;
++using std::vector;
+ 
++/******************************************************************************/
++/******************************************************************************/
++
++CLogSubsystem* CLogSubsystem::linkedList;
++static CLogSubsystem LOG_DEFAULT(&quot;&quot;, true);
++
++
++CLogSubsystem::CLogSubsystem(const char* name, bool enabled)
++: name(name), next(linkedList), enabled(enabled)
++{
++	linkedList = this;
++}
++
++/******************************************************************************/
++/******************************************************************************/
++
++CLogOutput logOutput;
++
++namespace
++{
++	struct PreInitLogEntry
++	{
++		PreInitLogEntry(CLogSubsystem* subsystem, string text)
++			: subsystem(subsystem), text(text) {}
++
++		CLogSubsystem* subsystem;
++		string text;
++	};
++}
++
++// wrapped in a function to prevent order of initialization problems
++// when logOutput is used before main() is entered.
++static vector&lt;PreInitLogEntry&gt;&amp; preInitLog()
++{
++	static vector&lt;PreInitLogEntry&gt; preInitLog;
++	return preInitLog;
++}
++
++static vector&lt;ILogSubscriber*&gt; subscribers;
++static const char* filename = &quot;infolog.txt&quot;;
+ static std::ofstream* filelog = 0;
+ static bool initialized = false;
+ static bool stdoutDebug = false;
+-CLogOutput logOutput;
+ static boost::recursive_mutex tempstrMutex;
+-static std::string tempstr;
++static string tempstr;
+ 
+-static const int bufferSize = 2048;
++static const int BUFFER_SIZE = 2048;
+ 
++
+ CLogOutput::CLogOutput()
+ {
++	// multiple infologs can't exist together!
+ 	assert(this == &amp;logOutput);
+-	assert(!filelog); // multiple infologs can't exist together!
++	assert(!filelog);
+ }
+ 
++
+ CLogOutput::~CLogOutput()
+ {
+ 	End();
+ }
+ 
++
+ void CLogOutput::End()
+ {
+-	delete filelog;
+-	filelog = 0;
++	SafeDelete(filelog);
+ }
+ 
++
+ void CLogOutput::SetMirrorToStdout(bool value)
+ {
+ 	stdoutDebug = value;
+ }
+ 
+-void CLogOutput::Output(int zone, const char *str)
++
++void CLogOutput::SetFilename(const char* fname)
+ {
++	assert(!initialized);
++	filename = fname;
++}
++
++
++/**
++ * @brief initialize logOutput
++ *
++ * Only after calling this method, logOutput starts writing to disk.
++ * The log file is written in the current directory so this may only be called
++ * after the engine chdir'ed to the correct directory.
++ */
++void CLogOutput::Initialize()
++{
++	if (initialized) return;
++
++	filelog = new std::ofstream(filename);
++	if (filelog-&gt;bad())
++		SafeDelete(filelog);
++
++	initialized = true;
++	(*this) &lt;&lt; &quot;LogOutput initialized.\n&quot;;
++
++	InitializeSubsystems();
++
++	for (vector&lt;PreInitLogEntry&gt;::iterator it = preInitLog().begin(); it != preInitLog().end(); ++it)
++		Output(*it-&gt;subsystem, it-&gt;text.c_str());
++	preInitLog().clear();
++}
++
++
++/**
++ * @brief initialize the log subsystems
++ *
++ * This writes list of all available and all enabled subsystems to the log.
++ *
++ * Log subsystems can be enabled using the configuration key &quot;LogSubsystems&quot;,
++ * or the environment variable &quot;SPRING_LOG_SUBSYSTEMS&quot;.
++ *
++ * Both specify a comma separated list of subsystems that should be enabled.
++ * The lists from both sources are combined, there is no overriding.
++ *
++ * A subsystem that is by default enabled, can not be disabled.
++ */
++void CLogOutput::InitializeSubsystems()
++{
++	(*this) &lt;&lt; &quot;Available log subsystems: &quot;;
++	for (CLogSubsystem* sys = CLogSubsystem::GetList(); sys; sys = sys-&gt;next) {
++		if (sys-&gt;name &amp;&amp; *sys-&gt;name) {
++			(*this) &lt;&lt; sys-&gt;name;
++			if (sys-&gt;next)
++				(*this) &lt;&lt; &quot;, &quot;;
++		}
++	}
++	(*this) &lt;&lt; &quot;\n&quot;;
++
++	// enabled subsystems is superset of the ones specified in environment
++	// and the ones specified in the configuration file.
++	string subsystems = &quot;,&quot; + StringToLower(configHandler.GetString(&quot;LogSubsystems&quot;, &quot;&quot;)) + &quot;,&quot;;
++
++	const char* const env = getenv(&quot;SPRING_LOG_SUBSYSTEMS&quot;);
++	if (env)
++		subsystems += StringToLower(env) + &quot;,&quot;;
++
++	(*this) &lt;&lt; &quot;Enabled log subsystems: &quot;;
++	for (CLogSubsystem* sys = CLogSubsystem::GetList(); sys; sys = sys-&gt;next) {
++		if (sys-&gt;name &amp;&amp; *sys-&gt;name) {
++			const string name = StringToLower(sys-&gt;name);
++			const string::size_type index = subsystems.find(&quot;,&quot; + name + &quot;,&quot;);
++
++			// log subsystems which are enabled by default can not be disabled
++			// (&quot;enabled by default&quot; wouldn't make sense otherwise...)
++			if (!sys-&gt;enabled &amp;&amp; index != string::npos)
++				sys-&gt;enabled = true;
++
++			if (sys-&gt;enabled) {
++				(*this) &lt;&lt; sys-&gt;name;
++				if (sys-&gt;next)
++					(*this) &lt;&lt; &quot;, &quot;;
++			}
++		}
++	}
++	(*this) &lt;&lt; &quot;\n&quot;;
++
++	(*this) &lt;&lt; &quot;Enable or disable log subsystems using the LogSubsystems configuration key\n&quot;;
++	(*this) &lt;&lt; &quot;  or the SPRING_LOG_SUBSYSTEMS environment variable (both comma separated).\n&quot;;
++}
++
++
++/**
++ * @brief core log output method, used by all others
++ *
++ * Note that, when logOutput isn't initialized yet, the logging is done to the
++ * global std::vector preInitLog(), and is only written to disk in the call to
++ * Initialize().
++ *
++ * This method notifies all registered ILogSubscribers, calls OutputDebugString
++ * (for MSVC builds) and prints the message to stdout and the file log.
++ */
++void CLogOutput::Output(CLogSubsystem&amp; subsystem, const char* str)
++{
+ 	if (!initialized) {
+-		filelog = new std::ofstream(&quot;infolog.txt&quot;);
+-		initialized = true;
++		preInitLog().push_back(PreInitLogEntry(&amp;subsystem, str));
++		return;
+ 	}
+ 
++	if (!subsystem.enabled) return;
++
+ 	// Output to subscribers
+-	for(std::vector&lt;ILogSubscriber*&gt;::iterator lsi=subscribers.begin();lsi!=subscribers.end();++lsi)
+-		(*lsi)-&gt;NotifyLogMsg(zone, str);
++	for(vector&lt;ILogSubscriber*&gt;::iterator lsi = subscribers.begin(); lsi != subscribers.end(); ++lsi)
++		(*lsi)-&gt;NotifyLogMsg(subsystem, str);
+ 
+-	int nl = strlen(str) - 1;
++	int index = strlen(str) - 1;
++	bool newline = ((index &lt; 0) || (str[index] != '\n'));
+ 
+ #ifdef _MSC_VER
+ 	OutputDebugString(str);
+-	if (nl &lt; 0 || str[nl] != '\n')
++	if (newline)
+ 		OutputDebugString(&quot;\n&quot;);
+ #endif
+ 
+ 	if (filelog) {
+-#ifndef DEDICATED
+-		if (gs) {
++#if !defined UNITSYNC &amp;&amp; !defined DEDICATED
++		if (gs)
+ 			(*filelog) &lt;&lt; IntToString(gs-&gt;frameNum, &quot;[%7d] &quot;);
+-		}
+ #endif
++		if (subsystem.name &amp;&amp; *subsystem.name)
++			(*filelog) &lt;&lt; subsystem.name &lt;&lt; &quot;: &quot;;
+ 		(*filelog) &lt;&lt; str;
+-		if (nl &lt; 0 || str[nl] != '\n')
++		if (newline)
+ 			(*filelog) &lt;&lt; &quot;\n&quot;;
+ 		filelog-&gt;flush();
+ 	}
+ 
+ 	if (stdoutDebug) {
++		if (subsystem.name &amp;&amp; *subsystem.name) {
++			fputs(subsystem.name, stdout);
++			fputs(&quot;: &quot;, stdout);
++		}
+ 		fputs(str, stdout);
+-		if (nl &lt; 0 || str[nl] != '\n') {
++		if (newline)
+ 			putchar('\n');
+-		}
+ 		fflush(stdout);
+ 	}
+ }
+ 
++
+ void CLogOutput::SetLastMsgPos(const float3&amp; pos)
+ {
+-	for(std::vector&lt;ILogSubscriber*&gt;::iterator lsi=subscribers.begin();lsi!=subscribers.end();++lsi)
++	for(vector&lt;ILogSubscriber*&gt;::iterator lsi = subscribers.begin(); lsi != subscribers.end(); ++lsi)
+ 		(*lsi)-&gt;SetLastMsgPos(pos);
+ }
+ 
++
+ void CLogOutput::AddSubscriber(ILogSubscriber* ls)
+ {
+ 	subscribers.push_back(ls);
+ }
+ 
++
+ void CLogOutput::RemoveAllSubscribers()
+ {
+ 	subscribers.clear();
+ }
+ 
++
+ void CLogOutput::RemoveSubscriber(ILogSubscriber *ls)
+ {
+-	subscribers.erase(std::find(subscribers.begin(),subscribers.end(),ls));
++	subscribers.erase(std::find(subscribers.begin(), subscribers.end(), ls));
+ }
+ 
++
+ // ----------------------------------------------------------------------
+ // Printing functions
+ // ----------------------------------------------------------------------
+ 
+-void CLogOutput::Print(int zone, const char *fmt, ...)
++
++void CLogOutput::Print(CLogSubsystem&amp; subsystem, const char* fmt, ...)
+ {
++	// if logOutput isn't initialized then subsystem.enabled still has it's default value
++	if (initialized &amp;&amp; !subsystem.enabled) return;
++
+ 	va_list argp;
+ 
+ 	va_start(argp, fmt);
+-	Printv(zone, fmt, argp);
++	Printv(subsystem, fmt, argp);
+ 	va_end(argp);
+ }
+ 
+-void CLogOutput::Printv(int zone, const char *fmt, va_list argp)
++
++void CLogOutput::Printv(CLogSubsystem&amp; subsystem, const char* fmt, va_list argp)
+ {
+-	char text[bufferSize];
++	// if logOutput isn't initialized then subsystem.enabled still has it's default value
++	if (initialized &amp;&amp; !subsystem.enabled) return;
+ 
++	char text[BUFFER_SIZE];
++
+ 	VSNPRINTF(text, sizeof(text), fmt, argp);
+-	Output(zone, text);
++	Output(subsystem, text);
+ }
+ 
+-void CLogOutput::Print(const char *fmt, ...)
++
++void CLogOutput::Print(const char* fmt, ...)
+ {
+ 	va_list argp;
+ 
+ 	va_start(argp, fmt);
+-	Printv(0, fmt, argp);
++	Printv(LOG_DEFAULT, fmt, argp);
+ 	va_end(argp);
+ }
+ 
++
+ void CLogOutput::Print(const std::string&amp; text)
+ {
+-	Output(0, text.c_str());
++	Output(LOG_DEFAULT, text.c_str());
+ }
+ 
+ 
+-void CLogOutput::Print(int zone, const std::string&amp; text)
++void CLogOutput::Print(CLogSubsystem&amp; subsystem, const std::string&amp; text)
+ {
+-	Output(zone, text.c_str());
++	Output(subsystem, text.c_str());
+ }
+ 
+ 
+ CLogOutput&amp; CLogOutput::operator&lt;&lt; (const int i)
+ {
+ 	char t[50];
+-	sprintf(t,&quot;%d &quot;,i);
++	sprintf(t, &quot;%d &quot;, i);
+ 	boost::recursive_mutex::scoped_lock scoped_lock(tempstrMutex);
+ 	tempstr += t;
+ 	return *this;
+@@ -165,7 +334,7 @@
+ CLogOutput&amp; CLogOutput::operator&lt;&lt; (const float f)
+ {
+ 	char t[50];
+-	sprintf(t,&quot;%f &quot;,f);
++	sprintf(t, &quot;%f &quot;, f);
+ 	boost::recursive_mutex::scoped_lock scoped_lock(tempstrMutex);
+ 	tempstr += t;
+ 	return *this;
+@@ -180,18 +349,19 @@
+ {
+ 	boost::recursive_mutex::scoped_lock scoped_lock(tempstrMutex);
+ 
+-	for(int a=0;c[a];a++) {
++	for(int a = 0; c[a]; ++a) {
+ 		if (c[a] == '\n') {
+-			Output(0, tempstr.c_str());
++			Output(LOG_DEFAULT, tempstr.c_str());
+ 			tempstr.clear();
+ 			break;
+-		} else
++		} else {
+ 			tempstr += c[a];
++		}
+ 	}
+ 	return *this;
+ }
+ 
+-CLogOutput&amp; CLogOutput::operator&lt;&lt; (const std::string &amp;s)
++CLogOutput&amp; CLogOutput::operator&lt;&lt; (const std::string&amp; s)
+ {
+-	return this-&gt;operator &lt;&lt;(s.c_str());
++	return this-&gt;operator&lt;&lt; (s.c_str());
+ }
+
+Modified: trunk/rts/System/LogOutput.h
+===================================================================
+--- trunk/rts/System/LogOutput.h	2008-10-25 12:52:51 UTC (rev 6878)
++++ trunk/rts/System/LogOutput.h	2008-10-25 13:22:04 UTC (rev 6879)
+@@ -7,7 +7,6 @@
+ #define LOGOUTPUT_H
+ 
+ #include &lt;stdarg.h&gt;
+-#include &lt;vector&gt;
+ #include &lt;string&gt;
+ 
+ // format string error checking
+@@ -19,31 +18,72 @@
+ 
+ class float3;
+ 
++
++/**
++ * @brief defines a logging subsystem
++ *
++ * Each logging subsystem can be independently enabled/disabled, this allows
++ * for adding e.g. very detailed logging that's by default off, but can be
++ * turned on when troubleshooting.  (example: the virtual file system)
++ *
++ * A logging subsystem should be defined as a global variable, so it can be
++ * used as argument to logOutput.Print similarly to a simple enum constant:
++ *
++ *	static CLogSubsystem LOG_MYSUBSYS(&quot;mysubsystem&quot;);
++ *
++ * ...then, in the actual code of your engine subsystem, use:
++ *
++ *		logOutput.Print(LOG_MYSUBSYS, &quot;blah&quot;);
++ *
++ * All subsystems are linked together in a global list, allowing CLogOutput
++ * to enable/disable subsystems based on env var and configuration key.
++ */
++class CLogSubsystem
++{
++public:
++	static CLogSubsystem* GetList() { return linkedList; }
++	CLogSubsystem* GetNext() { return next; }
++
++	CLogSubsystem(const char* name, bool enabled = false);
++
++	const char* const name;
++	CLogSubsystem* const next;
++
++	bool enabled;
++
++private:
++	static CLogSubsystem* linkedList;
++};
++
++
++/** @brief implement this interface to be able to observe CLogOutput */
+ class ILogSubscriber
+ {
+ public:
+ 	// Notification of log messages to subscriber
+-	virtual void NotifyLogMsg(int zone, const char *str) = 0;
++	virtual void NotifyLogMsg(CLogSubsystem&amp; subsystem, const char* str) = 0;
+ 	virtual void SetLastMsgPos(const float3&amp; pos) {}
+ };
+ 
++
++/** @brief logging class */
+ class CLogOutput
+ {
+ public:
+ 	CLogOutput();
+ 	~CLogOutput();
+ 
+-	void Print(int zone, const char *fmt, ...) FORMATSTRING(3);
+-	void Print(const char *fmt, ...) FORMATSTRING(2);
++	void Print(CLogSubsystem&amp; subsystem, const char* fmt, ...) FORMATSTRING(3);
++	void Print(const char* fmt, ...) FORMATSTRING(2);
+ 	void Print(const std::string&amp; text);
+-	void Print(int zone, const std::string&amp; text);
+-	void Printv(int zone, const char* fmt, va_list argp);
++	void Print(CLogSubsystem&amp; subsystem, const std::string&amp; text);
++	void Printv(CLogSubsystem&amp; subsystem, const char* fmt, va_list argp);
+ 
+ 	CLogOutput&amp; operator&lt;&lt;(const int i);
+ 	CLogOutput&amp; operator&lt;&lt;(const float f);
+ 	CLogOutput&amp; operator&lt;&lt;(const char* c);
+ 	CLogOutput&amp; operator&lt;&lt;(const float3&amp; f);
+-	CLogOutput&amp; operator&lt;&lt;(const std::string &amp;f);	
++	CLogOutput&amp; operator&lt;&lt;(const std::string &amp;f);
+ 
+ 	void SetLastMsgPos(const float3&amp; pos);
+ 
+@@ -53,15 +93,17 @@
+ 	// Close the output file, so the crash reporter can copy it
+ 	void End();
+ 
+-	void AddSubscriber(ILogSubscriber *ls);
+-	void RemoveSubscriber(ILogSubscriber *ls);
++	void AddSubscriber(ILogSubscriber* ls);
++	void RemoveSubscriber(ILogSubscriber* ls);
+ 
+ 	void SetMirrorToStdout(bool);
+ 
++	void SetFilename(const char* filename);
++	void Initialize();
++
+ protected:
+-	void Output(int zone, const char *str);
+-
+-	std::vector&lt;ILogSubscriber*&gt; subscribers;
++	void InitializeSubsystems();
++	void Output(CLogSubsystem&amp; subsystem, const char* str);
+ };
+ 
+ 
+
+Modified: trunk/rts/System/Platform/Linux/DataDirLocater.cpp
+===================================================================
+--- trunk/rts/System/Platform/Linux/DataDirLocater.cpp	2008-10-25 12:52:51 UTC (rev 6878)
++++ trunk/rts/System/Platform/Linux/DataDirLocater.cpp	2008-10-25 13:22:04 UTC (rev 6879)
+@@ -319,8 +319,11 @@
+ #else
+ 	_chdir(GetWriteDir()-&gt;path.c_str());
+ #endif
++	// Initialize the log. Only after this moment log will be written to file.
++	logOutput.Initialize();
+ 	// Logging MAY NOT start before the chdir, otherwise the logfile ends up
+ 	// in the wrong directory.
++	// Update: now it actually may start before, log has preInitLog.
+ 	for (std::vector&lt;DataDir&gt;::const_iterator d = datadirs.begin(); d != datadirs.end(); ++d) {
+ 		if (d-&gt;writable)
+ 			logOutput.Print(&quot;Using read-write data directory: %s&quot;, d-&gt;path.c_str());
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001647.html">[Taspring-linux-commit] r6878 - trunk/rts/System
+</A></li>
+	<LI>Next message: <A HREF="001649.html">[Taspring-linux-commit] r6880 - in trunk/rts/System: . FileSystem
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1648">[ date ]</a>
+              <a href="thread.html#1648">[ thread ]</a>
+              <a href="subject.html#1648">[ subject ]</a>
+              <a href="author.html#1648">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

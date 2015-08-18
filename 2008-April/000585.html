@@ -1,0 +1,442 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5805 - in trunk/rts/Sim: Features Units
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5805%20-%20in%20trunk/rts/Sim%3A%20Features%20Units&In-Reply-To=%3C20080429234250.26EE546DF%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000584.html">
+   <LINK REL="Next"  HREF="000586.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5805 - in trunk/rts/Sim: Features Units</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5805%20-%20in%20trunk/rts/Sim%3A%20Features%20Units&In-Reply-To=%3C20080429234250.26EE546DF%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5805 - in trunk/rts/Sim: Features Units">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Apr 30 01:42:50 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000584.html">[Taspring-linux-commit] r5804 - trunk/rts/Sim/Units
+</A></li>
+        <LI>Next message: <A HREF="000586.html">[Taspring-linux-commit] r5806 - trunk/rts/System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#585">[ date ]</a>
+              <a href="thread.html#585">[ thread ]</a>
+              <a href="subject.html#585">[ subject ]</a>
+              <a href="author.html#585">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-04-30 01:42:49 +0200 (Wed, 30 Apr 2008)
+New Revision: 5805
+
+Modified:
+   trunk/rts/Sim/Features/Feature.cpp
+   trunk/rts/Sim/Units/Unit.cpp
+   trunk/rts/Sim/Units/Unit.h
+   trunk/rts/Sim/Units/UnitHandler.cpp
+   trunk/rts/Sim/Units/UnitHandler.h
+Log:
+previous commit was broken (wrecks could possibly be created while a
+unit's kill-script was not yet finished), revert it and work around
+the delay differently
+
+make CFeature::UpdatePosition() handle map boundary cases without
+SEGV'ing
+
+
+Modified: trunk/rts/Sim/Features/Feature.cpp
+===================================================================
+--- trunk/rts/Sim/Features/Feature.cpp	2008-04-29 16:39:29 UTC (rev 5804)
++++ trunk/rts/Sim/Features/Feature.cpp	2008-04-29 23:42:49 UTC (rev 5805)
+@@ -470,6 +470,7 @@
+ 		if (!reachedFinalPos) {
+ 			bool haveForwardSpeed = false;
+ 			bool haveVerticalSpeed = false;
++			bool inBounds = false;
+ 
+ 			if (deathSpeed.SqLength2D() &gt; 0.01f) {
+ 				UnBlock();
+@@ -513,8 +514,17 @@
+ 				midPos.y = pos.y + model-&gt;relMidPos.y;
+ 			}
+ 
++			inBounds = pos.CheckInBounds();
+ 			reachedFinalPos = (!haveForwardSpeed &amp;&amp; !haveVerticalSpeed);
++			// reachedFinalPos = ((!haveForwardSpeed &amp;&amp; !haveVerticalSpeed) || !inBounds);
+ 
++			if (!inBounds) {
++				// ensure that no more forward-speed updates are done
++				// (prevents wrecks floating in mid-air at edge of map
++				// due to gravity no longer being applied either)
++				deathSpeed = ZeroVector;
++			}
++
+ 			featureHandler-&gt;UpdateDrawQuad(this, pos);
+ 			CalculateTransform();
+ 		}
+
+Modified: trunk/rts/Sim/Units/Unit.cpp
+===================================================================
+--- trunk/rts/Sim/Units/Unit.cpp	2008-04-29 16:39:29 UTC (rev 5804)
++++ trunk/rts/Sim/Units/Unit.cpp	2008-04-29 23:42:49 UTC (rev 5805)
+@@ -237,7 +237,12 @@
+ CUnit::~CUnit()
+ {
+ 	if (delayedWreckLevel &gt;= 0) {
+-		featureHandler-&gt;CreateWreckage(pos, wreckName, heading, buildFacing, delayedWreckLevel, team, -1, true, unitDef-&gt;name);
++		// note: could also do this in Update() or even in CUnitKilledCB()
++		// where we wouldn't need deathSpeed, but not in KillUnit() since
++		// we have to wait for deathScriptFinished (but we want the delay
++		// in frames between CUnitKilledCB() and the CreateWreckage() call
++		// to be as short as possible to prevent visual position jumps)
++		featureHandler-&gt;CreateWreckage(pos, wreckName, heading, buildFacing, delayedWreckLevel, team, -1, true, unitDef-&gt;name,  deathSpeed);
+ 	}
+ 
+ 	if (unitDef-&gt;isAirBase) {
+@@ -305,7 +310,7 @@
+ }
+ 
+ 
+-void CUnit::UnitInit (const UnitDef* def, int Team, const float3&amp; position)
++void CUnit::UnitInit(const UnitDef* def, int Team, const float3&amp; position)
+ {
+ 	pos = position;
+ 	team = Team;
+@@ -428,18 +433,30 @@
+ {
+ 	posErrorVector += posErrorDelta;
+ 
++	if (deathScriptFinished) {
++		// if our kill-script is already finished, don't
++		// wait for the deathCountdown to reach zero and
++		// just delete us ASAP (costs one extra frame)
++		uh-&gt;DeleteUnit(this);
++		return;
++	}
++
+ 	if (deathCountdown) {
+ 		--deathCountdown;
++
+ 		if (!deathCountdown) {
+ 			if (deathScriptFinished) {
++				// kill-script has terminated, remove unit now
+ 				uh-&gt;DeleteUnit(this);
+ 			} else {
++				// kill-script still running, delay one more frame
+ 				deathCountdown = 1;
+ 			}
+ 		}
+ 		return;
+ 	}
+ 
++
+ 	if (beingBuilt) {
+ 		return;
+ 	}
+@@ -462,7 +479,7 @@
+ 
+ 	if (!dontUseWeapons) {
+ 		std::vector&lt;CWeapon*&gt;::iterator wi;
+-		for (wi = weapons.begin();wi != weapons.end(); ++wi) {
++		for (wi = weapons.begin(); wi != weapons.end(); ++wi) {
+ 			(*wi)-&gt;Update();
+ 		}
+ 	}
+@@ -1596,7 +1613,7 @@
+ 		UnBlock();
+ 		CFeature* f =
+ 			featureHandler-&gt;CreateWreckage(pos, wreckName, heading, buildFacing,
+-			                               0, team, allyteam, false, &quot;&quot;);
++										   0, team, allyteam, false, &quot;&quot;);
+ 		if (f) {
+ 			f-&gt;blockHeightChanges = true;
+ 		}
+@@ -1609,7 +1626,7 @@
+ // Called when a unit's Killed script finishes executing
+ static void CUnitKilledCB(int retCode, void* p1, void* p2)
+ {
+-	CUnit* self = (CUnit *) p1;
++	CUnit* self = (CUnit*) p1;
+ 	self-&gt;deathScriptFinished = true;
+ 	self-&gt;delayedWreckLevel = retCode;
+ }
+@@ -1629,6 +1646,7 @@
+ 	}
+ 
+ 	isDead = true;
++	deathSpeed = speed;
+ 
+ 	luaCallIns.UnitDestroyed(this, attacker);
+ 	globalAI-&gt;UnitDestroyed(this, attacker);
+@@ -1673,21 +1691,11 @@
+ 		vector&lt;int&gt; args;
+ 		args.push_back((int) (recentDamage / maxHealth * 100));
+ 		args.push_back(0);
++		// start running the unit's kill-script
+ 		cob-&gt;Call(COBFN_Killed, args, &amp;CUnitKilledCB, this, NULL);
+ 
+ 		UnBlock();
+ 		delayedWreckLevel = args[1];
+-
+-		if (delayedWreckLevel &gt;= 0 &amp;&amp; speed.SqLength() &gt; 0.01f) {
+-			// do this here rather than in ~CUnit to negate the delay
+-			// between a unit's end-of-killscript and the creation of
+-			// its wreck (since the delay is visually jarring when we
+-			// want the wreck to move), also set delayedWreckLevel to
+-			// -1 to make sure ~CUnit won't create a second wreck
+-			featureHandler-&gt;CreateWreckage(pos, wreckName, heading, buildFacing, delayedWreckLevel, team, -1, true, unitDef-&gt;name, speed);
+-			delayedWreckLevel = -1;
+-			noDraw = true;
+-		}
+ 	}
+ 	else {
+ 		deathScriptFinished = true;
+@@ -1712,20 +1720,20 @@
+ 
+ bool CUnit::UseMetal(float metal)
+ {
+-	if(metal&lt;0){
++	if (metal &lt; 0) {
+ 		AddMetal(-metal);
+ 		return true;
+ 	}
+ 	gs-&gt;Team(team)-&gt;metalPull += metal;
+-	bool canUse=gs-&gt;Team(team)-&gt;UseMetal(metal);
+-	if(canUse)
++	bool canUse = gs-&gt;Team(team)-&gt;UseMetal(metal);
++	if (canUse)
+ 		metalUseI += metal;
+ 	return canUse;
+ }
+ 
+ void CUnit::AddMetal(float metal)
+ {
+-	if(metal&lt;0){
++	if (metal &lt; 0) {
+ 		UseMetal(-metal);
+ 		return;
+ 	}
+@@ -1735,20 +1743,20 @@
+ 
+ bool CUnit::UseEnergy(float energy)
+ {
+-	if(energy&lt;0){
++	if (energy &lt; 0) {
+ 		AddEnergy(-energy);
+ 		return true;
+ 	}
+ 	gs-&gt;Team(team)-&gt;energyPull += energy;
+-	bool canUse=gs-&gt;Team(team)-&gt;UseEnergy(energy);
+-	if(canUse)
++	bool canUse = gs-&gt;Team(team)-&gt;UseEnergy(energy);
++	if (canUse)
+ 		energyUseI += energy;
+ 	return canUse;
+ }
+ 
+ void CUnit::AddEnergy(float energy)
+ {
+-	if(energy&lt;0){
++	if (energy &lt; 0) {
+ 		UseEnergy(-energy);
+ 		return;
+ 	}
+@@ -1756,6 +1764,7 @@
+ 	gs-&gt;Team(team)-&gt;AddEnergy(energy);
+ }
+ 
++
+ void CUnit::Activate()
+ {
+ 	//if(unitDef-&gt;tidalGenerator&gt;0)
+
+Modified: trunk/rts/Sim/Units/Unit.h
+===================================================================
+--- trunk/rts/Sim/Units/Unit.h	2008-04-29 16:39:29 UTC (rev 5804)
++++ trunk/rts/Sim/Units/Unit.h	2008-04-29 23:42:49 UTC (rev 5805)
+@@ -149,11 +149,11 @@
+ 	bool upright;						// if the updir is straight up or align to the ground vector
+ 	SyncedFloat3 relMidPos;				// = (midPos - pos)
+ 
++	float3 deathSpeed;
++
+ 	float travel; // total distance the unit has moved
+ 	float travelPeriod; // 0.0f disables travel accumulation
+ 
+-//	float3 residualImpulse;	//impulse energy that havent been acted on
+-
+ 	float power;						//indicate the relative power of the unit, used for experience calulations etc
+ 
+ 	float maxHealth;
+
+Modified: trunk/rts/Sim/Units/UnitHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitHandler.cpp	2008-04-29 16:39:29 UTC (rev 5804)
++++ trunk/rts/Sim/Units/UnitHandler.cpp	2008-04-29 23:42:49 UTC (rev 5805)
+@@ -202,51 +202,54 @@
+ 	toBeRemoved.push_back(unit);
+ }
+ 
++void CUnitHandler::DeleteUnitNow(CUnit* delUnit)
++{
++	int delTeam = 0;
++	int delType = 0;
++	std::list&lt;CUnit*&gt;::iterator usi;
++	for (usi = activeUnits.begin(); usi != activeUnits.end(); ++usi) {
++		if (*usi == delUnit) {
++			if (slowUpdateIterator != activeUnits.end() &amp;&amp; *usi == *slowUpdateIterator) {
++				slowUpdateIterator++;
++			}
++			delTeam = delUnit-&gt;team;
++			delType = delUnit-&gt;unitDef-&gt;id;
++
++			activeUnits.erase(usi);
++			units[delUnit-&gt;id] = 0;
++			freeIDs.push_back(delUnit-&gt;id);
++			gs-&gt;Team(delTeam)-&gt;RemoveUnit(delUnit, CTeam::RemoveDied);
++
++			unitsByDefs[delTeam][delType].erase(delUnit);
++
++			delete delUnit;
++			break;
++		}
++	}
++	//debug
++	for (usi = activeUnits.begin(); usi != activeUnits.end(); /* no post-op */) {
++		if (*usi == delUnit) {
++			logOutput.Print(&quot;Error: Duplicated unit found in active units on erase&quot;);
++			usi = activeUnits.erase(usi);
++		} else {
++			++usi;
++		}
++	}
++}
++
+ void CUnitHandler::Update()
+ {
+ 	ASSERT_SYNCED_MODE;
+-
+ 	SCOPED_TIMER(&quot;Unit handler&quot;);
+ 
+-	while(!toBeRemoved.empty()){
+-		CUnit* delUnit=toBeRemoved.back();
++	while (!toBeRemoved.empty()) {
++		CUnit* delUnit = toBeRemoved.back();
+ 		toBeRemoved.pop_back();
+ 
+-		int delTeam = 0;
+-		int delType = 0;
+-		list&lt;CUnit*&gt;::iterator usi;
+-		for(usi=activeUnits.begin();usi!=activeUnits.end();++usi){
+-			if(*usi==delUnit){
+-				if (slowUpdateIterator!=activeUnits.end() &amp;&amp; *usi==*slowUpdateIterator) {
+-					slowUpdateIterator++;
+-				}
+-				delTeam = delUnit-&gt;team;
+-				delType = delUnit-&gt;unitDef-&gt;id;
+-
+-				activeUnits.erase(usi);
+-				units[delUnit-&gt;id] = 0;
+-				freeIDs.push_back(delUnit-&gt;id);
+-				gs-&gt;Team(delTeam)-&gt;RemoveUnit(delUnit, CTeam::RemoveDied);
+-
+-				unitsByDefs[delTeam][delType].erase(delUnit);
+-
+-				delete delUnit;
+-
+-				break;
+-			}
+-		}
+-		//debug
+-		for (usi = activeUnits.begin(); usi != activeUnits.end(); /* no post-op */) {
+-			if (*usi == delUnit){
+-				logOutput.Print(&quot;Error: Duplicated unit found in active units on erase&quot;);
+-				usi = activeUnits.erase(usi);
+-			} else {
+-				++usi;
+-			}
+-		}
++		DeleteUnitNow(delUnit);
+ 	}
+ 
+-	list&lt;CUnit*&gt;::iterator usi;
++	std::list&lt;CUnit*&gt;::iterator usi;
+ 	for (usi = activeUnits.begin(); usi != activeUnits.end(); usi++) {
+ 		(*usi)-&gt;Update();
+ 	}
+@@ -254,20 +257,20 @@
+ 	{
+ 		SCOPED_TIMER(&quot;Unit slow update&quot;);
+ 		if (!(gs-&gt;frameNum &amp; 15)) {
+-			slowUpdateIterator=activeUnits.begin();
++			slowUpdateIterator = activeUnits.begin();
+ 		}
+ 
+-		int numToUpdate=activeUnits.size()/16+1;
+-		for(;slowUpdateIterator!=activeUnits.end() &amp;&amp; numToUpdate!=0;++slowUpdateIterator){
++		int numToUpdate = activeUnits.size() / 16 + 1;
++		for (; slowUpdateIterator != activeUnits.end() &amp;&amp; numToUpdate != 0; ++ slowUpdateIterator) {
+ 			(*slowUpdateIterator)-&gt;SlowUpdate();
+ 			numToUpdate--;
+ 		}
+ 	} // for timer destruction
+ 
+-	if(!(gs-&gt;frameNum&amp;15)){
+-		if(diminishingMetalMakers)
+-			metalMakerEfficiency=8.0f/(8.0f+max(0.0f,sqrtf(metalMakerIncome/gs-&gt;activeTeams)-4));
+-		metalMakerIncome=0;
++	if (!(gs-&gt;frameNum &amp; 15)) {
++		if (diminishingMetalMakers)
++			metalMakerEfficiency = 8.0f / (8.0f + max(0.0f, sqrtf(metalMakerIncome / gs-&gt;activeTeams) - 4));
++		metalMakerIncome = 0;
+ 	}
+ }
+ 
+
+Modified: trunk/rts/Sim/Units/UnitHandler.h
+===================================================================
+--- trunk/rts/Sim/Units/UnitHandler.h	2008-04-29 16:39:29 UTC (rev 5804)
++++ trunk/rts/Sim/Units/UnitHandler.h	2008-04-29 23:42:49 UTC (rev 5805)
+@@ -26,6 +26,7 @@
+ 
+ 	void Update();
+ 	void DeleteUnit(CUnit* unit);
++	void DeleteUnitNow(CUnit* unit);
+ 	int AddUnit(CUnit* unit);
+ 	CUnitHandler(bool serializing=false);
+ 	void Serialize(creg::ISerializer&amp; s);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000584.html">[Taspring-linux-commit] r5804 - trunk/rts/Sim/Units
+</A></li>
+	<LI>Next message: <A HREF="000586.html">[Taspring-linux-commit] r5806 - trunk/rts/System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#585">[ date ]</a>
+              <a href="thread.html#585">[ thread ]</a>
+              <a href="subject.html#585">[ subject ]</a>
+              <a href="author.html#585">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,311 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6791 - in trunk/rts: Game	Rendering/UnitModels Sim/Misc Sim/Units System
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6791%20-%20in%20trunk/rts%3A%20Game%0A%09Rendering/UnitModels%20Sim/Misc%20Sim/Units%20System&In-Reply-To=%3C20081016215909.B2B434656%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001559.html">
+   <LINK REL="Next"  HREF="001561.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6791 - in trunk/rts: Game	Rendering/UnitModels Sim/Misc Sim/Units System</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6791%20-%20in%20trunk/rts%3A%20Game%0A%09Rendering/UnitModels%20Sim/Misc%20Sim/Units%20System&In-Reply-To=%3C20081016215909.B2B434656%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6791 - in trunk/rts: Game	Rendering/UnitModels Sim/Misc Sim/Units System">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Oct 16 23:59:09 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001559.html">[Taspring-linux-commit] r6790 - trunk/rts/System/FileSystem
+</A></li>
+        <LI>Next message: <A HREF="001561.html">[Taspring-linux-commit] r6792 - in trunk: Documentation	rts/Sim/MoveTypes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1560">[ date ]</a>
+              <a href="thread.html#1560">[ thread ]</a>
+              <a href="subject.html#1560">[ subject ]</a>
+              <a href="author.html#1560">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: jk
+Date: 2008-10-16 23:59:08 +0200 (Thu, 16 Oct 2008)
+New Revision: 6791
+
+Modified:
+   trunk/rts/Game/GameHelper.cpp
+   trunk/rts/Rendering/UnitModels/UnitDrawer.cpp
+   trunk/rts/Sim/Misc/CollisionHandler.cpp
+   trunk/rts/Sim/Misc/CollisionHandler.h
+   trunk/rts/Sim/Units/Unit.cpp
+   trunk/rts/Sim/Units/Unit.h
+   trunk/rts/System/Matrix44f.cpp
+   trunk/rts/System/Matrix44f.h
+Log:
+ * fix the unfixed fix radar icon mouse hover detection
+
+Modified: trunk/rts/Game/GameHelper.cpp
+===================================================================
+--- trunk/rts/Game/GameHelper.cpp	2008-10-16 21:41:42 UTC (rev 6790)
++++ trunk/rts/Game/GameHelper.cpp	2008-10-16 21:59:08 UTC (rev 6791)
+@@ -304,10 +304,6 @@
+ 				(useRadar &amp;&amp; radarhandler-&gt;InRadar(unit, gu-&gt;myAllyTeam))) {
+ 
+ 				CollisionVolume* cv = 0x0;
+-				float3 error = (!gu-&gt;spectatingFullView)?
+-					// relative error, since MouseHit() translates by relMidPos
+-					(GetUnitErrorPos(unit, gu-&gt;myAllyTeam) - unit-&gt;midPos):
+-					ZeroVector;
+ 
+ 				if (unit-&gt;isIcon) {
+ 					// for iconified units, just pretend the collision
+@@ -319,7 +315,7 @@
+ 					cv = unit-&gt;collisionVolume;
+ 				}
+ 
+-				if (CCollisionHandler::MouseHit(unit, error, start, start + dir * length, cv, &amp;cq)) {
++				if (CCollisionHandler::MouseHit(unit, start, start + dir * length, cv, &amp;cq)) {
+ 					// get the distance to the ray-volume egress point
+ 					// so we can still select stuff inside factories
+ 					const float len = (cq.p1 - start).Length();
+
+Modified: trunk/rts/Rendering/UnitModels/UnitDrawer.cpp
+===================================================================
+--- trunk/rts/Rendering/UnitModels/UnitDrawer.cpp	2008-10-16 21:41:42 UTC (rev 6790)
++++ trunk/rts/Rendering/UnitModels/UnitDrawer.cpp	2008-10-16 21:59:08 UTC (rev 6791)
+@@ -1932,13 +1932,7 @@
+ 
+ void CUnitDrawer::ApplyUnitTransformMatrix(CUnit* unit)
+ {
+-#ifdef USE_GML
+-	CMatrix44f m;
+-#else
+-	static CMatrix44f m;
+-	m.LoadIdentity();
+-#endif
+-	unit-&gt;GetTransformMatrix(m);
++	CMatrix44f m = unit-&gt;GetTransformMatrix();
+ 	glMultMatrixf(&amp;m[0]);
+ }
+ 
+
+Modified: trunk/rts/Sim/Misc/CollisionHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Misc/CollisionHandler.cpp	2008-10-16 21:41:42 UTC (rev 6790)
++++ trunk/rts/Sim/Misc/CollisionHandler.cpp	2008-10-16 21:59:08 UTC (rev 6791)
+@@ -79,8 +79,7 @@
+ 			// NOTE: we have to translate by relMidPos to get to midPos
+ 			// (which is where the collision volume gets drawn) because
+ 			// GetTransformMatrix() only uses pos
+-			CMatrix44f m;
+-			u-&gt;GetTransformMatrix(m, true);
++			CMatrix44f m = u-&gt;GetTransformMatrix(true);
+ 			m.Translate(u-&gt;relMidPos.x, u-&gt;relMidPos.y, u-&gt;relMidPos.z);
+ 			m.Translate(v-&gt;axisOffsets.x, v-&gt;axisOffsets.y, v-&gt;axisOffsets.z);
+ 
+@@ -175,13 +174,10 @@
+ 
+ 
+ 
+-bool CCollisionHandler::MouseHit(const CUnit* u, const float3&amp; e, const float3&amp; p0, const float3&amp; p1, const CollisionVolume* v, CollisionQuery* q)
++bool CCollisionHandler::MouseHit(const CUnit* u, const float3&amp; p0, const float3&amp; p1, const CollisionVolume* v, CollisionQuery* q)
+ {
+-	CMatrix44f m;
+-	u-&gt;GetTransformMatrix(m, true);
+-	float3 relMidPos(u-&gt;midPos - u-&gt;pos);
+-	m.Translate(relMidPos.x + e.x, relMidPos.y + e.y, relMidPos.z + e.z);
+-	m.Translate(v-&gt;axisOffsets.x, v-&gt;axisOffsets.y, v-&gt;axisOffsets.z);
++	CMatrix44f m = u-&gt;GetTransformMatrix(false,true);
++	m.Translate(u-&gt;relMidPos + v-&gt;axisOffsets);
+ 
+ 	return CCollisionHandler::Intersect(v, m, p0, p1, q);
+ }
+@@ -190,8 +186,7 @@
+ {
+ 	const CollisionVolume* v = u-&gt;collisionVolume;
+ 
+-	CMatrix44f m;
+-	u-&gt;GetTransformMatrix(m, true);
++	CMatrix44f m = u-&gt;GetTransformMatrix(true);
+ 	m.Translate(u-&gt;relMidPos.x, u-&gt;relMidPos.y, u-&gt;relMidPos.z);
+ 	m.Translate(v-&gt;axisOffsets.x, v-&gt;axisOffsets.y, v-&gt;axisOffsets.z);
+ 
+
+Modified: trunk/rts/Sim/Misc/CollisionHandler.h
+===================================================================
+--- trunk/rts/Sim/Misc/CollisionHandler.h	2008-10-16 21:41:42 UTC (rev 6790)
++++ trunk/rts/Sim/Misc/CollisionHandler.h	2008-10-16 21:59:08 UTC (rev 6791)
+@@ -33,7 +33,7 @@
+ 
+ 		static bool DetectHit(const CUnit*, const float3&amp;, const float3&amp;, CollisionQuery* q = 0x0);
+ 		static bool DetectHit(const CFeature*, const float3&amp;, const float3&amp;, CollisionQuery* q = 0x0);
+-		static bool MouseHit(const CUnit*, const float3&amp; e, const float3&amp; p0, const float3&amp; p1, const CollisionVolume*, CollisionQuery* q);
++		static bool MouseHit(const CUnit*, const float3&amp; p0, const float3&amp; p1, const CollisionVolume*, CollisionQuery* q);
+ 
+ 	private:
+ 		static bool Collision(const CUnit*, const float3&amp;);
+
+Modified: trunk/rts/Sim/Units/Unit.cpp
+===================================================================
+--- trunk/rts/Sim/Units/Unit.cpp	2008-10-16 21:41:42 UTC (rev 6790)
++++ trunk/rts/Sim/Units/Unit.cpp	2008-10-16 21:59:08 UTC (rev 6791)
+@@ -1116,7 +1116,7 @@
+ /******************************************************************************/
+ /******************************************************************************/
+ 
+-void CUnit::GetTransformMatrix(CMatrix44f&amp; matrix, bool synced) const
++CMatrix44f CUnit::GetTransformMatrix(const bool synced, const bool error) const
+ {
+ 	float3 interPos;
+ 	if (!transporter) {
+@@ -1125,13 +1125,16 @@
+ 		interPos = (synced? pos: pos + (transporter-&gt;speed * gu-&gt;timeOffset));
+ 	}
+ 
++	if (!synced &amp;&amp; error) {
++		interPos += helper-&gt;GetUnitErrorPos(this, gu-&gt;myAllyTeam) - midPos;
++	}
++
+ 	if (usingScriptMoveType ||
+ 	    (!beingBuilt &amp;&amp; (physicalState == Flying) &amp;&amp; unitDef-&gt;canmove)) {
+ 		// aircraft, skidding ground unit, or active ScriptMoveType
+ 		// note: (CAirMoveType) aircraft under construction should not
+ 		// use this matrix, or their nanoframes won't spin on pad
+-		CMatrix44f transMatrix(interPos, -rightdir, updir, frontdir);
+-		matrix = transMatrix;
++		return CMatrix44f(interPos, -rightdir, updir, frontdir);
+ 	}
+ 	else if (transporter &amp;&amp; transporter-&gt;unitDef-&gt;holdSteady) {
+ 		// making local copies of vectors
+@@ -1140,13 +1143,11 @@
+ 		float3 rightDir = frontDir.cross(upDir);
+ 		rightDir.Normalize();
+ 		frontDir = upDir.cross(rightDir);
+-		CMatrix44f transMatrix(interPos, -rightDir, upDir, frontDir);
+-		matrix = transMatrix;
++		return CMatrix44f(interPos, -rightDir, upDir, frontDir);
+ 	}
+ 	else if (upright || !unitDef-&gt;canmove) {
+ 		if (heading == 0) {
+-			matrix.LoadIdentity();
+-			matrix.Translate(interPos);
++			return CMatrix44f(interPos);
+ 		} else {
+ 			// making local copies of vectors
+ 			float3 frontDir = GetVectorFromHeading(heading);
+@@ -1154,8 +1155,7 @@
+ 			float3 rightDir = frontDir.cross(upDir);
+ 			rightDir.Normalize();
+ 			frontDir = upDir.cross(rightDir);
+-			CMatrix44f transMatrix(interPos, -rightdir, updir, frontdir);
+-			matrix = transMatrix;
++			return CMatrix44f(interPos, -rightdir, updir, frontdir);
+ 		}
+ 	}
+ 	else {
+@@ -1165,8 +1165,7 @@
+ 		float3 rightDir = frontDir.cross(upDir);
+ 		rightDir.Normalize();
+ 		frontDir = upDir.cross(rightDir);
+-		CMatrix44f transMatrix(interPos, -rightDir, upDir, frontDir);
+-		matrix = transMatrix;
++		return CMatrix44f(interPos, -rightDir, upDir, frontDir);
+ 	}
+ }
+ 
+
+Modified: trunk/rts/Sim/Units/Unit.h
+===================================================================
+--- trunk/rts/Sim/Units/Unit.h	2008-10-16 21:41:42 UTC (rev 6790)
++++ trunk/rts/Sim/Units/Unit.h	2008-10-16 21:59:08 UTC (rev 6791)
+@@ -108,7 +108,7 @@
+ 	void SetDirectionFromHeading();
+ 
+ 	void ApplyTransformMatrix() const;
+-	void GetTransformMatrix(CMatrix44f&amp; matrix, bool synced = false) const;
++	CMatrix44f GetTransformMatrix(const bool synced = false, const bool error = false) const;
+ 
+ 	void SetLastAttacker(CUnit* attacker);
+ 	void DependentDied(CObject* o);
+
+Modified: trunk/rts/System/Matrix44f.cpp
+===================================================================
+--- trunk/rts/System/Matrix44f.cpp	2008-10-16 21:41:42 UTC (rev 6790)
++++ trunk/rts/System/Matrix44f.cpp	2008-10-16 21:59:08 UTC (rev 6791)
+@@ -32,6 +32,18 @@
+ }
+ 
+ 
++CMatrix44f::CMatrix44f(const float3&amp; pos)
++{
++	m[0]  = m[5]  = m[10] = m[15] = 1.0f;
++
++	m[1]  = m[2]  = m[3]  = 0.0f;
++	m[4]  = m[6]  = m[7]  = 0.0f;
++	m[8]  = m[9]  = m[11] = 0.0f;
++
++	m[12] = pos.x; m[13] = pos.y; m[14] = pos.z;
++}
++
++
+ CMatrix44f::~CMatrix44f(void)
+ {
+ }
+@@ -186,9 +198,9 @@
+ 	*this = Mul(tm);
+ */
+ 
+-	const float x=pos.x;
+-	const float y=pos.y;
+-	const float z=pos.z;
++	const float&amp; x=pos.x;
++	const float&amp; y=pos.y;
++	const float&amp; z=pos.z;
+ 	m[12] += x*m[0] + y*m[4] + z*m[8];
+ 	m[13] += x*m[1] + y*m[5] + z*m[9];
+ 	m[14] += x*m[2] + y*m[6] + z*m[10];
+
+Modified: trunk/rts/System/Matrix44f.h
+===================================================================
+--- trunk/rts/System/Matrix44f.h	2008-10-16 21:41:42 UTC (rev 6790)
++++ trunk/rts/System/Matrix44f.h	2008-10-16 21:59:08 UTC (rev 6791)
+@@ -11,6 +11,7 @@
+ 	CMatrix44f(void);
+ 	CMatrix44f(const float3&amp; pos, const float3&amp; x, const float3&amp; y, const float3&amp; z);
+ 	CMatrix44f(const CMatrix44f&amp; n);
++	CMatrix44f(const float3&amp; pos);
+ 	~CMatrix44f(void);
+ 
+ 	void LoadIdentity();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001559.html">[Taspring-linux-commit] r6790 - trunk/rts/System/FileSystem
+</A></li>
+	<LI>Next message: <A HREF="001561.html">[Taspring-linux-commit] r6792 - in trunk: Documentation	rts/Sim/MoveTypes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1560">[ date ]</a>
+              <a href="thread.html#1560">[ thread ]</a>
+              <a href="subject.html#1560">[ subject ]</a>
+              <a href="author.html#1560">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

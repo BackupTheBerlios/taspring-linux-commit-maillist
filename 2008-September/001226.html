@@ -1,0 +1,2227 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6456 - in trunk/rts: Game Map/SMF	Rendering Rendering/Env Rendering/GL Rendering/UnitModels	build/vstudio8 lib/gml
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6456%20-%20in%20trunk/rts%3A%20Game%20Map/SMF%0A%09Rendering%20Rendering/Env%20Rendering/GL%20Rendering/UnitModels%0A%09build/vstudio8%20lib/gml&In-Reply-To=%3C20080924225925.A86254A5F%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001225.html">
+   <LINK REL="Next"  HREF="001227.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6456 - in trunk/rts: Game Map/SMF	Rendering Rendering/Env Rendering/GL Rendering/UnitModels	build/vstudio8 lib/gml</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6456%20-%20in%20trunk/rts%3A%20Game%20Map/SMF%0A%09Rendering%20Rendering/Env%20Rendering/GL%20Rendering/UnitModels%0A%09build/vstudio8%20lib/gml&In-Reply-To=%3C20080924225925.A86254A5F%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6456 - in trunk/rts: Game Map/SMF	Rendering Rendering/Env Rendering/GL Rendering/UnitModels	build/vstudio8 lib/gml">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Sep 25 00:59:25 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001225.html">[Taspring-linux-commit] r6455 - trunk/rts/Sim/MoveTypes
+</A></li>
+        <LI>Next message: <A HREF="001227.html">[Taspring-linux-commit] r6457 - in trunk/rts: Game Sim/Path	System/Sync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1226">[ date ]</a>
+              <a href="thread.html#1226">[ thread ]</a>
+              <a href="subject.html#1226">[ subject ]</a>
+              <a href="author.html#1226">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zerver
+Date: 2008-09-25 00:59:24 +0200 (Thu, 25 Sep 2008)
+New Revision: 6456
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Map/SMF/BFGroundDrawer.cpp
+   trunk/rts/Map/SMF/SmfReadMap.cpp
+   trunk/rts/Rendering/Env/AdvTreeDrawer.cpp
+   trunk/rts/Rendering/Env/AdvTreeDrawer.h
+   trunk/rts/Rendering/Env/BumpWater.cpp
+   trunk/rts/Rendering/Env/DynWater.cpp
+   trunk/rts/Rendering/Env/GrassDrawer.cpp
+   trunk/rts/Rendering/GL/VertexArray.cpp
+   trunk/rts/Rendering/GL/VertexArray.h
+   trunk/rts/Rendering/GL/myGL.cpp
+   trunk/rts/Rendering/GroundDecalHandler.cpp
+   trunk/rts/Rendering/UnitModels/UnitDrawer.cpp
+   trunk/rts/Rendering/UnitModels/UnitDrawer.h
+   trunk/rts/build/vstudio8/rts.vcproj
+   trunk/rts/lib/gml/gml.cpp
+   trunk/rts/lib/gml/gml.h
+   trunk/rts/lib/gml/gmlcls.h
+   trunk/rts/lib/gml/speedy-tls.cpp
+Log:
+Optimized some parts of the rendering
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-09-24 22:26:11 UTC (rev 6455)
++++ trunk/rts/Game/Game.cpp	2008-09-24 22:59:24 UTC (rev 6456)
+@@ -2632,23 +2632,19 @@
+ 	return true;
+ }
+ 
+-#ifndef USE_GML
++#if defined(USE_GML) &amp;&amp; GML_ENABLE_DRAWALL
+ bool CGame::Draw() {
+-#else // USE_GML
+-#  if GML_ENABLE_DRAWALL
+-bool CGame::Draw() {
+-#  else
+-bool CGame::DrawMT() {
+-#  endif
+ 	gmlProcessor.Work(&amp;CGame::DrawMTcb,NULL,NULL,this,gmlThreadCount,TRUE,NULL,1,2,2,FALSE);
++#else
++bool CGame::DrawMT() {
++#endif
+ 	return TRUE;
+ }
+-#  if GML_ENABLE_DRAWALL
++#if defined(USE_GML) &amp;&amp; GML_ENABLE_DRAWALL
+ bool CGame::DrawMT() {
+-#  else
++#else
+ bool CGame::Draw() {
+-#  endif
+-#endif // USE_GML
++#endif
+ 
+ 	ASSERT_UNSYNCED_MODE;
+ 
+@@ -3051,22 +3047,18 @@
+ }
+ 
+ 
+-#ifndef USE_GML
++#  if defined(USE_GML) &amp;&amp; GML_ENABLE_SIM
+ void CGame::SimFrame() {
+-#else // USE_GML
+-#  if GML_ENABLE_SIM
+-void CGame::SimFrame() {
++	gmlProcessor.Work(&amp;CGame::SimFrameMTcb,NULL,NULL,this,2,FALSE,NULL,1,2,2,FALSE,&amp;CGame::UnsyncedStuffcb);
+ #  else
+ void CGame::SimFrameMT() {
+ #  endif
+-	gmlProcessor.Work(&amp;CGame::SimFrameMTcb,NULL,NULL,this,2,FALSE,NULL,1,2,2,FALSE,&amp;CGame::UnsyncedStuffcb);
+ }
+-#  if GML_ENABLE_SIM
++#  if defined(USE_GML) &amp;&amp; GML_ENABLE_SIM
+ void CGame::SimFrameMT() {
+ #  else
+ void CGame::SimFrame() {
+ #  endif
+-#endif // USE_GML
+ 
+ 	good_fpu_control_registers(&quot;CGame::SimFrame&quot;);
+ 	lastFrameTime = SDL_GetTicks();
+@@ -3093,7 +3085,7 @@
+ 	ENTER_UNSYNCED;
+ 
+ 	if (!skipping) {
+-#if !GML_ENABLE_SIM
++#if !defined(USE_GML) || !GML_ENABLE_SIM
+     UnsyncedStuff();
+ #endif
+ //		infoConsole-&gt;Update();
+
+Modified: trunk/rts/Map/SMF/BFGroundDrawer.cpp
+===================================================================
+--- trunk/rts/Map/SMF/BFGroundDrawer.cpp	2008-09-24 22:26:11 UTC (rev 6455)
++++ trunk/rts/Map/SMF/BFGroundDrawer.cpp	2008-09-24 22:59:24 UTC (rev 6456)
+@@ -704,7 +704,7 @@
+ 		glAlphaFunc(GL_GREATER, 0.9f);
+ 	}
+ 
+-#if GML_ENABLE_DRAWGROUND
++#if defined(USE_GML) &amp;&amp; GML_ENABLE_DRAWGROUND
+ 	mt_overrideVP=overrideVP;
+ 	gmlProcessor.Work(NULL,&amp;CBFGroundDrawer::DoDrawGroundRowMT,NULL,this,gmlThreadCount,FALSE,NULL,numBigTexY,50,100,TRUE,NULL);
+ #else
+@@ -1123,7 +1123,7 @@
+ 	glBindProgramARB(GL_VERTEX_PROGRAM_ARB, groundShadowVP);
+ 	glEnable(GL_VERTEX_PROGRAM_ARB);
+ 
+-#if GML_ENABLE_DRAWGROUNDSHADOW
++#if defined(USE_GML) &amp;&amp; GML_ENABLE_DRAWGROUNDSHADOW
+ 	gmlProcessor.Work(NULL,&amp;CBFGroundDrawer::DoDrawGroundShadowLODMT,NULL,this,gmlThreadCount,FALSE,NULL,NUM_LODS+1,50,100,TRUE,NULL);
+ #else
+ 	for (int nlod = 0; nlod &lt; NUM_LODS+1; ++nlod) {
+
+Modified: trunk/rts/Map/SMF/SmfReadMap.cpp
+===================================================================
+--- trunk/rts/Map/SMF/SmfReadMap.cpp	2008-09-24 22:26:11 UTC (rev 6455)
++++ trunk/rts/Map/SMF/SmfReadMap.cpp	2008-09-24 22:59:24 UTC (rev 6456)
+@@ -16,11 +16,6 @@
+ #include &quot;bitops.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
+-#ifdef USE_GML
+-#include &quot;lib/gml/gmlsrv.h&quot;
+-extern gmlClientServer&lt;void, int,CUnit*&gt; gmlProcessor;
+-#endif
+-
+ using namespace std;
+ 
+ CR_BIND_DERIVED(CSmfReadMap, CReadMap, (&quot;&quot;))
+
+Modified: trunk/rts/Rendering/Env/AdvTreeDrawer.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/AdvTreeDrawer.cpp	2008-09-24 22:26:11 UTC (rev 6455)
++++ trunk/rts/Rendering/Env/AdvTreeDrawer.cpp	2008-09-24 22:59:24 UTC (rev 6456)
+@@ -39,6 +39,10 @@
+ static const float TEX_LEAF_START_X3=0.0f;
+ static const float TEX_LEAF_END_X3=0.125f;
+ 
++static const float PART_MAX_TREE_HEIGHT=MAX_TREE_HEIGHT*0.4f;
++static const float HALF_MAX_TREE_HEIGHT=MAX_TREE_HEIGHT*0.5f;
++static const float DOUBLE_MAX_TREE_HEIGHT=MAX_TREE_HEIGHT*2.0f;
++
+ CAdvTreeDrawer::CAdvTreeDrawer()
+ {
+ 	oldTreeDistance=4;
+@@ -48,28 +52,29 @@
+ 	lastListClean=0;
+ 	treesX=gs-&gt;mapx/TREE_SQUARE_SIZE;
+ 	treesY=gs-&gt;mapy/TREE_SQUARE_SIZE;
+-	trees=SAFE_NEW TreeSquareStruct[treesX*treesY];
++	nTrees=treesX*treesY;
++	trees=SAFE_NEW TreeSquareStruct[nTrees];
+ 
+-	for(int y=0;y&lt;treesY;y++){
+-		for(int x=0;x&lt;treesX;x++){
+-			trees[y*treesX+x].lastSeen=0;
+-			trees[y*treesX+x].lastSeenFar=0;
+-			trees[y*treesX+x].viewVector=UpVector;
+-			trees[y*treesX+x].displist=0;
+-			trees[y*treesX+x].farDisplist=0;
+-		}
++	TreeSquareStruct* pTSS=trees;
++	for(int n=0; n&lt;nTrees; ++n){
++		pTSS-&gt;lastSeen=0;
++		pTSS-&gt;lastSeenFar=0;
++		pTSS-&gt;viewVector=UpVector;
++		pTSS-&gt;displist=0;
++		pTSS-&gt;farDisplist=0;
++		++pTSS;
+ 	}
+ }
+ 
+ CAdvTreeDrawer::~CAdvTreeDrawer()
+ {
+-	for(int y=0;y&lt;treesY;y++){
+-		for(int x=0;x&lt;treesX;x++){
+-			if(trees[y*treesX+x].displist)
+-				glDeleteLists(trees[y*treesX+x].displist,1);
+-			if(trees[y*treesX+x].farDisplist)
+-				glDeleteLists(trees[y*treesX+x].farDisplist,1);
+-		}
++	TreeSquareStruct* pTSS=trees;
++	for(int n=0; n&lt;nTrees; ++n){
++		if(pTSS-&gt;displist)
++			glDeleteLists(pTSS-&gt;displist,1);
++		if(pTSS-&gt;farDisplist)
++			glDeleteLists(pTSS-&gt;farDisplist,1);
++		++pTSS;
+ 	}
+ 	delete[] trees;
+ 	delete treeGen;
+@@ -98,6 +103,69 @@
+ 	va-&gt;AddVertexT(v,t1,t2);
+ }
+ 
++inline void DrawTreeVertexA(float3 &amp;ftpos, float dx, float dy) {
++	SetArray(TEX_LEAF_START_X1+dx,TEX_LEAF_START_Y1+dy,ftpos);
++	ftpos.y+=MAX_TREE_HEIGHT;
++	SetArray(TEX_LEAF_START_X1+dx,TEX_LEAF_END_Y1+dy,ftpos);
++	ftpos.x-=MAX_TREE_HEIGHT;
++	SetArray(TEX_LEAF_END_X1+dx,TEX_LEAF_END_Y1+dy,ftpos);
++	ftpos.y-=MAX_TREE_HEIGHT;
++	SetArray(TEX_LEAF_END_X1+dx,TEX_LEAF_START_Y1+dy,ftpos);
++	ftpos.x+=HALF_MAX_TREE_HEIGHT;
++	ftpos.z+=HALF_MAX_TREE_HEIGHT;
++	SetArray(TEX_LEAF_START_X2+dx,TEX_LEAF_START_Y2+dy,ftpos);
++	ftpos.y+=MAX_TREE_HEIGHT;
++	SetArray(TEX_LEAF_START_X2+dx,TEX_LEAF_END_Y2+dy,ftpos);
++	ftpos.z-=MAX_TREE_HEIGHT;
++	SetArray(TEX_LEAF_END_X2+dx,TEX_LEAF_END_Y2+dy,ftpos);
++	ftpos.y-=MAX_TREE_HEIGHT;
++	SetArray(TEX_LEAF_END_X2+dx,TEX_LEAF_START_Y2+dy,ftpos);
++	//width*=1.41f;
++	ftpos.x+=HALF_MAX_TREE_HEIGHT;
++	ftpos.y+=PART_MAX_TREE_HEIGHT;
++}
++
++inline void DrawTreeVertex(float3 pos, float dx, float dy) {
++	float3 ftpos=pos+float3(HALF_MAX_TREE_HEIGHT,0,0);
++	DrawTreeVertexA(ftpos, dx, dy);
++	ftpos.z+=MAX_TREE_HEIGHT;
++	SetArray(TEX_LEAF_START_X3+dx,TEX_LEAF_START_Y3+dy,ftpos);
++	ftpos.z-=MAX_TREE_HEIGHT;
++	SetArray(TEX_LEAF_START_X3+dx,TEX_LEAF_END_Y3+dy,ftpos);
++	ftpos.x-=MAX_TREE_HEIGHT;
++	SetArray(TEX_LEAF_END_X3+dx,TEX_LEAF_END_Y3+dy,ftpos);
++	ftpos.z+=MAX_TREE_HEIGHT;
++	SetArray(TEX_LEAF_END_X3+dx,TEX_LEAF_START_Y3+dy,ftpos);
++}
++
++inline void DrawTreeVertexMid(const float3 pos, float dx, float dy) {
++	float3 ftpos=pos+float3(HALF_MAX_TREE_HEIGHT,0,0);
++	DrawTreeVertexA(ftpos, dx, dy);
++	ftpos.z+=HALF_MAX_TREE_HEIGHT;
++	SetArray(TEX_LEAF_START_X3+dx,TEX_LEAF_START_Y3+dy,ftpos);
++	ftpos.x-=HALF_MAX_TREE_HEIGHT;
++	ftpos.z-=HALF_MAX_TREE_HEIGHT;
++	SetArray(TEX_LEAF_START_X3+dx,TEX_LEAF_END_Y3+dy,ftpos);
++	ftpos.x-=HALF_MAX_TREE_HEIGHT;
++	ftpos.z+=HALF_MAX_TREE_HEIGHT;
++	SetArray(TEX_LEAF_END_X3+dx,TEX_LEAF_END_Y3+dy,ftpos);
++	ftpos.x+=HALF_MAX_TREE_HEIGHT;
++	ftpos.z+=HALF_MAX_TREE_HEIGHT;
++	SetArray(TEX_LEAF_END_X3+dx,TEX_LEAF_START_Y3+dy,ftpos);
++}
++
++inline void DrawTreeVertexFar(float3 pos, float3 swd, float dx, float dy) {
++	float3 base=pos+swd;
++	SetArray(TEX_LEAF_START_X1+dx,TEX_LEAF_START_Y4+dy,base);
++	base.y+=MAX_TREE_HEIGHT;
++	SetArray(TEX_LEAF_START_X1+dx,TEX_LEAF_END_Y4+dy,base);
++	base-=swd;
++	base-=swd;
++	SetArray(TEX_LEAF_END_X1+dx,TEX_LEAF_END_Y4+dy,base);
++	base.y-=MAX_TREE_HEIGHT;
++	SetArray(TEX_LEAF_END_X1+dx,TEX_LEAF_START_Y4+dy,base);
++}
++
+ struct CAdvTreeSquareDrawer : CReadMap::IQuadDrawer
+ {
+ 	CAdvTreeSquareDrawer() {td=0;}
+@@ -138,25 +206,10 @@
+ 			for(std::map&lt;int,CAdvTreeDrawer::TreeStruct&gt;::iterator ti=tss-&gt;trees.begin();ti!=tss-&gt;trees.end();++ti){
+ 				CAdvTreeDrawer::TreeStruct* ts=&amp;ti-&gt;second;
+ 
+-				float3 base(ts-&gt;pos);
+-				int type=ts-&gt;type;
+-
+-				float height=MAX_TREE_HEIGHT;
+-				float width=MAX_TREE_HEIGHT*0.5f;
+-
+-				float xdif;
+-				float ydif;
+-				if(ts-&gt;type&lt;8){
+-					xdif=type*0.125f;
+-					ydif=0.5f;
+-				} else {
+-					xdif=(type-8)*0.125f;
+-					ydif=0;
+-				}
+-				SetArray(TEX_LEAF_START_X1+xdif,TEX_LEAF_START_Y4+ydif,base+side*width);
+-				SetArray(TEX_LEAF_START_X1+xdif,TEX_LEAF_END_Y4+ydif  ,base+side*width+float3(0,height,0));
+-				SetArray(TEX_LEAF_END_X1+xdif  ,TEX_LEAF_END_Y4+ydif  ,base-side*width+float3(0,height,0));
+-				SetArray(TEX_LEAF_END_X1+xdif  ,TEX_LEAF_START_Y4+ydif,base-side*width);
++				if(ts-&gt;type&lt;8)
++					DrawTreeVertexFar(ts-&gt;pos, side*HALF_MAX_TREE_HEIGHT, ts-&gt;type*0.125f, 0.5f);
++				else
++					DrawTreeVertexFar(ts-&gt;pos, side*HALF_MAX_TREE_HEIGHT, (ts-&gt;type-8)*0.125f, 0);
+ 			}
+ 			glNewList(tss-&gt;farDisplist,GL_COMPILE);
+ 			va-&gt;DrawArrayT(GL_QUADS);
+@@ -184,35 +237,11 @@
+ 
+ 			for(std::map&lt;int,CAdvTreeDrawer::TreeStruct&gt;::iterator ti=tss-&gt;trees.begin();ti!=tss-&gt;trees.end();++ti){
+ 				CAdvTreeDrawer::TreeStruct* ts=&amp;ti-&gt;second;
+-				float3 pos(ts-&gt;pos);
+-				int type=ts-&gt;type;
+ 
+-				float height=MAX_TREE_HEIGHT;
+-				float width=MAX_TREE_HEIGHT*0.5f;
+-				float xdif;
+-				float ydif;
+-				if(ts-&gt;type&lt;8){
+-					xdif=type*0.125f;
+-					ydif=0.5f;
+-				} else {
+-					xdif=(type-8)*0.125f;
+-					ydif=0;
+-				}
+-				SetArray(TEX_LEAF_START_X1+xdif,TEX_LEAF_START_Y1+ydif,pos+float3(width,0,0));
+-				SetArray(TEX_LEAF_START_X1+xdif,TEX_LEAF_END_Y1+ydif,pos+float3(width,height,0));
+-				SetArray(TEX_LEAF_END_X1+xdif,TEX_LEAF_END_Y1+ydif,pos+float3(-width,height,0));
+-				SetArray(TEX_LEAF_END_X1+xdif,TEX_LEAF_START_Y1+ydif,pos+float3(-width,0,0));
+-
+-				SetArray(TEX_LEAF_START_X2+xdif,TEX_LEAF_START_Y2+ydif,pos+float3(0,0,width));
+-				SetArray(TEX_LEAF_START_X2+xdif,TEX_LEAF_END_Y2+ydif,pos+float3(0,height,width));
+-				SetArray(TEX_LEAF_END_X2+xdif,TEX_LEAF_END_Y2+ydif,pos+float3(0,height,-width));
+-				SetArray(TEX_LEAF_END_X2+xdif,TEX_LEAF_START_Y2+ydif,pos+float3(0,0,-width));
+-
+-				//width*=1.41f;
+-				SetArray(TEX_LEAF_START_X3+xdif,TEX_LEAF_START_Y3+ydif,pos+float3(width,height*0.4f,0));
+-				SetArray(TEX_LEAF_START_X3+xdif,TEX_LEAF_END_Y3+ydif,pos+float3(0,height*0.4f,-width));
+-				SetArray(TEX_LEAF_END_X3+xdif,TEX_LEAF_END_Y3+ydif,pos+float3(-width,height*0.4f,0));
+-				SetArray(TEX_LEAF_END_X3+xdif,TEX_LEAF_START_Y3+ydif,pos+float3(0,height*0.4f,width));
++				if(ts-&gt;type&lt;8)
++					DrawTreeVertexMid(ts-&gt;pos, ts-&gt;type*0.125f, 0.5f);
++				else
++					DrawTreeVertexMid(ts-&gt;pos, (ts-&gt;type-8)*0.125f, 0);
+ 			}
+ 			glNewList(tss-&gt;displist,GL_COMPILE);
+ 			va-&gt;DrawArrayT(GL_QUADS);
+@@ -303,6 +332,11 @@
+ 	readmap-&gt;GridVisibility (camera, TREE_SQUARE_SIZE, treeDistance*2*SQUARE_SIZE*TREE_SQUARE_SIZE, &amp;drawer);
+ 
+ 	if(drawDetailed){
++		int xstart=std::max(0,cx-2);
++		int xend=std::min(gs-&gt;mapx/TREE_SQUARE_SIZE-1,cx+2);
++		int ystart=std::max(0,cy-2);
++		int yend=std::min(gs-&gt;mapy/TREE_SQUARE_SIZE-1,cy+2);
++
+ 		if(shadowHandler-&gt;drawShadows &amp;&amp; !gd-&gt;DrawExtraTex()){
+ 			glBindProgramARB( GL_VERTEX_PROGRAM_ARB, treeGen-&gt;treeVP );
+ 
+@@ -335,11 +369,12 @@
+ 			int type;
+ 		};
+ 		static FadeTree fadeTrees[3000];
+-		int curFade=0;
++		FadeTree *pFT=fadeTrees;
+ 
+-		for(int y=std::max(0,cy-2);y&lt;=std::min(gs-&gt;mapy/TREE_SQUARE_SIZE-1,cy+2);++y){	//close trees
+-			for(int x=std::max(0,cx-2);x&lt;=std::min(gs-&gt;mapx/TREE_SQUARE_SIZE-1,cx+2);++x){
+-				TreeSquareStruct* tss=&amp;trees[y*treesX+x];
++		TreeSquareStruct* pTSS=trees+ystart*treesX;
++		for(int y=ystart; y&lt;=yend; ++y){	//close trees
++			TreeSquareStruct* tss=pTSS+xstart;
++			for(int x=xstart; x&lt;=xend; ++x){
+ 				tss-&gt;lastSeen=gs-&gt;frameNum;
+ 				for(std::map&lt;int,TreeStruct&gt;::iterator ti=tss-&gt;trees.begin();ti!=tss-&gt;trees.end();++ti){
+ 					TreeStruct* ts=&amp;ti-&gt;second;
+@@ -366,33 +401,19 @@
+ 							glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,10,pos.x,pos.y,pos.z,0);
+ 							glCallList(displist);
+ 							glAlphaFunc(GL_GREATER,0.5f);
+-							fadeTrees[curFade].pos=pos;
+-							fadeTrees[curFade].deltaY=dy;
+-							fadeTrees[curFade].type=type;
+-							fadeTrees[curFade++].relDist=relDist;
++							pFT-&gt;pos=pos;
++							pFT-&gt;deltaY=dy;
++							pFT-&gt;type=type;
++							pFT-&gt;relDist=relDist;
++							++pFT;
+ 						} else {																//draw undetailed tree
+-							float height=MAX_TREE_HEIGHT;
+-							float width=MAX_TREE_HEIGHT*0.5f;
+-							float xdif=type*0.125f;
+-							SetArray(TEX_LEAF_START_X1+xdif,TEX_LEAF_START_Y1+dy,pos+float3(width,0,0));
+-							SetArray(TEX_LEAF_START_X1+xdif,TEX_LEAF_END_Y1+dy,pos+float3(width,height,0));
+-							SetArray(TEX_LEAF_END_X1+xdif,TEX_LEAF_END_Y1+dy,pos+float3(-width,height,0));
+-							SetArray(TEX_LEAF_END_X1+xdif,TEX_LEAF_START_Y1+dy,pos+float3(-width,0,0));
+-
+-							SetArray(TEX_LEAF_START_X2+xdif,TEX_LEAF_START_Y2+dy,pos+float3(0,0,width));
+-							SetArray(TEX_LEAF_START_X2+xdif,TEX_LEAF_END_Y2+dy,pos+float3(0,height,width));
+-							SetArray(TEX_LEAF_END_X2+xdif,TEX_LEAF_END_Y2+dy,pos+float3(0,height,-width));
+-							SetArray(TEX_LEAF_END_X2+xdif,TEX_LEAF_START_Y2+dy,pos+float3(0,0,-width));
+-
+-							//width*=1.41f;
+-							SetArray(TEX_LEAF_START_X3+xdif,TEX_LEAF_START_Y3+dy,pos+float3(width,height*0.4f,width));
+-							SetArray(TEX_LEAF_START_X3+xdif,TEX_LEAF_END_Y3+dy,pos+float3(width,height*0.4f,-width));
+-							SetArray(TEX_LEAF_END_X3+xdif,TEX_LEAF_END_Y3+dy,pos+float3(-width,height*0.4f,-width));
+-							SetArray(TEX_LEAF_END_X3+xdif,TEX_LEAF_START_Y3+dy,pos+float3(-width,height*0.4f,width));
++							DrawTreeVertex(pos, type*0.125f, dy);
+ 						}
+ 					}
+ 				}
++				++tss;
+ 			}
++			pTSS+=treesX;
+ 		}
+ 		//draw trees that has been marked as falling
+ 		glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,10,0,0,0,0);
+@@ -440,33 +461,17 @@
+ 		}
+ 		va-&gt;DrawArrayT(GL_QUADS);
+ 
+-		for(int a=0;a&lt;curFade;++a){	//faded close trees
++		FadeTree *pLastFT=pFT;
++		pFT=fadeTrees;
++		while(pFT&lt;pLastFT){	//faded close trees
+ 			va=GetVertexArray();
+ 			va-&gt;Initialize();
+-			int type=fadeTrees[a].type;
+-			float dy=fadeTrees[a].deltaY;
+ 
+-			float height=MAX_TREE_HEIGHT;
+-			float width=MAX_TREE_HEIGHT*0.5f;
+-			float xdif=type*0.125f;
+-			SetArray(TEX_LEAF_START_X1+xdif,TEX_LEAF_START_Y1+dy,fadeTrees[a].pos+float3(width,0,0));
+-			SetArray(TEX_LEAF_START_X1+xdif,TEX_LEAF_END_Y1+dy,fadeTrees[a].pos+float3(width,height,0));
+-			SetArray(TEX_LEAF_END_X1+xdif,TEX_LEAF_END_Y1+dy,fadeTrees[a].pos+float3(-width,height,0));
+-			SetArray(TEX_LEAF_END_X1+xdif,TEX_LEAF_START_Y1+dy,fadeTrees[a].pos+float3(-width,0,0));
++			DrawTreeVertex(pFT-&gt;pos, pFT-&gt;type*0.125f, pFT-&gt;deltaY);
+ 
+-			SetArray(TEX_LEAF_START_X2+xdif,TEX_LEAF_START_Y2+dy,fadeTrees[a].pos+float3(0,0,width));
+-			SetArray(TEX_LEAF_START_X2+xdif,TEX_LEAF_END_Y2+dy,fadeTrees[a].pos+float3(0,height,width));
+-			SetArray(TEX_LEAF_END_X2+xdif,TEX_LEAF_END_Y2+dy,fadeTrees[a].pos+float3(0,height,-width));
+-			SetArray(TEX_LEAF_END_X2+xdif,TEX_LEAF_START_Y2+dy,fadeTrees[a].pos+float3(0,0,-width));
+-
+-			//width*=1.41f;
+-			SetArray(TEX_LEAF_START_X3+xdif,TEX_LEAF_START_Y3+dy,fadeTrees[a].pos+float3(width,height*0.4f,width));
+-			SetArray(TEX_LEAF_START_X3+xdif,TEX_LEAF_END_Y3+dy,fadeTrees[a].pos+float3(width,height*0.4f,-width));
+-			SetArray(TEX_LEAF_END_X3+xdif,TEX_LEAF_END_Y3+dy,fadeTrees[a].pos+float3(-width,height*0.4f,-width));
+-			SetArray(TEX_LEAF_END_X3+xdif,TEX_LEAF_START_Y3+dy,fadeTrees[a].pos+float3(-width,height*0.4f,width));
+-
+-			glAlphaFunc(GL_GREATER,1-fadeTrees[a].relDist*0.5f);
++			glAlphaFunc(GL_GREATER,1-pFT-&gt;relDist*0.5f);
+ 			va-&gt;DrawArrayT(GL_QUADS);
++			++pFT;
+ 		}
+ 	}
+ 	if(shadowHandler-&gt;drawShadows &amp;&amp; !gd-&gt;DrawExtraTex()){
+@@ -484,40 +489,40 @@
+ 	glDisable(GL_ALPHA_TEST);
+ 
+ 	//clean out squares from memory that are no longer visible
+-	int startClean=lastListClean*20%(treesX*treesY);
++	int startClean=lastListClean*20%(nTrees);
+ 	lastListClean=gs-&gt;frameNum;
+-	int endClean=gs-&gt;frameNum*20%(treesX*treesY);
++	int endClean=gs-&gt;frameNum*20%(nTrees);
+ 
+ 	if(startClean&gt;endClean){
+-		for(int a=startClean;a&lt;treesX*treesY;a++){
+-			if(trees[a].lastSeen&lt;gs-&gt;frameNum-50 &amp;&amp; trees[a].displist){
+-				glDeleteLists(trees[a].displist,1);
+-				trees[a].displist=0;
++		for(TreeSquareStruct *pTSS=trees+startClean; pTSS&lt;trees+nTrees; ++pTSS) {
++			if(pTSS-&gt;lastSeen&lt;gs-&gt;frameNum-50 &amp;&amp; pTSS-&gt;displist){
++				glDeleteLists(pTSS-&gt;displist,1);
++				pTSS-&gt;displist=0;
+ 			}
+-			if(trees[a].lastSeenFar&lt;gs-&gt;frameNum-50 &amp;&amp; trees[a].farDisplist){
+-				glDeleteLists(trees[a].farDisplist,1);
+-				trees[a].farDisplist=0;
++			if(pTSS-&gt;lastSeenFar&lt;gs-&gt;frameNum-50 &amp;&amp; pTSS-&gt;farDisplist){
++				glDeleteLists(pTSS-&gt;farDisplist,1);
++				pTSS-&gt;farDisplist=0;
+ 			}
+ 		}
+-		for(int a=0;a&lt;endClean;a++){
+-			if(trees[a].lastSeen&lt;gs-&gt;frameNum-50 &amp;&amp; trees[a].displist){
+-				glDeleteLists(trees[a].displist,1);
+-				trees[a].displist=0;
++		for(TreeSquareStruct *pTSS=trees; pTSS&lt;trees+endClean; ++pTSS) {
++			if(pTSS-&gt;lastSeen&lt;gs-&gt;frameNum-50 &amp;&amp; pTSS-&gt;displist){
++				glDeleteLists(pTSS-&gt;displist,1);
++				pTSS-&gt;displist=0;
+ 			}
+-			if(trees[a].lastSeenFar&lt;gs-&gt;frameNum-50 &amp;&amp; trees[a].farDisplist){
+-				glDeleteLists(trees[a].farDisplist,1);
+-				trees[a].farDisplist=0;
++			if(pTSS-&gt;lastSeenFar&lt;gs-&gt;frameNum-50 &amp;&amp; pTSS-&gt;farDisplist){
++				glDeleteLists(pTSS-&gt;farDisplist,1);
++				pTSS-&gt;farDisplist=0;
+ 			}
+ 		}
+ 	} else {
+-		for(int a=startClean;a&lt;endClean;a++){
+-			if(trees[a].lastSeen&lt;gs-&gt;frameNum-50 &amp;&amp; trees[a].displist){
+-				glDeleteLists(trees[a].displist,1);
+-				trees[a].displist=0;
++		for(TreeSquareStruct *pTSS=trees+startClean; pTSS&lt;trees+endClean; ++pTSS) {
++			if(pTSS-&gt;lastSeen&lt;gs-&gt;frameNum-50 &amp;&amp; pTSS-&gt;displist){
++				glDeleteLists(pTSS-&gt;displist,1);
++				pTSS-&gt;displist=0;
+ 			}
+-			if(trees[a].lastSeenFar&lt;gs-&gt;frameNum-50 &amp;&amp; trees[a].farDisplist){
+-				glDeleteLists(trees[a].farDisplist,1);
+-				trees[a].farDisplist=0;
++			if(pTSS-&gt;lastSeenFar&lt;gs-&gt;frameNum-50 &amp;&amp; pTSS-&gt;farDisplist){
++				glDeleteLists(pTSS-&gt;farDisplist,1);
++				pTSS-&gt;farDisplist=0;
+ 			}
+ 		}
+ 	}
+@@ -561,27 +566,12 @@
+ 			for(std::map&lt;int,CAdvTreeDrawer::TreeStruct&gt;::iterator ti=tss-&gt;trees.begin();ti!=tss-&gt;trees.end();++ti){
+ 				CAdvTreeDrawer::TreeStruct* ts=&amp;ti-&gt;second;
+ 
+-				float3 base(ts-&gt;pos);
+-				int type=ts-&gt;type;
+-
+-				float height=MAX_TREE_HEIGHT;
+-				float width=MAX_TREE_HEIGHT*0.5f;
+-
+-				float xdif;
+-				float ydif;
+-				if(ts-&gt;type&lt;8){
+-					xdif=type*0.125f;
+-					ydif=0.5f;
+-				} else {
+-					xdif=(type-8)*0.125f;
+-					ydif=0;
+-				}
+-				SetArray(TEX_LEAF_START_X1+xdif,TEX_LEAF_START_Y4+ydif,base+side*width);
+-				SetArray(TEX_LEAF_START_X1+xdif,TEX_LEAF_END_Y4+ydif  ,base+side*width+float3(0,height,0));
+-				SetArray(TEX_LEAF_END_X1+xdif  ,TEX_LEAF_END_Y4+ydif  ,base-side*width+float3(0,height,0));
+-				SetArray(TEX_LEAF_END_X1+xdif  ,TEX_LEAF_START_Y4+ydif,base-side*width);
++				if(ts-&gt;type&lt;8)
++					DrawTreeVertexFar(ts-&gt;pos, side*HALF_MAX_TREE_HEIGHT, ts-&gt;type*0.125f, 0.5f);
++				else
++					DrawTreeVertexFar(ts-&gt;pos, side*HALF_MAX_TREE_HEIGHT, (ts-&gt;type-8)*0.125f, 0);
+ 			}
+-			glNewList(td-&gt;trees[y*treesX+x].farDisplist,GL_COMPILE);
++			glNewList(tss-&gt;farDisplist,GL_COMPILE);
+ 			va-&gt;DrawArrayT(GL_QUADS);
+ 			glEndList();
+ 		}
+@@ -605,36 +595,11 @@
+ 
+ 			for(std::map&lt;int,CAdvTreeDrawer::TreeStruct&gt;::iterator ti=tss-&gt;trees.begin();ti!=tss-&gt;trees.end();++ti){
+ 				CAdvTreeDrawer::TreeStruct* ts=&amp;ti-&gt;second;
+-				float3 pos(ts-&gt;pos);
+-				int type=ts-&gt;type;
+ 
+-				float height=MAX_TREE_HEIGHT;
+-				float width=MAX_TREE_HEIGHT*0.5f;
+-				float xdif;
+-				float ydif;
+-				if(ts-&gt;type&lt;8){
+-					xdif=type*0.125f;
+-					ydif=0.5f;
+-
+-				} else {
+-					xdif=(type-8)*0.125f;
+-					ydif=0;
+-				}
+-				SetArray(TEX_LEAF_START_X1+xdif,TEX_LEAF_START_Y1+ydif,pos+float3(width,0,0));
+-				SetArray(TEX_LEAF_START_X1+xdif,TEX_LEAF_END_Y1+ydif,pos+float3(width,height,0));
+-				SetArray(TEX_LEAF_END_X1+xdif,TEX_LEAF_END_Y1+ydif,pos+float3(-width,height,0));
+-				SetArray(TEX_LEAF_END_X1+xdif,TEX_LEAF_START_Y1+ydif,pos+float3(-width,0,0));
+-
+-				SetArray(TEX_LEAF_START_X2+xdif,TEX_LEAF_START_Y2+ydif,pos+float3(0,0,width));
+-				SetArray(TEX_LEAF_START_X2+xdif,TEX_LEAF_END_Y2+ydif,pos+float3(0,height,width));
+-				SetArray(TEX_LEAF_END_X2+xdif,TEX_LEAF_END_Y2+ydif,pos+float3(0,height,-width));
+-				SetArray(TEX_LEAF_END_X2+xdif,TEX_LEAF_START_Y2+ydif,pos+float3(0,0,-width));
+-
+-				//width*=1.41f;
+-				SetArray(TEX_LEAF_START_X3+xdif,TEX_LEAF_START_Y3+ydif,pos+float3(width,height*0.4f,0));
+-				SetArray(TEX_LEAF_START_X3+xdif,TEX_LEAF_END_Y3+ydif,pos+float3(0,height*0.4f,-width));
+-				SetArray(TEX_LEAF_END_X3+xdif,TEX_LEAF_END_Y3+ydif,pos+float3(-width,height*0.4f,0));
+-				SetArray(TEX_LEAF_END_X3+xdif,TEX_LEAF_START_Y3+ydif,pos+float3(0,height*0.4f,width));
++				if(ts-&gt;type&lt;8)
++					DrawTreeVertexMid(ts-&gt;pos, ts-&gt;type*0.125f, 0.5f);
++				else
++					DrawTreeVertexMid(ts-&gt;pos, (ts-&gt;type-8)*0.125f, 0);
+ 			}
+ 			glNewList(tss-&gt;displist,GL_COMPILE);
+ 			va-&gt;DrawArrayT(GL_QUADS);
+@@ -667,6 +632,7 @@
+ 	CAdvTreeSquareDrawer_SP drawer;
+ 	int cx = drawer.cx=(int)(camera-&gt;pos.x/(SQUARE_SIZE*TREE_SQUARE_SIZE));
+ 	int cy = drawer.cy=(int)(camera-&gt;pos.z/(SQUARE_SIZE*TREE_SQUARE_SIZE));
++
+ 	drawer.drawDetailed = drawDetailed;
+ 	drawer.td = this;
+ 	drawer.treeDistance = treeDistance;
+@@ -675,6 +641,11 @@
+ 	readmap-&gt;GridVisibility (camera, TREE_SQUARE_SIZE, treeDistance*2*SQUARE_SIZE*TREE_SQUARE_SIZE, &amp;drawer, 1);
+ 
+ 	if(drawDetailed){
++		int xstart=std::max(0,cx-2);
++		int xend=std::min(gs-&gt;mapx/TREE_SQUARE_SIZE-1,cx+2);
++		int ystart=std::max(0,cy-2);
++		int yend=std::min(gs-&gt;mapy/TREE_SQUARE_SIZE-1,cy+2);
++
+ 		glBindTexture(GL_TEXTURE_2D, treeGen-&gt;barkTex);
+ 		glEnable(GL_TEXTURE_2D);
+ 		glBindProgramARB( GL_VERTEX_PROGRAM_ARB, treeGen-&gt;treeShadowVP );
+@@ -696,11 +667,12 @@
+ 			int type;
+ 		};
+ 		static FadeTree fadeTrees[3000];
+-		int curFade=0;
++		FadeTree *pFT=fadeTrees;
+ 
+-		for(int y=std::max(0,cy-2);y&lt;=std::min(gs-&gt;mapy/TREE_SQUARE_SIZE-1,cy+2);++y){	//close trees
+-			for(int x=std::max(0,cx-2);x&lt;=std::min(gs-&gt;mapx/TREE_SQUARE_SIZE-1,cx+2);++x){
+-				TreeSquareStruct* tss=&amp;trees[y*treesX+x];
++		TreeSquareStruct* pTSS=trees+ystart*treesX;
++		for(int y=ystart; y&lt;=yend; ++y){	//close trees
++			TreeSquareStruct* tss=pTSS+xstart;
++			for(int x=xstart; x&lt;=xend; ++x){
+ 				tss-&gt;lastSeen=gs-&gt;frameNum;
+ 				for(std::map&lt;int,TreeStruct&gt;::iterator ti=tss-&gt;trees.begin();ti!=tss-&gt;trees.end();++ti){
+ 					TreeStruct* ts=&amp;ti-&gt;second;
+@@ -727,33 +699,19 @@
+ 							glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,10,pos.x,pos.y,pos.z,0);
+ 							glCallList(displist);
+ 							glAlphaFunc(GL_GREATER,0.5f);
+-							fadeTrees[curFade].pos=pos;
+-							fadeTrees[curFade].deltaY=dy;
+-							fadeTrees[curFade].type=type;
+-							fadeTrees[curFade++].relDist=relDist;
++							pFT-&gt;pos=pos;
++							pFT-&gt;deltaY=dy;
++							pFT-&gt;type=type;
++							pFT-&gt;relDist=relDist;
++							++pFT;
+ 						} else {																//draw undetailed tree
+-							float height=MAX_TREE_HEIGHT;
+-							float width=MAX_TREE_HEIGHT*0.5f;
+-							float xdif=type*0.125f;
+-							SetArray(TEX_LEAF_START_X1+xdif,TEX_LEAF_START_Y1+dy,pos+float3(width,0,0));
+-							SetArray(TEX_LEAF_START_X1+xdif,TEX_LEAF_END_Y1+dy,pos+float3(width,height,0));
+-							SetArray(TEX_LEAF_END_X1+xdif,TEX_LEAF_END_Y1+dy,pos+float3(-width,height,0));
+-							SetArray(TEX_LEAF_END_X1+xdif,TEX_LEAF_START_Y1+dy,pos+float3(-width,0,0));
+-
+-							SetArray(TEX_LEAF_START_X2+xdif,TEX_LEAF_START_Y2+dy,pos+float3(0,0,width));
+-							SetArray(TEX_LEAF_START_X2+xdif,TEX_LEAF_END_Y2+dy,pos+float3(0,height,width));
+-							SetArray(TEX_LEAF_END_X2+xdif,TEX_LEAF_END_Y2+dy,pos+float3(0,height,-width));
+-							SetArray(TEX_LEAF_END_X2+xdif,TEX_LEAF_START_Y2+dy,pos+float3(0,0,-width));
+-
+-							//width*=1.41f;
+-							SetArray(TEX_LEAF_START_X3+xdif,TEX_LEAF_START_Y3+dy,pos+float3(width,height*0.4f,width));
+-							SetArray(TEX_LEAF_START_X3+xdif,TEX_LEAF_END_Y3+dy,pos+float3(width,height*0.4f,-width));
+-							SetArray(TEX_LEAF_END_X3+xdif,TEX_LEAF_END_Y3+dy,pos+float3(-width,height*0.4f,-width));
+-							SetArray(TEX_LEAF_END_X3+xdif,TEX_LEAF_START_Y3+dy,pos+float3(-width,height*0.4f,width));
++							DrawTreeVertex(pos, type*0.125f, dy);
+ 						}
+ 					}
+ 				}
++				++tss;
+ 			}
++			pTSS+=treesX;
+ 		}
+ 		//draw trees that have been marked as falling
+ 		glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,10,0,0,0,0);
+@@ -788,33 +746,17 @@
+ 		glBindTexture(GL_TEXTURE_2D, activeFarTex);
+ 		va-&gt;DrawArrayT(GL_QUADS);
+ 
+-		for(int a=0;a&lt;curFade;++a){	//faded close trees
++		FadeTree *pLastFT=pFT;
++		pFT=fadeTrees;
++		while(pFT&lt;pLastFT){	//faded close trees
+ 			va=GetVertexArray();
+ 			va-&gt;Initialize();
+-			int type=fadeTrees[a].type;
+-			float dy=fadeTrees[a].deltaY;
+ 
+-			float height=MAX_TREE_HEIGHT;
+-			float width=MAX_TREE_HEIGHT*0.5f;
+-			float xdif=type*0.125f;
+-			SetArray(TEX_LEAF_START_X1+xdif,TEX_LEAF_START_Y1+dy,fadeTrees[a].pos+float3(width,0,0));
+-			SetArray(TEX_LEAF_START_X1+xdif,TEX_LEAF_END_Y1+dy,fadeTrees[a].pos+float3(width,height,0));
+-			SetArray(TEX_LEAF_END_X1+xdif,TEX_LEAF_END_Y1+dy,fadeTrees[a].pos+float3(-width,height,0));
+-			SetArray(TEX_LEAF_END_X1+xdif,TEX_LEAF_START_Y1+dy,fadeTrees[a].pos+float3(-width,0,0));
++			DrawTreeVertex(pFT-&gt;pos, pFT-&gt;type*0.125f, pFT-&gt;deltaY);
+ 
+-			SetArray(TEX_LEAF_START_X2+xdif,TEX_LEAF_START_Y2+dy,fadeTrees[a].pos+float3(0,0,width));
+-			SetArray(TEX_LEAF_START_X2+xdif,TEX_LEAF_END_Y2+dy,fadeTrees[a].pos+float3(0,height,width));
+-			SetArray(TEX_LEAF_END_X2+xdif,TEX_LEAF_END_Y2+dy,fadeTrees[a].pos+float3(0,height,-width));
+-			SetArray(TEX_LEAF_END_X2+xdif,TEX_LEAF_START_Y2+dy,fadeTrees[a].pos+float3(0,0,-width));
+-
+-			//width*=1.41f;
+-			SetArray(TEX_LEAF_START_X3+xdif,TEX_LEAF_START_Y3+dy,fadeTrees[a].pos+float3(width,height*0.4f,width));
+-			SetArray(TEX_LEAF_START_X3+xdif,TEX_LEAF_END_Y3+dy,fadeTrees[a].pos+float3(width,height*0.4f,-width));
+-			SetArray(TEX_LEAF_END_X3+xdif,TEX_LEAF_END_Y3+dy,fadeTrees[a].pos+float3(-width,height*0.4f,-width));
+-			SetArray(TEX_LEAF_END_X3+xdif,TEX_LEAF_START_Y3+dy,fadeTrees[a].pos+float3(-width,height*0.4f,width));
+-
+-			glAlphaFunc(GL_GREATER,1-fadeTrees[a].relDist*0.5f);
++			glAlphaFunc(GL_GREATER,1-pFT-&gt;relDist*0.5f);
+ 			va-&gt;DrawArrayT(GL_QUADS);
++			++pFT;
+ 		}
+ 	}
+ 	glDisable(GL_POLYGON_OFFSET_FILL);
+@@ -832,14 +774,14 @@
+ {
+ 	int x=(int)pos.x/TREE_SQUARE_SIZE/SQUARE_SIZE;
+ 	int y=(int)pos.z/TREE_SQUARE_SIZE/SQUARE_SIZE;
+-	int a=y*treesX+x;
+-	if(trees[a].displist){
+-		glDeleteLists(trees[a].displist,1);
+-		trees[a].displist=0;
++	TreeSquareStruct* pTSS=trees+y*treesX+x;
++	if(pTSS-&gt;displist){
++		glDeleteLists(pTSS-&gt;displist,1);
++		pTSS-&gt;displist=0;
+ 	}
+-	if(trees[a].farDisplist){
+-		glDeleteLists(trees[a].farDisplist,1);
+-		trees[a].farDisplist=0;
++	if(pTSS-&gt;farDisplist){
++		glDeleteLists(pTSS-&gt;farDisplist,1);
++		pTSS-&gt;farDisplist=0;
+ 	}
+ 	grassDrawer-&gt;ResetPos(pos);
+ }
+
+Modified: trunk/rts/Rendering/Env/AdvTreeDrawer.h
+===================================================================
+--- trunk/rts/Rendering/Env/AdvTreeDrawer.h	2008-09-24 22:26:11 UTC (rev 6455)
++++ trunk/rts/Rendering/Env/AdvTreeDrawer.h	2008-09-24 22:59:24 UTC (rev 6456)
+@@ -49,6 +49,7 @@
+ 	TreeSquareStruct* trees;
+ 	int treesX;
+ 	int treesY;
++	int nTrees;
+ 
+ 	CGrassDrawer* grassDrawer;
+ 
+
+Modified: trunk/rts/Rendering/Env/BumpWater.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/BumpWater.cpp	2008-09-24 22:26:11 UTC (rev 6455)
++++ trunk/rts/Rendering/Env/BumpWater.cpp	2008-09-24 22:59:24 UTC (rev 6456)
+@@ -911,16 +911,24 @@
+ 
+ 	glBegin(GL_QUADS);
+ 		unsigned char offset,tx,ty;
++		unsigned char *to=tileOffsets;
++		unsigned char yts=0;
+ 		for (unsigned char y=0; y&lt;tiles; ++y) {
++			unsigned char yts1=yts+tilesize;
++			unsigned char xts=0;
+ 			for (unsigned char x=0; x&lt;tiles; ++x) {
+-				offset = tileOffsets[y * tiles + x];
++				unsigned char xts1=xts+tilesize;
++				offset = *to++;
+ 				tx = offset % tiles;
+-				ty = (offset - tx)/tiles;
+-				glTexCoord2f(     tx * tilesize,     ty * tilesize ); glVertex2f(     x * tilesize,     y * tilesize );
+-				glTexCoord2f(     tx * tilesize, (ty+1) * tilesize ); glVertex2f(     x * tilesize, (y+1) * tilesize );
+-				glTexCoord2f( (tx+1) * tilesize, (ty+1) * tilesize ); glVertex2f( (x+1) * tilesize, (y+1) * tilesize );
+-				glTexCoord2f( (tx+1) * tilesize,     ty * tilesize ); glVertex2f( (x+1) * tilesize,     y * tilesize );
++				ty = ((offset - tx)/tiles)*tilesize;
++				tx*=tilesize;
++				glTexCoord2f(tx,          ty         ); glVertex2f(xts,  yts );
++				glTexCoord2f(tx,          ty+tilesize); glVertex2f(xts,  yts1);
++				glTexCoord2f(tx+tilesize, ty+tilesize); glVertex2f(xts1, yts1);
++				glTexCoord2f(tx+tilesize, ty         ); glVertex2f(xts1, yts );
++				xts=xts1;
+ 			}
++			yts=yts1;
+ 		}
+ 	glEnd();
+ 
+
+Modified: trunk/rts/Rendering/Env/DynWater.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/DynWater.cpp	2008-09-24 22:26:11 UTC (rev 6455)
++++ trunk/rts/Rendering/Env/DynWater.cpp	2008-09-24 22:59:24 UTC (rev 6456)
+@@ -1,5 +1,4 @@
+ #include &quot;StdAfx.h&quot;
+-//#include &lt;windows.h&gt;
+ #include &quot;mmgr.h&quot;
+ 
+ #include &quot;DynWater.h&quot;
+@@ -839,6 +838,11 @@
+ 	va-&gt;AddVertex0(float3(x*WSQUARE_SIZE,0,y*WSQUARE_SIZE));
+ }
+ 
++static inline void DrawVertexAQ(int x,int y)
++{
++	va-&gt;AddVertexQ0(x*WSQUARE_SIZE,0,y*WSQUARE_SIZE);
++}
++
+ void CDynWater::DrawWaterSurface(void)
+ {
+ 	int viewRadius=40;
+@@ -875,126 +879,136 @@
+ 		int ystart=std::max(minly,minty);
+ 		int yend=std::min(maxly,maxty);
+ 
++		int vrhlod=viewRadius*hlod;
++
+ 		for(int y=ystart;y&lt;yend;y+=lod){
+ 			int xs=xstart;
+ 			int xe=xend;
+ 			int xtest,xtest2;
+ 			std::vector&lt;fline&gt;::iterator fli;
+ 			for(fli=left.begin();fli!=left.end();fli++){
+-				xtest=((int)(fli-&gt;base/(WSQUARE_SIZE)+fli-&gt;dir*y))/lod*lod-lod;
+-				xtest2=((int)(fli-&gt;base/(WSQUARE_SIZE)+fli-&gt;dir*(y+lod)))/lod*lod-lod;
++				float xtf = fli-&gt;base / WSQUARE_SIZE + fli-&gt;dir * y;
++				xtest = ((int)xtf) / lod * lod - lod;
++				xtest2 = ((int)(xtf + fli-&gt;dir * lod)) / lod * lod - lod;
+ 				if(xtest&gt;xtest2)
+ 					xtest=xtest2;
+ 				if(xtest&gt;xs)
+ 					xs=xtest;
+ 			}
+ 			for(fli=right.begin();fli!=right.end();fli++){
+-				xtest=((int)(fli-&gt;base/(WSQUARE_SIZE)+fli-&gt;dir*y))/lod*lod+lod;
+-				xtest2=((int)(fli-&gt;base/(WSQUARE_SIZE)+fli-&gt;dir*(y+lod)))/lod*lod+lod;
++				float xtf = fli-&gt;base / WSQUARE_SIZE + fli-&gt;dir * y;
++				xtest = ((int)xtf) / lod * lod - lod;
++				xtest2 = ((int)(xtf + fli-&gt;dir * lod)) / lod * lod - lod;
+ 				if(xtest&lt;xtest2)
+ 					xtest=xtest2;
+ 				if(xtest&lt;xe)
+ 					xe=xtest;
+ 			}
+ 
++			int ylod = y + lod;
++			int yhlod = y + hlod;
++
++			int nloop=(xe-xs)/lod+1;
++			va-&gt;EnlargeArrays(nloop*13,4*nloop+1);
+ 			for(int x=xs;x&lt;xe;x+=lod){
+-				if((lod==1) ||
+-					(x&gt;(cx)+viewRadius*hlod) || (x&lt;(cx)-viewRadius*hlod) ||
+-					(y&gt;(cy)+viewRadius*hlod) || (y&lt;(cy)-viewRadius*hlod)){  //normal terrain
+-						if(!inStrip){
+-							DrawVertexA(x,y);
+-							DrawVertexA(x,y+lod);
+-							inStrip=true;
++				int xlod = x + lod;
++				int xhlod = x + hlod;
++
++				if((lod==1) || (x&gt;cx+vrhlod) || (x&lt;cx-vrhlod) || (y&gt;cy+vrhlod) || (y&lt;cy-vrhlod)) {  //normal terrain
++					if(!inStrip){
++						DrawVertexAQ(x,y);
++						DrawVertexAQ(x,ylod);
++						inStrip=true;
++					}
++					DrawVertexAQ(xlod,y);
++					DrawVertexAQ(xlod,ylod);
++				} else {  //inre begr?sning mot f?eg?nde lod
++					if(x&gt;=cx+vrhlod){
++						if(inStrip){
++							va-&gt;EndStripQ();
++							inStrip=false;
+ 						}
+-						DrawVertexA(x+lod,y);
+-						DrawVertexA(x+lod,y+lod);
+-					} else {  //inre begr&#65533;sning mot f&#65533;eg&#65533;nde lod
+-						if((x&gt;=(cx)+viewRadius*hlod)){
+-							if(inStrip){
+-								va-&gt;EndStrip();
+-								inStrip=false;
+-							}
+-							DrawVertexA(x,y);
+-							DrawVertexA(x,y+hlod);
+-							DrawVertexA(x+hlod,y);
+-							DrawVertexA(x+hlod,y+hlod);
+-							va-&gt;EndStrip();
+-							DrawVertexA(x,y+hlod);
+-							DrawVertexA(x,y+lod);
+-							DrawVertexA(x+hlod,y+hlod);
+-							DrawVertexA(x+hlod,y+lod);
+-							va-&gt;EndStrip();
+-							DrawVertexA(x+hlod,y+lod);
+-							DrawVertexA(x+lod,y+lod);
+-							DrawVertexA(x+hlod,y+hlod);
+-							DrawVertexA(x+lod,y);
+-							DrawVertexA(x+hlod,y);
+-							va-&gt;EndStrip();
++						DrawVertexAQ(x,y);
++						DrawVertexAQ(x,yhlod);
++						DrawVertexAQ(xhlod,y);
++						DrawVertexAQ(xhlod,yhlod);
++						va-&gt;EndStripQ();
++						DrawVertexAQ(x,yhlod);
++						DrawVertexAQ(x,ylod);
++						DrawVertexAQ(xhlod,yhlod);
++						DrawVertexAQ(xhlod,ylod);
++						va-&gt;EndStripQ();
++						DrawVertexAQ(xhlod,ylod);
++						DrawVertexAQ(xlod,ylod);
++						DrawVertexAQ(xhlod,yhlod);
++						DrawVertexAQ(xlod,y);
++						DrawVertexAQ(xhlod,y);
++						va-&gt;EndStripQ();
++					}
++					else if(x&lt;=cx-vrhlod){
++						if(inStrip){
++							va-&gt;EndStripQ();
++							inStrip=false;
+ 						}
+-						else if((x&lt;=(cx)-viewRadius*hlod)){
+-							if(inStrip){
+-								va-&gt;EndStrip();
+-								inStrip=false;
+-							}
+-							DrawVertexA(x+lod,y+hlod);
+-							DrawVertexA(x+lod,y);
+-							DrawVertexA(x+hlod,y+hlod);
+-							DrawVertexA(x+hlod,y);
+-							va-&gt;EndStrip();
+-							DrawVertexA(x+lod,y+lod);
+-							DrawVertexA(x+lod,y+hlod);
+-							DrawVertexA(x+hlod,y+lod);
+-							DrawVertexA(x+hlod,y+hlod);
+-							va-&gt;EndStrip();
+-							DrawVertexA(x+hlod,y);
+-							DrawVertexA(x,y);
+-							DrawVertexA(x+hlod,y+hlod);
+-							DrawVertexA(x,y+lod);
+-							DrawVertexA(x+hlod,y+lod);
+-							va-&gt;EndStrip();
++						DrawVertexAQ(xlod,yhlod);
++						DrawVertexAQ(xlod,y);
++						DrawVertexAQ(xhlod,yhlod);
++						DrawVertexAQ(xhlod,y);
++						va-&gt;EndStripQ();
++						DrawVertexAQ(xlod,ylod);
++						DrawVertexAQ(xlod,yhlod);
++						DrawVertexAQ(xhlod,ylod);
++						DrawVertexAQ(xhlod,yhlod);
++						va-&gt;EndStripQ();
++						DrawVertexAQ(xhlod,y);
++						DrawVertexAQ(x,y);
++						DrawVertexAQ(xhlod,yhlod);
++						DrawVertexAQ(x,ylod);
++						DrawVertexAQ(xhlod,ylod);
++						va-&gt;EndStripQ();
++					}
++					else if(y&gt;=cy+vrhlod){
++						if(inStrip){
++							va-&gt;EndStripQ();
++							inStrip=false;
+ 						}
+-						else if((y&gt;=(cy)+viewRadius*hlod)){
+-							if(inStrip){
+-								va-&gt;EndStrip();
+-								inStrip=false;
+-							}
+-							DrawVertexA(x,y);
+-							DrawVertexA(x,y+hlod);
+-							DrawVertexA(x+hlod,y);
+-							DrawVertexA(x+hlod,y+hlod);
+-							DrawVertexA(x+lod,y);
+-							DrawVertexA(x+lod,y+hlod);
+-							va-&gt;EndStrip();
+-							DrawVertexA(x,y+hlod);
+-							DrawVertexA(x,y+lod);
+-							DrawVertexA(x+hlod,y+hlod);
+-							DrawVertexA(x+lod,y+lod);
+-							DrawVertexA(x+lod,y+hlod);
+-							va-&gt;EndStrip();
++						DrawVertexAQ(x,y);
++						DrawVertexAQ(x,yhlod);
++						DrawVertexAQ(xhlod,y);
++						DrawVertexAQ(xhlod,yhlod);
++						DrawVertexAQ(xlod,y);
++						DrawVertexAQ(xlod,yhlod);
++						va-&gt;EndStripQ();
++						DrawVertexAQ(x,yhlod);
++						DrawVertexAQ(x,ylod);
++						DrawVertexAQ(xhlod,yhlod);
++						DrawVertexAQ(xlod,ylod);
++						DrawVertexAQ(xlod,yhlod);
++						va-&gt;EndStripQ();
++					}
++					else if(y&lt;=cy-vrhlod){
++						if(inStrip){
++							va-&gt;EndStripQ();
++							inStrip=false;
+ 						}
+-						else if((y&lt;=(cy)-viewRadius*hlod)){
+-							if(inStrip){
+-								va-&gt;EndStrip();
+-								inStrip=false;
+-							}
+-							DrawVertexA(x,y+hlod);
+-							DrawVertexA(x,y+lod);
+-							DrawVertexA(x+hlod,y+hlod);
+-							DrawVertexA(x+hlod,y+lod);
+-							DrawVertexA(x+lod,y+hlod);
+-							DrawVertexA(x+lod,y+lod);
+-							va-&gt;EndStrip();
+-							DrawVertexA(x+lod,y+hlod);
+-							DrawVertexA(x+lod,y);
+-							DrawVertexA(x+hlod,y+hlod);
+-							DrawVertexA(x,y);
+-							DrawVertexA(x,y+hlod);
+-							va-&gt;EndStrip();
+-						}
++						DrawVertexAQ(x,yhlod);
++						DrawVertexAQ(x,ylod);
++						DrawVertexAQ(xhlod,yhlod);
++						DrawVertexAQ(xhlod,ylod);
++						DrawVertexAQ(xlod,yhlod);
++						DrawVertexAQ(xlod,ylod);
++						va-&gt;EndStripQ();
++						DrawVertexAQ(xlod,yhlod);
++						DrawVertexAQ(xlod,y);
++						DrawVertexAQ(xhlod,yhlod);
++						DrawVertexAQ(x,y);
++						DrawVertexAQ(x,yhlod);
++						va-&gt;EndStripQ();
+ 					}
++				}
+ 			}
+ 			if(inStrip){
+-				va-&gt;EndStrip();
++				va-&gt;EndStripQ();
+ 				inStrip=false;
+ 			}
+ 		}
+
+Modified: trunk/rts/Rendering/Env/GrassDrawer.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/GrassDrawer.cpp	2008-09-24 22:26:11 UTC (rev 6455)
++++ trunk/rts/Rendering/Env/GrassDrawer.cpp	2008-09-24 22:59:24 UTC (rev 6456)
+@@ -21,9 +21,14 @@
+ //#include &quot;TimeProfiler.h&quot;
+ 
+ static const float turfSize=20;				//single turf size
++static const float partTurfSize=turfSize*0.6f;				//single turf size
+ static const int grassSquareSize=4;		//mapsquares per grass square
+ static const int grassBlockSize=4;		//grass squares per grass block
++static const int gSSsq=SQUARE_SIZE*grassSquareSize;
++static const int blockMapSize=grassSquareSize*grassBlockSize;
++static const int bMSsq=SQUARE_SIZE*blockMapSize;
+ 
++
+ inline float fRand(float size)
+ {
+ 	return float(rand())/RAND_MAX*size;
+@@ -62,7 +67,7 @@
+ 
+ 	maxGrassDist=800+sqrt((float)detail)*240;
+ 	maxDetailedDist=146+detail*24;
+-	detailedBlocks=(int)((maxDetailedDist-24)/(SQUARE_SIZE*grassSquareSize*grassBlockSize))+1;
++	detailedBlocks=(int)((maxDetailedDist-24)/bMSsq)+1;
+ 	numTurfs=3+(int)(detail*0.5f);
+ 	strawPerTurf=50+(int)sqrt((float)detail)*10;
+ 
+@@ -168,26 +173,31 @@
+ 
+ void CGrassBlockDrawer::DrawQuad (int x,int y)
+ {
+-	const int blockMapSize=grassSquareSize*grassBlockSize;
+ 	float maxDetailedDist = gd-&gt;maxDetailedDist;
+ 	CGrassDrawer::NearGrassStruct *nearGrass = gd-&gt;nearGrass;
+ 
+-	if(abs(x-cx)&lt;=gd-&gt;detailedBlocks &amp;&amp; abs(y-cy)&lt;=gd-&gt;detailedBlocks){	//blocks close to the camera
+-		for(int y2=0;y2&lt;grassBlockSize;y2++){
+-			for(int x2=0;x2&lt;grassBlockSize;x2++){//loop over all squares in block
+-				if(gd-&gt;grassMap[(y*grassBlockSize+y2)*gs-&gt;mapx/grassSquareSize+(x*grassBlockSize+x2)]){
+-					srand((y*grassBlockSize+y2)*1025+(x*grassBlockSize+x2));
+-					rand();
+-					rand();
+-					float3 squarePos((x*grassBlockSize+x2+0.5f)*SQUARE_SIZE*grassSquareSize, 0, (y*grassBlockSize+y2+0.5f)*SQUARE_SIZE*grassSquareSize);
++	int xgbs=x*grassBlockSize;
++	int ygbs=y*grassBlockSize;
++
++	if(abs(x-cx)&lt;=gd-&gt;detailedBlocks &amp;&amp; abs(y-cy)&lt;=gd-&gt;detailedBlocks){	//!blocks close to the camera
++		int ygbsy=ygbs;
++		for(int y2=0; y2&lt;grassBlockSize; ++y2){
++			int xgbsx=xgbs;
++			unsigned char* gm=gd-&gt;grassMap+ygbsy*gs-&gt;mapx/grassSquareSize+xgbsx;
++			for(int x2=0; x2&lt;grassBlockSize; ++x2){ //!loop over all squares in block
++				if(*gm) {
++					float3 squarePos((xgbsx+0.5f)*gSSsq, 0, (ygbsy+0.5f)*gSSsq);
+ 					squarePos.y=ground-&gt;GetHeight2(squarePos.x,squarePos.z);
+-					if(camera-&gt;InView(squarePos,SQUARE_SIZE*grassSquareSize)){
++					if(camera-&gt;InView(squarePos,gSSsq)){
+ 						float sqdist=(camera-&gt;pos-squarePos).SqLength();
+-						if(sqdist&lt;maxDetailedDist*maxDetailedDist){//close grass, draw directly
++						if(sqdist&lt;maxDetailedDist*maxDetailedDist){ //!close grass, draw directly
++							srand(ygbsy*1025+xgbsx);
++							rand();
++							rand();
+ 							int numGrass=gd-&gt;numTurfs;
+ 							for(int a=0;a&lt;numGrass;a++){
+-								float dx=(x*grassBlockSize+x2+fRand(1))*SQUARE_SIZE*grassSquareSize;
+-								float dy=(y*grassBlockSize+y2+fRand(1))*SQUARE_SIZE*grassSquareSize;
++								float dx=(xgbsx+fRand(1))*gSSsq;
++								float dy=(ygbsy+fRand(1))*gSSsq;
+ 								float3 pos(dx,ground-&gt;GetHeight2(dx,dy),dy);
+ 								pos.y-=ground-&gt;GetSlope(dx,dy)*10+0.03f;
+ 								float col=0.62f;
+@@ -195,11 +205,11 @@
+ 								if(camera-&gt;InView(pos,turfSize*0.7f)){
+ 									glPushMatrix();
+ 									glTranslatef3(pos);
+-									CGrassDrawer::NearGrassStruct* ng=&amp;nearGrass[((y*grassBlockSize+y2)&amp;31)*32+((x*grassBlockSize+x2)&amp;31)];
+-									if(ng-&gt;square!=(y*grassBlockSize+y2)*2048+(x*grassBlockSize+x2)){
++									CGrassDrawer::NearGrassStruct* ng=&amp;nearGrass[(ygbsy&amp;31)*32+(xgbsx&amp;31)];
++									if(ng-&gt;square!=ygbsy*2048+xgbsx){
+ 										float3 v=squarePos-camera-&gt;pos;
+ 										ng-&gt;rotation=GetHeadingFromVector(v.x,v.z)*180.0f/32768+180;
+-										ng-&gt;square=(y*grassBlockSize+y2)*2048+(x*grassBlockSize+x2);
++										ng-&gt;square=ygbsy*2048+xgbsx;
+ 									}
+ 									glRotatef(ng-&gt;rotation,0,1,0);
+ 									glCallList(gd-&gt;grassDL);
+@@ -209,63 +219,72 @@
+ 						} else {//near but not close, save for later drawing
+ 							InviewNearGrass iv;
+ 							iv.dist=sqdist;
+-							iv.x=x*grassBlockSize+x2;
+-							iv.y=y*grassBlockSize+y2;
++							iv.x=xgbsx;
++							iv.y=ygbsy;
+ 							inviewNearGrass.push_back(iv);
+-							nearGrass[((y*grassBlockSize+y2)&amp;31)*32+((x*grassBlockSize+x2)&amp;31)].square=-1;
++							nearGrass[(ygbsy&amp;31)*32+(xgbsx&amp;31)].square=-1;
+ 						}
+ 					}
+ 				}
++				++gm;
++				++xgbsx;
+ 			}
++			++ygbsy;
+ 		}
+ 		return;
+ 	}
++
+ 	float3 dif;
+-	dif.x=camera-&gt;pos.x-((x+0.5f)*SQUARE_SIZE*blockMapSize);
++	dif.x=camera-&gt;pos.x-((x+0.5f)*bMSsq);
+ 	dif.y=0;
+-	dif.z=camera-&gt;pos.z-((y+0.5f)*SQUARE_SIZE*blockMapSize);
++	dif.z=camera-&gt;pos.z-((y+0.5f)*bMSsq);
+ 	float dist=dif.Length2D();
+ 	dif/=dist;
+-
+-	CGrassDrawer::GrassStruct *grass = gd-&gt;grass;
+ 				
+ 	if(dist&lt;gd-&gt;maxGrassDist){
+ 		int curSquare=y*gd-&gt;blocksX+x;
+ 		int curModSquare=(y&amp;31)*32+(x&amp;31);
+-		grass[curModSquare].lastSeen=gs-&gt;frameNum;
+-		if(grass[curModSquare].square!=curSquare){
+-			grass[curModSquare].square=curSquare;
+-			if(grass[curModSquare].va){
+-				delete grass[curModSquare].va;
+-				grass[curModSquare].va=0;
++		CGrassDrawer::GrassStruct *grass = gd-&gt;grass+curModSquare;
++		grass-&gt;lastSeen=gs-&gt;frameNum;
++		if(grass-&gt;square!=curSquare){
++			grass-&gt;square=curSquare;
++			if(grass-&gt;va){
++				delete grass-&gt;va;
++				grass-&gt;va=0;
+ 			}
+ 		}
+-		if(!grass[curModSquare].va){
+-			grass[curModSquare].va=SAFE_NEW CVertexArray;;
+-			grass[curModSquare].pos=float3((x+0.5f)*SQUARE_SIZE*blockMapSize,ground-&gt;GetHeight2((x+0.5f)*SQUARE_SIZE*blockMapSize,(y+0.5f)*SQUARE_SIZE*blockMapSize),(y+0.5f)*SQUARE_SIZE*blockMapSize);
+-			va=grass[curModSquare].va;
++		if(!grass-&gt;va){
++			grass-&gt;va=SAFE_NEW CVertexArray;;
++			grass-&gt;pos=float3((x+0.5f)*bMSsq,ground-&gt;GetHeight2((x+0.5f)*bMSsq,(y+0.5f)*bMSsq),(y+0.5f)*bMSsq);
++			va=grass-&gt;va;
+ 			va-&gt;Initialize();
+-			for(int y2=0;y2&lt;grassBlockSize;y2++){
+-				for(int x2=0;x2&lt;grassBlockSize;x2++){
+-					if(gd-&gt;grassMap[(y*grassBlockSize+y2)*gs-&gt;mapx/grassSquareSize+(x*grassBlockSize+x2)]){
+-						srand((y*grassBlockSize+y2)*1025+(x*grassBlockSize+x2));
++			int ygbsy=ygbs;
++			for(int y2=0; y2&lt;grassBlockSize; ++y2){
++				int xgbsx=xgbs;
++				unsigned char* gm=gd-&gt;grassMap+ygbsy*gs-&gt;mapx/grassSquareSize+xgbsx;
++				for(int x2=0; x2&lt;grassBlockSize; ++x2){
++					if(*gm){
++						srand(ygbsy*1025+xgbsx);
+ 						rand();
+ 						rand();
+ 						int numGrass=gd-&gt;numTurfs;
+ 						for(int a=0;a&lt;numGrass;a++){
+-							float dx=(x*grassBlockSize+x2+fRand(1))*SQUARE_SIZE*grassSquareSize;
+-							float dy=(y*grassBlockSize+y2+fRand(1))*SQUARE_SIZE*grassSquareSize;
++							float dx=(xgbsx+fRand(1))*gSSsq;
++							float dy=(ygbsy+fRand(1))*gSSsq;
+ 							float3 pos(dx,ground-&gt;GetHeight2(dx,dy)+0.5f,dy);
+ 							float col=1;
+ 
+ 							pos.y-=ground-&gt;GetSlope(dx,dy)*10+0.03f;
+-							va-&gt;AddVertexTN(pos,0,0,float3(-turfSize*0.6f,-turfSize*0.6f,col));
+-							va-&gt;AddVertexTN(pos,1/16.0f,0,float3(turfSize*0.6f,-turfSize*0.6f,col));
+-							va-&gt;AddVertexTN(pos,1/16.0f,1,float3(turfSize*0.6f,turfSize*0.6f,col));
+-							va-&gt;AddVertexTN(pos,0,1,float3(-turfSize*0.6f,turfSize*0.6f,col));
++							va-&gt;AddVertexTN(pos,0,0,float3(-partTurfSize,-partTurfSize,col));
++							va-&gt;AddVertexTN(pos,1/16.0f,0,float3(partTurfSize,-partTurfSize,col));
++							va-&gt;AddVertexTN(pos,1/16.0f,1,float3(partTurfSize,partTurfSize,col));
++							va-&gt;AddVertexTN(pos,0,1,float3(-partTurfSize,partTurfSize,col));
+ 						}
+ 					}
++					++gm;
++					++xgbsx;
+ 				}
++				++ygbsy;
+ 			}
+ 		}
+ 		InviewGrass ig;
+@@ -392,12 +411,10 @@
+ 	glEnable(GL_FOG);
+ 	glFogfv(GL_FOG_COLOR,mapInfo-&gt;atmosphere.fogColor);
+ 
+-	const int blockMapSize=grassSquareSize*grassBlockSize;
+-
+ 	CGrassBlockDrawer drawer;
+ 
+-	drawer.cx=(int)(camera-&gt;pos.x/(SQUARE_SIZE*blockMapSize));
+-	drawer.cy=(int)(camera-&gt;pos.z/(SQUARE_SIZE*blockMapSize));
++	drawer.cx=(int)(camera-&gt;pos.x/bMSsq);
++	drawer.cy=(int)(camera-&gt;pos.z/bMSsq);
+ 	drawer.gd = this;
+ 
+ 	readmap-&gt;GridVisibility (camera, blockMapSize, maxGrassDist, &amp;drawer);
+@@ -472,7 +489,7 @@
+ 		int y = (*gi).y;
+ 		if(grassMap[(y)*gs-&gt;mapx/grassSquareSize+(x)]){
+ 
+-			float3 squarePos((x+0.5f)*SQUARE_SIZE*grassSquareSize, 0, (y+0.5f)*SQUARE_SIZE*grassSquareSize);
++			float3 squarePos((x+0.5f)*gSSsq, 0, (y+0.5f)*gSSsq);
+ 			squarePos.y=ground-&gt;GetHeight2(squarePos.x,squarePos.z);
+ 			float3 v=squarePos-camera-&gt;pos;
+ 			v.Normalize();
+@@ -493,16 +510,16 @@
+ 			va=GetVertexArray();
+ 			va-&gt;Initialize();
+ 			for(int a=0;a&lt;numGrass;a++){
+-				float dx=(x+fRand(1))*SQUARE_SIZE*grassSquareSize;
+-				float dy=(y+fRand(1))*SQUARE_SIZE*grassSquareSize;
++				float dx=(x+fRand(1))*gSSsq;
++				float dy=(y+fRand(1))*gSSsq;
+ 				float3 pos(dx,ground-&gt;GetHeight2(dx,dy)+0.5f,dy);
+ 				pos.y-=ground-&gt;GetSlope(dx,dy)*10+0.03f;
+ 				float col=1;
+ 				if(camera-&gt;InView(pos,turfSize*0.7f)){
+-					va-&gt;AddVertexTN(pos,0,0,float3(-turfSize*0.6f,-turfSize*0.6f,col));
+-					va-&gt;AddVertexTN(pos,1/16.0f,0,float3(turfSize*0.6f,-turfSize*0.6f,col));
+-					va-&gt;AddVertexTN(pos,1/16.0f,1,float3(turfSize*0.6f,turfSize*0.6f,col));
+-					va-&gt;AddVertexTN(pos,0,1,float3(-turfSize*0.6f,turfSize*0.6f,col));
++					va-&gt;AddVertexTN(pos,0,0,float3(-partTurfSize,-partTurfSize,col));
++					va-&gt;AddVertexTN(pos,1/16.0f,0,float3(partTurfSize,-partTurfSize,col));
++					va-&gt;AddVertexTN(pos,1/16.0f,1,float3(partTurfSize,partTurfSize,col));
++					va-&gt;AddVertexTN(pos,0,1,float3(-partTurfSize,partTurfSize,col));
+ 				}
+ 			}
+ 			va-&gt;DrawArrayTN(GL_QUADS);
+@@ -548,23 +565,23 @@
+ 	lastListClean=gs-&gt;frameNum;
+ 	int endClean=gs-&gt;frameNum*20%(32*32);
+ 	if(startClean&gt;endClean){
+-		for(int a=startClean;a&lt;32*32;a++){
+-			if(grass[a].lastSeen&lt;gs-&gt;frameNum-50 &amp;&amp; grass[a].va){
+-				delete grass[a].va;
+-				grass[a].va=0;
++		for(GrassStruct *pGS=grass+startClean; pGS&lt;grass+32*32; ++pGS) {
++			if(pGS-&gt;lastSeen&lt;gs-&gt;frameNum-50 &amp;&amp; pGS-&gt;va){
++				delete pGS-&gt;va;
++				pGS-&gt;va=0;
+ 			}
+ 		}
+-		for(int a=0;a&lt;endClean;a++){
+-			if(grass[a].lastSeen&lt;gs-&gt;frameNum-50 &amp;&amp; grass[a].va){
+-				delete grass[a].va;
+-				grass[a].va=0;
++		for(GrassStruct *pGS=grass; pGS&lt;grass+endClean; ++pGS) {
++			if(pGS-&gt;lastSeen&lt;gs-&gt;frameNum-50 &amp;&amp; pGS-&gt;va){
++				delete pGS-&gt;va;
++				pGS-&gt;va=0;
+ 			}
+ 		}
+ 	} else {
+-		for(int a=startClean;a&lt;endClean;a++){
+-			if(grass[a].lastSeen&lt;gs-&gt;frameNum-50 &amp;&amp; grass[a].va){
+-				delete grass[a].va;
+-				grass[a].va=0;
++		for(GrassStruct *pGS=grass+startClean; pGS&lt;grass+endClean; ++pGS) {
++			if(pGS-&gt;lastSeen&lt;gs-&gt;frameNum-50 &amp;&amp; pGS-&gt;va){
++				delete pGS-&gt;va;
++				pGS-&gt;va=0;
+ 			}
+ 		}
+ 	}
+@@ -574,7 +591,7 @@
+ {
+ 	if(grassOff)
+ 		return;
+-	int a=(int(pos.z/(SQUARE_SIZE*grassSquareSize*grassBlockSize))&amp;31)*32+(int(pos.x/(SQUARE_SIZE*grassSquareSize*grassBlockSize))&amp;31);
++	int a=(int(pos.z/bMSsq)&amp;31)*32+(int(pos.x/bMSsq)&amp;31);
+ 	if(grass[a].va){
+ 		delete grass[a].va;
+ 		grass[a].va=0;
+@@ -697,7 +714,7 @@
+ 		glTranslatef(0,-0.5f,0);
+ 		glMatrixMode(GL_PROJECTION);
+ 		glLoadIdentity();
+-		glOrtho(-turfSize*0.6f, turfSize*0.6f, -turfSize*0.6f, turfSize*0.6f, -turfSize, turfSize);
++		glOrtho(-partTurfSize, partTurfSize, -partTurfSize, partTurfSize, -turfSize, turfSize);
+ 
+ 		glCallList(grassDL);
+ 		
+
+Modified: trunk/rts/Rendering/GL/VertexArray.cpp
+===================================================================
+--- trunk/rts/Rendering/GL/VertexArray.cpp	2008-09-24 22:26:11 UTC (rev 6455)
++++ trunk/rts/Rendering/GL/VertexArray.cpp	2008-09-24 22:59:24 UTC (rev 6456)
+@@ -49,16 +49,6 @@
+ 		EnlargeStripArray();
+ }
+ 
+-void CVertexArray::DrawArrays(int drawType, int stride) {
+-	int newIndex,oldIndex=0;
+-	int *stripArrayPtr=stripArray;
+-	while(stripArrayPtr&lt;stripArrayPos) {
+-		newIndex=(*stripArrayPtr++)/stride;
+-		glDrawArrays(drawType,oldIndex,newIndex-oldIndex);
+-		oldIndex=newIndex;
+-	}
+-}
+-
+ void CVertexArray::DrawArray0(int drawType,int stride) {
+ 	CheckEndStrip();
+ 	glEnableClientState(GL_VERTEX_ARRAY);
+
+Modified: trunk/rts/Rendering/GL/VertexArray.h
+===================================================================
+--- trunk/rts/Rendering/GL/VertexArray.h	2008-09-24 22:26:11 UTC (rev 6455)
++++ trunk/rts/Rendering/GL/VertexArray.h	2008-09-24 22:59:24 UTC (rev 6456)
+@@ -1,5 +1,6 @@
+ #ifndef VERTEXARRAY_H
+ #define VERTEXARRAY_H
++#include &quot;myGL.h&quot;
+ // VertexArray.h: interface for the CVertexArray class.
+ //
+ //////////////////////////////////////////////////////////////////////
+@@ -44,13 +45,23 @@
+ 	int* stripArraySize;
+ 
+ protected:
+-	void DrawArrays(int drawType, int stride);
++	inline void DrawArrays(int drawType, int stride);
+ 	inline void CheckEnlargeDrawArray();
+ 	void EnlargeStripArray();
+ 	void EnlargeDrawArray();
+ 	void CheckEndStrip();
+ };
+ 
++inline void CVertexArray::DrawArrays(int drawType, int stride) {
++	int newIndex,oldIndex=0;
++	int *stripArrayPtr=stripArray;
++	while(stripArrayPtr&lt;stripArrayPos) {
++		newIndex=(*stripArrayPtr++)/stride;
++		glDrawArrays(drawType,oldIndex,newIndex-oldIndex);
++		oldIndex=newIndex;
++	}
++}
++
+ inline void CVertexArray::CheckEnlargeDrawArray() {
+ 	if((char *)drawArrayPos&gt;(char *)drawArraySize-10*sizeof(float))
+ 		EnlargeDrawArray();
+
+Modified: trunk/rts/Rendering/GL/myGL.cpp
+===================================================================
+--- trunk/rts/Rendering/GL/myGL.cpp	2008-09-24 22:26:11 UTC (rev 6455)
++++ trunk/rts/Rendering/GL/myGL.cpp	2008-09-24 22:59:24 UTC (rev 6456)
+@@ -28,7 +28,7 @@
+ 
+ static GLuint startupTexture = 0;
+ 
+-#if GML_ENABLE
++#ifdef USE_GML
+ static CVertexArray vertexArrays1[GML_MAX_NUM_THREADS];
+ static CVertexArray vertexArrays2[GML_MAX_NUM_THREADS];
+ static CVertexArray* currentVertexArrays[GML_MAX_NUM_THREADS];
+@@ -39,8 +39,7 @@
+ 
+ CVertexArray* GetVertexArray()
+ {
+-#if GML_ENABLE // each thread gets its own array to avoid conflicts
+-//	if(gmlVertexArrayEnable) {
++#ifdef USE_GML // each thread gets its own array to avoid conflicts
+ 		int thread=gmlThreadNumber;
+ 		if(currentVertexArrays[thread]==&amp;vertexArrays1[thread]){
+ 			currentVertexArrays[thread]=&amp;vertexArrays2[thread];
+@@ -48,7 +47,6 @@
+ 			currentVertexArrays[thread]=&amp;vertexArrays1[thread];
+ 		}
+ 		return currentVertexArrays[thread];
+-//	}
+ #else
+ 	if(currentVertexArray==vertexArray1){
+ 		currentVertexArray=vertexArray2;
+
+Modified: trunk/rts/Rendering/GroundDecalHandler.cpp
+===================================================================
+--- trunk/rts/Rendering/GroundDecalHandler.cpp	2008-09-24 22:26:11 UTC (rev 6455)
++++ trunk/rts/Rendering/GroundDecalHandler.cpp	2008-09-24 22:59:24 UTC (rev 6456)
+@@ -113,6 +113,22 @@
+ }
+ 
+ 
++// get the maximum heightmap-value of the four vertices
++// and draw the quad at that height (after terraforming
++// the ground can be assumed to be mostly flat directly
++// below a factory, so this is preferable to splitting
++// the texture quad into quadratically many tiles every
++// frame just so it follows the terrain slightly better)
++// TODO: do split the quad, but use VA buffers to draw
++// them (as with the groundscars)?
++inline float get_hmapval(const float* heightmap, int tlz, int tlx, int trz, int trx, int brz, int brx, int blz, int blx, int gsmx1) {
++	const float tlh = heightmap[tlz * gsmx1 + tlx];
++	const float trh = heightmap[trz * gsmx1 + trx];
++	const float brh = heightmap[brz * gsmx1 + brx];
++	const float blh = heightmap[blz * gsmx1 + blx];
++	return max(max(tlh, trh), max(brh, blh)) + 0.2f;
++}
++
+ void CGroundDecalHandler::Draw(void)
+ {
+ 	if (!drawDecals) {
+@@ -201,104 +217,67 @@
+ 
+ 					int xMin = 0, xMax = decal-&gt;xsize;
+ 					int zMin = 0, zMax = decal-&gt;ysize;
+-					int tlx = (decal-&gt;posx + xMin);			// heightmap x-coor of top-left quad vertex
+-					int trx = (decal-&gt;posx + xMax);			// heightmap x-coor of top-right quad vertex
++					int tlx = decal-&gt;posx + xMin;			// heightmap x-coor of top-left quad vertex
++					int trx = decal-&gt;posx + xMax;			// heightmap x-coor of top-right quad vertex
+ 					int brx = trx;							// heightmap x-coor of bottom-right quad vertex
+ 					int blx = tlx;							// heightmap x-coor of bottom-left quad vertex
+-					int tlz = (decal-&gt;posy + zMin);			// heightmap z-coor of top-left quad vertex
++					int tlz = decal-&gt;posy + zMin;			// heightmap z-coor of top-left quad vertex
+ 					int trz = tlz;							// heightmap z-coor of top-right quad vertex
+-					int brz = (decal-&gt;posy + zMax);			// heightmap z-coor of bottom-right quad vertex
++					int brz = decal-&gt;posy + zMax;			// heightmap z-coor of bottom-right quad vertex
+ 					int blz = brz;							// heightmap z-coor of bottom-left quad vertex
+ 
++					int gsmx=gs-&gt;mapx;
++					int gsmx1=gsmx + 1;
++					int gsmy=gs-&gt;mapy;
++
+ 					switch (decal-&gt;facing) {
+ 						case 0: { // South (determines our reference texcoors)
+ 							// clip the quad vertices and texcoors against the map boundaries
+-							if (tlx &lt;        0) { xMin -= (tlx           );   tlx = (       0);   blx = tlx; }
+-							if (trx &gt; gs-&gt;mapx) { xMax -= (trx - gs-&gt;mapx);   trx = (gs-&gt;mapx);   brx = trx; }
+-							if (tlz &lt;        0) { zMin -= (tlz           );   tlz = (       0);   trz = tlz; }
+-							if (brz &gt; gs-&gt;mapy) { zMax -= (brz - gs-&gt;mapy);   brz = (gs-&gt;mapy);   blz = brz; }
+-
+-							const int tlhi = (tlz) * (gs-&gt;mapx + 1) + (tlx); const float tlh = heightmap[tlhi];
+-							const int trhi = (trz) * (gs-&gt;mapx + 1) + (trx); const float trh = heightmap[trhi];
+-							const int brhi = (brz) * (gs-&gt;mapx + 1) + (brx); const float brh = heightmap[brhi];
+-							const int blhi = (blz) * (gs-&gt;mapx + 1) + (blx); const float blh = heightmap[blhi];
+-
+-							// get the maximum heightmap-value of the four vertices
+-							// and draw the quad at that height (after terraforming
+-							// the ground can be assumed to be mostly flat directly
+-							// below a factory, so this is preferable to splitting
+-							// the texture quad into quadratically many tiles every
+-							// frame just so it follows the terrain slightly better)
+-							// TODO: do split the quad, but use VA buffers to draw
+-							// them (as with the groundscars)?
+-							const float mt = max(tlh, trh);
+-							const float mb = max(brh, blh);
+-							const float h = max(mt, mb);
+-
+-							va-&gt;AddVertexTC(float3(tlx * 8, h + 0.2f, tlz * 8),   xMin * xts, zMin * yts,   color); // tc = (0, 0)
+-							va-&gt;AddVertexTC(float3(trx * 8, h + 0.2f, trz * 8),   xMax * xts, zMin * yts,   color); // tc = (1, 0)
+-							va-&gt;AddVertexTC(float3(brx * 8, h + 0.2f, brz * 8),   xMax * xts, zMax * yts,   color); // tc = (1, 1)
+-							va-&gt;AddVertexTC(float3(blx * 8, h + 0.2f, blz * 8),   xMin * xts, zMax * yts,   color); // tc = (0, 1)
++							if (tlx &lt; 0   ) { xMin -= tlx       ; tlx =    0; blx = tlx; }
++							if (trx &gt; gsmx) { xMax -= trx - gsmx; trx = gsmx; brx = trx; }
++							if (tlz &lt; 0   ) { zMin -= tlz       ; tlz =    0; trz = tlz; }
++							if (brz &gt; gsmy) { zMax -= brz - gsmy; brz = gsmy; blz = brz; }
++							float h=get_hmapval(heightmap, tlz, tlx, trz, trx, brz, brx, blz, blx, gsmx1);
++							va-&gt;AddVertexTC(float3(tlx * 8, h, tlz * 8), xMin * xts, zMin * yts, color); // tc = (0, 0)
++							va-&gt;AddVertexTC(float3(trx * 8, h, trz * 8), xMax * xts, zMin * yts, color); // tc = (1, 0)
++							va-&gt;AddVertexTC(float3(brx * 8, h, brz * 8), xMax * xts, zMax * yts, color); // tc = (1, 1)
++							va-&gt;AddVertexTC(float3(blx * 8, h, blz * 8), xMin * xts, zMax * yts, color); // tc = (0, 1)
+ 						} break;
+ 
+ 						case 1: { // East
+-							if (tlx &lt;        0) { zMin -= (tlx           );   tlx = (       0);   blx = tlx; }
+-							if (trx &gt; gs-&gt;mapx) { zMax -= (trx - gs-&gt;mapx);   trx = (gs-&gt;mapx);   brx = trx; }
+-							if (tlz &lt;        0) { xMax += (tlz           );   tlz = (0       );   trz = tlz; }
+-							if (brz &gt; gs-&gt;mapy) { xMin += (brz - gs-&gt;mapy);   brz = (gs-&gt;mapy);   blz = brz; }
+-
+-							const int tlhi = (tlz) * (gs-&gt;mapx + 1) + (tlx); const float tlh = heightmap[tlhi];
+-							const int trhi = (trz) * (gs-&gt;mapx + 1) + (trx); const float trh = heightmap[trhi];
+-							const int brhi = (brz) * (gs-&gt;mapx + 1) + (brx); const float brh = heightmap[brhi];
+-							const int blhi = (blz) * (gs-&gt;mapx + 1) + (blx); const float blh = heightmap[blhi];
+-							const float mt = max(tlh, trh);
+-							const float mb = max(brh, blh);
+-							const float h = max(mt, mb);
+-
+-							va-&gt;AddVertexTC(float3(tlx * 8, h + 0.2f, tlz * 8),   xMax * xts, zMin * yts,   color); // tc = (1, 0)
+-							va-&gt;AddVertexTC(float3(trx * 8, h + 0.2f, trz * 8),   xMax * xts, zMax * yts,   color); // tc = (1, 1)
+-							va-&gt;AddVertexTC(float3(brx * 8, h + 0.2f, brz * 8),   xMin * xts, zMax * yts,   color); // tc = (0, 1)
+-							va-&gt;AddVertexTC(float3(blx * 8, h + 0.2f, blz * 8),   xMin * xts, zMin * yts,   color); // tc = (0, 0)
++							if (tlx &lt;    0) { zMin -= tlx       ; tlx =    0; blx = tlx; }
++							if (trx &gt; gsmx) { zMax -= trx - gsmx; trx = gsmx; brx = trx; }
++							if (tlz &lt;    0) { xMax += tlz       ; tlz =    0; trz = tlz; }
++							if (brz &gt; gsmy) { xMin += brz - gsmy; brz = gsmy; blz = brz; }
++							float h=get_hmapval(heightmap, tlz, tlx, trz, trx, brz, brx, blz, blx, gsmx1);
++							va-&gt;AddVertexTC(float3(tlx * 8, h, tlz * 8), xMax * xts, zMin * yts, color); // tc = (1, 0)
++							va-&gt;AddVertexTC(float3(trx * 8, h, trz * 8), xMax * xts, zMax * yts, color); // tc = (1, 1)
++							va-&gt;AddVertexTC(float3(brx * 8, h, brz * 8), xMin * xts, zMax * yts, color); // tc = (0, 1)
++							va-&gt;AddVertexTC(float3(blx * 8, h, blz * 8), xMin * xts, zMin * yts, color); // tc = (0, 0)
+ 						} break;
+ 
+ 						case 2: { // North
+-							if (tlx &lt;        0) { xMax += (tlx           );   tlx = (       0);   blx = tlx; }
+-							if (trx &gt; gs-&gt;mapx) { xMin += (trx - gs-&gt;mapx);   trx = (gs-&gt;mapx);   brx = trx; }
+-							if (tlz &lt;        0) { zMax += (tlz           );   tlz = (       0);   trz = tlz; }
+-							if (brz &gt; gs-&gt;mapy) { zMin += (brz - gs-&gt;mapy);   brz = (gs-&gt;mapy);   blz = brz; }
+-
+-							const int tlhi = (tlz) * (gs-&gt;mapx + 1) + (tlx); const float tlh = heightmap[tlhi];
+-							const int trhi = (trz) * (gs-&gt;mapx + 1) + (trx); const float trh = heightmap[trhi];
+-							const int brhi = (brz) * (gs-&gt;mapx + 1) + (brx); const float brh = heightmap[brhi];
+-							const int blhi = (blz) * (gs-&gt;mapx + 1) + (blx); const float blh = heightmap[blhi];
+-							const float mt = max(tlh, trh);
+-							const float mb = max(brh, blh);
+-							const float h = max(mt, mb);
+-
+-							va-&gt;AddVertexTC(float3(tlx * 8, h + 0.2f, tlz * 8),   xMax * xts, zMax * yts,  color); // tc = (1, 1)
+-							va-&gt;AddVertexTC(float3(trx * 8, h + 0.2f, trz * 8),   xMin * xts, zMax * yts,  color); // tc = (0, 1)
+-							va-&gt;AddVertexTC(float3(brx * 8, h + 0.2f, brz * 8),   xMin * xts, zMin * yts,  color); // tc = (0, 0)
+-							va-&gt;AddVertexTC(float3(blx * 8, h + 0.2f, blz * 8),   xMax * xts, zMin * yts,  color); // tc = (1, 0)
++							if (tlx &lt;    0) { xMax += tlx       ; tlx =    0; blx = tlx; }
++							if (trx &gt; gsmx) { xMin += trx - gsmx; trx = gsmx; brx = trx; }
++							if (tlz &lt;    0) { zMax += tlz       ; tlz =    0; trz = tlz; }
++							if (brz &gt; gsmy) { zMin += brz - gsmy; brz = gsmy; blz = brz; }
++							float h=get_hmapval(heightmap, tlz, tlx, trz, trx, brz, brx, blz, blx, gsmx1);
++							va-&gt;AddVertexTC(float3(tlx * 8, h, tlz * 8), xMax * xts, zMax * yts, color); // tc = (1, 1)
++							va-&gt;AddVertexTC(float3(trx * 8, h, trz * 8), xMin * xts, zMax * yts, color); // tc = (0, 1)
++							va-&gt;AddVertexTC(float3(brx * 8, h, brz * 8), xMin * xts, zMin * yts, color); // tc = (0, 0)
++							va-&gt;AddVertexTC(float3(blx * 8, h, blz * 8), xMax * xts, zMin * yts, color); // tc = (1, 0)
+ 						} break;
+ 
+ 						case 3: { // West
+-							if (tlx &lt;        0) { zMax += (tlx           );   tlx = (       0);   blx = tlx; }
+-							if (trx &gt; gs-&gt;mapx) { zMin += (trx - gs-&gt;mapx);   trx = (gs-&gt;mapx);   brx = trx; }
+-							if (tlz &lt;        0) { xMin -= (tlz           );   tlz = (       0);   trz = tlz; }
+-							if (brz &gt; gs-&gt;mapy) { xMax -= (brz - gs-&gt;mapy);   brz = (gs-&gt;mapy);   blz = brz; }
+-
+-							const int tlhi = (tlz) * (gs-&gt;mapx + 1) + (tlx); const float tlh = heightmap[tlhi];
+-							const int trhi = (trz) * (gs-&gt;mapx + 1) + (trx); const float trh = heightmap[trhi];
+-							const int brhi = (brz) * (gs-&gt;mapx + 1) + (brx); const float brh = heightmap[brhi];
+-							const int blhi = (blz) * (gs-&gt;mapx + 1) + (blx); const float blh = heightmap[blhi];
+-							const float mt = max(tlh, trh);
+-							const float mb = max(brh, blh);
+-							const float h = max(mt, mb);
+-
+-							va-&gt;AddVertexTC(float3(tlx * 8, h + 0.2f, tlz * 8),   xMin * xts, zMax * yts,   color); // tc = (0, 1)
+-							va-&gt;AddVertexTC(float3(trx * 8, h + 0.2f, trz * 8),   xMin * xts, zMin * yts,   color); // tc = (0, 0)
+-							va-&gt;AddVertexTC(float3(brx * 8, h + 0.2f, brz * 8),   xMax * xts, zMin * yts,   color); // tc = (1, 0)
+-							va-&gt;AddVertexTC(float3(blx * 8, h + 0.2f, blz * 8),   xMax * xts, zMax * yts,   color); // tc = (1, 1)
++							if (tlx &lt;    0) { zMax += tlx       ; tlx =    0; blx = tlx; }
++							if (trx &gt; gsmx) { zMin += trx - gsmx; trx = gsmx; brx = trx; }
++							if (tlz &lt;    0) { xMin -= tlz       ; tlz =    0; trz = tlz; }
++							if (brz &gt; gsmy) { xMax -= brz - gsmy; brz = gsmy; blz = brz; }
++							float h=get_hmapval(heightmap, tlz, tlx, trz, trx, brz, brx, blz, blx, gsmx1);
++							va-&gt;AddVertexTC(float3(tlx * 8, h, tlz * 8), xMin * xts, zMax * yts, color); // tc = (0, 1)
++							va-&gt;AddVertexTC(float3(trx * 8, h, trz * 8), xMin * xts, zMin * yts, color); // tc = (0, 0)
++							va-&gt;AddVertexTC(float3(brx * 8, h, brz * 8), xMax * xts, zMin * yts, color); // tc = (1, 0)
++							va-&gt;AddVertexTC(float3(blx * 8, h, blz * 8), xMax * xts, zMax * yts, color); // tc = (1, 1)
+ 						} break;
+ 					}
+ 				}
+@@ -378,6 +357,7 @@
+ 	glBindTexture(GL_TEXTURE_2D, scarTex);
+ 	glPolygonOffset(-10, -400);
+ 
++	int gsmx12=(gs-&gt;mapx + 1)*2;
+ 	// create and draw the 16x16 quads for each ground scar
+ 	for (std::list&lt;Scar*&gt;::iterator si = scars.begin(); si != scars.end(); ) {
+ 		Scar* scar = *si;
+@@ -396,6 +376,7 @@
+ 
+ 				float3 pos = scar-&gt;pos;
+ 				float radius = scar-&gt;radius;
++				float radius4=radius * 4.0f;
+ 				float tx = scar-&gt;texOffsetX;
+ 				float ty = scar-&gt;texOffsetY;
+ 
+@@ -403,26 +384,30 @@
+ 				int ex = (int) min(float(gs-&gt;hmapx - 1), (pos.x + radius) / 16.0f);
+ 				int sz = (int) max(0.f,                  (pos.z - radius) / 16.0f);
+ 				int ez = (int) min(float(gs-&gt;hmapy - 1), (pos.z + radius) / 16.0f);
+-				const float* heightmap = readmap-&gt;GetHeightmap();
++				const float* hm2 = readmap-&gt;GetHeightmap();
+ 
+ 				// create the scar texture-quads
++				float px1 = sx*16;
+ 				for (int x = sx; x &lt;= ex; ++x) {
++					const float* hm=hm2;
++					float px2 = px1+16;
++					float pz1 = sz*16;
+ 					for (int z = sz; z &lt;= ez; ++z) {
+-						float px1 = x * 16;
+-						float pz1 = z * 16;
+-						float px2 = px1 + 16;
+-						float pz2 = pz1 + 16;
++						float pz2 = pz1+16;
++						float tx1 = min(0.5f, (pos.x - px1) / radius4 + 0.25f);
++						float tx2 = max(0.0f, (pos.x - px2) / radius4 + 0.25f);
++						float tz1 = min(0.5f, (pos.z - pz1) / radius4 + 0.25f);
++						float tz2 = max(0.0f, (pos.z - pz2) / radius4 + 0.25f);
+ 
+-						float tx1 = min(0.5f, (pos.x - px1) / (radius * 4.0f) + 0.25f);
+-						float tx2 = max(0.0f, (pos.x - px2) / (radius * 4.0f) + 0.25f);
+-						float tz1 = min(0.5f, (pos.z - pz1) / (radius * 4.0f) + 0.25f);
+-						float tz2 = max(0.0f, (pos.z - pz2) / (radius * 4.0f) + 0.25f);
+-
+-						scar-&gt;scarQuads-&gt;AddVertexTC(float3(px1, heightmap[(z * 2)     * (gs-&gt;mapx + 1) + x * 2    ] + 0.5f, pz1), tx1 + tx, tz1 + ty, color);
+-						scar-&gt;scarQuads-&gt;AddVertexTC(float3(px2, heightmap[(z * 2)     * (gs-&gt;mapx + 1) + x * 2 + 2] + 0.5f, pz1), tx2 + tx, tz1 + ty, color);
+-						scar-&gt;scarQuads-&gt;AddVertexTC(float3(px2, heightmap[(z * 2 + 2) * (gs-&gt;mapx + 1) + x * 2 + 2] + 0.5f, pz2), tx2 + tx, tz2 + ty, color);
+-						scar-&gt;scarQuads-&gt;AddVertexTC(float3(px1, heightmap[(z * 2 + 2) * (gs-&gt;mapx + 1) + x * 2    ] + 0.5f, pz2), tx1 + tx, tz2 + ty, color);
++						scar-&gt;scarQuads-&gt;AddVertexTC(float3(px1, *(hm) + 0.5f, pz1), tx1 + tx, tz1 + ty, color);
++						scar-&gt;scarQuads-&gt;AddVertexTC(float3(px2, *(hm+2) + 0.5f, pz1), tx2 + tx, tz1 + ty, color);
++						scar-&gt;scarQuads-&gt;AddVertexTC(float3(px2, *(hm+gsmx12+2) + 0.5f, pz2), tx2 + tx, tz2 + ty, color);
++						scar-&gt;scarQuads-&gt;AddVertexTC(float3(px1, *(hm+gsmx12) + 0.5f, pz2), tx1 + tx, tz2 + ty, color);
++						hm+=gsmx12;
++						pz1=pz2;
+ 					}
++					hm2+=2;
++					px1=px2;
+ 				}
+ 			}
+ 			else {
+
+Modified: trunk/rts/Rendering/UnitModels/UnitDrawer.cpp
+===================================================================
+--- trunk/rts/Rendering/UnitModels/UnitDrawer.cpp	2008-09-24 22:26:11 UTC (rev 6455)
++++ trunk/rts/Rendering/UnitModels/UnitDrawer.cpp	2008-09-24 22:59:24 UTC (rev 6456)
+@@ -398,7 +398,7 @@
+ 	CUnit* excludeUnit = drawReflection ? NULL : gu-&gt;directControl;
+ #endif
+ 
+-#ifdef GML_ENABLE_DRAWUNIT
++#if defined(USE_GML) &amp;&amp; GML_ENABLE_DRAWUNIT
+ 	mt_drawReflection=drawReflection; // these member vars will be accessed by DoDrawUnitMT
+ 	mt_drawRefraction=drawRefraction;
+   #ifdef DIRECT_CONTROL_ALLOWED
+@@ -665,7 +665,7 @@
+ 
+ 	CUnit::SetLODFactor(LODScale * LODScaleShadow);
+ 
+-#ifdef GML_ENABLE_DRAWUNITSHADOW
++#if defined(USE_GML) &amp;&amp; GML_ENABLE_DRAWUNITSHADOW
+ 	gmlProcessor.Work(NULL, NULL, &amp;CUnitDrawer::DoDrawUnitShadowMT, this, gmlThreadCount, FALSE,
+ 	  &amp;uh-&gt;activeUnits, uh-&gt;activeUnits.size(),50,100,TRUE);
+ #else
+@@ -1509,7 +1509,7 @@
+ 
+ void CUnitDrawer::QueS3ODraw(CWorldObject* object, int textureType)
+ {
+-#ifdef GML_ENABLE
++#ifdef USE_GML
+ 	quedS3Os.acquire(textureType).push_back(object);
+ 	quedS3Os.release();
+ #else
+@@ -1524,7 +1524,20 @@
+ {
+ 	SetupForS3ODrawing();
+ 
+-#if !GML_ENABLE
++#ifdef USE_GML
++	int sz=quedS3Os.size();
++	for(int tex=0; tex&lt;sz;++tex) {
++		if(quedS3Os[tex].size()&gt;0) {
++			texturehandler-&gt;SetS3oTexture(tex);
++
++			for(GML_VECTOR&lt;CWorldObject*&gt;::iterator ui = quedS3Os[tex].begin(); ui != quedS3Os[tex].end(); ++ui){
++				DrawWorldObjectS3O(*ui);
++			}
++
++			quedS3Os[tex].clear();
++		}
++	}
++#else
+ 	for (std::set&lt;int&gt;::iterator uti = usedS3OTextures.begin(); uti != usedS3OTextures.end(); ++uti) {
+ 		const int tex = *uti;
+ 		texturehandler-&gt;SetS3oTexture(tex);
+@@ -1537,19 +1550,6 @@
+ 	}
+ 
+ 	usedS3OTextures.clear();
+-#else
+-	int sz=quedS3Os.size();
+-	for(int tex=0; tex&lt;sz;++tex) {
+-		if(quedS3Os[tex].size()&gt;0) {
+-			texturehandler-&gt;SetS3oTexture(tex);
+-
+-			for(GML_VECTOR&lt;CWorldObject*&gt;::iterator ui = quedS3Os[tex].begin(); ui != quedS3Os[tex].end(); ++ui){
+-				DrawWorldObjectS3O(*ui);
+-			}
+-
+-			quedS3Os[tex].clear();
+-		}
+-	}
+ #endif
+ 	CleanUpS3ODrawing();
+ }
+
+Modified: trunk/rts/Rendering/UnitModels/UnitDrawer.h
+===================================================================
+--- trunk/rts/Rendering/UnitModels/UnitDrawer.h	2008-09-24 22:26:11 UTC (rev 6455)
++++ trunk/rts/Rendering/UnitModels/UnitDrawer.h	2008-09-24 22:59:24 UTC (rev 6456)
+@@ -43,7 +43,7 @@
+ 	void SetupForGhostDrawingS3O();
+ 
+ 
+-#ifdef GML_ENABLE_DRAWUNIT
++#if defined(USE_GML) &amp;&amp; GML_ENABLE_DRAWUNIT
+ 	volatile bool mt_drawReflection;
+ 	volatile bool mt_drawRefraction;
+   #ifdef DIRECT_CONTROL_ALLOWED
+@@ -60,7 +60,7 @@
+ 	}
+ #endif
+ 
+-#ifdef GML_ENABLE_DRAWUNITSHADOW
++#if defined(USE_GML) &amp;&amp; GML_ENABLE_DRAWUNITSHADOW
+ 	static void DoDrawUnitShadowMT(void *c,CUnit *unit) {((CUnitDrawer *)c)-&gt;DoDrawUnitShadow(unit);}
+ #endif
+ 
+
+Modified: trunk/rts/build/vstudio8/rts.vcproj
+===================================================================
+--- trunk/rts/build/vstudio8/rts.vcproj	2008-09-24 22:26:11 UTC (rev 6455)
++++ trunk/rts/build/vstudio8/rts.vcproj	2008-09-24 22:59:24 UTC (rev 6456)
+@@ -6235,6 +6235,14 @@
+ 					&gt;
+ 				&lt;/File&gt;
+ 				&lt;File
++					RelativePath=&quot;..\..\Map\SMF\SmfMapFile.cpp&quot;
++					&gt;
++				&lt;/File&gt;
++				&lt;File
++					RelativePath=&quot;..\..\Map\SMF\SmfMapFile.h&quot;
++					&gt;
++				&lt;/File&gt;
++				&lt;File
+ 					RelativePath=&quot;..\..\Map\Smf\SmfReadMap.cpp&quot;
+ 					&gt;
+ 				&lt;/File&gt;
+
+Modified: trunk/rts/lib/gml/gml.cpp
+===================================================================
+--- trunk/rts/lib/gml/gml.cpp	2008-09-24 22:26:11 UTC (rev 6455)
++++ trunk/rts/lib/gml/gml.cpp	2008-09-24 22:59:24 UTC (rev 6456)
+@@ -60,39 +60,39 @@
+ // gmlCPUCount returns the number of CPU cores
+ // it was taken from the latest version of boost
+ // boost::thread::hardware_concurrency()
+-#ifdef WIN32
+-#include &lt;windows.h&gt;
++#ifdef _WIN32
++#	include &lt;windows.h&gt;
+ #else
+-#ifdef __linux__
+-#include &lt;sys/sysinfo.h&gt;
+-#elif defined(__APPLE__) || defined(__FreeBSD__)
+-#include &lt;sys/types.h&gt;
+-#include &lt;sys/sysctl.h&gt;
+-#elif defined(__sun)
+-#include &lt;unistd.h&gt;
++#	ifdef __linux__
++#		include &lt;sys/sysinfo.h&gt;
++#	elif defined(__APPLE__) || defined(__FreeBSD__)
++#		include &lt;sys/types.h&gt;
++#		include &lt;sys/sysctl.h&gt;
++#	elif defined(__sun)
++#		include &lt;unistd.h&gt;
++#	endif
+ #endif
+-#endif
+ unsigned gmlCPUCount() {
+-#ifdef WIN32
++#ifdef _WIN32
+ 	SYSTEM_INFO info={0};
+ 	GetSystemInfo(&amp;info);
+ 	return info.dwNumberOfProcessors;
+ #else
+-#if defined(PTW32_VERSION) || defined(__hpux)
++#	if defined(PTW32_VERSION) || defined(__hpux)
+ 	return pthread_num_processors_np();
+-#elif defined(__linux__)
++#	elif defined(__linux__)
+ 	return get_nprocs();
+-#elif defined(__APPLE__) || defined(__FreeBSD__)
++#	elif defined(__APPLE__) || defined(__FreeBSD__)
+ 	int count;
+ 	size_t size=sizeof(count);
+ 	return sysctlbyname(&quot;hw.ncpu&quot;,&amp;count,&amp;size,NULL,0)?0:count;
+-#elif defined(__sun)
++#	elif defined(__sun)
+ 	int const count=sysconf(_SC_NPROCESSORS_ONLN);
+ 	return (count&gt;0)?count:0;
+-#else
++#	else
+ 	return 0;
++#	endif
+ #endif
+-#endif
+ }
+ 
+ // cache maps for gmlInit
+@@ -424,124 +424,102 @@
+ 
+ #define GML_DT(name) ((gml##name##Data *)p)
+ #define GML_D(name,x) (GML_DT(name)-&gt;x)
+-#define GML_NEXT(name) p+=sizeof(gml##name##Data);
++#define GML_NEXT(name) p+=sizeof(gml##name##Data); break;
++#define GML_NEXT_SIZE(name) p+=GML_D(name,size); break;
+ 
+ // Handler definition macros
+ // These handlers execute GL commands from the queues
+ #define GML_MAKEHANDLER0(name) case gml##name##Enum:\
+ 	gl##name();\
+-	GML_NEXT(name)\
+-	break;
++	GML_NEXT(name)
+ 
+ #define GML_MAKEHANDLER0R(name) case gml##name##Enum:\
+ 	GML_D(name,ret)=gl##name();\
+-	GML_NEXT(name)\
+-	break;
++	GML_NEXT(name)
+ 
+ #define GML_MAKEHANDLER1(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A));\
+-	GML_NEXT(name)\
+-	break;
++	GML_NEXT(name)
+ 
+ #define GML_MAKEHANDLER1R(name) case gml##name##Enum:\
+ 	GML_D(name,ret)=gl##name(GML_D(name,A));\
+-	GML_NEXT(name)\
+-	break;
++	GML_NEXT(name)
+ 
+ #define GML_MAKEHANDLER2(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B));\
+-	GML_NEXT(name)\
+-	break;
++	GML_NEXT(name)
+ 
+ #define GML_MAKEHANDLER2R(name) case gml##name##Enum:\
+ 	GML_D(name,ret)=gl##name(GML_D(name,A),GML_D(name,B));\
+-	GML_NEXT(name)\
+-	break;
++	GML_NEXT(name)
+ 
+ #define GML_MAKEHANDLER3(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B),GML_D(name,C));\
+-	GML_NEXT(name)\
+-	break;
++	GML_NEXT(name)
+ 
+ #define GML_MAKEHANDLER4(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B),GML_D(name,C),GML_D(name,D));\
+-	GML_NEXT(name)\
+-	break;
++	GML_NEXT(name)
+ 
+ #define GML_MAKEHANDLER5(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B),GML_D(name,C),GML_D(name,D),GML_D(name,E));\
+-	GML_NEXT(name)\
+-	break;
++	GML_NEXT(name)
+ 
+ #define GML_MAKEHANDLER6(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B),GML_D(name,C),GML_D(name,D),GML_D(name,E),GML_D(name,F));\
+-	GML_NEXT(name)\
+-	break;
++	GML_NEXT(name)
+ 
+ #define GML_MAKEHANDLER7(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B),GML_D(name,C),GML_D(name,D),GML_D(name,E),GML_D(name,F),GML_D(name,G));\
+-	GML_NEXT(name)\
+-	break;
++	GML_NEXT(name)
+ 
+ #define GML_MAKEHANDLER8(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B),GML_D(name,C),GML_D(name,D),GML_D(name,E),GML_D(name,F),GML_D(name,G),GML_D(name,H));\
+-	GML_NEXT(name)\
+-	break;
++	GML_NEXT(name)
+ 
+ #define GML_MAKEHANDLER9(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B),GML_D(name,C),GML_D(name,D),GML_D(name,E),GML_D(name,F),GML_D(name,G),GML_D(name,H),GML_D(name,I));\
+-	GML_NEXT(name)\
+-	break;
++	GML_NEXT(name)
+ 
+ #define GML_MAKEHANDLER9R(name) case gml##name##Enum:\
+ 	GML_D(name,ret)=gl##name(GML_D(name,A),GML_D(name,B),GML_D(name,C),GML_D(name,D),GML_D(name,E),GML_D(name,F),GML_D(name,G),GML_D(name,H),GML_D(name,I));\
+-	GML_NEXT(name)\
+-	break;
++	GML_NEXT(name)
+ 
+ #define GML_MAKEHANDLER10(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B),GML_D(name,C),GML_D(name,D),GML_D(name,E),GML_D(name,F),GML_D(name,G),GML_D(name,H),GML_D(name,I),GML_D(name,J));\
+-	GML_NEXT(name)\
+-	break;
++	GML_NEXT(name)
+ //glTexImage1D
+ #define GML_MAKEHANDLER8S(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B),GML_D(name,C),GML_D(name,D),GML_D(name,E),GML_D(name,F),GML_D(name,G),GML_D(name,H)?((BYTE *)(GML_D(name,H)))-1:(BYTE *)(GML_DT(name)+1));\
+-	p+=GML_D(name,size);\
+-	break;
++	GML_NEXT_SIZE(name)
+ //glTexImage2D
+ #define GML_MAKEHANDLER9S(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B),GML_D(name,C),GML_D(name,D),GML_D(name,E),GML_D(name,F),GML_D(name,G),GML_D(name,H),GML_D(name,I)?((BYTE *)(GML_D(name,I)))-1:(BYTE *)(GML_DT(name)+1));\
+-	p+=GML_D(name,size);\
+-	break;
++	GML_NEXT_SIZE(name)
+ //glTexImage3D
+ #define GML_MAKEHANDLER10S(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B),GML_D(name,C),GML_D(name,D),GML_D(name,E),GML_D(name,F),GML_D(name,G),GML_D(name,H),GML_D(name,I),GML_D(name,J)?((BYTE *)(GML_D(name,J)))-1:(BYTE *)(GML_DT(name)+1));\
+-	p+=GML_D(name,size);\
+-	break;
++	GML_NEXT_SIZE(name)
+ //glColor4fv
+ #define GML_MAKEHANDLER1V(name) case gml##name##Enum:\
+ 	gl##name(&amp;(GML_D(name,A)));\
+-	p+=GML_D(name,size);\
+-	break;
++	GML_NEXT_SIZE(name)
+ //glFogfv
+ #define GML_MAKEHANDLER2V(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),&amp;(GML_D(name,B)));\
+-	p+=GML_D(name,size);\
+-	break;
++	GML_NEXT_SIZE(name)
+ //glLight
+ #define GML_MAKEHANDLER3V(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B),&amp;(GML_D(name,C)));\
+-	p+=GML_D(name,size);\
+-	break;
++	GML_NEXT_SIZE(name)
+ //glUniformMatrix4fv
+ #define GML_MAKEHANDLER4V(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B),GML_D(name,C),&amp;(GML_D(name,D)));\
+-	p+=GML_D(name,size);\
+-	break;
++	GML_NEXT_SIZE(name)
+ //glBufferDataARB
+ #define GML_MAKEHANDLER4VS(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B),&amp;(GML_D(name,C)),GML_D(name,D));\
+-	p+=GML_D(name,size);\
+-	break;
++	GML_NEXT_SIZE(name)
+ //glShaderSource
+ #define GML_MAKEHANDLER4VSS(name,type) case gml##name##Enum:\
+ 	ptr=(BYTE *)GML_DT(name)+GML_D(name,lensize);\
+@@ -551,38 +529,31 @@
+ 		ptr+=j;\
+ 	}\
+ 	gl##name(GML_D(name,A),GML_D(name,B),&amp;(GML_D(name,C)),NULL);\
+-	p+=GML_D(name,size);\
+-	break;
++	GML_NEXT_SIZE(name)
+ //glMap1
+ #define GML_MAKEHANDLER6V(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B),GML_D(name,C),GML_D(name,D),GML_D(name,E),&amp;(GML_D(name,F)));\
+-	p+=GML_D(name,size);\
+-	break;
++	GML_NEXT_SIZE(name)
+ //glMap2
+ #define GML_MAKEHANDLER10V(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B),GML_D(name,C),GML_D(name,D),GML_D(name,E),GML_D(name,F),GML_D(name,G),GML_D(name,H),GML_D(name,I),&amp;(GML_D(name,J)));\
+-	p+=GML_D(name,size);\
+-	break;
++	GML_NEXT_SIZE(name)
+ //glCompressedTexImage1DARB
+ #define GML_MAKEHANDLER7VP(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B),GML_D(name,C),GML_D(name,D),GML_D(name,E),GML_D(name,F),GML_D(name,GP)?GML_D(name,GP)-1:&amp;(GML_D(name,G)));\
+-	p+=GML_D(name,size);\
+-	break;
++	GML_NEXT_SIZE(name)
+ //glCompressedTexImage2DARB
+ #define GML_MAKEHANDLER8VP(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B),GML_D(name,C),GML_D(name,D),GML_D(name,E),GML_D(name,F),GML_D(name,G),GML_D(name,HP)?GML_D(name,HP)-1:&amp;(GML_D(name,H)));\
+-	p+=GML_D(name,size);\
+-	break;
++	GML_NEXT_SIZE(name)
+ //glCompressedTexImage3DARB
+ #define GML_MAKEHANDLER9VP(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B),GML_D(name,C),GML_D(name,D),GML_D(name,E),GML_D(name,F),GML_D(name,G),GML_D(name,H),GML_D(name,IP)?GML_D(name,IP)-1:&amp;(GML_D(name,I)));\
+-	p+=GML_D(name,size);\
+-	break;
++	GML_NEXT_SIZE(name)
+ //gluBuild2DMipmaps
+ #define GML_MAKEHANDLER7S(name) case gml##name##Enum:\
+ 	gl##name(GML_D(name,A),GML_D(name,B),GML_D(name,C),GML_D(name,D),GML_D(name,E),GML_D(name,F),GML_DT(name)+1);\
+-	p+=GML_D(name,size);\
+-	break;
++	GML_NEXT_SIZE(name)
+ //glLight
+ #define GML_MAKESUBHANDLER2(flag,fun,arg,name)\
+ 	if(GML_D(name,ClientState) &amp; (1&lt;&lt;(flag-GL_VERTEX_ARRAY))) {\
+@@ -617,8 +588,7 @@
+ 	GML_MAKESUBHANDLER2(GL_EDGE_FLAG_ARRAY,glEdgeFlagPointer,EFP,name)\
+ 	GML_MAKESUBHANDLERVA(name)\
+ 	gl##name(GML_D(name,A),0,GML_D(name,C));\
+-	p+=GML_D(name,size);\
+-	break;
++	GML_NEXT_SIZE(name)
+ 
+ #define GML_MAKEHANDLER4VDE(name) case gml##name##Enum:\
+ 	ptr=(BYTE *)(GML_DT(name)+1);\
+@@ -633,8 +603,7 @@
+ 		gl##name(GML_D(name,A),GML_D(name,B),GML_D(name,C),GML_D(name,D));\
+ 	else\
+ 		glDrawArrays(GML_D(name,A),0,GML_D(name,B));\
+-	p+=GML_D(name,size);\
+-	break;
++	GML_NEXT_SIZE(name)
+ 
+ 
+ #include &quot;gmlfun.h&quot;
+@@ -922,7 +891,6 @@
+ //	GML_DEBUG(&quot;Execute &quot;,procs, 2);
+ }
+ 
+-//extern void gmlUpdateServers();
+ #include &quot;gmlsrv.h&quot;
+ 
+ // Execute - executes all GL commands in the current read queue.
+
+Modified: trunk/rts/lib/gml/gml.h
+===================================================================
+--- trunk/rts/lib/gml/gml.h	2008-09-24 22:26:11 UTC (rev 6455)
++++ trunk/rts/lib/gml/gml.h	2008-09-24 22:59:24 UTC (rev 6456)
+@@ -9,10 +9,7 @@
+ #ifndef GML_H
+ #define GML_H
+ 
+-#ifndef USE_GML
+-#  define GML_VECTOR      std::vector
+-#  define GML_CLASSVECTOR std::vector
+-#else
++#ifdef USE_GML
+ 
+ #include &lt;set&gt;
+ #include &lt;map&gt;
+@@ -134,16 +131,14 @@
+ 	return gmlListServer.GetItems(items);
+ }
+ 
+-#if GML_ENABLE
+ #include &quot;gmlimp.h&quot;
+ #include &quot;gmldef.h&quot;
+ #define GML_VECTOR gmlVector
+ #define GML_CLASSVECTOR gmlClassVector
++
+ #else
+ #define GML_VECTOR std::vector
+ #define GML_CLASSVECTOR std::vector
+-#endif
+-
+ #endif // USE_GML
+ 
+ #endif
+
+Modified: trunk/rts/lib/gml/gmlcls.h
+===================================================================
+--- trunk/rts/lib/gml/gmlcls.h	2008-09-24 22:26:11 UTC (rev 6455)
++++ trunk/rts/lib/gml/gmlcls.h	2008-09-24 22:59:24 UTC (rev 6456)
+@@ -107,15 +107,13 @@
+ #	define GML_TYPENAME
+ #endif
+ 
+-#if !defined(WIN32) &amp;&amp; !defined(_WIN32) &amp;&amp; !defined(__WIN32__) //defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__)
++#ifndef _WIN32 //defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__)
+ #	define GML_USE_SPEEDY_TLS 1
+-#include &quot;System/Platform/errorhandler.h&quot;
++#	include &quot;System/Platform/errorhandler.h&quot;
++#	include &quot;speedy-tls.h&quot;
+ #else
+ #	define GML_USE_SPEEDY_TLS 0
+ #endif
+-#if GML_USE_SPEEDY_TLS
+-#	include &quot;speedy-tls.h&quot;
+-#endif
+ 
+ #define set_threadnum(val) gmlThreadNumber=val
+ 
+@@ -210,8 +208,8 @@
+ #define GML_EFP_ARRAY_BUFFER (1&lt;&lt;(16+GL_EDGE_FLAG_ARRAY-GL_VERTEX_ARRAY)) //(1&lt;&lt;25)
+ #define GML_ELEMENT_ARRAY_BUFFER (1&lt;&lt;29)
+ 
+-#if defined(_WIN32)
+-#	if defined(__MINGW32__)
++#ifdef _WIN32
++#	ifdef __MINGW32__
+ #		define GML_APIENTRY __stdcall
+ #	elif (_MSC_VER &gt;= 800) || defined(_STDCALL_SUPPORTED) || defined(__BORLANDC__)
+ #		define GML_APIENTRY __stdcall
+@@ -290,7 +288,7 @@
+ 	}
+ };
+ 
+-#if !defined(BOOST_HAS_THREADS) || (!defined(BOOST_AC_USE_PTHREADS) &amp;&amp; (BOOST_VERSION&lt;103500 || !(defined(__GNUC__) &amp;&amp; (defined(__i386__) || defined(__x86_64__)))) &amp;&amp; (defined(WIN32) || defined(_WIN32) || defined(__WIN32__)))
++#if !defined(BOOST_HAS_THREADS) || (!defined(BOOST_AC_USE_PTHREADS) &amp;&amp; (BOOST_VERSION&lt;103500 || !(defined(__GNUC__) &amp;&amp; (defined(__i386__) || defined(__x86_64__)))) &amp;&amp; defined(_WIN32))
+ #	define gmlCount boost::detail::atomic_count
+ #else
+ class gmlCount : public boost::detail::atomic_count {
+@@ -306,7 +304,7 @@
+ 		return ++value_;
+ 	#elif (BOOST_VERSION&gt;=103500) &amp;&amp; (defined(__GNUC__) &amp;&amp; (defined(__i386__) || defined(__x86_64__)))
+ 		return atomic_exchange_and_add(&amp;value_, 1)+1;
+-//	#elif defined(WIN32) || defined(_WIN32) || defined(__WIN32__)
++//	#elif defined(_WIN32)
+ //		return BOOST_INTERLOCKED_INCREMENT(&amp;value_);
+ 	#elif (BOOST_VERSION&gt;=103500) &amp;&amp; (defined(__GNUC__) &amp;&amp; (__GNUC__*100+__GNUC_MINOR__&gt;=401))
+ 		return __sync_add_and_fetch(&amp;value_, 1);
+@@ -333,7 +331,7 @@
+ 		a.value_=val;
+ 	#elif (BOOST_VERSION&gt;=103500) &amp;&amp; (defined(__GNUC__) &amp;&amp; (defined(__i386__) || defined(__x86_64__)))
+ 		__asm__ __volatile__(&quot;lock\n\txchgl %0,%1\n\t&quot; : &quot;=r&quot; (val) : &quot;m&quot; (a.value_), &quot;0&quot; (val) : &quot;memory&quot;);
+-	#elif defined(WIN32) || defined(_WIN32) || defined(__WIN32__)
++	#elif defined(_WIN32)
+ 		return BOOST_INTERLOCKED_EXCHANGE(&amp;a.value_,val);
+ 	#elif (BOOST_VERSION&gt;=103500) &amp;&amp; (defined(__GNUC__) &amp;&amp; (__GNUC__*100+__GNUC_MINOR__&gt;=401))
+ 		__sync_exchange_FIXME(&amp;a.value_, val);
+
+Modified: trunk/rts/lib/gml/speedy-tls.cpp
+===================================================================
+--- trunk/rts/lib/gml/speedy-tls.cpp	2008-09-24 22:26:11 UTC (rev 6455)
++++ trunk/rts/lib/gml/speedy-tls.cpp	2008-09-24 22:59:24 UTC (rev 6456)
+@@ -3,7 +3,7 @@
+ //Contains macros that can be used to very quickly (one instruction) access thread-local memory.
+ 
+ #ifdef USE_GML
+-#if !defined(WIN32) &amp;&amp; !defined(_WIN32) &amp;&amp; !defined(__WIN32__)
++#ifndef _WIN32
+ 
+ #include &quot;speedy-tls.h&quot;
+ #include &lt;stdlib.h&gt;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001225.html">[Taspring-linux-commit] r6455 - trunk/rts/Sim/MoveTypes
+</A></li>
+	<LI>Next message: <A HREF="001227.html">[Taspring-linux-commit] r6457 - in trunk/rts: Game Sim/Path	System/Sync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1226">[ date ]</a>
+              <a href="thread.html#1226">[ thread ]</a>
+              <a href="subject.html#1226">[ subject ]</a>
+              <a href="author.html#1226">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

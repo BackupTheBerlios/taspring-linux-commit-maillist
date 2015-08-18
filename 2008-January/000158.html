@@ -1,0 +1,772 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5351 - in trunk: .	rts/System/Platform/Linux rts/build/scons
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5351%20-%20in%20trunk%3A%20.%0A%09rts/System/Platform/Linux%20rts/build/scons&In-Reply-To=%3CE1JGKyJ-00031a-4N%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000157.html">
+   <LINK REL="Next"  HREF="000159.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5351 - in trunk: .	rts/System/Platform/Linux rts/build/scons</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5351%20-%20in%20trunk%3A%20.%0A%09rts/System/Platform/Linux%20rts/build/scons&In-Reply-To=%3CE1JGKyJ-00031a-4N%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5351 - in trunk: .	rts/System/Platform/Linux rts/build/scons">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Jan 19 22:11:23 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000157.html">[Taspring-linux-commit] r5350 - in trunk/rts: Game Sim/Units
+</A></li>
+        <LI>Next message: <A HREF="000159.html">[Taspring-linux-commit] r5352 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#158">[ date ]</a>
+              <a href="thread.html#158">[ thread ]</a>
+              <a href="subject.html#158">[ subject ]</a>
+              <a href="author.html#158">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-01-19 22:11:22 +0100 (Sat, 19 Jan 2008)
+New Revision: 5351
+
+Added:
+   trunk/rts/System/Platform/Linux/DataDirLocater.cpp
+   trunk/rts/System/Platform/Linux/DataDirLocater.h
+Modified:
+   trunk/SConstruct
+   trunk/rts/System/Platform/Linux/UnixFileSystemHandler.cpp
+   trunk/rts/System/Platform/Linux/UnixFileSystemHandler.h
+   trunk/rts/build/scons/filelist.py
+Log:
+* Factor out the code to locate data directories from UnixFileSystemHandler
+  into it's own class, DataDirLocater. Should make it slightly easier to reuse
+  without dragging in lots of other Spring code. (though more work is probably
+  needed.)
+
+
+
+Modified: trunk/SConstruct
+===================================================================
+--- trunk/SConstruct	2008-01-19 19:44:54 UTC (rev 5350)
++++ trunk/SConstruct	2008-01-19 21:11:22 UTC (rev 5351)
+@@ -53,7 +53,7 @@
+ # the entire source if one wants to change just the install installprefix (and hence the datadir).
+ 
+ if env['platform'] != 'windows':
+-	ufshcpp = env.Object(os.path.join(env['builddir'], 'rts/System/Platform/Linux/UnixFileSystemHandler.cpp'), CPPDEFINES = env['CPPDEFINES']+env['spring_defines']+datadir)
++	ufshcpp = env.Object(os.path.join(env['builddir'], 'rts/System/Platform/Linux/DataDirLocater.cpp'), CPPDEFINES = env['CPPDEFINES']+env['spring_defines']+datadir)
+ 	spring_files += [ufshcpp]
+ 	spring = env.Program('game/spring', spring_files, CPPDEFINES=env['CPPDEFINES']+env['spring_defines'])
+ else: # create import library and .def file on Windows
+
+Added: trunk/rts/System/Platform/Linux/DataDirLocater.cpp
+===================================================================
+--- trunk/rts/System/Platform/Linux/DataDirLocater.cpp	                        (rev 0)
++++ trunk/rts/System/Platform/Linux/DataDirLocater.cpp	2008-01-19 21:11:22 UTC (rev 5351)
+@@ -0,0 +1,237 @@
++/**
++ * @file DataDirLocater.cpp
++ * @author Tobi Vollebregt
++ *
++ * Copyright (C) 2006-2008 Tobi Vollebregt
++ * Licensed under the terms of the GNU GPL, v2 or later
++ */
++
++#include &quot;StdAfx.h&quot;
++#include &quot;DataDirLocater.h&quot;
++#include &lt;sstream&gt;
++#include &quot;System/FileSystem/VFSHandler.h&quot;
++#include &quot;System/LogOutput.h&quot;
++#include &quot;System/Platform/ConfigHandler.h&quot;
++#include &quot;System/Platform/FileSystem.h&quot;
++#include &quot;mmgr.h&quot;
++
++/**
++ * @brief construct a data directory object
++ *
++ * Appends a slash to the end of the path if there isn't one already.
++ */
++DataDir::DataDir(const std::string&amp; p) : path(p), writable(false)
++{
++	if (path.empty())
++		path = &quot;./&quot;;
++	if (path[path.size() - 1] != '/')
++		path += '/';
++}
++
++/**
++ * @brief construct a data directory locater
++ *
++ * Does not locate data directories, use LocateDataDirs() for that.
++ */
++DataDirLocater::DataDirLocater() : writedir(NULL)
++{
++}
++
++/**
++ * @brief substitute environment variables with their values
++ */
++std::string DataDirLocater::SubstEnvVars(const std::string&amp; in) const
++{
++	bool escape = false;
++	std::ostringstream out;
++	for (std::string::const_iterator ch = in.begin(); ch != in.end(); ++ch) {
++		if (escape) {
++			escape = false;
++			out &lt;&lt; *ch;
++		} else {
++			switch (*ch) {
++				case '\\': {
++					escape = true;
++					break;
++				}
++				case '$': {
++					std::ostringstream envvar;
++					for (++ch; ch != in.end() &amp;&amp; (isalnum(*ch) || *ch == '_'); ++ch)
++						envvar &lt;&lt; *ch;
++					--ch;
++					char* subst = getenv(envvar.str().c_str());
++					if (subst &amp;&amp; *subst)
++						out &lt;&lt; subst;
++					break;
++				}
++				default: {
++					out &lt;&lt; *ch;
++					break;
++				}
++			}
++		}
++	}
++	return out.str();
++}
++
++/**
++ * @brief Adds the directories in the colon separated string to the datadir handler.
++ */
++void DataDirLocater::AddDirs(const std::string&amp; in)
++{
++	size_t prev_colon = 0, colon;
++	while ((colon = in.find(':', prev_colon)) != std::string::npos) {
++		datadirs.push_back(in.substr(prev_colon, colon - prev_colon));
++		prev_colon = colon + 1;
++	}
++	datadirs.push_back(in.substr(prev_colon));
++}
++
++/**
++ * @brief Figure out permissions we have for a single data directory d.
++ * @returns whether we have permissions to read the data directory.
++ */
++bool DataDirLocater::DeterminePermissions(DataDir* d)
++{
++	if (d-&gt;path.c_str()[0] != '/' || d-&gt;path.find(&quot;..&quot;) != std::string::npos)
++		throw content_error(&quot;specify data directories using absolute paths please&quot;);
++	// Figure out whether we have read/write permissions
++	// First check read access, if we got that check write access too
++	// (no support for write-only directories)
++	// Note: we check for executable bit otherwise we can't browse the directory
++	// Note: we fail to test whether the path actually is a directory
++	// Note: modifying permissions while or after this function runs has undefined behaviour
++	if (access(d-&gt;path.c_str(), R_OK | X_OK | F_OK) == 0) {
++		// Note: disallow multiple write directories.
++		// There isn't really a use for it as every thing is written to the first one anyway,
++		// and it may give funny effects on errors, e.g. it probably only gives funny things
++		// like network mounted datadir lost connection and suddenly files end up in some
++		// other random writedir you didn't even remember you had added it.
++		if (!writedir &amp;&amp; access(d-&gt;path.c_str(), W_OK) == 0) {
++			d-&gt;writable = true;
++			writedir = &amp;*d;
++		}
++		return true;
++	} else {
++		if (filesystem.CreateDirectory(d-&gt;path)) {
++			// it didn't exist before, now it does and we just created it with rw access,
++			// so we just assume we still have read-write acces...
++			if (!writedir) {
++				d-&gt;writable = true;
++				writedir = d;
++			}
++			return true;
++		}
++	}
++	return false;
++}
++
++/**
++ * @brief Figure out permissions we have for the data directories.
++ */
++void DataDirLocater::DeterminePermissions()
++{
++	std::vector&lt;DataDir&gt; newDatadirs;
++	std::string previous; // used to filter out consecutive duplicates
++	// (I didn't bother filtering out non-consecutive duplicates because then
++	//  there is the question which of the multiple instances to purge.)
++
++	writedir = NULL;
++
++	for (std::vector&lt;DataDir&gt;::iterator d = datadirs.begin(); d != datadirs.end(); ++d) {
++		if (d-&gt;path != previous &amp;&amp; DeterminePermissions(&amp;*d)) {
++			newDatadirs.push_back(*d);
++			previous = d-&gt;path;
++		}
++	}
++
++	datadirs = newDatadirs;
++}
++
++/**
++ * @brief locate spring data directory
++ *
++ * On *nix platforms, attempts to locate
++ * and change to the spring data directory
++ *
++ * The data directory to chdir to is determined by the following, in this
++ * order (first items override lower items):
++ *
++ * - 'SPRING_DATADIR' environment variable. (colon separated list, like PATH)
++ * - 'SpringData=/path/to/data' declaration in '~/.springrc'. (colon separated list)
++ *   This defaults to &quot;$HOME/.spring&quot;
++ * - In the same order any line in '/etc/spring/datadir', if that file exists.
++ * - 'datadir=/path/to/data' option passed to 'scons configure'.
++ * - 'prefix=/install/path' option passed to scons configure. The datadir is
++ *   assumed to be at '$prefix/games/spring' in this case.
++ * - the default datadirs in the default prefix, ie. '/usr/local/games/spring'
++ *   (This is set by the build system, ie. SPRING_DATADIR and SPRING_DATADIR_2
++ *   preprocessor definitions.)
++ *
++ * All of the above methods support environment variable substitution, eg.
++ * '$HOME/myspringdatadir' will be converted by spring to something like
++ * '/home/username/myspringdatadir'.
++ *
++ * If it fails to chdir to the above specified directory spring will asume the
++ * current working directory is the data directory.
++ */
++void DataDirLocater::LocateDataDirs()
++{
++	// Construct the list of datadirs from various sources.
++	datadirs.clear();
++
++	char* env = getenv(&quot;SPRING_DATADIR&quot;);
++	if (env &amp;&amp; *env)
++		AddDirs(SubstEnvVars(env));
++
++	std::string cfg = configHandler.GetString(&quot;SpringData&quot;, &quot;$HOME/.spring&quot;);
++	if (!cfg.empty()) {
++		AddDirs(SubstEnvVars(cfg));
++	}
++
++	FILE* f = ::fopen(&quot;/etc/spring/datadir&quot;, &quot;r&quot;);
++	if (f) {
++		char buf[1024];
++		while (fgets(buf, sizeof(buf), f)) {
++			char* newl = strchr(buf, '\n');
++			if (newl)
++				*newl = 0;
++			datadirs.push_back(SubstEnvVars(buf));
++		}
++		fclose(f);
++	}
++
++#ifdef SPRING_DATADIR
++	datadirs.push_back(SubstEnvVars(SPRING_DATADIR));
++#endif
++#ifdef SPRING_DATADIR_2
++	datadirs.push_back(SubstEnvVars(SPRING_DATADIR_2));
++#endif
++
++	// Figure out permissions of all datadirs
++	DeterminePermissions();
++
++	if (!writedir) {
++		// bail out
++		throw content_error(&quot;Not a single writable data directory found!\n\n&quot;
++				&quot;Configure a writable data directory using either:\n&quot;
++				&quot;- the SPRING_DATADIR environment variable,\n&quot;
++				&quot;- a SpringData=/path/to/data declaration in ~/.springrc or\n&quot;
++				&quot;- the configuration file /etc/spring/datadir&quot;);
++	}
++
++	// for now, chdir to the datadirectory as a safety measure:
++	// all AIs still just assume it's ok to put their stuff in the current directory after all
++	// Not only safety anymore, it's just easier if other code can safely assume that
++	// writedir == current working directory
++	chdir(GetWriteDir()-&gt;path.c_str());
++
++	// Logging MAY NOT start before the chdir, otherwise the logfile ends up
++	// in the wrong directory.
++	for (std::vector&lt;DataDir&gt;::const_iterator d = datadirs.begin(); d != datadirs.end(); ++d) {
++		if (d-&gt;writable)
++			logOutput.Print(&quot;Using read-write data directory: %s&quot;, d-&gt;path.c_str());
++		else
++			logOutput.Print(&quot;Using read-only  data directory: %s&quot;, d-&gt;path.c_str());
++	}
++}
+
+
+Property changes on: trunk/rts/System/Platform/Linux/DataDirLocater.cpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/rts/System/Platform/Linux/DataDirLocater.h
+===================================================================
+--- trunk/rts/System/Platform/Linux/DataDirLocater.h	                        (rev 0)
++++ trunk/rts/System/Platform/Linux/DataDirLocater.h	2008-01-19 21:11:22 UTC (rev 5351)
+@@ -0,0 +1,40 @@
++/**
++ * @file DataDirLocater.h
++ * @author Tobi Vollebregt
++ *
++ * Copyright (C) 2006-2008 Tobi Vollebregt
++ * Licensed under the terms of the GNU GPL, v2 or later
++ */
++#ifndef DATADIRLOCATER_H
++#define DATADIRLOCATER_H
++
++#include &lt;string&gt;
++#include &lt;vector&gt;
++
++struct DataDir
++{
++	DataDir(const std::string&amp; p);
++	std::string path;
++	bool writable;
++};
++
++class DataDirLocater
++{
++public:
++	DataDirLocater();
++	void LocateDataDirs();
++
++	const std::vector&lt;DataDir&gt;&amp; GetDataDirs() const { return datadirs; }
++	const DataDir* GetWriteDir() const { return writedir; }
++
++private:
++	std::string SubstEnvVars(const std::string&amp; in) const;
++	void AddDirs(const std::string&amp; in);
++	bool DeterminePermissions(DataDir* d);
++	void DeterminePermissions();
++
++	std::vector&lt;DataDir&gt; datadirs;
++	const DataDir* writedir;
++};
++
++#endif // !defined(DATADIRLOCATER_H)
+
+
+Property changes on: trunk/rts/System/Platform/Linux/DataDirLocater.h
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/rts/System/Platform/Linux/UnixFileSystemHandler.cpp
+===================================================================
+--- trunk/rts/System/Platform/Linux/UnixFileSystemHandler.cpp	2008-01-19 19:44:54 UTC (rev 5350)
++++ trunk/rts/System/Platform/Linux/UnixFileSystemHandler.cpp	2008-01-19 21:11:22 UTC (rev 5351)
+@@ -5,219 +5,25 @@
+  *
+  * Unix implementation, supporting multiple data directories / search paths.
+  *
+- * Copyright (C) 2006.  Licensed under the terms of the
+- * GNU GPL, v2 or later
++ * Copyright (C) 2006-2008 Tobi Vollebregt.
++ * Licensed under the terms of the GNU GPL, v2 or later
+  */
+ 
+ #include &quot;StdAfx.h&quot;
++#include &quot;UnixFileSystemHandler.h&quot;
+ #include &lt;boost/regex.hpp&gt;
+ #include &lt;dirent.h&gt;
+ #include &lt;sstream&gt;
+ #include &lt;sys/stat.h&gt;
+ #include &lt;sys/types.h&gt;
+ #include &lt;unistd.h&gt;
+-#include &quot;LogOutput.h&quot;
+-#include &quot;FileSystem/ArchiveScanner.h&quot;
+-#include &quot;FileSystem/VFSHandler.h&quot;
+-#include &quot;Platform/ConfigHandler.h&quot;
+-#include &quot;UnixFileSystemHandler.h&quot;
++#include &quot;System/FileSystem/ArchiveScanner.h&quot;
++#include &quot;System/FileSystem/VFSHandler.h&quot;
++#include &quot;System/LogOutput.h&quot;
++#include &quot;System/Platform/ConfigHandler.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
+ /**
+- * @brief construct a data directory object
+- *
+- * Appends a slash to the end of the path if there isn't one already.
+- * Initializes the directory to be neither readable nor writable.
+- */
+-UnixFileSystemHandler::DataDir::DataDir(const std::string&amp; p) :
+-	path(p), readable(false), writable(false)
+-{
+-	if (path.empty())
+-		path = &quot;./&quot;;
+-	if (path[path.size() - 1] != '/')
+-		path += '/';
+-}
+-
+-/**
+- * @brief substitute environment variables with their values
+- */
+-std::string UnixFileSystemHandler::SubstEnvVars(const std::string&amp; in) const
+-{
+-	bool escape = false;
+-	std::ostringstream out;
+-	for (std::string::const_iterator ch = in.begin(); ch != in.end(); ++ch) {
+-		if (escape) {
+-			escape = false;
+-			out &lt;&lt; *ch;
+-		} else {
+-			switch (*ch) {
+-				case '\\': {
+-					escape = true;
+-					break;
+-				}
+-				case '$': {
+-					std::ostringstream envvar;
+-					for (++ch; ch != in.end() &amp;&amp; (isalnum(*ch) || *ch == '_'); ++ch)
+-						envvar &lt;&lt; *ch;
+-					--ch;
+-					char* subst = getenv(envvar.str().c_str());
+-					if (subst &amp;&amp; *subst)
+-						out &lt;&lt; subst;
+-					break;
+-				}
+-				default: {
+-					out &lt;&lt; *ch;
+-					break;
+-				}
+-			}
+-		}
+-	}
+-	return out.str();
+-}
+-
+-/**
+- * @brief Adds the directories in the colon separated string to the datadir handler.
+- */
+-void UnixFileSystemHandler::AddDirs(const std::string&amp; in)
+-{
+-	size_t prev_colon = 0, colon;
+-	while ((colon = in.find(':', prev_colon)) != std::string::npos) {
+-		datadirs.push_back(in.substr(prev_colon, colon - prev_colon));
+-		prev_colon = colon + 1;
+-	}
+-	datadirs.push_back(in.substr(prev_colon));
+-}
+-
+-/**
+- * @brief Figure out permissions we have for the data directories.
+- */
+-void UnixFileSystemHandler::DeterminePermissions(int start_at)
+-{
+-	writedir = NULL;
+-
+-	for (std::vector&lt;DataDir&gt;::iterator d = datadirs.begin() + start_at; d != datadirs.end(); ++d) {
+-		if (d-&gt;path.c_str()[0] != '/' || d-&gt;path.find(&quot;..&quot;) != std::string::npos)
+-			throw content_error(&quot;specify data directories using absolute paths please&quot;);
+-		// Figure out whether we have read/write permissions
+-		// First check read access, if we got that check write access too
+-		// (no support for write-only directories)
+-		// Note: we check for executable bit otherwise we can't browse the directory
+-		// Note: we fail to test whether the path actually is a directory
+-		// Note: modifying permissions while or after this function runs has undefined behaviour
+-		if (access(d-&gt;path.c_str(), R_OK | X_OK | F_OK) == 0) {
+-			d-&gt;readable = true;
+-			// Note: disallow multiple write directories.
+-			// There isn't really a use for it as every thing is written to the first one anyway,
+-			// and it may give funny effects on errors, e.g. it probably only gives funny things
+-			// like network mounted datadir lost connection and suddenly files end up in some
+-			// other random writedir you didn't even remember you had added it.
+-			if (!writedir &amp;&amp; access(d-&gt;path.c_str(), W_OK) == 0) {
+-				d-&gt;writable = true;
+-				writedir = &amp;*d;
+-			}
+-		} else {
+-			if (filesystem.CreateDirectory(d-&gt;path)) {
+-				// it didn't exist before, now it does and we just created it with rw access,
+-				// so we just assume we still have read-write acces...
+-				d-&gt;readable = true;
+-				if (!writedir) {
+-					d-&gt;writable = true;
+-					writedir = &amp;*d;
+-				}
+-			}
+-		}
+-	}
+-}
+-
+-/**
+- * @brief locate spring data directory
+- *
+- * On *nix platforms, attempts to locate
+- * and change to the spring data directory
+- *
+- * The data directory to chdir to is determined by the following, in this
+- * order (first items override lower items):
+- *
+- * - 'SpringData=/path/to/data' declaration in '~/.springrc'. (colon separated list)
+- * - 'SPRING_DATADIR' environment variable. (colon separated list, like PATH)
+- * - In the same order any line in '/etc/spring/datadir', if that file exists.
+- * - 'datadir=/path/to/data' option passed to 'scons configure'.
+- * - 'prefix=/install/path' option passed to scons configure. The datadir is
+- *   assumed to be at '$prefix/games/taspring' in this case.
+- * - the default datadir in the default prefix, ie. '/usr/local/games/taspring'
+- *
+- * All of the above methods support environment variable substitution, eg.
+- * '$HOME/myspringdatadir' will be converted by spring to something like
+- * '/home/username/myspringdatadir'.
+- *
+- * If it fails to chdir to the above specified directory spring will asume the
+- * current working directory is the data directory.
+- */
+-void UnixFileSystemHandler::LocateDataDirs()
+-{
+-	// Construct the list of datadirs from various sources.
+-
+-	datadirs.clear();
+-
+-	char* env = getenv(&quot;SPRING_DATADIR&quot;);
+-	if (env &amp;&amp; *env)
+-		AddDirs(SubstEnvVars(env));
+-
+-	std::string cfg = configHandler.GetString(&quot;SpringData&quot;,&quot;&quot;);
+-	if (!cfg.empty())
+-		AddDirs(SubstEnvVars(cfg));
+-
+-	FILE* f = ::fopen(&quot;/etc/spring/datadir&quot;, &quot;r&quot;);
+-	if (f) {
+-		char buf[1024];
+-		while (fgets(buf, sizeof(buf), f)) {
+-			char* newl = strchr(buf, '\n');
+-			if (newl)
+-				*newl = 0;
+-			datadirs.push_back(SubstEnvVars(buf));
+-		}
+-		fclose(f);
+-	}
+-
+-#ifdef SPRING_DATADIR
+-	datadirs.push_back(SubstEnvVars(SPRING_DATADIR));
+-#endif
+-#ifdef SPRING_DATADIR_2
+-	datadirs.push_back(SubstEnvVars(SPRING_DATADIR_2));
+-#endif
+-
+-	// Figure out permissions of all datadirs
+-	bool cwdWarning = false;
+-
+-	DeterminePermissions();
+-
+-	if (!writedir) {
+-		// add current working directory to search path &amp; try again
+-		char buf[4096];
+-		getcwd(buf, sizeof(buf));
+-		buf[sizeof(buf) - 1] = 0;
+-		datadirs.push_back(DataDir(buf));
+-		DeterminePermissions(datadirs.size() - 1);
+-		cwdWarning = true;
+-	}
+-
+-	if (!writedir) {
+-		// bail out
+-		throw content_error(&quot;not a single read-write data directory found!&quot;);
+-	}
+-
+-	// for now, chdir to the datadirectory as a safety measure:
+-	// all AIs still just assume it's ok to put their stuff in the current directory after all
+-	// Not only safety anymore, it's just easier if other code can safely assume that
+-	// writedir == current working directory
+-	chdir(GetWriteDir().c_str());
+-
+-	// delayed warning message (needs to go after chdir otherwise log file ends up in wrong directory)
+-	if (cwdWarning)
+-		logOutput.Print(&quot;Warning: Adding current working directory to search path.&quot;);
+-}
+-
+-/**
+  * @brief Creates the archive scanner and vfs handler
+  *
+  * For the archiveScanner, it keeps cache data (&quot;archivecache.txt&quot;) in the
+@@ -233,14 +39,15 @@
+  */
+ void UnixFileSystemHandler::InitVFS() const
+ {
++	const DataDir* writedir = locater.GetWriteDir();
++	const std::vector&lt;DataDir&gt;&amp; datadirs = locater.GetDataDirs();
++
+ 	archiveScanner = new CArchiveScanner();
+ 	archiveScanner-&gt;ReadCacheData(writedir-&gt;path + archiveScanner-&gt;GetFilename());
+ 	for (std::vector&lt;DataDir&gt;::const_reverse_iterator d = datadirs.rbegin(); d != datadirs.rend(); ++d) {
+-		if (d-&gt;readable) {
+-			archiveScanner-&gt;Scan(d-&gt;path + &quot;maps&quot;, true);
+-			archiveScanner-&gt;Scan(d-&gt;path + &quot;base&quot;, true);
+-			archiveScanner-&gt;Scan(d-&gt;path + &quot;mods&quot;, true);
+-		}
++		archiveScanner-&gt;Scan(d-&gt;path + &quot;maps&quot;, true);
++		archiveScanner-&gt;Scan(d-&gt;path + &quot;base&quot;, true);
++		archiveScanner-&gt;Scan(d-&gt;path + &quot;mods&quot;, true);
+ 	}
+ 	archiveScanner-&gt;WriteCacheData(writedir-&gt;path + archiveScanner-&gt;GetFilename());
+ 
+@@ -255,17 +62,8 @@
+ UnixFileSystemHandler::UnixFileSystemHandler(bool verbose, bool initialize)
+ {
+ 	if(initialize){
+-		LocateDataDirs();
++		locater.LocateDataDirs();
+ 		InitVFS();
+-
+-		for (std::vector&lt;DataDir&gt;::const_iterator d = datadirs.begin(); d != datadirs.end(); ++d) {
+-			if (d-&gt;readable) {
+-				if (d-&gt;writable)
+-					logOutput.Print(&quot;Using read-write data directory: %s&quot;, d-&gt;path.c_str());
+-				else
+-					logOutput.Print(&quot;Using read-only  data directory: %s&quot;, d-&gt;path.c_str());
+-			}
+-		}
+ 	}
+ }
+ 
+@@ -280,6 +78,7 @@
+  */
+ std::string UnixFileSystemHandler::GetWriteDir() const
+ {
++	const DataDir* writedir = locater.GetWriteDir();
+ 	assert(writedir &amp;&amp; writedir-&gt;writable); //duh
+ 	return writedir-&gt;path;
+ }
+@@ -305,10 +104,9 @@
+ 		return matches;
+ 	}
+ 
++	const std::vector&lt;DataDir&gt;&amp; datadirs = locater.GetDataDirs();
+ 	for (std::vector&lt;DataDir&gt;::const_reverse_iterator d = datadirs.rbegin(); d != datadirs.rend(); ++d) {
+-		if (d-&gt;readable) {
+-			FindFilesSingleDir(matches, d-&gt;path + dir, pattern, flags);
+-		}
++		FindFilesSingleDir(matches, d-&gt;path + dir, pattern, flags);
+ 	}
+ 	return matches;
+ }
+@@ -319,12 +117,11 @@
+ 	if (file[0] == '/')
+ 		return file;
+ 
++	const std::vector&lt;DataDir&gt;&amp; datadirs = locater.GetDataDirs();
+ 	for (std::vector&lt;DataDir&gt;::const_iterator d = datadirs.begin(); d != datadirs.end(); ++d) {
+-		if (d-&gt;readable) {
+-			std::string fn(d-&gt;path + file);
+-			if (access(fn.c_str(), R_OK | F_OK) == 0)
+-				return fn;
+-		}
++		std::string fn(d-&gt;path + file);
++		if (access(fn.c_str(), R_OK | F_OK) == 0)
++			return fn;
+ 	}
+ 	return file;
+ }
+@@ -333,9 +130,9 @@
+ {
+ 	std::vector&lt;std::string&gt; f;
+ 
++	const std::vector&lt;DataDir&gt;&amp; datadirs = locater.GetDataDirs();
+ 	for (std::vector&lt;DataDir&gt;::const_iterator d = datadirs.begin(); d != datadirs.end(); ++d) {
+-		if (d-&gt;readable)
+-			f.push_back(d-&gt;path);
++		f.push_back(d-&gt;path);
+ 	}
+ 	return f;
+ }
+
+Modified: trunk/rts/System/Platform/Linux/UnixFileSystemHandler.h
+===================================================================
+--- trunk/rts/System/Platform/Linux/UnixFileSystemHandler.h	2008-01-19 19:44:54 UTC (rev 5350)
++++ trunk/rts/System/Platform/Linux/UnixFileSystemHandler.h	2008-01-19 21:11:22 UTC (rev 5351)
+@@ -14,7 +14,8 @@
+ 
+ #include &lt;string&gt;
+ #include &lt;vector&gt;
+-#include &quot;Platform/FileSystem.h&quot;
++#include &quot;DataDirLocater.h&quot;
++#include &quot;System/Platform/FileSystem.h&quot;
+ 
+ /**
+  * @brief Unix file system / data directory handler
+@@ -35,23 +36,10 @@
+ 
+ 	protected:
+ 
+-		struct DataDir
+-		{
+-			DataDir(const std::string&amp; p);
+-			std::string path;
+-			bool readable;
+-			bool writable;
+-		};
+-
+-		std::string SubstEnvVars(const std::string&amp; in) const;
+-		void AddDirs(const std::string&amp; in);
+-		void DeterminePermissions(int start_at = 0);
+-		void LocateDataDirs();
+ 		void InitVFS() const;
+ 		void FindFilesSingleDir(std::vector&lt;std::string&gt;&amp; matches, const std::string&amp; dir, const std::string &amp;pattern, int flags) const;
+ 
+-		std::vector&lt;DataDir&gt; datadirs;
+-		const DataDir* writedir;
++		DataDirLocater locater;
+ };
+ 
+ #endif // !UNIXFILESYSTEMHANDLER_H
+
+Modified: trunk/rts/build/scons/filelist.py
+===================================================================
+--- trunk/rts/build/scons/filelist.py	2008-01-19 19:44:54 UTC (rev 5350)
++++ trunk/rts/build/scons/filelist.py	2008-01-19 21:11:22 UTC (rev 5351)
+@@ -88,7 +88,7 @@
+ 		'rts/lib/streflop', # streflop is compiled with it's own Makefiles
+ 		'rts/System/Platform/BackgroundReader.cpp',
+ 		'rts/System/Platform/Mac', # Mac build uses XCode
+-		'rts/System/Platform/Linux/UnixFileSystemHandler.cpp', # see SConstruct
++		'rts/System/Platform/Linux/DataDirLocater.cpp', # see SConstruct
+ 	]
+ 	# we may be called before we were configured (e.g. when cleaning)
+ 	if env.has_key('platform'):
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000157.html">[Taspring-linux-commit] r5350 - in trunk/rts: Game Sim/Units
+</A></li>
+	<LI>Next message: <A HREF="000159.html">[Taspring-linux-commit] r5352 - trunk
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#158">[ date ]</a>
+              <a href="thread.html#158">[ thread ]</a>
+              <a href="subject.html#158">[ subject ]</a>
+              <a href="author.html#158">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

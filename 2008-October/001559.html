@@ -1,0 +1,135 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6790 - trunk/rts/System/FileSystem
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6790%20-%20trunk/rts/System/FileSystem&In-Reply-To=%3C20081016214143.642034656%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001558.html">
+   <LINK REL="Next"  HREF="001560.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6790 - trunk/rts/System/FileSystem</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6790%20-%20trunk/rts/System/FileSystem&In-Reply-To=%3C20081016214143.642034656%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6790 - trunk/rts/System/FileSystem">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Oct 16 23:41:43 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001558.html">[Taspring-linux-commit] r6789 - trunk/tools/DedicatedServer
+</A></li>
+        <LI>Next message: <A HREF="001560.html">[Taspring-linux-commit] r6791 - in trunk/rts: Game	Rendering/UnitModels Sim/Misc Sim/Units System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1559">[ date ]</a>
+              <a href="thread.html#1559">[ thread ]</a>
+              <a href="subject.html#1559">[ subject ]</a>
+              <a href="author.html#1559">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-10-16 23:41:42 +0200 (Thu, 16 Oct 2008)
+New Revision: 6790
+
+Modified:
+   trunk/rts/System/FileSystem/ArchiveScanner.cpp
+Log:
+* when ArchiveCache has not been written yet, do not add archive dependencies that are already in the chain since their checksums would be XORed more than once (was breaking demos)
+
+Modified: trunk/rts/System/FileSystem/ArchiveScanner.cpp
+===================================================================
+--- trunk/rts/System/FileSystem/ArchiveScanner.cpp	2008-10-16 19:52:42 UTC (rev 6789)
++++ trunk/rts/System/FileSystem/ArchiveScanner.cpp	2008-10-16 21:41:42 UTC (rev 6790)
+@@ -142,7 +142,7 @@
+ 
+ 	string name;
+ 	int size;
+-	for (int cur = 0; cur = ar-&gt;FindFiles(cur, &amp;name, &amp;size); /* no-op */) {
++	for (int cur = 0; (cur = ar-&gt;FindFiles(cur, &amp;name, &amp;size)); /* no-op */) {
+ 		if (name == &quot;gamedata/parse_tdf.lua&quot;) {
+ 			const int fh = ar-&gt;OpenFile(name);
+ 			if (fh != 0) {
+@@ -356,7 +356,7 @@
+ 
+ 			string name;
+ 			int size;
+-			for (int cur = 0; cur = ar-&gt;FindFiles(cur, &amp;name, &amp;size); /* no-op */) {
++			for (int cur = 0; (cur = ar-&gt;FindFiles(cur, &amp;name, &amp;size)); /* no-op */) {
+ 				const string lowerName = StringToLower(name);
+ 				const string ext = lowerName.substr(lowerName.find_last_of('.') + 1);
+ 
+@@ -526,7 +526,7 @@
+ 	string name;
+ 	int size;
+ 	// Sort all file paths for deterministic behaviour
+-	for (int cur = 0; cur = ar-&gt;FindFiles(cur, &amp;name, &amp;size); /* no-op */) {
++	for (int cur = 0; (cur = ar-&gt;FindFiles(cur, &amp;name, &amp;size)); /* no-op */) {
+ 		if (ignore-&gt;Match(name)) {
+ 			continue;
+ 		}
+@@ -803,8 +803,15 @@
+ 	// add depth-first
+ 	for (vector&lt;string&gt;::iterator i = aii-&gt;second.modData.dependencies.begin(); i != aii-&gt;second.modData.dependencies.end(); ++i) {
+ 		vector&lt;string&gt; dep = GetArchives(*i, depth + 1);
++
+ 		for (vector&lt;string&gt;::iterator j = dep.begin(); j != dep.end(); ++j) {
+-			ret.push_back(*j);
++			if (std::find(ret.begin(), ret.end(), *j) == ret.end()) {
++				// add only if this dependency is not already somewhere
++				// in the chain (which can happen if ArchiveCacheV* has
++				// not been written yet) so its checksum is not XOR'ed
++				// with the running one multiple times (Get*Checksum())
++				ret.push_back(*j);
++			}
+ 		}
+ 	}
+ 
+@@ -900,6 +907,7 @@
+ {
+ 	const vector&lt;string&gt; ars = GetArchives(root);
+ 	unsigned int checksum = 0;
++
+ 	for (unsigned int a = 0; a &lt; ars.size(); a++) {
+ 		const unsigned int tmp = GetArchiveChecksum(ars[a]);
+ 		if (debugChecksums) {
+@@ -931,6 +939,7 @@
+ void CArchiveScanner::CheckMod(const string&amp; root, unsigned checksum)
+ {
+ 	unsigned localChecksum = GetModChecksum(root);
++
+ 	if (localChecksum != checksum) {
+ 		char msg[1024];
+ 		sprintf(
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001558.html">[Taspring-linux-commit] r6789 - trunk/tools/DedicatedServer
+</A></li>
+	<LI>Next message: <A HREF="001560.html">[Taspring-linux-commit] r6791 - in trunk/rts: Game	Rendering/UnitModels Sim/Misc Sim/Units System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1559">[ date ]</a>
+              <a href="thread.html#1559">[ thread ]</a>
+              <a href="subject.html#1559">[ subject ]</a>
+              <a href="author.html#1559">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

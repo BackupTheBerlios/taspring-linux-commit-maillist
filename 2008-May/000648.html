@@ -1,0 +1,232 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5868 - in trunk/rts: Game Lua
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5868%20-%20in%20trunk/rts%3A%20Game%20Lua&In-Reply-To=%3C20080511125211.1682B469E%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000647.html">
+   <LINK REL="Next"  HREF="000649.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5868 - in trunk/rts: Game Lua</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5868%20-%20in%20trunk/rts%3A%20Game%20Lua&In-Reply-To=%3C20080511125211.1682B469E%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5868 - in trunk/rts: Game Lua">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun May 11 14:52:10 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000647.html">[Taspring-linux-commit] r5867 - trunk/Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="000649.html">[Taspring-linux-commit] r5869 - in site/trunk/www-root: tpl	wiki/conf wiki/lib/tpl
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#648">[ date ]</a>
+              <a href="thread.html#648">[ thread ]</a>
+              <a href="subject.html#648">[ subject ]</a>
+              <a href="author.html#648">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-05-11 14:52:09 +0200 (Sun, 11 May 2008)
+New Revision: 5868
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Lua/LuaCallInHandler.cpp
+   trunk/rts/Lua/LuaCallInHandler.h
+   trunk/rts/Lua/LuaHandle.cpp
+   trunk/rts/Lua/LuaHandle.h
+Log:
+* added 2 new lua callins:
+-&gt; GameLoadLua: Called at the end of the loading process, so heavy computing doesn't need to be done at gamestart
+-&gt; GameStart: Called when the game is about to start
+
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-05-11 11:51:39 UTC (rev 5867)
++++ trunk/rts/Game/Game.cpp	2008-05-11 12:52:09 UTC (rev 5868)
+@@ -462,6 +462,7 @@
+ 	updateDeltaSeconds = 0.0f;
+ 	script = CScriptHandler::Instance().chosenScript;
+ 	assert(script);
++	luaCallIns.GameLoadLua();
+ 
+ 	glFogfv(GL_FOG_COLOR,FogLand);
+ 	glFogf(GL_FOG_START, 0.0f);
+@@ -2894,6 +2895,7 @@
+ 	CLuaUI::UpdateTeams();
+ 	ENTER_SYNCED;
+ 	script-&gt;GameStart();
++	luaCallIns.GameStartPlaying();
+ 
+ }
+ 
+
+Modified: trunk/rts/Lua/LuaCallInHandler.cpp
+===================================================================
+--- trunk/rts/Lua/LuaCallInHandler.cpp	2008-05-11 11:51:39 UTC (rev 5867)
++++ trunk/rts/Lua/LuaCallInHandler.cpp	2008-05-11 12:52:09 UTC (rev 5868)
+@@ -19,6 +19,8 @@
+ 
+ CLuaCallInHandler::CLuaCallInHandler()
+ {
++	callInMap[&quot;GameLoadLua&quot;]         = &listGameLoadLua;
++	callInMap[&quot;GameStartPlaying&quot;]    = &listGameStartPlaying;
+ 	callInMap[&quot;GameOver&quot;]            = &listGameOver;
+ 	callInMap[&quot;TeamDied&quot;]            = &listTeamDied;
+ 
+@@ -83,6 +85,8 @@
+ #define ADDHANDLE(name) \
+   if (lh-&gt;HasCallIn(#name)) { ListInsert(list ## name, lh); }
+   
++	ADDHANDLE(GameLoadLua);
++	ADDHANDLE(GameStartPlaying);
+ 	ADDHANDLE(GameOver);
+ 	ADDHANDLE(TeamDied);
+ 
+@@ -137,6 +141,8 @@
+ {
+ 	ListRemove(handles, lh);
+ 
++	ListRemove(listGameLoadLua, lh);
++	ListRemove(listGameStartPlaying, lh);
+ 	ListRemove(listGameOver, lh);
+ 	ListRemove(listTeamDied, lh);
+ 
+@@ -276,6 +282,24 @@
+ /******************************************************************************/
+ /******************************************************************************/
+ 
++void CLuaCallInHandler::GameLoadLua()
++{
++	const int count = listGameLoadLua.size();
++	for (int i = 0; i &lt; count; i++) {
++		CLuaHandle* lh = listGameLoadLua[i];
++		lh-&gt;GameLoadLua();
++	}	
++}
++
++void CLuaCallInHandler::GameStartPlaying()
++{
++	const int count = listGameStartPlaying.size();
++	for (int i = 0; i &lt; count; i++) {
++		CLuaHandle* lh = listGameStartPlaying[i];
++		lh-&gt;GameStartPlaying();
++	}	
++}
++
+ void CLuaCallInHandler::GameOver()
+ {
+ 	const int count = listGameOver.size();
+
+Modified: trunk/rts/Lua/LuaCallInHandler.h
+===================================================================
+--- trunk/rts/Lua/LuaCallInHandler.h	2008-05-11 11:51:39 UTC (rev 5867)
++++ trunk/rts/Lua/LuaCallInHandler.h	2008-05-11 12:52:09 UTC (rev 5868)
+@@ -40,6 +40,8 @@
+ 
+ 	public:
+ 		// Synced
++		void GameLoadLua();
++		void GameStartPlaying();
+ 		void GameOver();
+ 		void TeamDied(int teamID);
+ 
+@@ -107,6 +109,8 @@
+ 
+ 		CallInList handles;
+ 
++		CallInList listGameLoadLua;
++		CallInList listGameStartPlaying;
+ 		CallInList listGameOver;
+ 		CallInList listTeamDied;
+ 
+
+Modified: trunk/rts/Lua/LuaHandle.cpp
+===================================================================
+--- trunk/rts/Lua/LuaHandle.cpp	2008-05-11 11:51:39 UTC (rev 5867)
++++ trunk/rts/Lua/LuaHandle.cpp	2008-05-11 12:52:09 UTC (rev 5868)
+@@ -202,7 +202,34 @@
+ 	return;
+ }
+ 
++void CLuaHandle::GameLoadLua()
++{
++	LUA_CALL_IN_CHECK(L);	
++	lua_checkstack(L, 2);
++	static const LuaHashString cmdStr(&quot;GameLoadLua&quot;);
++	if (!cmdStr.GetGlobalFunc(L)) {
++		return; // the call is not defined
++	}
+ 
++	// call the routine
++	RunCallIn(cmdStr, 0, 0);
++	return;
++}
++
++void CLuaHandle::GameStartPlaying()
++{
++	LUA_CALL_IN_CHECK(L);	
++	lua_checkstack(L, 2);
++	static const LuaHashString cmdStr(&quot;GameStartPlaying&quot;);
++	if (!cmdStr.GetGlobalFunc(L)) {
++		return; // the call is not defined
++	}
++
++	// call the routine
++	RunCallIn(cmdStr, 0, 0);
++	return;
++}
++
+ void CLuaHandle::GameOver()
+ {
+ 	LUA_CALL_IN_CHECK(L);	
+
+Modified: trunk/rts/Lua/LuaHandle.h
+===================================================================
+--- trunk/rts/Lua/LuaHandle.h	2008-05-11 11:51:39 UTC (rev 5867)
++++ trunk/rts/Lua/LuaHandle.h	2008-05-11 12:52:09 UTC (rev 5868)
+@@ -100,6 +100,8 @@
+ 
+ 		void Shutdown();
+ 
++		void GameLoadLua();
++		void GameStartPlaying();
+ 		void GameOver();
+ 		void TeamDied(int teamID);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000647.html">[Taspring-linux-commit] r5867 - trunk/Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="000649.html">[Taspring-linux-commit] r5869 - in site/trunk/www-root: tpl	wiki/conf wiki/lib/tpl
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#648">[ date ]</a>
+              <a href="thread.html#648">[ thread ]</a>
+              <a href="subject.html#648">[ subject ]</a>
+              <a href="author.html#648">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

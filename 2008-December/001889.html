@@ -1,0 +1,373 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7120 - in Lobby/springie: ModInfoBuilder	Springie/PlanetWars Springie/autohost Springie/client libs
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7120%20-%20in%20Lobby/springie%3A%20ModInfoBuilder%0A%09Springie/PlanetWars%20Springie/autohost%20Springie/client%20libs&In-Reply-To=%3C20081204192332.A9CA2477A%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001888.html">
+   <LINK REL="Next"  HREF="001890.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7120 - in Lobby/springie: ModInfoBuilder	Springie/PlanetWars Springie/autohost Springie/client libs</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7120%20-%20in%20Lobby/springie%3A%20ModInfoBuilder%0A%09Springie/PlanetWars%20Springie/autohost%20Springie/client%20libs&In-Reply-To=%3C20081204192332.A9CA2477A%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r7120 - in Lobby/springie: ModInfoBuilder	Springie/PlanetWars Springie/autohost Springie/client libs">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Dec  4 20:23:32 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001888.html">[Taspring-linux-commit] r7119 - in branches/caiinterface: .	AI/Interfaces AI/Interfaces/Java AI/Skirmish rts/ExternalAI	rts/build/scons
+</A></li>
+        <LI>Next message: <A HREF="001890.html">[Taspring-linux-commit] r7121 - in branches/caiinterface: .	AI/Interfaces/Java rts/System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1889">[ date ]</a>
+              <a href="thread.html#1889">[ thread ]</a>
+              <a href="subject.html#1889">[ subject ]</a>
+              <a href="author.html#1889">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Licho
+Date: 2008-12-04 20:23:32 +0100 (Thu, 04 Dec 2008)
+New Revision: 7120
+
+Modified:
+   Lobby/springie/ModInfoBuilder/ModInfoBuilder.csproj
+   Lobby/springie/Springie/PlanetWars/PlanetWarsHandler.cs
+   Lobby/springie/Springie/autohost/AutoHost_commands.cs
+   Lobby/springie/Springie/autohost/Polls.cs
+   Lobby/springie/Springie/client/UserBattleStatus.cs
+   Lobby/springie/libs/PlanetWarsShared.dll
+Log:
+ * listplanets show planet name
+ * joining people ID's are automatically fixed if PlanetWars
+ * people on bigger team are automatically specced if bigger team is more than 2x smaller
+ * voteforcestart only allows votes from smaller team if there are 2 teams
+
+Modified: Lobby/springie/ModInfoBuilder/ModInfoBuilder.csproj
+===================================================================
+--- Lobby/springie/ModInfoBuilder/ModInfoBuilder.csproj	2008-12-04 19:19:54 UTC (rev 7119)
++++ Lobby/springie/ModInfoBuilder/ModInfoBuilder.csproj	2008-12-04 19:23:32 UTC (rev 7120)
+@@ -35,9 +35,6 @@
+   &lt;/PropertyGroup&gt;
+   &lt;ItemGroup&gt;
+     &lt;Reference Include=&quot;System&quot; /&gt;
+-    &lt;Reference Include=&quot;System.Data.DataSetExtensions&quot;&gt;
+-      &lt;RequiredTargetFramework&gt;3.5&lt;/RequiredTargetFramework&gt;
+-    &lt;/Reference&gt;
+     &lt;Reference Include=&quot;System.Data&quot; /&gt;
+     &lt;Reference Include=&quot;System.Xml&quot; /&gt;
+   &lt;/ItemGroup&gt;
+
+Modified: Lobby/springie/Springie/PlanetWars/PlanetWarsHandler.cs
+===================================================================
+--- Lobby/springie/Springie/PlanetWars/PlanetWarsHandler.cs	2008-12-04 19:19:54 UTC (rev 7119)
++++ Lobby/springie/Springie/PlanetWars/PlanetWarsHandler.cs	2008-12-04 19:23:32 UTC (rev 7120)
+@@ -17,7 +17,7 @@
+         #region Fields
+ 
+         private AutoHost autoHost;
+-        private List&lt;string&gt; planetWarsAutohosts = new List&lt;string&gt;();
++        private List&lt;string&gt; channelAllowedExceptions = new List&lt;string&gt;();
+         private List&lt;string&gt; planetWarsChannels = new List&lt;string&gt;();
+         private Dictionary&lt;string, string&gt; planetWarsPlayerSide = new Dictionary&lt;string, string&gt;();
+ 
+@@ -65,12 +65,8 @@
+         {
+             string[] vals;
+             int[] indexes;
+-            if (!Program.main.config.PlanetWarsEnabled) {
+-                autoHost.Respond(e, &quot;This is not PlanetWars host&quot;);
+-                return;
+-            }
+             try {
+-                if (Program.main.PlanetWars.FilterPlanets(words, out vals, out indexes) &gt; 0) {
++                if (FilterPlanets(words, out vals, out indexes) &gt; 0) {
+                     autoHost.Respond(e, &quot;Planets available for attack are:&quot;);
+                     for (int i = 0; i &lt; vals.Length; ++i) autoHost.Respond(e, string.Format(&quot;{0}: {1}&quot;, indexes[i], vals[i]));
+                 } else autoHost.Respond(e, &quot;no such planet found&quot;);
+@@ -81,11 +77,6 @@
+ 
+         public void ComPlanet(TasSayEventArgs e, string[] words)
+         {
+-            if (!Program.main.config.PlanetWarsEnabled) {
+-                autoHost.Respond(e, &quot;This is not a PlanetWars host&quot;);
+-                return;
+-            }
+-
+             if (words.Length == 0) {
+                 autoHost.Respond(e, &quot;You must specify planet name&quot;);
+                 return;
+@@ -128,10 +119,6 @@
+ 
+         public void ComRegister(TasSayEventArgs e, string[] words)
+         {
+-            if (!Program.main.config.PlanetWarsEnabled) {
+-                autoHost.Respond(e, &quot;This is not PlanetWars host&quot;);
+-                return;
+-            }
+             if (words.Length &lt; 2) {
+                 autoHost.Respond(e, &quot;This command needs 2-3 parameters - side and password and optional planet name (you can PM it to me). Eg. !register core secretpw&quot;);
+                 return;
+@@ -156,13 +143,13 @@
+ 
+         public int FilterPlanets(string[] words, out string[] vals, out int[] indexes)
+         {
+-            var options = server.GetAttackOptions(Program.main.PlanetWars.account);
++            var options = server.GetAttackOptions(account);
+ 
+             if (options != null) {
+                 var temp = new string[options.Count];
+                 int cnt = 0;
+ 
+-                foreach (var planet in options) temp[cnt++] = planet.Name;
++                foreach (var planet in options) temp[cnt++] = string.Format(&quot;{0} - {1}&quot;, planet.Name, planet.MapName);
+                 return AutoHost.Filter(temp, words, out vals, out indexes);
+             } else {
+                 vals = null;
+@@ -216,6 +203,7 @@
+             }
+         }
+ 
++
+         public void SpringMessage(string text)
+         {
+             // awards
+@@ -229,10 +217,10 @@
+                         string awardType = parts[1];
+                         string awardText = parts[2];
+                         autoHost.SayBattle(string.Format(&quot;Award for {0} - {1}&quot;, name, awardText));
+-                        server.AddAward(account, name, awardType, awardText, Program.main.Tas.GetBattle().Map.Name);
++                        server.AddAward(account, name, awardType, awardText, tas.GetBattle().Map.Name);
+                         return;
+                     } catch (Exception ex) {
+-                        Program.main.AutoHost.SayBattle(&quot;Error sending data:&quot; + ex);
++                        autoHost.SayBattle(&quot;Error sending data:&quot; + ex);
+                     }
+                 }
+             }
+@@ -248,7 +236,7 @@
+                         server.UnitDeployed(account, tas.GetBattle().Map.Name, parts[0], parts[1], (int) double.Parse(parts[2]), (int) double.Parse(parts[3]), parts[4]);
+                         return;
+                     } catch (Exception ex) {
+-                        Program.main.AutoHost.SayBattle(&quot;Error sending data:&quot; + ex);
++                        autoHost.SayBattle(&quot;Error sending data:&quot; + ex);
+                     }
+                 }
+             }
+@@ -316,7 +304,7 @@
+                 var current = server.GetOffensiveFaction(account);
+ 
+                 var info = server.GetPlayerInfo(account, name);
+-                if (info != null) autoHost.SayBattle(string.Format(&quot;{0} {1} {2}. Attacking faction is {3}&quot;, info.IsCommanderInChief ? &quot;All hail to&quot; : &quot;Greetings, &quot;, info.RankText, name, current.Name), false);
++                if (info != null) autoHost.SayBattle(string.Format(&quot;{0} {1} {2}. Attacking faction is {3}. <A HREF="http://planet-wars.eu/player.aspx?name={4">http://planet-wars.eu/player.aspx?name={4</A>}&quot;, info.IsCommanderInChief ? &quot;All hail to&quot; : &quot;Greetings, &quot;, info.RankText, name, current.Name, Uri.EscapeDataString(current.Name)), false);
+             } catch (Exception ex) {
+                 autoHost.SayBattle(&quot;PlanetWars error: &quot; + ex);
+             }
+@@ -324,7 +312,7 @@
+ 
+         public void UserJoinedChannel(string channel, string name)
+         {
+-            if (planetWarsChannels.Contains(channel) &amp;&amp; name != &quot;ChanServ&quot; &amp;&amp; name != tas.UserName) {
++            if (planetWarsChannels.Contains(channel) &amp;&amp; name != tas.UserName) {
+                 bool? isOk = null;
+                 string side;
+                 if (planetWarsPlayerSide.TryGetValue(name, out side)) {
+@@ -338,7 +326,13 @@
+                     } catch (Exception ex) {
+                         autoHost.SayBattle(&quot;Error fetching user info:&quot; + ex);
+                     }
+-                    if (usinfo == null) isOk = false;
++                    if (usinfo == null) {
++                        if (channelAllowedExceptions.Contains(name)) isOk = true;
++                        else {
++                            channelAllowedExceptions = new List&lt;string&gt;(server.GetFactionChannelAllowedExceptions());
++                            isOk = channelAllowedExceptions.Contains(name);
++                        }
++                    }
+                     else {
+                         string realFact = usinfo.FactionName.ToLower();
+                         planetWarsPlayerSide[name] = realFact;
+@@ -375,11 +369,24 @@
+                         return;
+                     }
+                 } else {
+-                    int hisFaction = factions.IndexOf(factions.Find((f) =&gt; f.Name == info.FactionName));
+-                    if (user.AllyNumber != hisFaction) {
+-                        tas.ForceAlly(user.name, hisFaction);
+-                        autoHost.SayBattle(string.Format(&quot;{0} must play in team {1}&quot;, user.name, hisFaction + 1), false);
+-                        return;
++                    if (autoHost.ComFix(TasSayEventArgs.Default, &quot;silent&quot; )) {
++                        int hisFaction = factions.IndexOf(factions.Find((f) =&gt; f.Name == info.FactionName));
++                        if (user.AllyNumber != hisFaction) // he is in wrong ally
++                        {
++                            tas.ForceAlly(user.name, hisFaction);
++                            autoHost.SayBattle(string.Format(&quot;{0} must play in team {1}&quot;, user.name, hisFaction + 1), false);
++                            return;
++                        } else { // his ally number was ok, lets check for team balance
++                            Battle b = tas.GetBattle();
++                            var grouping = b.Users.Where(u =&gt; !u.IsSpectator).GroupBy(u =&gt; u.AllyNumber).OrderBy(g =&gt; g.Key).ToList();
++                            if (grouping.Count() ==2 &amp;&amp; grouping.Count() &gt; hisFaction) {
++                                if (grouping[hisFaction].Count() &gt; 2*grouping[(hisFaction +1)%2].Count()) {
++                                    tas.ForceSpectator(user.name);
++                                    autoHost.SayBattle(string.Format(&quot;There are too many players on that side {0}&quot;, user.name));
++                                }
++                            }
++                        }
++
+                     }
+                 }
+             } catch (Exception ex) {
+
+Modified: Lobby/springie/Springie/autohost/AutoHost_commands.cs
+===================================================================
+--- Lobby/springie/Springie/autohost/AutoHost_commands.cs	2008-12-04 19:19:54 UTC (rev 7119)
++++ Lobby/springie/Springie/autohost/AutoHost_commands.cs	2008-12-04 19:23:32 UTC (rev 7120)
+@@ -396,20 +396,31 @@
+         }
+ 
+ 
+-        public void ComFix(TasSayEventArgs e, string[] words)
++        /// &lt;summary&gt;
++        /// fixes ids
++        /// &lt;/summary&gt;
++        /// &lt;param name=&quot;e&quot;&gt;&lt;/param&gt;
++        /// &lt;param name=&quot;words&quot;&gt;if param is &quot;silent&quot; does not advertise id fixing&lt;/param&gt;
++        /// &lt;returns&gt;true if id teams were already fixed&lt;/returns&gt;
++        public bool ComFix(TasSayEventArgs e, params string[] words)
+         {
+             var b = tas.GetBattle();
+             int cnt = 0;
+             var biggest = b.Users.Where(x =&gt; !x.IsSpectator).GroupBy(x =&gt; x.TeamNumber).Select(g =&gt; g.Count()).Max();
+-            if (biggest &gt; 1) {
+-                foreach (var u in b.Users) {
+-                    if (!u.IsSpectator) {
++            if (biggest &gt; 1)
++            {
++                foreach (var u in b.Users)
++                {
++                    if (!u.IsSpectator)
++                    {
+                         tas.ForceTeam(u.name, cnt);
+                         cnt++;
+                     }
+                 }
+-                SayBattle(&quot;team numbers fixed&quot;);
++                if (words == null || words.Length == 0 || words[0] != &quot;silent&quot;) SayBattle(&quot;team numbers fixed&quot;);
++                return false;
+             }
++            else return true;
+         }
+ 
+ 
+
+Modified: Lobby/springie/Springie/autohost/Polls.cs
+===================================================================
+--- Lobby/springie/Springie/autohost/Polls.cs	2008-12-04 19:19:54 UTC (rev 7119)
++++ Lobby/springie/Springie/autohost/Polls.cs	2008-12-04 19:23:32 UTC (rev 7120)
+@@ -321,6 +321,8 @@
+ 
+ 		#endregion
+ 
++	    private int allowedAlly = -1;
++
+ 		#region Constructors
+ 
+ 		public VoteForceStart(TasClient tas, Spring spring, AutoHost ah) : base(tas, spring, ah) {}
+@@ -333,6 +335,17 @@
+ 		{
+ 			if (!spring.IsRunning) {
+ 				ah.SayBattle(&quot;Do you want to force start game? !vote 1 = yes, !vote 2 = no&quot;);
++			    
++                // only smallest ally team can vote
++                var b = tas.GetBattle();
++                var grouping = b.Users.Where(u =&gt; !u.IsSpectator).GroupBy(u =&gt; u.AllyNumber).OrderBy(g =&gt; g.Count()).ToList();
++                if (grouping.Count() == 2)
++                {
++                    allowedAlly = grouping[0].Key;
++                    initialUserCount = grouping[0].Count();
++                }
++                else allowedAlly = -1;
++
+ 				return true;
+ 			} else {
+ 				AutoHost.Respond(tas, spring, e, &quot;battle already started&quot;);
+@@ -343,13 +356,22 @@
+ 
+ 		public bool Vote(TasSayEventArgs e, string[] words)
+ 		{
+-			int vote;
+-			if (!RegisterVote(e, words, out vote)) {
+-				AutoHost.Respond(tas, spring, e, &quot;You must vote valid option/not be a spectator&quot;);
+-				return false;
+-			}
++		    int vote;
++		    if (allowedAlly != -1) {
++		        int ally = tas.GetBattle().Users.Where(u =&gt; u.name == e.UserName &amp;&amp; !u.IsSpectator).Select(u =&gt; u.AllyNumber).SingleOrDefault();
++                if (ally != allowedAlly) {
++                    AutoHost.Respond(tas, spring, e, &quot;Only smaller team can vote&quot;);
++                    return false;
++                }
++		    }
+ 
+-			int winVote;
++
++		    if (!RegisterVote(e, words, out vote)) {
++		        AutoHost.Respond(tas, spring, e, &quot;You must vote valid option/not be a spectator&quot;);
++		        return false;
++		    }
++
++    	    int winVote;
+ 			if (CheckEnd(out winVote)) {
+ 				if (winVote == 1) {
+ 					ah.SayBattle(&quot;vote successful - force starting&quot;);
+
+Modified: Lobby/springie/Springie/client/UserBattleStatus.cs
+===================================================================
+--- Lobby/springie/Springie/client/UserBattleStatus.cs	2008-12-04 19:19:54 UTC (rev 7119)
++++ Lobby/springie/Springie/client/UserBattleStatus.cs	2008-12-04 19:23:32 UTC (rev 7120)
+@@ -28,6 +28,7 @@
+ 		public SyncStatuses SyncStatus = SyncStatuses.Unknown;
+ 		public int TeamColor;
+ 		public int TeamNumber;
++	    public DateTime JoinTime = DateTime.Now;
+ 
+ 		#endregion
+ 
+
+Modified: Lobby/springie/libs/PlanetWarsShared.dll
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001888.html">[Taspring-linux-commit] r7119 - in branches/caiinterface: .	AI/Interfaces AI/Interfaces/Java AI/Skirmish rts/ExternalAI	rts/build/scons
+</A></li>
+	<LI>Next message: <A HREF="001890.html">[Taspring-linux-commit] r7121 - in branches/caiinterface: .	AI/Interfaces/Java rts/System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1889">[ date ]</a>
+              <a href="thread.html#1889">[ thread ]</a>
+              <a href="subject.html#1889">[ subject ]</a>
+              <a href="author.html#1889">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

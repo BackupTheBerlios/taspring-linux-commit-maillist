@@ -1,0 +1,397 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5409 - in trunk: rts/Game	tools/DedicatedServer
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5409%20-%20in%20trunk%3A%20rts/Game%0A%09tools/DedicatedServer&In-Reply-To=%3CE1JJCtf-0006cw-Su%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000215.html">
+   <LINK REL="Next"  HREF="000217.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5409 - in trunk: rts/Game	tools/DedicatedServer</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5409%20-%20in%20trunk%3A%20rts/Game%0A%09tools/DedicatedServer&In-Reply-To=%3CE1JJCtf-0006cw-Su%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5409 - in trunk: rts/Game	tools/DedicatedServer">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Jan 27 20:10:27 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000215.html">[Taspring-linux-commit] r5408 - in trunk/rts: Game/StartScripts	Rendering/GL Sim/Units Sim/Units/CommandAI System	System/Platform/Win
+</A></li>
+        <LI>Next message: <A HREF="000217.html">[Taspring-linux-commit] r5410 - trunk/rts/Rendering
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#216">[ date ]</a>
+              <a href="thread.html#216">[ thread ]</a>
+              <a href="subject.html#216">[ subject ]</a>
+              <a href="author.html#216">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-01-27 20:10:27 +0100 (Sun, 27 Jan 2008)
+New Revision: 5409
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/Game.h
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameServer.h
+   trunk/rts/Game/PreGame.cpp
+   trunk/tools/DedicatedServer/main.cpp
+Log:
+* CGameServer uses simplified gamesetup-class
+* server detects when there are no players left and exits
+* fixed critical bug in TEAMMSG_JOIN_TEAM
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-01-27 16:59:54 UTC (rev 5408)
++++ trunk/rts/Game/Game.cpp	2008-01-27 19:10:27 UTC (rev 5409)
+@@ -235,7 +235,6 @@
+ 
+ 	playing  = false;
+ 	gameOver = false;
+-	allReady = false;
+ 	skipping = 0;
+ 
+ 	drawFpsHUD = true;
+@@ -1082,7 +1081,7 @@
+ 	else if (((cmd == &quot;chat&quot;)     || (cmd == &quot;chatall&quot;) ||
+ 	         (cmd == &quot;chatally&quot;) || (cmd == &quot;chatspec&quot;)) &amp;&amp;
+ 	         // if chat is bound to enter and we're waiting for user to press enter to start game, ignore.
+-				  (ks.Key() != SDLK_RETURN || !(gameServer &amp;&amp; gameServer-&gt;WaitsOnCon() &amp;&amp; allReady))) {
++				  (ks.Key() != SDLK_RETURN || !(gameServer &amp;&amp; gameServer-&gt;WaitsOnCon()))) {
+ 
+ 		if (cmd == &quot;chatall&quot;)  { userInputPrefix = &quot;&quot;; }
+ 		if (cmd == &quot;chatally&quot;) { userInputPrefix = &quot;a:&quot;; }
+@@ -3212,7 +3211,7 @@
+ 					}
+ 					case TEAMMSG_JOIN_TEAM: {
+ 						//TODO is this enought?
+-						gs-&gt;players[inbuf[3]]-&gt;team = int(inbuf[3]);
++						gs-&gt;players[player]-&gt;team = int(inbuf[3]);
+ 						break;
+ 					}
+ 					default: {
+
+Modified: trunk/rts/Game/Game.h
+===================================================================
+--- trunk/rts/Game/Game.h	2008-01-27 16:59:54 UTC (rev 5408)
++++ trunk/rts/Game/Game.h	2008-01-27 19:10:27 UTC (rev 5409)
+@@ -88,7 +88,6 @@
+ 
+ 	int skipping;
+ 	bool playing;
+-	bool allReady;
+ 	bool chatting;
+ 	bool camMove[8];
+ 	bool camRot[4];
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-01-27 16:59:54 UTC (rev 5408)
++++ trunk/rts/Game/GameServer.cpp	2008-01-27 19:10:27 UTC (rev 5409)
+@@ -10,7 +10,7 @@
+ #include &quot;Game.h&quot;
+ #endif
+ 
+-#include &quot;GameSetup.h&quot;
++#include &quot;GameSetupData.h&quot;
+ #include &quot;System/StdAfx.h&quot;
+ #include &quot;System/BaseNetProtocol.h&quot;
+ #include &quot;System/DemoReader.h&quot;
+@@ -39,8 +39,10 @@
+ 
+ CGameServer* gameServer=0;
+ 
+-CGameServer::CGameServer(int port, const std::string&amp; newMapName, const std::string&amp; newModName, const std::string&amp; newScriptName, const std::string&amp; demoName)
++CGameServer::CGameServer(int port, const std::string&amp; newMapName, const std::string&amp; newModName, const std::string&amp; newScriptName, const CGameSetupData* const mysetup = 0, const std::string&amp; demoName)
++: setup(mysetup)
+ {
++	serverStartTime = SDL_GetTicks();
+ 	delayedSyncResponseFrame = 0;
+ 	syncErrorFrame=0;
+ 	syncWarningFrame=0;
+@@ -81,10 +83,10 @@
+ 
+ 	lastTick = SDL_GetTicks();
+ 
+-	if (gameSetup) {
+-		maxUserSpeed = gameSetup-&gt;maxSpeed;
+-		minUserSpeed = gameSetup-&gt;minSpeed;
+-		noHelperAIs = (bool)gameSetup-&gt;noHelperAIs;
++	if (setup) {
++		maxUserSpeed = setup-&gt;maxSpeed;
++		minUserSpeed = setup-&gt;minSpeed;
++		noHelperAIs = (bool)setup-&gt;noHelperAIs;
+ 	}
+ 	else
+ 	{
+@@ -346,6 +348,12 @@
+ 	}
+ 	if (!demoReader &amp;&amp; !sentGameOverMsg)
+ 		CheckForGameEnd();
++	
++	if ((SDL_GetTicks() - serverStartTime) &gt; 30000 &amp;&amp; serverNet-&gt;MaxConnectionID() == -1)
++	{
++		SendSystemMsg(&quot;No clients connected, exiting...&quot;);
++		quitServer = true;
++	}
+ }
+ 
+ void CGameServer::ServerReadNet()
+@@ -475,7 +483,7 @@
+ 						if(inbuf[1] != a){
+ 							SendSystemMsg(&quot;Server: Warning got startpos msg from %i claiming to be from %i&quot;,a,inbuf[1]);
+ 						}
+-						else if (gameSetup &amp;&amp; gameSetup-&gt;startPosType == CGameSetupData::StartPos_ChooseInGame)
++						else if (setup &amp;&amp; setup-&gt;startPosType == CGameSetupData::StartPos_ChooseInGame)
+ 						{
+ 							unsigned team = (unsigned)inbuf[2];
+ 							if (teams[team])
+@@ -703,11 +711,11 @@
+ 	CRC entropy;
+ 	entropy.UpdateData((const unsigned char*)&amp;lastTick, sizeof(lastTick));
+ 
+-	// Third dword is CRC of gameSetupText (if there is a gameSetup)
+-	// or pseudo random bytes (if there is no gameSetup)
+-	if (gameSetup != NULL) {
++	// Third dword is CRC of setupText (if there is a setup)
++	// or pseudo random bytes (if there is no setup)
++	if (setup != NULL) {
+ 		CRC crc;
+-		crc.UpdateData((const unsigned char*)gameSetup-&gt;gameSetupText, gameSetup-&gt;gameSetupTextLength);
++		crc.UpdateFile(setup-&gt;setupFileName);
+ 		gameID.intArray[2] = crc.GetCRC();
+ 	}
+ 
+@@ -722,9 +730,9 @@
+ 	bool allReady = true;
+ 	unsigned numDemoPlayers = demoReader ? demoReader-&gt;GetFileHeader().maxPlayerNum+1 : 0;
+ 	
+-	if (gameSetup)
++	if (setup)
+ 	{
+-		for (unsigned a = numDemoPlayers; a &lt; (unsigned)gameSetup-&gt;numPlayers; a++) {
++		for (unsigned a = numDemoPlayers; a &lt; (unsigned)setup-&gt;numPlayers; a++) {
+ 			if (!players[a] || !players[a]-&gt;readyToStart) {
+ 				allReady = false;
+ 				break;
+@@ -738,7 +746,7 @@
+ 	else
+ 	{
+ 		allReady = false;
+-		// no gameSetup, wait for host to send NETMSG_STARTPLAYING
++		// no setup, wait for host to send NETMSG_STARTPLAYING
+ 		// if this is the case, forced is true...
+ 		if (forced)
+ 		{
+@@ -793,7 +801,7 @@
+ 	}
+ 
+ 	GenerateAndSendGameID();
+-	if (gameSetup) {
++	if (setup) {
+ 		for (unsigned a = 0; a &lt; MAX_TEAMS; ++a)
+ 		{
+ 			if (teams[a])
+@@ -817,6 +825,12 @@
+ 	gamePausable = arg;
+ }
+ 
++bool CGameServer::HasFinished() const
++{
++	boost::mutex::scoped_lock scoped_lock(gameServerMutex);
++	return quitServer;
++}
++
+ void CGameServer::CheckForGameEnd()
+ {
+ 	if (gameEndTime &gt; 0) {
+@@ -895,7 +909,7 @@
+ 
+ void CGameServer::UpdateLoop()
+ {
+-	while(!quitServer)
++	while (!quitServer)
+ 	{
+ 		{
+ 			boost::mutex::scoped_lock scoped_lock(gameServerMutex);
+@@ -944,14 +958,14 @@
+ 	}
+ 
+ 	players[hisNewNumber].reset(new GameParticipant(grantRights)); // give him rights to change speed, kick players etc
+-	if (gameSetup &amp;&amp; hisNewNumber &lt; (unsigned)gameSetup-&gt;numPlayers/* needed for non-hosted demo playback */)
++	if (setup &amp;&amp; hisNewNumber &lt; (unsigned)setup-&gt;numPlayers/* needed for non-hosted demo playback */)
+ 	{
+-		unsigned hisTeam = gameSetup-&gt;playerStartingTeam[hisNewNumber];
++		unsigned hisTeam = setup-&gt;playerStartingTeam[hisNewNumber];
+ 		if (!teams[hisTeam]) // is commsharing
+ 		{
+ 			teams[hisTeam].reset(new GameTeam());
+-			teams[hisTeam]-&gt;startpos = gameSetup-&gt;startPos[hisTeam];
+-			teams[hisTeam]-&gt;readyToStart = (gameSetup-&gt;startPosType != CGameSetup::StartPos_ChooseInGame);
++			teams[hisTeam]-&gt;startpos = setup-&gt;startPos[hisTeam];
++			teams[hisTeam]-&gt;readyToStart = (setup-&gt;startPosType != CGameSetupData::StartPos_ChooseInGame);
+ 		}
+ 		players[hisNewNumber]-&gt;team = hisTeam;
+ 		serverNet-&gt;SendJoinTeam(hisNewNumber, hisTeam);
+
+Modified: trunk/rts/Game/GameServer.h
+===================================================================
+--- trunk/rts/Game/GameServer.h	2008-01-27 16:59:54 UTC (rev 5408)
++++ trunk/rts/Game/GameServer.h	2008-01-27 19:10:27 UTC (rev 5409)
+@@ -15,6 +15,7 @@
+ class CBaseNetProtocol;
+ class CDemoReader;
+ class AutohostInterface;
++class CGameSetupData;
+ 
+ const unsigned SERVER_PLAYER = 255; //server generated message which needs a playernumber
+ 
+@@ -52,7 +53,7 @@
+ {
+ 	friend class CLoadSaveHandler;     //For initialize server state after load
+ public:
+-	CGameServer(int port, const std::string&amp; mapName, const std::string&amp; modName, const std::string&amp; scriptName, const std::string&amp; demoName = &quot;&quot;);
++	CGameServer(int port, const std::string&amp; mapName, const std::string&amp; modName, const std::string&amp; scriptName, const CGameSetupData* const setup, const std::string&amp; demoName = &quot;&quot;);
+ 	~CGameServer();
+ 
+ 	void AddLocalClient(unsigned wantedNumber);
+@@ -79,6 +80,9 @@
+ 	void PlayerDefeated(const int playerNum) const;
+ 
+ 	void SetGamePausable(const bool arg);
++	
++	/// Is the server still running?
++	bool HasFinished() const;
+ 
+ #ifdef DEBUG
+ 	bool gameClientUpdated;			//used to prevent the server part to update to fast when the client is mega slow (running some sort of debug mode)
+@@ -110,24 +114,17 @@
+ 	void ServerReadNet();
+ 	void CheckForGameEnd();
+ 
+-	/// Class for network communication
+-	CBaseNetProtocol* serverNet;
+-
+-	CDemoReader* demoReader;
+-
+-	/// Inform 3. party programms about events
+-	AutohostInterface* hostif;
+-
+ 	void GenerateAndSendGameID();
+ 	void SetBoolArg(bool&amp; value, const std::string&amp; str, const char* cmd);
+ 	std::string GetPlayerNames(const std::vector&lt;int&gt;&amp; indices) const;
+ 
+ 	/////////////////// game status variables ///////////////////
+ 
+-	bool quitServer;
++	volatile bool quitServer;
+ 	int serverframenum;
+ 	int nextserverframenum; //For loading game
+ 
++	unsigned serverStartTime;
+ 	unsigned readyTime;
+ 	unsigned gameStartTime;
+ 	unsigned gameEndTime;	//Tick when game end was detected
+@@ -146,6 +143,7 @@
+ 	boost::scoped_ptr&lt;GameTeam&gt; teams[MAX_TEAMS];
+ 
+ 	/////////////////// game settings ///////////////////
++	const CGameSetupData* const setup;
+ 	/// Wheter the game is pausable for others than the host
+ 	bool gamePausable;
+ 
+@@ -171,6 +169,9 @@
+ 	int delayedSyncResponseFrame;
+ 
+ 	///////////////// internal stuff //////////////////
++	CBaseNetProtocol* serverNet;
++	CDemoReader* demoReader;
++	AutohostInterface* hostif;
+ 	UnsyncedRNG rng;
+ 	boost::thread* thread;
+ 	mutable boost::mutex gameServerMutex;
+
+Modified: trunk/rts/Game/PreGame.cpp
+===================================================================
+--- trunk/rts/Game/PreGame.cpp	2008-01-27 16:59:54 UTC (rev 5408)
++++ trunk/rts/Game/PreGame.cpp	2008-01-27 19:10:27 UTC (rev 5409)
+@@ -339,7 +339,7 @@
+ 			if ((server || hasDemo) &amp;&amp; !gameServer) {
+ 				good_fpu_control_registers(&quot;before CGameServer creation&quot;);
+ 				int myPort = gameSetup? gameSetup-&gt;hostport : 8452;
+-				gameServer = new CGameServer(myPort, mapName, modName, scriptName, demoFile);
++				gameServer = new CGameServer(myPort, mapName, modName, scriptName, gameSetup, demoFile);
+ 				int autohostport = configHandler.GetInt(&quot;Autohost&quot;, 0);
+ 				if (autohostport &gt; 0)
+ 					gameServer-&gt;AddAutohostInterface(myPort+1, autohostport);
+@@ -518,7 +518,7 @@
+ 					}
+ 					case TEAMMSG_JOIN_TEAM: {
+ 						//TODO is this enought?
+-						gs-&gt;players[inbuf[3]]-&gt;team = int(inbuf[3]);
++						gs-&gt;players[player]-&gt;team = int(inbuf[3]);
+ 						break;
+ 					}
+ 					default: {
+
+Modified: trunk/tools/DedicatedServer/main.cpp
+===================================================================
+--- trunk/tools/DedicatedServer/main.cpp	2008-01-27 16:59:54 UTC (rev 5408)
++++ trunk/tools/DedicatedServer/main.cpp	2008-01-27 19:10:27 UTC (rev 5409)
+@@ -2,15 +2,17 @@
+ #include &quot;GameSetupData.h&quot;
+ #include &quot;System/Platform/FileSystem.h&quot;
+ 
+-CGameSetupData* gameSetup = 0;
+ 
+ int main(int argc, char *argv[])
+ {
+ 	FileSystemHandler::Cleanup();
+ 	FileSystemHandler::Initialize(false);
+ 	
+-	CGameServer* temp = new CGameServer(8452, &quot;Altored_Divide.smf&quot;, &quot;Balanced Annihilation V5.91&quot;, &quot;Cmds 1000 res&quot;);
+-	sleep(60);
++	CGameSetupData* gameSetup = 0;
++	
++	CGameServer* temp = new CGameServer(8452, &quot;Altored_Divide.smf&quot;, &quot;Balanced Annihilation V6.0&quot;, &quot;Cmds 1000 res&quot;, gameSetup);
++	while (!temp-&gt;HasFinished())
++		sleep(1);
+ 	delete temp;
+ 	
+ 	FileSystemHandler::Cleanup();
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000215.html">[Taspring-linux-commit] r5408 - in trunk/rts: Game/StartScripts	Rendering/GL Sim/Units Sim/Units/CommandAI System	System/Platform/Win
+</A></li>
+	<LI>Next message: <A HREF="000217.html">[Taspring-linux-commit] r5410 - trunk/rts/Rendering
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#216">[ date ]</a>
+              <a href="thread.html#216">[ thread ]</a>
+              <a href="subject.html#216">[ subject ]</a>
+              <a href="author.html#216">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

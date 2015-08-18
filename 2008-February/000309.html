@@ -1,0 +1,555 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5502 - in trunk/rts/Sim: Features Misc	Projectiles Units
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5502%20-%20in%20trunk/rts/Sim%3A%20Features%20Misc%0A%09Projectiles%20Units&In-Reply-To=%3CE1JPmYL-000320-AY%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000308.html">
+   <LINK REL="Next"  HREF="000310.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5502 - in trunk/rts/Sim: Features Misc	Projectiles Units</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5502%20-%20in%20trunk/rts/Sim%3A%20Features%20Misc%0A%09Projectiles%20Units&In-Reply-To=%3CE1JPmYL-000320-AY%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5502 - in trunk/rts/Sim: Features Misc	Projectiles Units">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Feb 14 23:27:37 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000308.html">[Taspring-linux-commit] r5501 - in trunk: Documentation rts/Game	rts/Game/Server rts/System tools/DedicatedServer
+</A></li>
+        <LI>Next message: <A HREF="000310.html">[Taspring-linux-commit] r5503 - in trunk/rts: Lua	Rendering/UnitModels Sim/Features	Sim/Projectiles/WeaponProjectiles Sim/Units
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#309">[ date ]</a>
+              <a href="thread.html#309">[ thread ]</a>
+              <a href="subject.html#309">[ subject ]</a>
+              <a href="author.html#309">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-02-14 23:27:36 +0100 (Thu, 14 Feb 2008)
+New Revision: 5502
+
+Modified:
+   trunk/rts/Sim/Features/Feature.cpp
+   trunk/rts/Sim/Features/Feature.h
+   trunk/rts/Sim/Features/FeatureDef.h
+   trunk/rts/Sim/Features/FeatureHandler.cpp
+   trunk/rts/Sim/Misc/CollisionVolume.cpp
+   trunk/rts/Sim/Misc/CollisionVolume.h
+   trunk/rts/Sim/Projectiles/ProjectileHandler.cpp
+   trunk/rts/Sim/Units/UnitDefHandler.cpp
+   trunk/rts/Sim/Units/UnitLoader.cpp
+Log:
+custom collision volumes, round 2 (grant features the same privilege as units)
+
+Modified: trunk/rts/Sim/Features/Feature.cpp
+===================================================================
+--- trunk/rts/Sim/Features/Feature.cpp	2008-02-14 13:39:43 UTC (rev 5501)
++++ trunk/rts/Sim/Features/Feature.cpp	2008-02-14 22:27:36 UTC (rev 5502)
+@@ -14,6 +14,7 @@
+ #include &quot;Rendering/UnitModels/3DOParser.h&quot;
+ #include &quot;Rendering/UnitModels/UnitDrawer.h&quot;
+ #include &quot;Sim/ModInfo.h&quot;
++#include &quot;Sim/Misc/CollisionVolume.h&quot;
+ #include &quot;Sim/Projectiles/FireProjectile.h&quot;
+ #include &quot;Sim/Projectiles/ProjectileHandler.h&quot;
+ #include &quot;Sim/Projectiles/Unsynced/GeoThermSmokeProjectile.h&quot;
+@@ -51,9 +52,6 @@
+ 				));
+ 
+ 
+-#define TREE_RADIUS 20
+-
+-
+ CFeature::CFeature()
+ :	def(0),
+ 	inUpdateQue(false),
+@@ -163,11 +161,19 @@
+ 		height = model-&gt;height;
+ 		SetRadius(model-&gt;radius);
+ 		midPos = pos + model-&gt;relMidPos;
++
++		// CFeatureHandler left this volume's axis-scales uninitialized
++		if (def-&gt;collisionVolume-&gt;GetScale(COLVOL_AXIS_X) &lt; 0.01f &amp;&amp;
++			def-&gt;collisionVolume-&gt;GetScale(COLVOL_AXIS_Y) &lt; 0.01f &amp;&amp;
++			def-&gt;collisionVolume-&gt;GetScale(COLVOL_AXIS_Z) &lt; 0.01f) {
++			def-&gt;collisionVolume-&gt;SetDefaultScale(model-&gt;radius);
++		}
+ 	}
+ 	else if (def-&gt;drawType == DRAWTYPE_TREE){
+ 		SetRadius(TREE_RADIUS);
+ 		midPos = pos + (UpVector * TREE_RADIUS);
+ 		height = 2 * TREE_RADIUS;
++		def-&gt;collisionVolume-&gt;SetDefaultScale(TREE_RADIUS);
+ 	}
+ 	else {
+ 		SetRadius(0.0f);
+
+Modified: trunk/rts/Sim/Features/Feature.h
+===================================================================
+--- trunk/rts/Sim/Features/Feature.h	2008-02-14 13:39:43 UTC (rev 5501)
++++ trunk/rts/Sim/Features/Feature.h	2008-02-14 22:27:36 UTC (rev 5502)
+@@ -9,6 +9,8 @@
+ #include &lt;string&gt;
+ #include &lt;boost/noncopyable.hpp&gt;
+ 
++#define TREE_RADIUS 20
++
+ struct FeatureDef;
+ class CUnit;
+ struct DamageArray;
+
+Modified: trunk/rts/Sim/Features/FeatureDef.h
+===================================================================
+--- trunk/rts/Sim/Features/FeatureDef.h	2008-02-14 13:39:43 UTC (rev 5501)
++++ trunk/rts/Sim/Features/FeatureDef.h	2008-02-14 22:27:36 UTC (rev 5502)
+@@ -6,6 +6,7 @@
+ #define DRAWTYPE_NONE -1
+ 
+ struct S3DOModel;
++class CCollisionVolume;
+ 
+ struct FeatureDef
+ {
+@@ -19,6 +20,7 @@
+ 		xsize(0), ysize(0), reclaimTime(0) {}
+ 
+ 	S3DOModel* LoadModel(int team) const;
++	CCollisionVolume* collisionVolume;
+ 
+ 	std::string myName;
+ 	std::string description;
+@@ -37,6 +39,10 @@
+ 	float3 collisionSphereOffset;
+ 	bool useCSOffset;
+ 
++	std::string collisionVolumeType;	// can be &quot;Ell&quot;, &quot;CylT&quot; (where T is one of &quot;XYZ&quot;), or &quot;Box&quot;
++	float3 collisionVolumeScales;		// the collision volume's full axis lengths
++	float3 collisionVolumeOffsets;		// relative to the feature's center position
++
+ 	bool upright;
+ 	int drawType;
+ 	/// used by 3do obects
+
+Modified: trunk/rts/Sim/Features/FeatureHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Features/FeatureHandler.cpp	2008-02-14 13:39:43 UTC (rev 5501)
++++ trunk/rts/Sim/Features/FeatureHandler.cpp	2008-02-14 22:27:36 UTC (rev 5502)
+@@ -21,6 +21,7 @@
+ #include &quot;Rendering/ShadowHandler.h&quot;
+ #include &quot;Rendering/UnitModels/3DOParser.h&quot;
+ #include &quot;Rendering/UnitModels/UnitDrawer.h&quot;
++#include &quot;Sim/Misc/CollisionVolume.h&quot;
+ #include &quot;Sim/Units/UnitHandler.h&quot;
+ #include &quot;Sim/Units/CommandAI/BuilderCAI.h&quot;
+ #include &quot;System/TimeProfiler.h&quot;
+@@ -126,15 +127,32 @@
+ 
+ CFeatureHandler::~CFeatureHandler()
+ {
+-	for(CFeatureSet::iterator fi=activeFeatures.begin(); fi != activeFeatures.end(); ++fi)
++	for (CFeatureSet::iterator fi = activeFeatures.begin(); fi != activeFeatures.end(); ++fi) {
++		// unsavory, but better than a memleak
++		FeatureDef* fd = (FeatureDef*) (*fi)-&gt;def;
++		if (fd-&gt;collisionVolume) {
++			delete fd-&gt;collisionVolume;
++			fd-&gt;collisionVolume = 0;
++		}
++
+ 		delete *fi;
++	}
++
+ 	activeFeatures.clear();
+ 
+-	while(!featureDefs.empty()){
+-		std::map&lt;std::string, const FeatureDef*&gt;::iterator fi=featureDefs.begin();
++	while (!featureDefs.empty()) {
++		std::map&lt;std::string, const FeatureDef*&gt;::iterator fi = featureDefs.begin();
++
++		FeatureDef* fd = (FeatureDef*) fi-&gt;second;
++		if (fd-&gt;collisionVolume) {
++			delete fd-&gt;collisionVolume;
++			fd-&gt;collisionVolume = 0;
++		}
++
+ 		delete fi-&gt;second;
+ 		featureDefs.erase(fi);
+ 	}
++
+ 	delete treeDrawer;
+ }
+ 
+@@ -144,8 +162,8 @@
+ 
+ void CFeatureHandler::PostLoad()
+ {
+-	drawQuadsX=gs-&gt;mapx/DRAW_QUAD_SIZE;
+-	drawQuadsY=gs-&gt;mapy/DRAW_QUAD_SIZE;
++	drawQuadsX = gs-&gt;mapx/DRAW_QUAD_SIZE;
++	drawQuadsY = gs-&gt;mapy/DRAW_QUAD_SIZE;
+ 	drawQuads.clear();
+ 	drawQuads.resize(drawQuadsX * drawQuadsY);
+ 
+@@ -216,8 +234,19 @@
+ 	fd-&gt;collisionSphereOffset = fdTable.GetFloat3(&quot;collisionSphereOffset&quot;, ZeroVector);
+ 	fd-&gt;useCSOffset = (fd-&gt;collisionSphereOffset != ZeroVector);
+ 
+- 	fd-&gt;upright = fdTable.GetBool(&quot;upright&quot;, false);
+ 
++	// these take precedence over the old sphere tags as well as
++	// feature-&gt;radius (for feature &lt;--&gt; projectile interactions)
++	fd-&gt;collisionVolumeType = fdTable.GetString(&quot;collisionVolumeType&quot;, &quot;&quot;);
++	fd-&gt;collisionVolumeScales = fdTable.GetFloat3(&quot;collisionVolumeScales&quot;, ZeroVector);
++	fd-&gt;collisionVolumeOffsets = fdTable.GetFloat3(&quot;collisionVolumeOffsets&quot;, ZeroVector);
++
++	// initialize the (per-featuredef) collision-volume
++	fd-&gt;collisionVolume = SAFE_NEW CCollisionVolume(fd-&gt;collisionVolumeType, fd-&gt;collisionVolumeScales, fd-&gt;collisionVolumeOffsets);
++
++
++	fd-&gt;upright = fdTable.GetBool(&quot;upright&quot;, false);
++
+ 	// our resolution is double TA's
+ 	fd-&gt;xsize = fdTable.GetInt(&quot;footprintX&quot;, 1) * 2;
+ 	fd-&gt;ysize = fdTable.GetInt(&quot;footprintZ&quot;, 1) * 2;
+@@ -284,6 +313,8 @@
+ 			fd-&gt;myName = name;
+ 			fd-&gt;description = &quot;Tree&quot;;
+ 			fd-&gt;mass = 20;
++			// trees by default have spheres of fixed radius (TREE_RADIUS)
++			fd-&gt;collisionVolume = SAFE_NEW CCollisionVolume(&quot;&quot;, ZeroVector, ZeroVector);
+ 			AddFeatureDef(name, fd);
+ 		}
+ 		else if (name.find(&quot;geovent&quot;) != string::npos) {
+@@ -293,7 +324,8 @@
+ 			fd-&gt;destructable = 0;
+ 			fd-&gt;reclaimable = false;
+ 			fd-&gt;geoThermal = true;
+-			fd-&gt;drawType = DRAWTYPE_NONE;	//geos are drawn into the ground texture and emit smoke to be visible
++			// geos are drawn into the ground texture and emit smoke to be visible
++			fd-&gt;drawType = DRAWTYPE_NONE;
+ 			fd-&gt;modelType = 0;
+ 			fd-&gt;energy = 0;
+ 			fd-&gt;metal = 0;
+@@ -303,6 +335,8 @@
+ 			fd-&gt;ysize = 0;
+ 			fd-&gt;myName = name;
+ 			fd-&gt;mass = 100000;
++			// geothermals have no collision volume at all
++			fd-&gt;collisionVolume = 0;
+ 			AddFeatureDef(name, fd);
+ 		}
+ 		else {
+
+Modified: trunk/rts/Sim/Misc/CollisionVolume.cpp
+===================================================================
+--- trunk/rts/Sim/Misc/CollisionVolume.cpp	2008-02-14 13:39:43 UTC (rev 5501)
++++ trunk/rts/Sim/Misc/CollisionVolume.cpp	2008-02-14 22:27:36 UTC (rev 5502)
+@@ -1,4 +1,5 @@
+-#include &quot;Sim/Units/Unit.h&quot;
++#include &lt;iostream&gt;
++
+ #include &quot;System/float3.h&quot;
+ #include &quot;System/Matrix44f.h&quot;
+ 
+@@ -17,8 +18,33 @@
+ ));
+ 
+ 
+-CCollisionVolume::CCollisionVolume(const float3&amp; volScales, const float3&amp; volOffsets, int primAxis, int volType)
++CCollisionVolume::CCollisionVolume(const std::string&amp; volTypeStr, const float3&amp; volScales, const float3&amp; volOffsets)
+ {
++	// note: primaryAxis is only relevant for cylinders
++	primaryAxis = COLVOL_AXIS_Z;
++	volumeType = COLVOL_TYPE_ELLIPSOID;
++
++	if (volTypeStr.size() &gt; 0) {
++		// note: case-sensitivity?
++		if (volTypeStr.find(&quot;Ell&quot;) != std::string::npos) {
++			volumeType = COLVOL_TYPE_ELLIPSOID;
++		}
++
++		if (volTypeStr.find(&quot;Cyl&quot;) != std::string::npos) {
++			volumeType = COLVOL_TYPE_CYLINDER;
++
++			if (volTypeStr.size() == 4) {
++				if (volTypeStr[3] == 'X') { primaryAxis = COLVOL_AXIS_X; }
++				if (volTypeStr[3] == 'Y') { primaryAxis = COLVOL_AXIS_Y; }
++				if (volTypeStr[3] == 'Z') { primaryAxis = COLVOL_AXIS_Z; }
++			}
++		}
++
++		if (volTypeStr.find(&quot;Box&quot;) != std::string::npos) {
++			volumeType = COLVOL_TYPE_BOX;
++		}
++	}
++
+ 	// set the full-axis lengths
+ 	axisScales[COLVOL_AXIS_X] = volScales.x;
+ 	axisScales[COLVOL_AXIS_Y] = volScales.y;
+@@ -34,14 +60,11 @@
+ 	const float yHScale = axisScales[COLVOL_AXIS_Y] * 0.5f;
+ 	const float zHScale = axisScales[COLVOL_AXIS_Z] * 0.5f;
+ 
+-	// note: primaryAxis is only relevant for cylinders
+-	volumeType = volType;
+-	primaryAxis = primAxis;
+-	spherical = ((volType == COLVOL_TYPE_ELLIPSOID) &amp;&amp;
++	spherical = ((volumeType == COLVOL_TYPE_ELLIPSOID) &amp;&amp;
+ 				 (fabsf(xHScale - yHScale) &lt; 0.01f) &amp;&amp;
+ 				 (fabsf(yHScale - zHScale) &lt; 0.01f));
+ 
+-	switch (primAxis) {
++	switch (primaryAxis) {
+ 		case COLVOL_AXIS_X: {
+ 			secondaryAxes[0] = COLVOL_AXIS_Y;
+ 			secondaryAxes[1] = COLVOL_AXIS_Z;
+@@ -59,13 +82,13 @@
+ 	// set the radius of the minimum bounding sphere
+ 	// that encompasses this custom collision volume
+ 	// (for early-out testing)
+-	switch (volType) {
++	switch (volumeType) {
+ 		case COLVOL_TYPE_BOX: {
+ 			// would be an over-estimation for cylinders
+ 			volumeBoundingRadius = xHScale * xHScale + yHScale * yHScale + zHScale * zHScale;
+ 		} break;
+ 		case COLVOL_TYPE_CYLINDER: {
+-			const float primAxisScale = axisScales[primAxis        ] * 0.5f;
++			const float primAxisScale = axisScales[primaryAxis     ] * 0.5f;
+ 			const float secAxisScaleA = axisScales[secondaryAxes[0]] * 0.5f;
+ 			const float secAxisScaleB = axisScales[secondaryAxes[1]] * 0.5f;
+ 			const float maxSecAxisScale = std::max(secAxisScaleA, secAxisScaleB);
+
+Modified: trunk/rts/Sim/Misc/CollisionVolume.h
+===================================================================
+--- trunk/rts/Sim/Misc/CollisionVolume.h	2008-02-14 13:39:43 UTC (rev 5501)
++++ trunk/rts/Sim/Misc/CollisionVolume.h	2008-02-14 22:27:36 UTC (rev 5502)
+@@ -12,7 +12,7 @@
+ 		CR_DECLARE(CCollisionVolume)
+ 
+ 		CCollisionVolume() {}
+-		CCollisionVolume(const float3&amp;, const float3&amp;, int, int);
++		CCollisionVolume(const std::string&amp;, const float3&amp;, const float3&amp;);
+ 		~CCollisionVolume() {}
+ 
+ 		void SetDefaultScale(const float);
+
+Modified: trunk/rts/Sim/Projectiles/ProjectileHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Projectiles/ProjectileHandler.cpp	2008-02-14 13:39:43 UTC (rev 5501)
++++ trunk/rts/Sim/Projectiles/ProjectileHandler.cpp	2008-02-14 22:27:36 UTC (rev 5502)
+@@ -19,6 +19,7 @@
+ #include &quot;Map/Ground.h&quot;
+ #include &quot;Rendering/Textures/TextureHandler.h&quot;
+ #include &quot;Sim/Features/Feature.h&quot;
++#include &quot;Sim/Features/FeatureDef.h&quot;
+ #include &quot;Sim/Misc/CollisionVolume.h&quot;
+ #include &quot;Platform/ConfigHandler.h&quot;
+ #include &quot;Rendering/ShadowHandler.h&quot;
+@@ -599,6 +600,7 @@
+ 
+ 			qf-&gt;GetUnitsAndFeaturesExact(p-&gt;pos, p-&gt;radius + speedf, endUnit, endFeature);
+ 
++
+ 			for (CUnit** ui = tempUnits; ui != endUnit; ++ui) {
+ 				CUnit* unit = *ui;
+ 
+@@ -610,9 +612,9 @@
+ 
+ 				// pretend the projectile is a point-object
+ 				// when dealing with custom collision volumes
+-				const float sqUnitRadius = unit-&gt;unitDef-&gt;collisionVolume-&gt;GetBoundingRadiusSq();
+-				const float sqSeparation = (unit-&gt;midPos - p-&gt;pos).SqLength();
+ 				const CCollisionVolume* vol = unit-&gt;unitDef-&gt;collisionVolume;
++				const float sqUnitRadius = vol-&gt;GetBoundingRadiusSq();
++				const float sqSeparation = (unit-&gt;midPos - p-&gt;pos).SqLength();
+ 
+ 				if (sqSeparation &lt; sqUnitRadius) {
+ 					// early-out test failed, so the projectile has entered the minimum
+@@ -626,46 +628,41 @@
+ 						m.Translate(vol-&gt;GetOffset(0), vol-&gt;GetOffset(1), vol-&gt;GetOffset(2));
+ 
+ 						if (vol-&gt;Collision(m, p-&gt;pos)) {
+-							p-&gt;Collision(*ui);
++							p-&gt;Collision(unit);
+ 							break;
+ 						}
+ 					} else {
+ 						// already done
+-						p-&gt;Collision(*ui);
++						p-&gt;Collision(unit);
+ 						break;
+ 					}
+ 				}
+ 			}
+ 
+-			// TODO: also tie collision volumes to features
+ 			if (!(p-&gt;collisionFlags &amp; COLLISION_NOFEATURE)) {
+ 				for (CFeature** fi = tempFeatures; fi != endFeature; ++fi) {
+-					if (!(*fi)-&gt;blocking)
++					CFeature* feature = *fi;
++					// geothermals do not have a collision volume
++					if (!feature-&gt;blocking || feature-&gt;def-&gt;geoThermal)
+ 						continue;
+ 
+-					float ispeedf = 1.0f / speedf;
+-					float3 normSpeed = p-&gt;speed * ispeedf;
+-					float totalRadius = (*fi)-&gt;radius + p-&gt;radius;
+-					float3 dif = (*fi)-&gt;midPos - p-&gt;pos;
+-					float closeTime = dif.dot(normSpeed) / speedf;
++					const CCollisionVolume* vol = feature-&gt;def-&gt;collisionVolume;
++					const float sqFeatureRadius = vol-&gt;GetBoundingRadiusSq();
++					const float sqSeparation = (feature-&gt;midPos - p-&gt;pos).SqLength();
+ 
+-					if (closeTime &lt; 0)
+-						closeTime = 0;
+-					if (closeTime &gt; 1)
+-						closeTime = 1;
++					if (sqSeparation &lt; sqFeatureRadius) {
++						if (!vol-&gt;IsSphere()) {
++							CMatrix44f m(feature-&gt;transMatrix);
++							m.Translate(vol-&gt;GetOffset(0), vol-&gt;GetOffset(1), vol-&gt;GetOffset(2));
+ 
+-					float3 closeVect = dif - (p-&gt;speed * closeTime);
+-					if (dif.SqLength() &lt; totalRadius * totalRadius) {
+-						if ((*fi)-&gt;isMarkedOnBlockingMap) {
+-							float3 closePos(p-&gt;pos + p-&gt;speed * closeTime);
+-							int square = (int) max(0.0f, min((float) (gs-&gt;mapSquares - 1), closePos.x * 0.125f + int(closePos.z * 0.125f) * gs-&gt;mapx));
+-
+-							if (readmap-&gt;groundBlockingObjectMap[square] != (*fi))
+-								continue;
++							if (vol-&gt;Collision(m, p-&gt;pos)) {
++								p-&gt;Collision(feature);
++								break;
++							}
++						} else {
++							p-&gt;Collision(feature);
++							break;
+ 						}
+-
+-						p-&gt;Collision(*fi);
+-						break;
+ 					}
+ 				}
+ 			}
+
+Modified: trunk/rts/Sim/Units/UnitDefHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-02-14 13:39:43 UTC (rev 5501)
++++ trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-02-14 22:27:36 UTC (rev 5502)
+@@ -716,52 +716,17 @@
+ 	}
+ 
+ 
+-	// note: CUnitLoader::LoadUnit() adjusts the scales to
+-	// unit-&gt;model-&gt;radius if none are given in the unitdef
+-	// file for backward-compatibility, otherwise these take
+-	// precedence over the old sphere tags and unit-&gt;radius
+-	// (for unit &lt;--&gt; projectile interactions)
++	// these take precedence over the old sphere tags and
++	// unit-&gt;radius (for unit &lt;--&gt; projectile interactions)
+ 	ud.collisionVolumeType = udTable.GetString(&quot;collisionVolumeType&quot;, &quot;&quot;);
+ 	ud.collisionVolumeScales = udTable.GetFloat3(&quot;collisionVolumeScales&quot;, ZeroVector);
+ 	ud.collisionVolumeOffsets = udTable.GetFloat3(&quot;collisionVolumeOffsets&quot;, ZeroVector);
+ 
+-	// initialize the (per unitdef) collision-volume
+-	float3 axisScales = ZeroVector;
+-	float3 axisOffsets = ZeroVector;
+-	int primAxis = COLVOL_AXIS_Z;
+-	int volType = COLVOL_TYPE_ELLIPSOID;
++	// initialize the (per-unitdef) collision-volume
++	ud.collisionVolume = SAFE_NEW CCollisionVolume(ud.collisionVolumeType, ud.collisionVolumeScales, ud.collisionVolumeOffsets);
+ 
+-	if (ud.collisionVolumeType.size() &gt; 0) {
+-		axisScales = ud.collisionVolumeScales;
+-		axisOffsets = ud.collisionVolumeOffsets;
+ 
+-		// note: case-sensitivity?
+-		if (ud.collisionVolumeType.find(&quot;Ell&quot;) != std::string::npos) {
+-			volType = COLVOL_TYPE_ELLIPSOID;
+-		}
+ 
+-		if (ud.collisionVolumeType.find(&quot;Cyl&quot;) != std::string::npos) {
+-			volType = COLVOL_TYPE_CYLINDER;
+-
+-			if (ud.collisionVolumeType.size() == 4) {
+-				if (ud.collisionVolumeType[3] == 'X') { primAxis = COLVOL_AXIS_X; }
+-				if (ud.collisionVolumeType[3] == 'Y') { primAxis = COLVOL_AXIS_Y; }
+-				if (ud.collisionVolumeType[3] == 'Z') { primAxis = COLVOL_AXIS_Z; }
+-			}
+-		}
+-
+-		if (ud.collisionVolumeType.find(&quot;Box&quot;) != std::string::npos) {
+-			volType = COLVOL_TYPE_BOX;
+-		}
+-	}
+-
+-	ud.collisionVolume = SAFE_NEW CCollisionVolume(axisScales, axisOffsets, primAxis, volType);
+-
+-
+-
+-
+-
+-
+ 	ud.seismicRadius    = udTable.GetInt(&quot;seismicDistance&quot;, 0);
+ 	ud.seismicSignature = udTable.GetFloat(&quot;seismicSignature&quot;, -1.0f);
+ 	if (ud.seismicSignature == -1.0f) {
+
+Modified: trunk/rts/Sim/Units/UnitLoader.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitLoader.cpp	2008-02-14 13:39:43 UTC (rev 5501)
++++ trunk/rts/Sim/Units/UnitLoader.cpp	2008-02-14 22:27:36 UTC (rev 5502)
+@@ -289,8 +289,8 @@
+ 			unit-&gt;moveType = mt;
+ 		}
+ 	} else {
+-		unit-&gt;moveType=SAFE_NEW CMoveType(unit);
+-		unit-&gt;upright=true;
++		unit-&gt;moveType = SAFE_NEW CMoveType(unit);
++		unit-&gt;upright = true;
+ 	}
+ 
+ 	unit-&gt;energyTickMake = ud-&gt;energyMake;
+@@ -300,6 +300,7 @@
+ 	unit-&gt;model = ud-&gt;LoadModel(side);
+ 	unit-&gt;SetRadius(unit-&gt;model-&gt;radius);
+ 
++	// CUnitLoader left this volume's axis-scales uninitialized
+ 	if (ud-&gt;collisionVolume-&gt;GetScale(COLVOL_AXIS_X) &lt; 0.01f &amp;&amp;
+ 		ud-&gt;collisionVolume-&gt;GetScale(COLVOL_AXIS_Y) &lt; 0.01f &amp;&amp;
+ 		ud-&gt;collisionVolume-&gt;GetScale(COLVOL_AXIS_Z) &lt; 0.01f) {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000308.html">[Taspring-linux-commit] r5501 - in trunk: Documentation rts/Game	rts/Game/Server rts/System tools/DedicatedServer
+</A></li>
+	<LI>Next message: <A HREF="000310.html">[Taspring-linux-commit] r5503 - in trunk/rts: Lua	Rendering/UnitModels Sim/Features	Sim/Projectiles/WeaponProjectiles Sim/Units
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#309">[ date ]</a>
+              <a href="thread.html#309">[ thread ]</a>
+              <a href="subject.html#309">[ subject ]</a>
+              <a href="author.html#309">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

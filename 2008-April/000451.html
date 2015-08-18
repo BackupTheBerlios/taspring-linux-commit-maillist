@@ -1,0 +1,446 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5670 - in trunk/rts/Game: . Camera
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5670%20-%20in%20trunk/rts/Game%3A%20.%20Camera&In-Reply-To=%3C20080406154248.EE7574679%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000450.html">
+   <LINK REL="Next"  HREF="000452.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5670 - in trunk/rts/Game: . Camera</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5670%20-%20in%20trunk/rts/Game%3A%20.%20Camera&In-Reply-To=%3C20080406154248.EE7574679%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5670 - in trunk/rts/Game: . Camera">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Apr  6 17:42:48 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000450.html">[Taspring-linux-commit] r5669 - trunk/Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="000452.html">[Taspring-linux-commit] r5671 - in trunk: Documentation rts/Game	rts/Game/Camera rts/System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#451">[ date ]</a>
+              <a href="thread.html#451">[ thread ]</a>
+              <a href="subject.html#451">[ subject ]</a>
+              <a href="author.html#451">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-04-06 17:42:48 +0200 (Sun, 06 Apr 2008)
+New Revision: 5670
+
+Added:
+   trunk/rts/Game/Camera/SmoothController.cpp
+   trunk/rts/Game/Camera/SmoothController.h
+Modified:
+   trunk/rts/Game/CameraHandler.cpp
+   trunk/rts/Game/GameServer.cpp
+Log:
+* don't show two statistic windows after demo watching
+* added new camera controller: SmoothCamera
+  -&gt; behaves like overview controller, but feels much smoother
+
+
+Added: trunk/rts/Game/Camera/SmoothController.cpp
+===================================================================
+--- trunk/rts/Game/Camera/SmoothController.cpp	                        (rev 0)
++++ trunk/rts/Game/Camera/SmoothController.cpp	2008-04-06 15:42:48 UTC (rev 5670)
+@@ -0,0 +1,254 @@
++#include &quot;SmoothController.h&quot;
++
++#include &lt;SDL_keysym.h&gt;
++#include &lt;SDL_types.h&gt;
++#include &lt;SDL_timer.h&gt;
++
++#include &quot;Platform/ConfigHandler.h&quot;
++#include &quot;Game/Camera.h&quot;
++#include &quot;Game/CameraHandler.h&quot;
++#include &quot;Game/UI/MouseHandler.h&quot;
++#include &quot;LogOutput.h&quot;
++#include &quot;Map/Ground.h&quot;
++
++
++
++extern Uint8 *keys;
++
++SmoothController::SmoothController(int num)
++	: CCameraController(num),
++	height(500),zscale(0.5f),
++	oldAltHeight(500),
++	maxHeight(10000),
++	changeAltHeight(true),
++	flipped(false),
++	speedFactor(1)
++{
++	scrollSpeed = configHandler.GetInt(&quot;SmoothScrollSpeed&quot;,10)*0.1f;
++	tiltSpeed = configHandler.GetFloat(&quot;SmoothTiltSpeed&quot;,1.0f);
++	enabled = !!configHandler.GetInt(&quot;SmoothEnabled&quot;,1);
++	fov = configHandler.GetFloat(&quot;SmoothFOV&quot;, 45.0f);
++	lastSource = Noone;
++}
++
++
++SmoothController::~SmoothController()
++{
++}
++
++void SmoothController::KeyMove(float3 move)
++{
++	if (flipped) {
++		move.x = -move.x;
++		move.y = -move.y;
++	}
++	move*=sqrt(move.z)*200;
++	float pixelsize= camera-&gt;GetTanHalfFov()*2/gu-&gt;viewSizeY*height*2;
++	const float3 thisMove(move.x*pixelsize*2*scrollSpeed, 0, -move.y*pixelsize*2*scrollSpeed);
++	static unsigned lastKeyMove = SDL_GetTicks();
++	const unsigned timeDiff = SDL_GetTicks() - lastKeyMove;
++	lastKeyMove = SDL_GetTicks();
++	if (thisMove.x != 0 || thisMove.z != 0)
++	{
++		// user want to move with keys
++		lastSource = Key;
++		Move(thisMove, timeDiff);
++	}
++	else if (lastSource == Key)
++	{
++		// last move order was given by keys, so call Move() to break
++		Move(thisMove, timeDiff);
++	}
++}
++
++void SmoothController::MouseMove(float3 move)
++{
++	if (flipped) {
++		move.x = -move.x;
++		move.y = -move.y;
++	}
++	float pixelsize=100*mouseScale* camera-&gt;GetTanHalfFov() *2/gu-&gt;viewSizeY*height*2;
++	pos.x+=move.x*pixelsize*(1+keys[SDLK_LSHIFT]*3)*scrollSpeed;
++	pos.z+=move.y*pixelsize*(1+keys[SDLK_LSHIFT]*3)*scrollSpeed;
++}
++
++void SmoothController::ScreenEdgeMove(float3 move)
++{
++	if (flipped) {
++		move.x = -move.x;
++		move.y = -move.y;
++	}
++	move*=sqrt(move.z)*200;
++	float pixelsize= camera-&gt;GetTanHalfFov()*2/gu-&gt;viewSizeY*height*2;
++	const float3 thisMove(move.x*pixelsize*2*scrollSpeed, 0, -move.y*pixelsize*2*scrollSpeed);
++	static unsigned lastScreenMove = SDL_GetTicks();
++	const unsigned timeDiff = SDL_GetTicks() - lastScreenMove;
++	lastScreenMove = SDL_GetTicks();
++	if (thisMove.x != 0 || thisMove.z != 0)
++	{
++		// user want to move with mouse on screen edge
++		lastSource = ScreenEdge;
++		Move(thisMove, timeDiff);
++	}
++	else if (lastSource == ScreenEdge)
++	{
++		// last move order was given by screen edge, so call Move() to break
++		Move(thisMove, timeDiff);
++	}
++}
++
++void SmoothController::MouseWheelMove(float move)
++{
++	// tilt the camera if LCTRL is pressed
++	if (keys[SDLK_LCTRL]) {
++		zscale *= (1.0f + (move * tiltSpeed * mouseScale * (keys[SDLK_LSHIFT] ? 3.0f : 1.0f)));
++		if (zscale &lt; 0.05f) zscale = 0.05f;
++		if (zscale &gt; 10) zscale = 10;
++	} else { // holding down LALT uses 'instant-zoom' from here to the end of the function
++		// ZOOM IN to mouse cursor instead of mid screen
++		if (move &lt; 0) {
++			float3 cpos=pos-dir*height;
++			float dif=-height * move * mouseScale*0.7f * (keys[SDLK_LSHIFT] ? 3:1);
++			if ((height - dif) &lt;60.0f) {
++				dif = height - 60.0f;
++			}
++			if (keys[SDLK_LALT]) { // instant-zoom: zoom in to standard view
++				dif = (height - oldAltHeight) / mouse-&gt;dir.y * dir.y;
++			}
++			float3 wantedPos = cpos + mouse-&gt;dir * dif;
++			float newHeight = ground-&gt;LineGroundCol(wantedPos, wantedPos + dir * 15000);
++			if (newHeight &lt; 0) {
++				newHeight = height* (1.0f + move * mouseScale * 0.7f * (keys[SDLK_LSHIFT] ? 3:1));
++			}
++			if ((wantedPos.y + (dir.y * newHeight)) &lt; 0) {
++				newHeight = -wantedPos.y / dir.y;
++			}
++			if (newHeight &lt; maxHeight) {
++				height = newHeight;
++				pos = wantedPos + dir * height;
++			}
++		// ZOOM OUT from mid screen
++		} else {
++			if (keys[SDLK_LALT]) { // instant-zoom: zoom out to the max
++				if(height&lt;maxHeight*0.5f &amp;&amp; changeAltHeight){
++					oldAltHeight=height;
++					changeAltHeight=false;
++				}
++				height=maxHeight;
++				pos.x=gs-&gt;mapx*4;
++				pos.z=gs-&gt;mapy*4.8f; // somewhat longer toward bottom
++			} else {
++				height*=1+move * mouseScale*0.7f * (keys[SDLK_LSHIFT] ? 3:1);
++			}
++		}
++		// instant-zoom: turn on the smooth transition and reset the camera tilt
++		if (keys[SDLK_LALT]) {
++			zscale = 0.5f;
++			camHandler-&gt;CameraTransition(1.0f);
++		} else {
++			changeAltHeight = true;
++		}
++	}
++}
++
++float3 SmoothController::GetPos()
++{
++	maxHeight=9.5f*max(gs-&gt;mapx,gs-&gt;mapy);		//map not created when constructor run
++
++	if (pos.x &lt; 0.01f) { pos.x = 0.01f; }
++	if (pos.z &lt; 0.01f) { pos.z = 0.01f; }
++	if (pos.x &gt; ((gs-&gt;mapx * SQUARE_SIZE) - 0.01f)) {
++		pos.x = ((gs-&gt;mapx * SQUARE_SIZE) - 0.01f);
++	}
++	if (pos.z &gt; ((gs-&gt;mapy * SQUARE_SIZE) - 0.01f)) {
++		pos.z = ((gs-&gt;mapy * SQUARE_SIZE) - 0.01f);
++	}
++	if (height &lt; 60.0f) {
++		height = 60.0f;
++	}
++	if (height &gt; maxHeight) {
++		height = maxHeight;
++	}
++
++	pos.y = ground-&gt;GetHeight(pos.x,pos.z);
++	dir = float3(0.0f, -1.0f, flipped ? zscale : -zscale).Normalize();
++
++	float3 cpos = pos - dir * height;
++
++	return cpos;
++}
++
++float3 SmoothController::GetDir()
++{
++	return dir;
++}
++
++float3 SmoothController::SwitchFrom() const
++{
++	return pos;
++}
++
++void SmoothController::SwitchTo(bool showText)
++{
++	if(showText)
++		logOutput.Print(&quot;Switching to smooth camera&quot;);
++}
++
++void SmoothController::GetState(std::vector&lt;float&gt;&amp; fv) const
++{
++	fv.push_back(/* 0 */ (float)num);
++	fv.push_back(/* 1 */ pos.x);
++	fv.push_back(/* 2 */ pos.y);
++	fv.push_back(/* 3 */ pos.z);
++	fv.push_back(/* 4 */ dir.x);
++	fv.push_back(/* 5 */ dir.y);
++	fv.push_back(/* 6 */ dir.z);
++	fv.push_back(/* 7 */ height);
++	fv.push_back(/* 8 */ zscale);
++	fv.push_back(/* 9 */ flipped ? +1.0f : -1.0f);
++}
++
++bool SmoothController::SetState(const std::vector&lt;float&gt;&amp; fv)
++{
++	if ((fv.size() != 10) || (fv[0] != (float)num)) {
++		return false;
++	}
++	pos.x   =  fv[1];
++	pos.y   =  fv[2];
++	pos.z   =  fv[3];
++	dir.x   =  fv[4];
++	dir.y   =  fv[5];
++	dir.z   =  fv[6];
++	height  =  fv[7];
++	zscale  =  fv[8];
++	flipped = (fv[9] &gt; 0.0f);
++	return true;
++}
++
++void SmoothController::Move(const float3&amp; move, const unsigned timeDiff)
++{
++	if ((move.x != 0 || move.z != 0) &amp;&amp; speedFactor &lt; maxSpeedFactor)
++	{
++		// accelerate
++		speedFactor += timeDiff;
++		if (speedFactor &gt; maxSpeedFactor)
++			speedFactor = maxSpeedFactor; // don't know why, but std::min produces undefined references here
++		lastMove = move;
++		pos += move*static_cast&lt;float&gt;(speedFactor)/static_cast&lt;float&gt;(maxSpeedFactor);
++	}
++	else if ((move.x == 0 || move.z == 0) &amp;&amp; speedFactor &gt; 1)
++	{
++		// break
++		if (timeDiff &gt; speedFactor)
++			speedFactor = 0;
++		else
++			speedFactor -= timeDiff;
++		pos += lastMove*static_cast&lt;float&gt;(speedFactor)/static_cast&lt;float&gt;(maxSpeedFactor);
++	}
++	else
++	{
++		// move or hold position (move = {0,0,0})
++		pos += move;
++		lastMove = move;
++	}
++}
+
+Added: trunk/rts/Game/Camera/SmoothController.h
+===================================================================
+--- trunk/rts/Game/Camera/SmoothController.h	                        (rev 0)
++++ trunk/rts/Game/Camera/SmoothController.h	2008-04-06 15:42:48 UTC (rev 5670)
+@@ -0,0 +1,64 @@
++#ifndef __SMOOTH_CONTROLLER_H__
++#define __SMOOTH_CONTROLLER_H__
++
++#include &quot;CameraController.h&quot;
++
++/**
+<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">+ at brief</A> Smooth Overview-Camera
++
++Behaves like the Overview(TA-style)-camera, but has an acceleration and breakrate to move smooth.
++*/
++class SmoothController : public CCameraController
++{
++public:
++	SmoothController(int num);
++	~SmoothController();
++
++	const std::string GetName() const { return &quot;sm&quot;; }
++
++	void KeyMove(float3 move);
++	void MouseMove(float3 move);
++	void ScreenEdgeMove(float3 move);
++	void MouseWheelMove(float move);
++
++	float3 GetPos();
++	float3 GetDir();
++
++	float3 SwitchFrom() const;
++	void SwitchTo(bool showText);
++
++	void GetState(std::vector&lt;float&gt;&amp; fv) const;
++	bool SetState(const std::vector&lt;float&gt;&amp; fv);
++
++	bool flipped;
++
++private:
++	void Move(const float3&amp; move, const unsigned timeDiff);
++	
++	float zscale;
++	float3 dir;
++	float height;
++	float oldAltHeight;
++	bool changeAltHeight;
++	float maxHeight;
++	float tiltSpeed;
++	enum MoveSource {Key, ScreenEdge, Noone};
++	
++	/// The source of the last move command by the user
++	MoveSource lastSource;
++	
++	/**
++	@brief the current speed factor
++	
++	If this is maxSpeedFactor, the camera has its full speed. Otherwise the camera moves with (speedFactor/maxSpeedFactor)
++	*/
++	unsigned speedFactor;
++	
++	/// the last move order &gt; 0 given by the user
++	float3 lastMove;
++	
++	/// the time in ms needed to accelerate to full speed
++	static const unsigned maxSpeedFactor = 300;
++};
++
++#endif
+
+Modified: trunk/rts/Game/CameraHandler.cpp
+===================================================================
+--- trunk/rts/Game/CameraHandler.cpp	2008-04-05 21:15:26 UTC (rev 5669)
++++ trunk/rts/Game/CameraHandler.cpp	2008-04-06 15:42:48 UTC (rev 5670)
+@@ -3,6 +3,7 @@
+ #include &quot;Game/Camera/CameraController.h&quot;
+ #include &quot;Game/Camera/FPSController.h&quot;
+ #include &quot;Game/Camera/OverheadController.h&quot;
++#include &quot;Game/Camera/SmoothController.h&quot;
+ #include &quot;Game/Camera/RotOverheadController.h&quot;
+ #include &quot;Game/Camera/FreeController.h&quot;
+ #include &quot;Game/Camera/OverviewController.h&quot;
+@@ -29,7 +30,8 @@
+ 	camCtrls.push_back(new CTWController          (camCtrls.size())); // 2
+ 	camCtrls.push_back(new CRotOverheadController (camCtrls.size())); // 3
+ 	camCtrls.push_back(new CFreeController        (camCtrls.size())); // 4
+-	camCtrls.push_back(new COverviewController    (camCtrls.size())); // 5  (last)
++	camCtrls.push_back(new SmoothController       (camCtrls.size())); // 5
++	camCtrls.push_back(new COverviewController    (camCtrls.size())); // 6  (last)
+ 
+ 	int mode = configHandler.GetInt(&quot;CamMode&quot;, 1);
+ 	mode = std::max(0, std::min(mode, (int)camControllers.size() - 1));
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-04-05 21:15:26 UTC (rev 5669)
++++ trunk/rts/Game/GameServer.cpp	2008-04-06 15:42:48 UTC (rev 5670)
+@@ -419,6 +419,10 @@
+ 			{
+ 				serverNet-&gt;RawSend(demobuffer, length);
+ 			}
++			else if ( demobuffer[0] != NETMSG_GAMEOVER )
++			{
++				sentGameOverMsg = true;
++			}
+ 		}
+ 
+ 		if (demoReader-&gt;ReachedEnd()) {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000450.html">[Taspring-linux-commit] r5669 - trunk/Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="000452.html">[Taspring-linux-commit] r5671 - in trunk: Documentation rts/Game	rts/Game/Camera rts/System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#451">[ date ]</a>
+              <a href="thread.html#451">[ thread ]</a>
+              <a href="subject.html#451">[ subject ]</a>
+              <a href="author.html#451">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,225 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7532 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2010-November/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7532%20-%20Lobby/TASClient&In-Reply-To=%3C20101122040129.72F9023280%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002301.html">
+   <LINK REL="Next"  HREF="002303.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7532 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7532%20-%20Lobby/TASClient&In-Reply-To=%3C20101122040129.72F9023280%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7532 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon Nov 22 05:01:29 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002301.html">[Taspring-linux-commit] r7531 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002303.html">[Taspring-linux-commit] r7533 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2302">[ date ]</a>
+              <a href="thread.html#2302">[ thread ]</a>
+              <a href="subject.html#2302">[ subject ]</a>
+              <a href="author.html#2302">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2010-11-22 05:01:29 +0100 (Mon, 22 Nov 2010)
+New Revision: 7532
+
+Modified:
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/SpringDownloaderFormUnit.dfm
+   Lobby/TASClient/SpringDownloaderFormUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+   Lobby/TASClient/WidgetDBFormUnit.dfm
+Log:
+* pause button added to the integrated dler
+* widget db list edit mode disabled
+* integrated downloader remaining time computed from the average speed instead of the instant dl speed
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2010-11-21 22:31:15 UTC (rev 7531)
++++ Lobby/TASClient/MainUnit.pas	2010-11-22 04:01:29 UTC (rev 7532)
+@@ -10412,7 +10412,7 @@
+             maxNameWidth := nameWidth;
+         end;
+ 
+-        R := Rect(0,0,20+Ceil(Battle.Clients.Count/8)*(maxNameWidth+20),20+(Canvas.TextHeight('H')+2)*min(Battle.Clients.Count,8));
++        R := Rect(0,0,20+Ceil(Battle.Clients.Count/8)*(maxNameWidth+20),20+(Canvas.TextHeight('H')+3)*min(Battle.Clients.Count,8));
+       end;
+       5: R := Rect(0, 0, Canvas.TextWidth(Battle.ModName) + 20, 18);
+       4:
+
+Modified: Lobby/TASClient/SpringDownloaderFormUnit.dfm
+===================================================================
+--- Lobby/TASClient/SpringDownloaderFormUnit.dfm	2010-11-21 22:31:15 UTC (rev 7531)
++++ Lobby/TASClient/SpringDownloaderFormUnit.dfm	2010-11-22 04:01:29 UTC (rev 7532)
+@@ -1,6 +1,6 @@
+ object SpringDownloaderForm: TSpringDownloaderForm
+-  Left = 678
+-  Top = 655
++  Left = 619
++  Top = 405
+   Width = 429
+   Height = 153
+   Caption = 'Downloading ...'
+@@ -25,7 +25,6 @@
+     Height = 126
+     Caption = 'Downloading ...'
+     Active = False
+-    FixedSize = True
+     Options.Maximize = False
+     object pnlMain: TSpTBXPanel
+       Left = 0
+@@ -88,9 +87,19 @@
+         TabOrder = 4
+         Visible = False
+       end
++      object PauseResumeButton: TSpTBXButton
++        Left = 312
++        Top = 48
++        Width = 105
++        Height = 21
++        Caption = 'Pause'
++        Anchors = [akRight, akBottom]
++        TabOrder = 6
++        OnClick = PauseResumeButtonClick
++      end
+       object CancelButton: TSpTBXButton
+-        Left = 310
+-        Top = 47
++        Left = 312
++        Top = 72
+         Width = 105
+         Height = 25
+         Caption = 'Cancel'
+
+Modified: Lobby/TASClient/SpringDownloaderFormUnit.pas
+===================================================================
+--- Lobby/TASClient/SpringDownloaderFormUnit.pas	2010-11-21 22:31:15 UTC (rev 7531)
++++ Lobby/TASClient/SpringDownloaderFormUnit.pas	2010-11-22 04:01:29 UTC (rev 7532)
+@@ -26,6 +26,7 @@
+     lblProgress: TSpTBXLabel;
+     joinBattleCheckBox: TSpTBXCheckBox;
+     CancelButton: TSpTBXButton;
++    PauseResumeButton: TSpTBXButton;
+ 
+     procedure CreateParams(var Params: TCreateParams); override;
+     procedure tmrProgressTimer(Sender: TObject);
+@@ -41,6 +42,7 @@
+       ErrorCode: Integer; const Reason: String);
+     procedure MultisourceHttpDownloader1Display(Sender: TObject;
+       const Msg: String);
++    procedure PauseResumeButtonClick(Sender: TObject);
+   private
+     { Private declarations }
+   protected
+@@ -379,7 +381,7 @@
+ var
+   remainingMS: integer;
+ begin
+-  remainingMS := Floor(min(86400,(MultisourceHttpDownloader1.ContentLength-MultisourceHttpDownloader1.TotalCount)/(1024*MultisourceHttpDownloader1.CurSpeed/8)));
++  remainingMS := Floor(min(86400,(MultisourceHttpDownloader1.ContentLength-MultisourceHttpDownloader1.TotalCount)/(1024*MultisourceHttpDownloader1.TotalCount/((Now-MultisourceHttpDownloader1.StartTime)*86400000))));
+   ProgressBar.Position := Floor(MultisourceHttpDownloader1.PercentDone);
+   if Assigned(FOnProgress) then
+     FOnProgress(cbInfo,Floor(MultisourceHttpDownloader1.PercentDone));
+@@ -633,4 +635,18 @@
+     MainForm.AddMainLog(Msg,Colors.Info);
+ end;
+ 
++procedure TSpringDownloaderForm.PauseResumeButtonClick(Sender: TObject);
++begin
++  if MultisourceHttpDownloader1.isPaused then
++  begin
++    MultisourceHttpDownloader1.Resume;
++    PauseResumeButton.Caption := _('Pause');
++  end
++  else
++  begin
++    MultisourceHttpDownloader1.Pause;
++    PauseResumeButton.Caption := _('Resume');
++  end;
++end;
++
+ end.
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2010-11-21 22:31:15 UTC (rev 7531)
++++ Lobby/TASClient/TASClient.dof	2010-11-22 04:01:29 UTC (rev 7532)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=80
+ Release=0
+-Build=1089
++Build=1091
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.80.0.1089
++FileVersion=0.80.0.1091
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+Modified: Lobby/TASClient/WidgetDBFormUnit.dfm
+===================================================================
+--- Lobby/TASClient/WidgetDBFormUnit.dfm	2010-11-21 22:31:15 UTC (rev 7531)
++++ Lobby/TASClient/WidgetDBFormUnit.dfm	2010-11-22 04:01:29 UTC (rev 7532)
+@@ -61,7 +61,7 @@
+         Header.Style = hsFlatButtons
+         TabOrder = 1
+         TreeOptions.AutoOptions = [toAutoDropExpand, toAutoScrollOnExpand, toAutoSort, toAutoTristateTracking, toAutoDeleteMovedNodes]
+-        TreeOptions.MiscOptions = [toAcceptOLEDrop, toCheckSupport, toEditable, toFullRepaintOnResize, toInitOnSave, toToggleOnDblClick, toWheelPanning, toEditOnClick]
++        TreeOptions.MiscOptions = [toAcceptOLEDrop, toCheckSupport, toFullRepaintOnResize, toInitOnSave, toToggleOnDblClick, toWheelPanning, toEditOnClick]
+         TreeOptions.PaintOptions = [toHotTrack, toShowButtons, toShowDropmark, toThemeAware, toUseBlendedImages]
+         TreeOptions.SelectionOptions = [toFullRowSelect]
+         OnChecking = vstWidgetListChecking
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002301.html">[Taspring-linux-commit] r7531 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002303.html">[Taspring-linux-commit] r7533 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2302">[ date ]</a>
+              <a href="thread.html#2302">[ thread ]</a>
+              <a href="subject.html#2302">[ subject ]</a>
+              <a href="author.html#2302">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,179 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5743 - in trunk/rts: Game Sim/Units	System/Script
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5743%20-%20in%20trunk/rts%3A%20Game%20Sim/Units%0A%09System/Script&In-Reply-To=%3C20080415161136.E5B564696%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000522.html">
+   <LINK REL="Next"  HREF="000524.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5743 - in trunk/rts: Game Sim/Units	System/Script</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5743%20-%20in%20trunk/rts%3A%20Game%20Sim/Units%0A%09System/Script&In-Reply-To=%3C20080415161136.E5B564696%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5743 - in trunk/rts: Game Sim/Units	System/Script">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Apr 15 18:11:36 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000522.html">[Taspring-linux-commit] r5742 - in trunk/rts: Lua Sim/Units
+</A></li>
+        <LI>Next message: <A HREF="000524.html">[Taspring-linux-commit] r5744 - trunk/rts/Sim/Units/COB
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#523">[ date ]</a>
+              <a href="thread.html#523">[ thread ]</a>
+              <a href="subject.html#523">[ subject ]</a>
+              <a href="author.html#523">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-04-15 18:11:36 +0200 (Tue, 15 Apr 2008)
+New Revision: 5743
+
+Modified:
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Sim/Units/Unit.cpp
+   trunk/rts/Sim/Units/Unit.h
+   trunk/rts/System/Script/LuaBinder.cpp
+   trunk/rts/System/Script/LuaFunctions.cpp
+   trunk/rts/System/Script/LuaFunctions.h
+Log:
+* scripts can remove units from map (without explosion or leaving a corpse)
+* fix bug #892
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-04-15 10:21:20 UTC (rev 5742)
++++ trunk/rts/Game/GameServer.cpp	2008-04-15 16:11:36 UTC (rev 5743)
+@@ -1000,10 +1000,12 @@
+ 
+ 	GenerateAndSendGameID();
+ 	if (setup) {
+-		for (int a = 0; a &lt; MAX_TEAMS; ++a)
++		for (int a = 0; a &lt; setup-&gt;numTeams; ++a)
+ 		{
+-			if (teams[a])
++			if (teams[a]) // its a player
+ 				serverNet-&gt;SendStartPos(SERVER_PLAYER, a, 1, teams[a]-&gt;startpos.x, teams[a]-&gt;startpos.y, teams[a]-&gt;startpos.z);
++			else // maybe an AI?
++				serverNet-&gt;SendStartPos(SERVER_PLAYER, a, 1, setup-&gt;startPos[a].x, setup-&gt;startPos[a].y, setup-&gt;startPos[a].z);
+ 		}
+ 	}
+ 
+
+Modified: trunk/rts/Sim/Units/Unit.cpp
+===================================================================
+--- trunk/rts/Sim/Units/Unit.cpp	2008-04-15 10:21:20 UTC (rev 5742)
++++ trunk/rts/Sim/Units/Unit.cpp	2008-04-15 16:11:36 UTC (rev 5743)
+@@ -1609,7 +1609,7 @@
+ 	self-&gt;delayedWreckLevel = retCode;
+ }
+ 
+-void CUnit::KillUnit(bool selfDestruct, bool reclaimed, CUnit* attacker)
++void CUnit::KillUnit(bool selfDestruct, bool reclaimed, CUnit* attacker, bool showDeathSequence)
+ {
+ 	if (isDead) {
+ 		return;
+@@ -1634,7 +1634,7 @@
+ 	}
+ 	gs-&gt;Team(this-&gt;lineage)-&gt;LeftLineage(this);
+ 
+-	if (!reclaimed &amp;&amp; !beingBuilt) {
++	if (showDeathSequence &amp;&amp; (!reclaimed &amp;&amp; !beingBuilt)) {
+ 		string exp;
+ 		if (selfDestruct) {
+ 			exp = unitDef-&gt;selfDExplosion;
+
+Modified: trunk/rts/Sim/Units/Unit.h
+===================================================================
+--- trunk/rts/Sim/Units/Unit.h	2008-04-15 10:21:20 UTC (rev 5742)
++++ trunk/rts/Sim/Units/Unit.h	2008-04-15 16:11:36 UTC (rev 5743)
+@@ -370,7 +370,7 @@
+ 	void UpdateLosStatus(int allyTeam);
+ 
+ public:
+-	virtual void KillUnit(bool SelfDestruct,bool reclaimed, CUnit *attacker);
++	virtual void KillUnit(bool SelfDestruct,bool reclaimed, CUnit *attacker, bool showDeathSequence = true);
+ 	virtual void LoadSave(CLoadSaveInterface* file, bool loading);
+ 	virtual void IncomingMissile(CMissileProjectile* missile);
+ 	void TempHoldFire(void);
+
+Modified: trunk/rts/System/Script/LuaBinder.cpp
+===================================================================
+--- trunk/rts/System/Script/LuaBinder.cpp	2008-04-15 10:21:20 UTC (rev 5742)
++++ trunk/rts/System/Script/LuaBinder.cpp	2008-04-15 16:11:36 UTC (rev 5743)
+@@ -276,7 +276,8 @@
+ 			def(&quot;GetNumAt&quot;, &amp;GetNumUnitsAt),
+ 			def(&quot;GetAt&quot;, &amp;GetUnitsAt, raw(_1)),
+ 			def(&quot;GetSelected&quot;, &amp;GetSelectedUnits, raw(_1)),
+-			def(&quot;SendSelection&quot;, &amp;SendSelectedUnits)
++			def(&quot;SendSelection&quot;, &amp;SendSelectedUnits),
++			def(&quot;Remove&quot;, &amp;RemoveUnit)
+ 		],
+ 
+ 		namespace_(&quot;unitdefhandler&quot;)
+
+Modified: trunk/rts/System/Script/LuaFunctions.cpp
+===================================================================
+--- trunk/rts/System/Script/LuaFunctions.cpp	2008-04-15 10:21:20 UTC (rev 5742)
++++ trunk/rts/System/Script/LuaFunctions.cpp	2008-04-15 16:11:36 UTC (rev 5743)
+@@ -61,6 +61,12 @@
+ 		CUnit* x = unitLoader.LoadUnit(name, pos, team, buil, 0, NULL);
+ 		return SAFE_NEW CObject_pointer&lt;CUnit&gt;(x);
+ 	}
++	
++	void RemoveUnit(CObject_pointer&lt;CUnit&gt;* u)
++	{
++		if (u-&gt;held)
++			u-&gt;held-&gt;KillUnit(false, false, 0, false);
++	}
+ 
+ 	CObject_pointer&lt;CFeature&gt;* FeatureLoaderLoadFeature( string name, float3 pos, int team )
+ 	{
+
+Modified: trunk/rts/System/Script/LuaFunctions.h
+===================================================================
+--- trunk/rts/System/Script/LuaFunctions.h	2008-04-15 10:21:20 UTC (rev 5742)
++++ trunk/rts/System/Script/LuaFunctions.h	2008-04-15 16:11:36 UTC (rev 5743)
+@@ -35,6 +35,7 @@
+ 	int GetNumUnitDefs();
+ 	//CObject_pointer&lt;UnitDef&gt;* GetUnitDefById( int id );
+ 	CObject_pointer&lt;CUnit&gt;* UnitLoaderLoadUnit(std::string name, float3 pos, int team, bool buil);
++	void RemoveUnit(CObject_pointer&lt;CUnit&gt;* u);
+ 	CObject_pointer&lt;CFeature&gt;* FeatureLoaderLoadFeature( std::string name, float3 pos, int team );
+ 	luabind::object GetFeaturesAt(lua_State* L, const float3&amp; pos, float radius);
+ 	int GetNumUnitsAt(const float3&amp; pos, float radius);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000522.html">[Taspring-linux-commit] r5742 - in trunk/rts: Lua Sim/Units
+</A></li>
+	<LI>Next message: <A HREF="000524.html">[Taspring-linux-commit] r5744 - trunk/rts/Sim/Units/COB
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#523">[ date ]</a>
+              <a href="thread.html#523">[ thread ]</a>
+              <a href="subject.html#523">[ subject ]</a>
+              <a href="author.html#523">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

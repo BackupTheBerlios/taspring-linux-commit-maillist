@@ -1,0 +1,263 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7401 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2010-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7401%20-%20Lobby/TASClient&In-Reply-To=%3C20100121165314.69FB326961%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002170.html">
+   <LINK REL="Next"  HREF="002172.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7401 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7401%20-%20Lobby/TASClient&In-Reply-To=%3C20100121165314.69FB326961%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7401 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Jan 21 17:53:14 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002170.html">[Taspring-linux-commit] r7400 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002172.html">[Taspring-linux-commit] r7402 - in Lobby/TASClient: .	Python/scripts/subf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2171">[ date ]</a>
+              <a href="thread.html#2171">[ thread ]</a>
+              <a href="subject.html#2171">[ subject ]</a>
+              <a href="author.html#2171">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2010-01-21 17:53:13 +0100 (Thu, 21 Jan 2010)
+New Revision: 7401
+
+Modified:
+   Lobby/TASClient/BattleFormUnit.dfm
+   Lobby/TASClient/BattleFormUnit.pas
+   Lobby/TASClient/DisableUnitsFormUnit.pas
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+   Lobby/TASClient/Utility.pas
+Log:
+* fixed map options values not up to date when downloading the map after joining a battle and reloading the map list
+* changing map to no map now unload the map options
+* disabling unit name and icons will no longer load unit icons when hosting
+* autohost help link changed to wiki for springie and online command list for spads
+
+Modified: Lobby/TASClient/BattleFormUnit.dfm
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.dfm	2010-01-18 19:56:26 UTC (rev 7400)
++++ Lobby/TASClient/BattleFormUnit.dfm	2010-01-21 16:53:13 UTC (rev 7401)
+@@ -1,6 +1,6 @@
+ object BattleForm: TBattleForm
+-  Left = 583
+-  Top = 250
++  Left = 354
++  Top = 135
+   Width = 920
+   Height = 612
+   Caption = 'Battle window'
+
+Modified: Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.pas	2010-01-18 19:56:26 UTC (rev 7400)
++++ Lobby/TASClient/BattleFormUnit.pas	2010-01-21 16:53:13 UTC (rev 7401)
+@@ -1378,6 +1378,9 @@
+ 
+   MapImage.Hint := _('No map');
+ 
++  if MapOptionsList &lt;&gt; nil then
++    Utility.UnLoadLuaOptions(MapOptionsList);
++
+   RefreshQuickLookText;
+ 
+   CheckBattleSync;
+@@ -1552,9 +1555,22 @@
+   LoadLuaOptions(False,GetMapItem(MapIndex).MapName);
+   DisplayLuaOptions(BattleForm.MapOptionsList,BattleForm.MapOptionsScrollBox);
+   LoadMapOptionsDefault;
++  // UnknownScriptTagList.ValueList[UnknownScriptTagList.CompleteKeyList.IndexOf(LowerCase(completeKey))] := value
++  for i:=0 to BattleForm.MapOptionsList.Count-1 do
++  begin
++    j := UnknownScriptTagList.CompleteKeyList.IndexOf(LowerCase(TLuaOption(BattleForm.MapOptionsList[i]).KeyPrefix+TLuaOption(BattleForm.MapOptionsList[i]).Key));
++    if j&gt;-1 then
++    begin
++      TLuaOption(BattleForm.MapOptionsList[i]).SetValue(UnknownScriptTagList.ValueList[j]);
++      //UnknownScriptTagList.CompleteKeyList.Delete(j);
++      //UnknownScriptTagList.ValueList.Delete(j);
++    end;
++  end;
++
+   panelMapOptionsDefault.Visible := MapOptionsList.Count &gt; 0;
+   MapTab.Caption := _('Map options (')+IntToStr(BattleForm.MapOptionsList.Count)+')';
+   RefreshQuickLookText;
++  QuickLookChangedTmr.Enabled := True;
+ 
+   try
+     minimap.Free;
+@@ -2710,15 +2726,17 @@
+     if TLuaOption(ModOptionsList[i]).ClassType &lt;&gt; TLuaOptionSection then
+       Script.AddOrChangeKeyValue(TLuaOption(ModOptionsList[i]).KeyPrefix + TLuaOption(ModOptionsList[i]).Key,TLuaOption(ModOptionsList[i]).toString);
+ 
++  // unknown setscripttags
++  for i:=0 to UnknownScriptTagList.CompleteKeyList.Count -1 do
++    Script.AddOrChangeKeyValue(UnknownScriptTagList.CompleteKeyList[i],UnknownScriptTagList.ValueList[i]);
++
+   // map options:
+   for i:=0 to MapOptionsList.Count -1 do
+     if TLuaOption(MapOptionsList[i]).ClassType &lt;&gt; TLuaOptionSection then
+       Script.AddOrChangeKeyValue(TLuaOption(MapOptionsList[i]).KeyPrefix + TLuaOption(MapOptionsList[i]).Key,TLuaOption(MapOptionsList[i]).toString);
+ 
+-  // unknown setscripttags
+-  for i:=0 to UnknownScriptTagList.CompleteKeyList.Count -1 do
+-    Script.AddOrChangeKeyValue(UnknownScriptTagList.CompleteKeyList[i],UnknownScriptTagList.ValueList[i]);
+ 
++
+   //MainForm.AddMainLog(Script.GetBruteScript,Colors.Info);
+ 
+   // write down the script
+@@ -5485,7 +5503,8 @@
+ 
+     if Utility.MapList.IndexOf(BattleState.Battle.Map) = -1 then
+       ChangeMapToNoMap(BattleState.Battle.Map)
+-    else ChangeMap(Utility.MapList.IndexOf(BattleState.Battle.Map));
++    else
++      ChangeMap(Utility.MapList.IndexOf(BattleState.Battle.Map));
+ 
+     SendBattleInfoToServer; // in case map got changed
+   end
+@@ -5501,7 +5520,8 @@
+ 
+     if Utility.MapList.IndexOf(BattleState.Battle.Map) = -1 then
+       ChangeMapToNoMap(BattleState.Battle.Map)
+-    else ChangeMap(Utility.MapList.IndexOf(BattleState.Battle.Map));
++    else
++      ChangeMap(Utility.MapList.IndexOf(BattleState.Battle.Map));
+   end
+   else
+   begin // just reinit and reload
+@@ -8067,7 +8087,10 @@
+ 
+ procedure TBattleForm.Image1Click(Sender: TObject);
+ begin
+-  MainForm.TryToSendCommand('SAYBATTLE','!help');
++  if BattleState.AutoHostType = 1 then
++    Misc.OpenURLInDefaultBrowser('<A HREF="http://springrts.com/wiki/Hosting_Spring/Autohost">http://springrts.com/wiki/Hosting_Spring/Autohost</A>')
++  else
++    Misc.OpenURLInDefaultBrowser('<A HREF="http://planetspads.free.fr/spads/doc/spadsDoc.html">http://planetspads.free.fr/spads/doc/spadsDoc.html</A>');
+ end;
+ 
+ procedure TBattleForm.mnuDisableAutohostInterfaceClick(Sender: TObject);
+
+Modified: Lobby/TASClient/DisableUnitsFormUnit.pas
+===================================================================
+--- Lobby/TASClient/DisableUnitsFormUnit.pas	2010-01-18 19:56:26 UTC (rev 7400)
++++ Lobby/TASClient/DisableUnitsFormUnit.pas	2010-01-21 16:53:13 UTC (rev 7401)
+@@ -117,6 +117,7 @@
+       0: ; // enabled
+       1:
+       begin
++        if Preferences.DisplayUnitsIconsAndNames then
+         if TBitmap(UnitBitmaps[Node.Index]).Width &gt; 0 then
+         begin
+           availableWidth := R.Right-R.Left;
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2010-01-18 19:56:26 UTC (rev 7400)
++++ Lobby/TASClient/MainUnit.pas	2010-01-21 16:53:13 UTC (rev 7401)
+@@ -7103,8 +7103,8 @@
+             end;
+ 
+             if luaOpt &lt;&gt; nil then
+-              luaOpt.SetValue(tmp2)
+-            else
++              luaOpt.SetValue(tmp2);
++            //else
+               BattleForm.ChangeScriptTagValue(Misc.JoinStringList(sl3,'/'),tmp2);
+           end
+           else
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2010-01-18 19:56:26 UTC (rev 7400)
++++ Lobby/TASClient/TASClient.dof	2010-01-21 16:53:13 UTC (rev 7401)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=57
+ Release=0
+-Build=763
++Build=766
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.57.0.763
++FileVersion=0.57.0.766
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+Modified: Lobby/TASClient/Utility.pas
+===================================================================
+--- Lobby/TASClient/Utility.pas	2010-01-18 19:56:26 UTC (rev 7400)
++++ Lobby/TASClient/Utility.pas	2010-01-21 16:53:13 UTC (rev 7401)
+@@ -611,6 +611,7 @@
+ begin
+   UnitNames.Clear;
+   UnitList.Clear;
++
+   for i:=0 to UnitBitmaps.Count-1 do
+   begin
+     TBitmap(UnitBitmaps[i]).FreeImage;
+@@ -625,7 +626,8 @@
+   begin
+     UnitNames.Add(GetFullUnitName(i));
+     UnitList.Add(GetUnitName(i));
+-    UnitBitmaps.Add(GetUnitBitmap(GetUnitName(i)))
++    if Preferences.DisplayUnitsIconsAndNames then
++      UnitBitmaps.Add(GetUnitBitmap(GetUnitName(i)));
+   end;
+ end;
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002170.html">[Taspring-linux-commit] r7400 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002172.html">[Taspring-linux-commit] r7402 - in Lobby/TASClient: .	Python/scripts/subf
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2171">[ date ]</a>
+              <a href="thread.html#2171">[ thread ]</a>
+              <a href="subject.html#2171">[ subject ]</a>
+              <a href="author.html#2171">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,248 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5674 - trunk/rts/Sim/Path
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5674%20-%20trunk/rts/Sim/Path&In-Reply-To=%3C20080407115257.38F6746BB%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000454.html">
+   <LINK REL="Next"  HREF="000456.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5674 - trunk/rts/Sim/Path</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5674%20-%20trunk/rts/Sim/Path&In-Reply-To=%3C20080407115257.38F6746BB%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5674 - trunk/rts/Sim/Path">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon Apr  7 13:52:57 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000454.html">[Taspring-linux-commit] r5673 - trunk/rts/Sim/Path
+</A></li>
+        <LI>Next message: <A HREF="000456.html">[Taspring-linux-commit] r5675 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#455">[ date ]</a>
+              <a href="thread.html#455">[ thread ]</a>
+              <a href="subject.html#455">[ subject ]</a>
+              <a href="author.html#455">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-04-07 13:52:56 +0200 (Mon, 07 Apr 2008)
+New Revision: 5674
+
+Modified:
+   trunk/rts/Sim/Path/PathEstimator.cpp
+   trunk/rts/Sim/Path/PathEstimator.h
+Log:
+move EstimatePathCosts() into the threaded part of the constructor,  but lock on GetPath
+
+Modified: trunk/rts/Sim/Path/PathEstimator.cpp
+===================================================================
+--- trunk/rts/Sim/Path/PathEstimator.cpp	2008-04-07 00:55:51 UTC (rev 5673)
++++ trunk/rts/Sim/Path/PathEstimator.cpp	2008-04-07 11:52:56 UTC (rev 5674)
+@@ -15,7 +15,6 @@
+ #include &quot;lib/minizip/zip.h&quot;
+ #include &quot;FileSystem/ArchiveZip.h&quot;
+ 
+-#include &lt;boost/thread/thread.hpp&gt;
+ #include &lt;boost/bind.hpp&gt;
+ 
+ #define PATHDEBUG false
+@@ -145,7 +144,7 @@
+ 				boost::thread(boost::bind(&amp;CPathEstimator::InitVerticesAndBlocks, this, minVertex, maxVertex, minBlock, maxBlock));
+ 		} else {
+ 			threads[threadIdx] = SAFE_NEW
+-				boost::thread(boost::bind(&amp;CPathEstimator::CalculateBlockOffsets, this, minBlock, maxBlock));
++				boost::thread(boost::bind(&amp;CPathEstimator::CalcOffsetsAndPathCosts, this, minBlock, maxBlock));
+ 		}
+ 	}
+ }
+@@ -165,24 +164,22 @@
+ 		SpawnThreads(numThreads, true);
+ 		JoinThreads(numThreads);
+ 
+-		PrintLoadMsg(&quot;Reading estimate path costs&quot;);
++		char loadMsg[512];
++		sprintf(loadMsg, &quot;Reading estimate path costs (using %d threads)&quot;, numThreads);
++		PrintLoadMsg(loadMsg);
+ 
+ 		if (!ReadFile(name)) {
+ 			char calcMsg[512];
+-			sprintf(calcMsg, &quot;Analyzing map accessability (block-size %d)&quot;, BLOCK_SIZE);
++			sprintf(calcMsg, &quot;Analyzing map accessibility (block-size %d)&quot;, BLOCK_SIZE);
+ 			PrintLoadMsg(calcMsg);
+ 
+-			// re-spawn the threads for CalculateBlockOffsets()
++			// re-spawn the threads for the wrapper which calls
++			// CalculateBlockOffsets() and EstimatePathCosts()
+ 			SpawnThreads(numThreads, false);
+ 			JoinThreads(numThreads);
+ 
+-			// NOTE: not thread-safe yet, so keep it out of
+-			// the threaded initialization parts for now
+-			EstimatePathCosts(0, nbrOfBlocks);
+-
+ 			WriteFile(name);
+ 		}
+-
+ 	} else {
+ 		// no threading
+ 		InitVertices(0, nbrOfVertices);
+@@ -192,17 +189,18 @@
+ 
+ 		if (!ReadFile(name)) {
+ 			char calcMsg[512];
+-			sprintf(calcMsg, &quot;Analyzing map accessability (block-size %d)&quot;, BLOCK_SIZE);
++			sprintf(calcMsg, &quot;Analyzing map accessibility (block-size %d)&quot;, BLOCK_SIZE);
+ 			PrintLoadMsg(calcMsg);
+ 
+-			CalculateBlockOffsets(0, nbrOfBlocks);
+-			EstimatePathCosts(0, nbrOfBlocks);
++			CalcOffsetsAndPathCosts(0, nbrOfBlocks);
+ 
+ 			WriteFile(name);
+ 		}
+ 	}
+ }
+ 
++
++// wrapper
+ void CPathEstimator::InitVerticesAndBlocks(int minVertex, int maxVertex, int minBlock, int maxBlock) {
+ 	InitVertices(minVertex, maxVertex);
+ 	InitBlocks(minBlock, maxBlock);
+@@ -231,6 +229,13 @@
+ 	}
+ }
+ 
++
++// wrapper
++void CPathEstimator::CalcOffsetsAndPathCosts(int minBlock, int maxBlock) {
++	CalculateBlockOffsets(minBlock, maxBlock);
++	EstimatePathCosts(minBlock, maxBlock);
++}
++
+ void CPathEstimator::CalculateBlockOffsets(int minBlock, int maxBlock) {
+ 	assert(maxBlock &lt;= nbrOfBlocks);
+ 
+@@ -251,12 +256,20 @@
+ 	for (int move = 0; move &lt; moveinfo-&gt;moveData.size(); move++) {
+ 		MoveData* mdi = moveinfo-&gt;moveData[move];
+ 
++		/*
+ 		char calcMsg[512];
+-		sprintf(calcMsg, &quot;Estimating path costs for block-size %i (%i / %i)&quot;, BLOCK_SIZE, mdi-&gt;pathType, moveinfo-&gt;moveData.size());
++		sprintf(calcMsg, &quot;Estimating path costs for blocks %d to %d (block-size %d, path-type %d of %d)&quot;,
++			minBlock, maxBlock, BLOCK_SIZE, mdi-&gt;pathType, moveinfo-&gt;moveData.size());
++		*/
+ 
+ 		{
+ 			boost::mutex::scoped_lock lock(loadMsgMutex);
+-			PrintLoadMsg(calcMsg);
++
++			// NOTE: locking PrintLoadMsg() is not enough?
++			// PrintLoadMsg(calcMsg);
++
++			logOutput.Print(&quot;Estimating path costs for blocks %d to %d (block-size %d, path-type %d of %d)&quot;,
++				minBlock, maxBlock, BLOCK_SIZE, mdi-&gt;pathType, moveinfo-&gt;moveData.size());
+ 		}
+ 
+ 		for (int idx = minBlock; idx &lt; maxBlock; idx++) {
+@@ -313,9 +326,9 @@
+  * (always 4 out of 8 vertices connected to the block)
+  */
+ void CPathEstimator::CalculateVertices(const MoveData&amp; moveData, int blockX, int blockZ) {
+-	unsigned int dir;
+-	for (dir = 0; dir &lt; PATH_DIRECTION_VERTICES; dir++)
++	for (int dir = 0; dir &lt; PATH_DIRECTION_VERTICES; dir++) {
+ 		CalculateVertex(moveData, blockX, blockZ, dir);
++	}
+ }
+ 
+ 
+@@ -352,9 +365,13 @@
+ 
+ 	// the path to find
+ 	Path path;
++	SearchResult result;
+ 
+-	// perform the search
+-	SearchResult result = pathFinder-&gt;GetPath(moveData, startPos, pfDef, path, false, true, 10000, false);
++	{
++		// perform the search (NOTE: not thread-safe yet)
++		boost::mutex::scoped_lock lock(pathFinderMutex);
++		result = pathFinder-&gt;GetPath(moveData, startPos, pfDef, path, false, true, 10000, false);
++	}
+ 
+ 	// store the result
+ 	if (result == Ok) {
+@@ -371,6 +388,7 @@
+ void CPathEstimator::MapChanged(unsigned int x1, unsigned int z1, unsigned int x2, unsigned z2) {
+ 	// find the upper and lower corner of the rectangular area
+ 	int lowerX, upperX, lowerZ, upperZ;
++
+ 	if (x1 &lt; x2) {
+ 		lowerX = x1 / BLOCK_SIZE - 1;
+ 		upperX = x2 / BLOCK_SIZE;
+
+Modified: trunk/rts/Sim/Path/PathEstimator.h
+===================================================================
+--- trunk/rts/Sim/Path/PathEstimator.h	2008-04-07 00:55:51 UTC (rev 5673)
++++ trunk/rts/Sim/Path/PathEstimator.h	2008-04-07 11:52:56 UTC (rev 5674)
+@@ -12,7 +12,6 @@
+ #include &lt;boost/thread/thread.hpp&gt;
+ #include &lt;boost/thread/mutex.hpp&gt;
+ 
+-
+ class CPathEstimatorDef;
+ class CPathFinderDef;
+ 
+@@ -96,6 +95,7 @@
+ 		void InitVerticesAndBlocks(int, int, int, int);
+ 		void InitVertices(int, int);
+ 		void InitBlocks(int, int);
++		void CalcOffsetsAndPathCosts(int, int);
+ 		void CalculateBlockOffsets(int, int);
+ 		void EstimatePathCosts(int, int);
+ 	
+@@ -103,6 +103,7 @@
+ 		void JoinThreads(int);
+ 
+ 		boost::mutex loadMsgMutex;
++		boost::mutex pathFinderMutex;
+ 		std::vector&lt;boost::thread*&gt; threads;
+ 
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000454.html">[Taspring-linux-commit] r5673 - trunk/rts/Sim/Path
+</A></li>
+	<LI>Next message: <A HREF="000456.html">[Taspring-linux-commit] r5675 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#455">[ date ]</a>
+              <a href="thread.html#455">[ thread ]</a>
+              <a href="subject.html#455">[ subject ]</a>
+              <a href="author.html#455">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

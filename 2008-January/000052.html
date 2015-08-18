@@ -1,0 +1,197 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5244 - in trunk/rts: Game Sim
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5244%20-%20in%20trunk/rts%3A%20Game%20Sim&In-Reply-To=%3CE1JAb24-0004pM-VJ%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000051.html">
+   <LINK REL="Next"  HREF="000053.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5244 - in trunk/rts: Game Sim</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5244%20-%20in%20trunk/rts%3A%20Game%20Sim&In-Reply-To=%3CE1JAb24-0004pM-VJ%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5244 - in trunk/rts: Game Sim">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Jan  4 02:07:32 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000051.html">[Taspring-linux-commit] r5243 - trunk/rts/Sim/Units
+</A></li>
+        <LI>Next message: <A HREF="000053.html">[Taspring-linux-commit] r5245 - trunk/rts/Rendering
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#52">[ date ]</a>
+              <a href="thread.html#52">[ thread ]</a>
+              <a href="subject.html#52">[ subject ]</a>
+              <a href="author.html#52">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-01-04 02:07:31 +0100 (Fri, 04 Jan 2008)
+New Revision: 5244
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Sim/ModInfo.cpp
+Log:
+* Attempt to fix high ping times by sending response every frame again, but:
+* Use NETMSG_SYNCRESPONSE for ping calc (since it contains frameNumber anyway)
+  (This should save about 33% idle (no commands etc.) upload rate of clients
+  compared to 0.75b2, and 4% compared to 0.76b1.)
+* Fix float-to-int warning.
+
+
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-01-04 00:08:59 UTC (rev 5243)
++++ trunk/rts/Game/Game.cpp	2008-01-04 01:07:31 UTC (rev 5244)
+@@ -2929,15 +2929,14 @@
+ 
+ 			case NETMSG_NEWFRAME: {
+ 				timeLeft -= 1.0f;
+-				if ((gs-&gt;frameNum % 8) == 0) {
+-					// only answer every 8th newframe (~3 times per second are enought for ping calculation)
+-					net-&gt;SendNewFrame(gs-&gt;frameNum);
+-				}
+ 				SimFrame();
++				// both NETMSG_SYNCRESPONSE and NETMSG_NEWFRAME are used for ping calculation by server
+ #ifdef SYNCCHECK
+ 				net-&gt;SendSyncResponse(gu-&gt;myPlayerNum, gs-&gt;frameNum, CSyncChecker::GetChecksum());
+ 				if ((gs-&gt;frameNum &amp; 4095) == 0) // reset checksum every ~2.5 minute gametime
+ 					CSyncChecker::NewFrame();
++#else
++				net-&gt;SendNewFrame(gs-&gt;frameNum);
+ #endif
+ 				AddTraffic(-1, packetCode, dataLength);
+ 
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-01-04 00:08:59 UTC (rev 5243)
++++ trunk/rts/Game/GameServer.cpp	2008-01-04 01:07:31 UTC (rev 5244)
+@@ -94,7 +94,7 @@
+ 		userSpeedFactor = 1.0f;
+ 		internalSpeed = 1.0f;
+ 	}
+-	
++
+ 	if (!demoName.empty())
+ 	{
+ 		SendSystemMsg(&quot;Playing demo %s&quot;, demoName.c_str());
+@@ -300,9 +300,9 @@
+ #endif
+ 			}
+ 			else if (
+-			          demobuffer[0] != NETMSG_SETPLAYERNUM &amp;&amp; 
+-			          demobuffer[0] != NETMSG_USER_SPEED &amp;&amp; 
+-			          demobuffer[0] != NETMSG_INTERNAL_SPEED &amp;&amp; 
++			          demobuffer[0] != NETMSG_SETPLAYERNUM &amp;&amp;
++			          demobuffer[0] != NETMSG_USER_SPEED &amp;&amp;
++			          demobuffer[0] != NETMSG_INTERNAL_SPEED &amp;&amp;
+ 			          demobuffer[0] != NETMSG_PAUSE) // dont send these from demo
+ 			{
+ 				serverNet-&gt;RawSend(demobuffer, length);
+@@ -539,6 +539,8 @@
+ 								SendSystemMsg(&quot;Delayed response from %s for frame %d (current %d)&quot;,
+ 										players[a]-&gt;name.c_str(), frameNum, serverframenum);
+ 							}
++							// update players' ping (if !defined(SYNCCHECK) this is done in NETMSG_NEWFRAME)
++							players[a]-&gt;ping = serverframenum - frameNum;
+ 						}
+ #endif
+ 						break;
+@@ -710,12 +712,12 @@
+ void CGameServer::StartGame()
+ {
+ 	serverNet-&gt;Listening(false);
+-	
++
+ 	for(unsigned a=0; a &lt; MAX_PLAYERS; ++a) {
+ 			if(players[a])
+ 				serverNet-&gt;SendPlayerName(a, players[a]-&gt;name);
+ 	}
+-	
++
+ 	// make sure initial game speed is within allowed range and sent a new speed if not
+ 	if(userSpeedFactor&gt;maxUserSpeed)
+ 	{
+@@ -733,7 +735,7 @@
+ 		// no need to send startpos and startplaying since its in the demo
+ 		return;
+ 	}
+-		
++
+ 	GenerateAndSendGameID();
+ 
+ 	if (gameSetup) {
+@@ -890,14 +892,14 @@
+ 		if(players[a] &amp;&amp; players[a]-&gt;readyToStart)
+ 			serverNet-&gt;SendPlayerName(a, players[a]-&gt;name);
+ 	}
+-	
++
+ 	if (gameSetup) {
+ 		for (unsigned a = 0; a &lt; gs-&gt;activeTeams; ++a)
+ 		{
+ 			serverNet-&gt;SendStartPos(SERVER_PLAYER, a, 2, gs-&gt;Team(a)-&gt;startPos.x, gs-&gt;Team(a)-&gt;startPos.y, gs-&gt;Team(a)-&gt;startPos.z);
+ 		}
+ 	}
+-	
++
+ 	players[hisNewNumber].reset(new GameParticipant(grantRights)); // give him rights to change speed, kick players etc
+ 	SendSystemMsg(&quot;Client connected on slot %i&quot;, hisNewNumber);
+ 	serverNet-&gt;FlushNet();
+
+Modified: trunk/rts/Sim/ModInfo.cpp
+===================================================================
+--- trunk/rts/Sim/ModInfo.cpp	2008-01-04 00:08:59 UTC (rev 5243)
++++ trunk/rts/Sim/ModInfo.cpp	2008-01-04 01:07:31 UTC (rev 5244)
+@@ -53,9 +53,9 @@
+ 
+ 	// constructions
+ 	const LuaTable constructionTbl = root.SubTable(&quot;construction&quot;);
+-	constructionDecay       = constructionTbl.GetBool(&quot;constructionDecay&quot;,  true);
+-	constructionDecayTime   = constructionTbl.GetFloat(&quot;constructionDecayTime&quot;,  6.66) * 30;
+-	constructionDecaySpeed  = constructionTbl.GetFloat(&quot;constructionDecaySpeed&quot;,  0.03);
++	constructionDecay = constructionTbl.GetBool(&quot;constructionDecay&quot;, true);
++	constructionDecayTime = (int)(constructionTbl.GetFloat(&quot;constructionDecayTime&quot;, 6.66) * 30);
++	constructionDecaySpeed = constructionTbl.GetFloat(&quot;constructionDecaySpeed&quot;, 0.03);
+ 
+ 	// reclaim
+ 	const LuaTable reclaimTbl = root.SubTable(&quot;reclaim&quot;);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000051.html">[Taspring-linux-commit] r5243 - trunk/rts/Sim/Units
+</A></li>
+	<LI>Next message: <A HREF="000053.html">[Taspring-linux-commit] r5245 - trunk/rts/Rendering
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#52">[ date ]</a>
+              <a href="thread.html#52">[ thread ]</a>
+              <a href="subject.html#52">[ subject ]</a>
+              <a href="author.html#52">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

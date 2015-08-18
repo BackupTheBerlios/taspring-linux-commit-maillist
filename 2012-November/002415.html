@@ -1,0 +1,309 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7645 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2012-November/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7645%20-%20Lobby/TASClient&In-Reply-To=%3Cmailman.1101.1351989434.1445.taspring-linux-commit%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002416.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7645 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7645%20-%20Lobby/TASClient&In-Reply-To=%3Cmailman.1101.1351989434.1445.taspring-linux-commit%40lists.berlios.de%3E"
+       TITLE="[Taspring-linux-commit] r7645 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Nov  4 01:36:56 CET 2012</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002416.html">[Taspring-linux-commit] r7646 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2415">[ date ]</a>
+              <a href="thread.html#2415">[ thread ]</a>
+              <a href="subject.html#2415">[ subject ]</a>
+              <a href="author.html#2415">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2012-11-04 01:36:56 +0100 (Sun, 04 Nov 2012)
+New Revision: 7645
+
+Modified:
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/SpringDownloaderFormUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* rapid now checks all repos in <A HREF="http://repos.springrts.com/repos.gz">http://repos.springrts.com/repos.gz</A> instead of just checking <A HREF="http://packages.springrts.com">http://packages.springrts.com</A>
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2012-10-21 15:45:00 UTC (rev 7644)
++++ Lobby/TASClient/MainUnit.pas	2012-11-04 00:36:56 UTC (rev 7645)
+@@ -412,7 +412,7 @@
+   );
+ 
+ const
+-  VERSION_NUMBER = '0.99'; // Must be float value! (with a period as a decimal seperator)
++  VERSION_NUMBER = '1.0'; // Must be float value! (with a period as a decimal seperator)
+   PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER;
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+   ASSUME_TIMEOUT_INTERVAL = 30000; // in milliseconds. Must be greater than KEEP_ALIVE_INTERVAL! If server hasn't send any data to us within this interval, then we assume timeout occured. It's us who must make sure we get constant replies from server by pinging it.
+@@ -1862,7 +1862,7 @@
+   SCROLLING_NEWS_DIR:string = SCROLLING_NEWS_DIR_DEFAULT;
+   WIDGETDB_MANAGER_URL: string = '<A HREF="http://widgetdb.springrts.de/lua_manager.php">http://widgetdb.springrts.de/lua_manager.php</A>';
+   SPRINGDOWNLOADER_SERVICE_URL: string = '<A HREF="http://zero-k.info/ContentService.asmx">http://zero-k.info/ContentService.asmx</A>';
+-  RAPID_DOWNLOADER_URL: string = '<A HREF="http://packages.springrts.com">http://packages.springrts.com</A>';
++  RAPID_DOWNLOADER_URL: string = '<A HREF="http://repos.springrts.com/repos.gz">http://repos.springrts.com/repos.gz</A>';
+   RELAYHOST_MANAGER_NAME: string = 'RelayHostManagerList';
+ 
+   MainForm: TMainForm;
+
+Modified: Lobby/TASClient/SpringDownloaderFormUnit.pas
+===================================================================
+--- Lobby/TASClient/SpringDownloaderFormUnit.pas	2012-10-21 15:45:00 UTC (rev 7644)
++++ Lobby/TASClient/SpringDownloaderFormUnit.pas	2012-11-04 00:36:56 UTC (rev 7645)
+@@ -860,10 +860,14 @@
+ var
+   decompressedStream: TMemoryStream;
+   tagListStr: string;
++  reposListStr: string;
++  reposList: TStringList;
+   i: integer;
+   decompressedStreamSize: integer;
+   tagValue: string;
+   tagValues: TStringList;
++  currentTagUrl: string;
++  tagFound: boolean;
+   cp: PChar;
+   fileNameLength: Byte;
+   fileRealName: string;
+@@ -891,9 +895,10 @@
+ 
+     FhttpGet := THttpCli.Create(MainForm);
+ 
++    // first get the repos list from the repos master
+     rcvdStream := TMemoryStream.Create;
+     FhttpGet.RcvdStream := rcvdStream;
+-    FhttpGet.URL := RAPID_DOWNLOADER_URL+'/versions.gz';
++    FhttpGet.URL := RAPID_DOWNLOADER_URL;
+     FhttpGet.Get;
+     if FAbord then
+       Raise Exception.Create('Download aborted');
+@@ -902,47 +907,95 @@
+     GZDecompressStream(FhttpGet.RcvdStream,decompressedStream);
+     decompressedStream.Seek(0,soFromBeginning);
+     decompressedStreamSize := decompressedStream.Size;
+-    SetLength(tagListStr,decompressedStreamSize);
+-    decompressedStream.Read(tagListStr[1],decompressedStreamSize);
++    SetLength(reposListStr,decompressedStreamSize);
++    decompressedStream.Read(reposListStr[1],decompressedStreamSize);
+     FreeAndNil(decompressedStream);
+     FreeAndNil(rcvdStream);
+     FhttpGet.RcvdStream := nil;
+ 
++    reposList := TStringList.Create;
++    ParseDelimited(reposList,reposListStr,',','');
++
++    // create the tags list
+     tagValues := TStringList.Create;
+-    cp := @tagListStr[1];
+-    while true do
++
++    // then get the tags
++    tagFound := false;
++    i:=1;
++    while i &lt; reposList.Count do
+     begin
+-      tagValue := '';
+-      tagValues.Clear;
+-      while (cp^ &lt;&gt; #10) and (cp^ &lt;&gt; #0) do
+-      begin
+-        if cp^ = ',' then
++      try
++        currentTagUrl := reposList[i];
++        rcvdStream := TMemoryStream.Create;
++        FhttpGet.RcvdStream := rcvdStream;
++        FhttpGet.URL := currentTagUrl + '/versions.gz';
++        FhttpGet.Get;
++        if FAbord then
++          Raise Exception.Create('Download aborted');
++        decompressedStream := TMemoryStream.Create;
++        FhttpGet.RcvdStream.Seek(0,soFromBeginning);
++        GZDecompressStream(FhttpGet.RcvdStream,decompressedStream);
++        decompressedStream.Seek(0,soFromBeginning);
++        decompressedStreamSize := decompressedStream.Size;
++        SetLength(tagListStr,decompressedStreamSize);
++        decompressedStream.Read(tagListStr[1],decompressedStreamSize);
++        FreeAndNil(decompressedStream);
++        FreeAndNil(rcvdStream);
++        FhttpGet.RcvdStream := nil;
++
++        cp := @tagListStr[1];
++        while true do
+         begin
++          tagValue := '';
++          tagValues.Clear;
++          while (cp^ &lt;&gt; #10) and (cp^ &lt;&gt; #0) do
++          begin
++            if cp^ = ',' then
++            begin
++              tagValues.Add(tagValue);
++              tagValue := '';
++            end
++            else
++              tagValue := tagValue + cp^;
++            Inc(cp);
++          end;
+           tagValues.Add(tagValue);
+-          tagValue := '';
+-        end
+-        else
+-          tagValue := tagValue + cp^;
+-        Inc(cp);
+-      end;
+-      tagValues.Add(tagValue);
+ 
+-      if listTagsOnly then
+-      begin
+-        if (tagValues.Count = 4) and ((modName = '') or RegExpr.ExecRegExpr(LowerCase(modName),LowerCase(tagValues[0]) ) or RegExpr.ExecRegExpr(LowerCase(modName),LowerCase(tagValues[2]) ) or RegExpr.ExecRegExpr(LowerCase(modName),LowerCase(tagValues[3]) ) ) then
++          if listTagsOnly then
++          begin
++            if (tagValues.Count = 4) and ((modName = '') or RegExpr.ExecRegExpr(LowerCase(modName),LowerCase(tagValues[0]) ) or RegExpr.ExecRegExpr(LowerCase(modName),LowerCase(tagValues[2]) ) or RegExpr.ExecRegExpr(LowerCase(modName),LowerCase(tagValues[3]) ) ) then
++            begin
++              tagInfo := TStringList.Create;
++              tagInfo.Assign(tagValues);
++              FTagsList.Add(tagInfo);
++            end;
++          end
++          else if (tagValues.Count = 4) and (((tagValues[3] = modName) and (rapidName = '')) or (rapidName = tagValues[0])) then
++          begin
++            tagFound := true;
++            break;
++          end;
++
++          if cp^ = #0 then
++            break;
++          Inc(cp);
++        end;
++
++      except
++        on E:Exception do
+         begin
+-          tagInfo := TStringList.Create;
+-          tagInfo.Assign(tagValues);
+-          FTagsList.Add(tagInfo);
++          FreeAndNil(decompressedStream);
++          FreeAndNil(rcvdStream);
++          FhttpGet.RcvdStream := nil;
++
++          ExceptionRaised(E.Message);
+         end;
+-      end
+-      else if (tagValues.Count = 4) and (((tagValues[3] = modName) and (rapidName = '')) or (rapidName = tagValues[0])) then
++      end;
++
++      if tagFound then
+         break;
+ 
+-
+-      if cp^ = #0 then
+-        break;
+-      Inc(cp);
++      i := i + 3;
+     end;
+ 
+     if listTagsOnly then
+@@ -964,7 +1017,7 @@
+ 
+       sdpMemoryStream := TMemoryStream.Create;
+       FhttpGet.RcvdStream := sdpMemoryStream;
+-      FhttpGet.URL := RAPID_DOWNLOADER_URL+'/packages/'+tagValues[1]+'.sdp';
++      FhttpGet.URL := currentTagUrl+'/packages/'+tagValues[1]+'.sdp';
+       FhttpGet.Get;
+       if FAbord then
+         Raise Exception.Create('Download aborted');
+@@ -1027,7 +1080,7 @@
+       filesStream := TFileStream.Create(tagValues[1]+'.bin',fmOpenWrite or fmCreate);
+       FhttpPost.RcvdStream := filesStream;
+       FhttpPost.SendStream := compressedBitArray;
+-      FhttpPost.URL := RAPID_DOWNLOADER_URL+'/streamer.cgi?'+tagValues[1];
++      FhttpPost.URL := currentTagUrl+'/streamer.cgi?'+tagValues[1];
+       FhttpPost.OnDocData := DownloadDocData;
+       Synchronize(DownloadStart);
+       FhttpPost.Post;
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2012-10-21 15:45:00 UTC (rev 7644)
++++ Lobby/TASClient/TASClient.dof	2012-11-04 00:36:56 UTC (rev 7645)
+@@ -100,7 +100,7 @@
+ DebugSourceDirs=
+ UsePackages=0
+ [Parameters]
+-RunParams=
++RunParams=-debug
+ HostApplication=C:\Program Files\Spring\TASClient.exe
+ Launcher=
+ UseLauncher=0
+@@ -112,10 +112,10 @@
+ [Version Info]
+ IncludeVerInfo=1
+ AutoIncBuild=1
+-MajorVer=0
+-MinorVer=99
++MajorVer=1
++MinorVer=0
+ Release=0
+-Build=1373
++Build=1375
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TASClient
+-FileVersion=0.99.0.1373
++FileVersion=1.0.0.1375
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+</PRE>
+
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002416.html">[Taspring-linux-commit] r7646 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2415">[ date ]</a>
+              <a href="thread.html#2415">[ thread ]</a>
+              <a href="subject.html#2415">[ subject ]</a>
+              <a href="author.html#2415">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

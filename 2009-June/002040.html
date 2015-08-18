@@ -1,0 +1,938 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7271 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2009-June/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7271%20-%20Lobby/TASClient&In-Reply-To=%3C20090617004937.297633B7C4%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002039.html">
+   <LINK REL="Next"  HREF="002041.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7271 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7271%20-%20Lobby/TASClient&In-Reply-To=%3C20090617004937.297633B7C4%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7271 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Jun 17 02:49:37 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002039.html">[Taspring-linux-commit] r7270 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002041.html">[Taspring-linux-commit] r7272 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2040">[ date ]</a>
+              <a href="thread.html#2040">[ thread ]</a>
+              <a href="subject.html#2040">[ subject ]</a>
+              <a href="author.html#2040">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2009-06-17 02:49:35 +0200 (Wed, 17 Jun 2009)
+New Revision: 7271
+
+Modified:
+   Lobby/TASClient/AddBotUnit.pas
+   Lobby/TASClient/AutoJoinFormUnit.pas
+   Lobby/TASClient/BattleFormUnit.dfm
+   Lobby/TASClient/BattleFormUnit.pas
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/ManageGroups.dfm
+   Lobby/TASClient/ManageGroups.pas
+   Lobby/TASClient/SearchFormUnit.dfm
+   Lobby/TASClient/SearchFormUnit.pas
+   Lobby/TASClient/TASClient.cfg
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* the group managing form is not modal anymore and stay on top
+* you can drag n drop players from the main or the battle windows
+* the battle window player context menu now use the global one
+* few combo default item back to normal (before the translation)
+* autojoin window translated
+* addbot window resizable
+
+
+Modified: Lobby/TASClient/AddBotUnit.pas
+===================================================================
+--- Lobby/TASClient/AddBotUnit.pas	2009-06-14 19:22:09 UTC (rev 7270)
++++ Lobby/TASClient/AddBotUnit.pas	2009-06-17 00:49:35 UTC (rev 7271)
+@@ -36,8 +36,6 @@
+     mnuCopyItem: TSpTBXItem;
+     mnuGotoUrl: TSpTBXItem;
+ 
+-    procedure CreateParams(var Params: TCreateParams); override;
+-
+     procedure ChangeTeamColor(ColorIndex: Integer);
+     procedure ChangeSide(SideIndex: Integer);
+ 
+@@ -81,18 +79,6 @@
+ 
+ {$R *.dfm}
+ 
+-procedure TAddBotForm.CreateParams(var Params: TCreateParams);
+-begin
+-  inherited CreateParams(Params);
+-
+-  if not Preferences.TaskbarButtons then Exit;
+-
+-  with Params do begin
+-    ExStyle := ExStyle or WS_EX_APPWINDOW;
+-    WndParent := GetDesktopWindow;
+-  end;
+-end;
+-
+ procedure TAddBotForm.ReloadButtonClick(Sender: TObject);
+ var
+   i,j: integer;
+@@ -132,8 +118,6 @@
+ begin
+   TranslateComponent(self);
+ 
+-  if not SpTBXTitleBar1.Active then
+-    RemoveSpTBXTitleBarMarges(self);
+   ChangeTeamColor(0);
+   BotSideButton.Images := Utility.SideImageList;
+   BotAllyButton.MaxValue := MAX_TEAMS;
+
+Modified: Lobby/TASClient/AutoJoinFormUnit.pas
+===================================================================
+--- Lobby/TASClient/AutoJoinFormUnit.pas	2009-06-14 19:22:09 UTC (rev 7270)
++++ Lobby/TASClient/AutoJoinFormUnit.pas	2009-06-17 00:49:35 UTC (rev 7271)
+@@ -69,12 +69,17 @@
+ 
+ implementation
+ 
+-uses MainUnit;
++uses MainUnit, gnugettext, Misc;
+ 
+ {$R *.dfm}
+ 
+ procedure TAutoJoinForm.FormCreate(Sender: TObject);
+ begin
++  TranslateComponent(self);
++
++  if not SpTBXTitleBar1.Active then
++    RemoveSpTBXTitleBarMarges(self);
++
+   autoPlayPresetList := TList.Create;
+   autoSpecPresetList := TList.Create;
+ end;
+@@ -86,6 +91,11 @@
+   cmbFilterPresetList.Clear;
+   cmbFilterPresetList.Items.AddStrings(MainForm.PresetListbox.Items);
+   cmbFilterPresetList.ItemIndex := 0;
++
++  if cmbSortingList.ItemIndex = -1 then
++    cmbSortingList.ItemIndex := 0;
++  if cmbSortDir.ItemIndex = -1 then
++    cmbSortDir.ItemIndex := 0;
+ end;
+ 
+ procedure TAutoJoinForm.btAddPresetToAutoplayClick(Sender: TObject);
+
+Modified: Lobby/TASClient/BattleFormUnit.dfm
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.dfm	2009-06-14 19:22:09 UTC (rev 7270)
++++ Lobby/TASClient/BattleFormUnit.dfm	2009-06-17 00:49:35 UTC (rev 7271)
+@@ -1,6 +1,6 @@
+ object BattleForm: TBattleForm
+-  Left = 351
+-  Top = 113
++  Left = 288
++  Top = 114
+   Width = 945
+   Height = 589
+   Caption = 'Battle window'
+@@ -4084,7 +4084,7 @@
+           Height = 273
+           Align = alClient
+           Color = clBtnFace
+-          ActiveTabIndex = 4
++          ActiveTabIndex = 0
+           ThemeType = tttNone
+           OnActiveTabChange = SpTBXTabControl1ActiveTabChange
+           HiddenItems = &lt;
+@@ -4095,6 +4095,7 @@
+               Height = 35
+             end&gt;
+           object QuickLookTab: TSpTBXTabItem
++            Checked = True
+             ImageIndex = 1
+             Images = MainForm.ArrowList
+             CustomWidth = 40
+@@ -4121,35 +4122,9 @@
+           object ModTab: TSpTBXTabItem
+             Caption = 'Mod options'
+             Wrapping = twWrap
+-            Checked = True
+             CustomWidth = 94
+             ThemeType = tttNone
+           end
+-          object SpTBXTabSheet6: TSpTBXTabSheet
+-            Left = 0
+-            Top = 39
+-            Width = 419
+-            Height = 234
+-            ImageIndex = 1
+-            Item = QuickLookTab
+-            TabControl = SpTBXTabControl1
+-            TabItem = 'QuickLookTab'
+-            object QuickLookRichEdit: TRichEdit
+-              Left = 2
+-              Top = 0
+-              Width = 415
+-              Height = 232
+-              Align = alClient
+-              BorderStyle = bsNone
+-              Color = clBtnFace
+-              ParentShowHint = False
+-              ReadOnly = True
+-              ScrollBars = ssVertical
+-              ShowHint = True
+-              TabOrder = 0
+-              OnMouseMove = QuickLookRichEditMouseMove
+-            end
+-          end
+           object MapTabSheet: TSpTBXTabSheet
+             Left = 0
+             Top = 39
+@@ -4621,6 +4596,31 @@
+               end
+             end
+           end
++          object SpTBXTabSheet6: TSpTBXTabSheet
++            Left = 0
++            Top = 39
++            Width = 419
++            Height = 234
++            ImageIndex = 1
++            Item = QuickLookTab
++            TabControl = SpTBXTabControl1
++            TabItem = 'QuickLookTab'
++            object QuickLookRichEdit: TRichEdit
++              Left = 2
++              Top = 0
++              Width = 415
++              Height = 232
++              Align = alClient
++              BorderStyle = bsNone
++              Color = clBtnFace
++              ParentShowHint = False
++              ReadOnly = True
++              ScrollBars = ssVertical
++              ShowHint = True
++              TabOrder = 0
++              OnMouseMove = QuickLookRichEditMouseMove
++            end
++          end
+         end
+       end
+       object Panel6: TPanel
+@@ -12528,6 +12528,10 @@
+         Width = 619
+         Height = 94
+         Anchors = [akLeft, akTop, akRight, akBottom]
++        DragImageKind = diMainColumnOnly
++        DragMode = dmAutomatic
++        DragOperations = [doCopy, doMove, doLink]
++        DragType = dtVCL
+         Font.Charset = DEFAULT_CHARSET
+         Font.Color = clWindowText
+         Font.Height = -11
+@@ -12546,9 +12550,11 @@
+         ParentShowHint = False
+         ShowHint = True
+         TabOrder = 0
++        TreeOptions.MiscOptions = [toAcceptOLEDrop, toFullRepaintOnResize, toInitOnSave, toToggleOnDblClick, toWheelPanning, toFullRowDrag]
+         TreeOptions.PaintOptions = [toHideFocusRect, toShowButtons, toShowDropmark, toThemeAware, toUseBlendedImages]
+         TreeOptions.SelectionOptions = [toFullRowSelect, toRightClickSelect]
+         OnDblClick = VDTBattleClientsDblClick
++        OnDragAllowed = VDTBattleClientsDragAllowed
+         OnDrawHint = VDTBattleClientsDrawHint
+         OnDrawNode = VDTBattleClientsDrawNode
+         OnGetHintSize = VDTBattleClientsGetHintSize
+@@ -12863,21 +12869,9 @@
+       Caption = 'Ring'
+       OnClick = RingItemClick
+     end
+-    object SpTBXSeparatorItem5: TSpTBXSeparatorItem
++    object PlayerSubmenu: TSpTBXSubmenuItem
++      LinkSubitems = MainForm.PlayerSubMenu
+     end
+-    object mnuAddToGroup: TSpTBXSubmenuItem
+-      Caption = 'Add to group'
+-      object mnuNewGroup: TSpTBXItem
+-        Caption = 'New group ...'
+-        OnClick = mnuNewGroupClick
+-      end
+-      object SpTBXSeparatorItem6: TSpTBXSeparatorItem
+-      end
+-    end
+-    object mnuRemoveFromGroup: TSpTBXItem
+-      Caption = 'Remove from group'
+-      OnClick = mnuRemoveFromGroupClick
+-    end
+     object SpTBXSeparatorItem9: TSpTBXSeparatorItem
+     end
+   end
+
+Modified: Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.pas	2009-06-14 19:22:09 UTC (rev 7270)
++++ Lobby/TASClient/BattleFormUnit.pas	2009-06-17 00:49:35 UTC (rev 7271)
+@@ -63,6 +63,7 @@
+     procedure setToDefault();virtual;
+     function isDefault:Boolean;virtual;
+     function toString:String;virtual;
++    function getDescription:string;virtual;
+     destructor Destroy; override;
+   end;
+ 
+@@ -142,8 +143,6 @@
+   private
+     Panel: TPanel;
+     ComboBox: TSpTBXComboBox;
+-  protected
+-    procedure OnDescriptionButtonClick(Sender: TObject);override;
+ 
+   public
+     NameList: TStringList;
+@@ -158,6 +157,7 @@
+     function isDefault:Boolean;override;
+     function toString:String;override;
+     function nameToString:String;
++    function getDescription:string;override;
+     destructor Destroy; override;
+   end;
+   
+@@ -224,11 +224,6 @@
+     SpTBXItem11: TSpTBXItem;
+     RingItem: TSpTBXItem;
+     ReadyButton: TSpTBXButton;
+-    SpTBXSeparatorItem5: TSpTBXSeparatorItem;
+-    mnuRemoveFromGroup: TSpTBXItem;
+-    mnuAddToGroup: TSpTBXSubmenuItem;
+-    mnuNewGroup: TSpTBXItem;
+-    SpTBXSeparatorItem6: TSpTBXSeparatorItem;
+     Panel5: TPanel;
+     SpTBXTabControl1: TSpTBXTabControl;
+     GameOptionsTab: TSpTBXTabItem;
+@@ -332,6 +327,7 @@
+     ChooseSidePopupMenu: TSpTBXPopupMenu;
+     ForceAllySpin: TTBXSpinEditItem;
+     ForceTeamSpin: TTBXSpinEditItem;
++    PlayerSubmenu: TSpTBXSubmenuItem;
+ 
+     procedure CreateParams(var Params: TCreateParams); override;
+ 
+@@ -515,7 +511,7 @@
+     procedure SpTBXTabControl1ActiveTabChange(Sender: TObject;
+       TabIndex: Integer);
+     procedure mnuNewGroupClick(Sender: TObject);
+-    procedure mnuRemoveFromGroupClick(Sender: TObject);
++    procedure mnuPlayerManueClick(Sender: TObject);
+     procedure btLoadModsDefaultMDOClick(Sender: TObject);
+     procedure btLoadMapsDefaultMPOClick(Sender: TObject);
+     procedure btSetAsDefaultMDOClick(Sender: TObject);
+@@ -556,6 +552,8 @@
+       const AValue: Extended);
+     procedure ForceTeamSpinValueChange(Sender: TTBXCustomSpinEditItem;
+       const AValue: Extended);
++    procedure VDTBattleClientsDragAllowed(Sender: TBaseVirtualTree;
++      Node: PVirtualNode; Column: TColumnIndex; var Allowed: Boolean);
+   private
+     History: TWideStringList;
+     HistoryIndex: Integer;
+@@ -5232,7 +5230,6 @@
+   SetBotSideSubitem.Visible := (ForceTeamSpin.Visible) and (WhatToDraw = NormalBot);
+   ForceSpectatorModeItem.Visible := ForceTeamSpin.Visible;
+   RingItem.Visible := (WhatToDraw = NormalClient) and ((BattleState.Status = Hosting) or (RealIndex=0));
+-  SpTBXSeparatorItem5.Visible := RingItem.Visible;
+ 
+   BanPlayerItem.Visible := BattleState.Status = Hosting;
+   UnbanSubitem.Visible := BanPlayerItem.Visible;
+@@ -5262,40 +5259,16 @@
+     ForceTeamSpin.Value := TBot(BattleState.Battle.Bots[RealIndex]).GetTeamNo+1;
+   end;
+ 
+-  mnuAddToGroup.Visible := WhatToDraw = NormalClient;
+-  mnuRemoveFromGroup.Visible := mnuAddToGroup.Visible;
+-  if mnuAddToGroup.Visible then
++  if WhatToDraw = NormalClient then
+   begin
+-    Client := TClient(BattleState.Battle.Clients[RealIndex]);
+-    ClientGroup := Client.GetGroup;
++    PlayerSubmenu.Caption := TClient(BattleState.Battle.Clients[RealIndex]).Name;
++    MainUnit.ContextMenuSelectedClient := TClient(BattleState.Battle.Clients[RealIndex]);
++    MainForm.ClientPopupMenuInitPopup(nil,nil);
++    PlayerSubmenu.Visible := True;
++  end
++  else
++    PlayerSubmenu.Visible := False;
+ 
+-    if ClientGroup &lt;&gt; nil then begin
+-      mnuAddToGroup.Caption := _('Move to group');
+-      mnuRemoveFromGroup.Enabled := True;
+-    end
+-    else
+-    begin
+-      mnuAddToGroup.Caption := _('Add to group');
+-      mnuRemoveFromGroup.Enabled := False;
+-    end;
+-
+-    for i:= mnuAddToGroup.Count-1 downto 2 do
+-      mnuAddToGroup.Remove(mnuAddToGroup.Items[i]);
+-
+-    for i:=0 to ClientGroups.Count-1 do
+-    begin
+-      mnuAddToGroup.Add(TSpTBXItem.Create(mnuAddToGroup));
+-      with mnuAddToGroup.Items[mnuAddToGroup.Count-1] as TSpTBXItem do
+-      begin
+-        Caption := TClientGroup(ClientGroups[i]).Name;
+-        Tag := i;
+-        OnClick := MainForm.AddToGroupItemClick;
+-      end;
+-    end;
+-
+-    MainUnit.SelectedUserName := Client.Name;
+-  end;
+-
+   ChatRichEdit.Refresh;
+   VDTBattleClients.Refresh;
+ end;
+@@ -5914,16 +5887,21 @@
+ end;
+ procedure TLuaOption.OnDescriptionButtonClick(Sender: TObject);
+ begin
+-  MessageDlg(Self.Name + ' : ' + Self.Description,mtInformation,[mbOk],0);
++  MessageDlg(Self.Name + ' : ' + Self.getDescription,mtInformation,[mbOk],0);
+ end;
+-procedure TLuaOptionList.OnDescriptionButtonClick(Sender: TObject);
++function TLuaOption.getDescription:string;
++begin
++  result := Self.Description;
++end;
++
++function TLuaOptionList.getDescription:string;
+ var
+   msg: String;
+   i: integer;
+ begin
+   for i:=0 to DescriptionList.Count-1 do
+     msg := msg + EOL + '     ' + NameList[i] + ' = ' + DescriptionList[i];
+-  MessageBox(BattleForm.Handle,PAnsiChar(Self.Name + ' : ' + Self.Description+EOL+msg),PAnsiChar(_('Mod option description')),MB_OK);
++  Result := Self.Description+EOL+msg;
+ end;
+ 
+ function TLuaOption.GetComponent(AOwner: TWinControl;luaOptionList: TList): TWinControl;
+@@ -6502,7 +6480,7 @@
+   MainForm.mnuNewGroupClick(nil);
+ end;
+ 
+-procedure TBattleForm.mnuRemoveFromGroupClick(Sender: TObject);
++procedure TBattleForm.mnuPlayerManueClick(Sender: TObject);
+ begin
+   MainForm.mnuRemoveFromGroupClick(nil);
+ end;
+@@ -7039,6 +7017,8 @@
+     Exit;
+   end;
+ 
++  QuickLookHints.Clear;
++
+   AddTitle(_('Game options'));
+   AddLine('Start position',StartPosRadioGroup.Items[StartPosRadioGroup.ItemIndex],true,StartPosRadioGroup.ItemIndex &lt;&gt; StartPosRadioGroup.Tag,StartPosRadioGroup.Hint);
+   if GameEndRadioGroup.Visible and (GameEndRadioGroup.ItemIndex &gt; -1) then
+@@ -7056,12 +7036,12 @@
+     for i:=0 to ModOptionsList.Count-1 do
+       if TLuaOption(ModOptionsList[i]).ClassType &lt;&gt; TLuaOptionSection then
+         if TLuaOption(ModOptionsList[i]).ClassType = TLuaOptionBool then
+-          AddLine(TLuaOption(ModOptionsList[i]).Name,BoolToStr(TLuaOption(ModOptionsList[i]).toString &lt;&gt; '0',true),TLuaOption(ModOptionsList[i]).isDefault,TLuaOption(ModOptionsList[i]).hasChanged,TLuaOption(ModOptionsList[i]).Description)
++          AddLine(TLuaOption(ModOptionsList[i]).Name,BoolToStr(TLuaOption(ModOptionsList[i]).toString &lt;&gt; '0',true),TLuaOption(ModOptionsList[i]).isDefault,TLuaOption(ModOptionsList[i]).hasChanged,TLuaOption(ModOptionsList[i]).getDescription)
+         else
+           if TLuaOption(ModOptionsList[i]).ClassType = TLuaOptionList then
+-            AddLine(TLuaOption(ModOptionsList[i]).Name,TLuaOptionList(ModOptionsList[i]).nameToString,TLuaOption(ModOptionsList[i]).isDefault,TLuaOption(ModOptionsList[i]).hasChanged,TLuaOption(ModOptionsList[i]).Description)
++            AddLine(TLuaOption(ModOptionsList[i]).Name,TLuaOptionList(ModOptionsList[i]).nameToString,TLuaOption(ModOptionsList[i]).isDefault,TLuaOption(ModOptionsList[i]).hasChanged,TLuaOption(ModOptionsList[i]).getDescription)
+           else
+-            AddLine(TLuaOption(ModOptionsList[i]).Name,TLuaOption(ModOptionsList[i]).toString,TLuaOption(ModOptionsList[i]).isDefault,TLuaOption(ModOptionsList[i]).hasChanged,TLuaOption(ModOptionsList[i]).Description);
++            AddLine(TLuaOption(ModOptionsList[i]).Name,TLuaOption(ModOptionsList[i]).toString,TLuaOption(ModOptionsList[i]).isDefault,TLuaOption(ModOptionsList[i]).hasChanged,TLuaOption(ModOptionsList[i]).getDescription);
+   end;
+ 
+   if MapOptionsList.Count &gt; 0 then
+@@ -7070,12 +7050,12 @@
+     for i:=0 to MapOptionsList.Count-1 do
+       if TLuaOption(MapOptionsList[i]).ClassType &lt;&gt; TLuaOptionSection then
+         if TLuaOption(MapOptionsList[i]).ClassType = TLuaOptionBool then
+-          AddLine(TLuaOption(MapOptionsList[i]).Name,BoolToStr(TLuaOption(MapOptionsList[i]).toString &lt;&gt; '0',true),TLuaOption(MapOptionsList[i]).toString &lt;&gt; TLuaOption(MapOptionsList[i]).DefaultValue,TLuaOption(MapOptionsList[i]).hasChanged,TLuaOption(MapOptionsList[i]).Description)
++          AddLine(TLuaOption(MapOptionsList[i]).Name,BoolToStr(TLuaOption(MapOptionsList[i]).toString &lt;&gt; '0',true),TLuaOption(MapOptionsList[i]).toString &lt;&gt; TLuaOption(MapOptionsList[i]).DefaultValue,TLuaOption(MapOptionsList[i]).hasChanged,TLuaOption(MapOptionsList[i]).getDescription)
+         else
+           if TLuaOption(MapOptionsList[i]).ClassType = TLuaOptionList then
+-            AddLine(TLuaOption(MapOptionsList[i]).Name,TLuaOptionList(MapOptionsList[i]).nameToString,TLuaOption(MapOptionsList[i]).toString &lt;&gt; TLuaOption(MapOptionsList[i]).DefaultValue,TLuaOption(MapOptionsList[i]).hasChanged,TLuaOption(MapOptionsList[i]).Description)
++            AddLine(TLuaOption(MapOptionsList[i]).Name,TLuaOptionList(MapOptionsList[i]).nameToString,TLuaOption(MapOptionsList[i]).toString &lt;&gt; TLuaOption(MapOptionsList[i]).DefaultValue,TLuaOption(MapOptionsList[i]).hasChanged,TLuaOption(MapOptionsList[i]).getDescription)
+           else
+-            AddLine(TLuaOption(MapOptionsList[i]).Name,TLuaOption(MapOptionsList[i]).toString,TLuaOption(MapOptionsList[i]).toString &lt;&gt; TLuaOption(MapOptionsList[i]).DefaultValue,TLuaOption(MapOptionsList[i]).hasChanged,TLuaOption(MapOptionsList[i]).Description);
++            AddLine(TLuaOption(MapOptionsList[i]).Name,TLuaOption(MapOptionsList[i]).toString,TLuaOption(MapOptionsList[i]).toString &lt;&gt; TLuaOption(MapOptionsList[i]).DefaultValue,TLuaOption(MapOptionsList[i]).hasChanged,TLuaOption(MapOptionsList[i]).getDescription);
+   end;
+ 
+   if BattleState.DisabledUnits.Count &gt; 0 then
+@@ -7275,4 +7255,14 @@
+   end;
+ end;
+ 
++procedure TBattleForm.VDTBattleClientsDragAllowed(Sender: TBaseVirtualTree;
++  Node: PVirtualNode; Column: TColumnIndex; var Allowed: Boolean);
++var
++  RealIndex: Integer;
++  WhatToDraw: TClientNodeType;
++begin
++  GetNodeClient(Node.Index,RealIndex,WhatToDraw);
++  Allowed := WhatToDraw =NormalClient;
++end;
++
+ end.
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2009-06-14 19:22:09 UTC (rev 7270)
++++ Lobby/TASClient/MainUnit.dfm	2009-06-17 00:49:35 UTC (rev 7271)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 271
+-  Top = 148
++  Left = 703
++  Top = 50
+   Width = 850
+   Height = 538
+   Caption = '.'
+@@ -243,7 +243,7 @@
+             DesignSize = (
+               826
+               25)
+-            object SpTBXLabel1: TSpTBXLabel
++            object BattleListLabel: TSpTBXLabel
+               Left = 0
+               Top = 0
+               Width = 76
+@@ -290,7 +290,7 @@
+               LinkFont.Name = 'MS Sans Serif'
+               LinkFont.Style = [fsUnderline]
+             end
+-            object SpTBXLabel2: TSpTBXLabel
++            object DoubleClickLabel: TSpTBXLabel
+               Left = 80
+               Top = 6
+               Width = 100
+@@ -969,6 +969,7 @@
+             Height = 57
+             Style = lbOwnerDrawFixed
+             Align = alClient
++            DragMode = dmAutomatic
+             Font.Charset = DEFAULT_CHARSET
+             Font.Color = clWindowText
+             Font.Height = -11
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2009-06-14 19:22:09 UTC (rev 7270)
++++ Lobby/TASClient/MainUnit.pas	2009-06-17 00:49:35 UTC (rev 7271)
+@@ -1199,9 +1199,9 @@
+     Panel3: TPanel;
+     BattlesPanel: TSpTBXPanel;
+     QuickJoinPanel: TSpTBXPanel;
+-    SpTBXLabel1: TSpTBXLabel;
++    BattleListLabel: TSpTBXLabel;
+     btSpecatateNow: TSpTBXButton;
+-    SpTBXLabel2: TSpTBXLabel;
++    DoubleClickLabel: TSpTBXLabel;
+     VDTBattles: TVirtualDrawTree;
+     FilterGroup: TSpTBXPanel;
+     FiltersTabs: TSpTBXTabControl;
+@@ -1783,7 +1783,7 @@
+ 
+   SelectedBattle: TBattle;
+   SelectedUserName: WideString;
+-  RichEditSelectedClient: TClient;
++  ContextMenuSelectedClient: TClient;
+ 
+   LastBoundTo: integer;
+   FindIPQueueList : TStringList;
+@@ -3655,6 +3655,7 @@
+   if MainUnit.Debug.Enabled then
+     Misc.TryToAddLog(MainUnit.StartDebugLog,'Initializing variables ...');
+ 
++  DoubleClickLabel.Left := BattleListLabel.Left + BattleListLabel.Width + 6;
+   Left := 10;
+   Top := 10;
+ 
+@@ -7294,18 +7295,18 @@
+      while (j &lt;= Length(s)) and (s[j] &lt;&gt; ' ') and (s[j] &lt;&gt; '&gt;') do Inc(j) ;
+      SelectedNick := Copy(s, k, j - k) ;
+ 
+-     RichEditSelectedClient := GetClient(SelectedNick);
++     ContextMenuSelectedClient := GetClient(SelectedNick);
+ 
+-     if RichEditSelectedClient &lt;&gt; nil then
++     if ContextMenuSelectedClient &lt;&gt; nil then
+      begin
+        ModerationSubmenuItem.Visible := Status.Me.GetAccess; // only moderators may see moderation menu!
+        MuteSubitemMenu.Visible := LeftStr(PageControl1.ActivePage.Caption,1) = '#';
+        mnuUnmute.Visible := LeftStr(PageControl1.ActivePage.Caption,1) = '#';
+        ClientPopupMenu.Popup(TExRichEdit(Sender).ClientToScreen(pt).X,TExRichEdit(Sender).ClientToScreen(pt).Y);
+-       RichEditSelectedClient := nil;
++       ContextMenuSelectedClient := nil;
+      end;
+     except
+-      RichEditSelectedClient := nil;
++      ContextMenuSelectedClient := nil;
+     end;
+    end;
+   end;
+@@ -9443,7 +9444,7 @@
+   if Button = mbRight then
+   begin
+     ClientsListBox.ItemIndex := ClientsListBox.ItemAtPos(Point(X, Y), True);
+-    RichEditSelectedClient := nil;
++    ContextMenuSelectedClient := nil;
+     ClientPopupMenuInitPopup(nil,nil);
+   end;
+ end;
+@@ -9628,7 +9629,7 @@
+ 
+ procedure TMainForm.mnuManageGroupsClick(Sender: TObject);
+ begin
+-  ManageGroupsForm.ShowModal;
++  ManageGroupsForm.Show;
+ end;
+ 
+ procedure TMainForm.mnuNewGroupClick(Sender: TObject);
+@@ -9652,7 +9653,7 @@
+     ClientGroups.Add(group);
+     SortClientInLists(Client);
+     group.GroupUpdated;
+-    ManageGroupsForm.ShowModal;
++    ManageGroupsForm.Show;
+   end;
+ end;
+ 
+@@ -9757,6 +9758,7 @@
+   i:integer;
+   cg : TClientGroup;
+   FileName: String;
++  tmp: string;
+ begin
+   FileName := ExtractFilePath(Application.ExeName) + GROUPS_FILE;
+   Ini := TIniFile.Create(FileName);
+@@ -9778,7 +9780,9 @@
+     cg.Rank := StrToInt(Ini.ReadString(IntToStr(i), 'Rank', '0'));
+     cg.BalanceInSameTeam := StrToBool(Ini.ReadString(IntToStr(i), 'BalanceInSameTeam', '0'));
+     cg.Ignore := StrToBool(Ini.ReadString(IntToStr(i), 'Ignore', '0'));
+-    Misc.ParseDelimited(cg.Clients,Ini.ReadString(IntToStr(i), 'Clients', 'Empty'),' ','');
++    tmp := Ini.ReadString(IntToStr(i), 'Clients', '');
++    if tmp &lt;&gt; '' then
++      Misc.ParseDelimited(cg.Clients,tmp,' ','');
+     ClientGroups.Add(cg);
+     i := i+1;
+   end;
+@@ -10950,9 +10954,9 @@
+   if (VDTBattles.FocusedNode &lt;&gt; nil) and VDTBattles.Selected[VDTBattles.FocusedNode] then
+   begin
+     SelectedBattle := GetBattleFromNode(VDTBattles.FocusedNode);
+-    RichEditSelectedClient := SelectedBattle.Clients[0];
++    ContextMenuSelectedClient := SelectedBattle.Clients[0];
+     ClientPopupMenuInitPopup(nil,nil);
+-    mnuBattleHost.Caption := RichEditSelectedClient.Name;
++    mnuBattleHost.Caption := ContextMenuSelectedClient.Name;
+     mnuBattleDlMap.Enabled := Utility.MapList.IndexOf(SelectedBattle.Map) = -1;
+     mnuBattleDlMod.Enabled := Utility.ModList.IndexOf(SelectedBattle.ModName) = -1;
+   end;
+@@ -10980,7 +10984,7 @@
+   cList: TList;
+ begin
+ 
+-  if RichEditSelectedClient = nil then // showing player context menu from the richedit
++  if ContextMenuSelectedClient = nil then // showing player context menu from the richedit
+   begin
+     if ClientsListBox.ItemIndex = -1 then Exit; // I don't think this can actually happen, since we must click in ListBox and so select an item
+       if PageControl1.ActivePage.Caption = LOCAL_TAB then
+@@ -11001,7 +11005,7 @@
+         AddMainLog('Error: Player not found in the global player list.',Colors.Error);
+   end
+   else
+-    Client := RichEditSelectedClient;
++    Client := ContextMenuSelectedClient;
+ 
+   ModerationSubmenuItem.Visible := Status.Me.GetAccess; // only moderators may see moderation menu!
+   MuteSubitemMenu.Visible := LeftStr(PageControl1.ActivePage.Caption,1) = '#';
+
+Modified: Lobby/TASClient/ManageGroups.dfm
+===================================================================
+--- Lobby/TASClient/ManageGroups.dfm	2009-06-14 19:22:09 UTC (rev 7270)
++++ Lobby/TASClient/ManageGroups.dfm	2009-06-17 00:49:35 UTC (rev 7271)
+@@ -1,18 +1,19 @@
+ object ManageGroupsForm: TManageGroupsForm
+   Left = 349
+   Top = 88
+-  BorderStyle = bsDialog
++  BorderStyle = bsSingle
+   Caption = 'Manage groups'
+-  ClientHeight = 424
++  ClientHeight = 441
+   ClientWidth = 516
+   Color = clBtnFace
+-  Constraints.MaxHeight = 1000
+-  Constraints.MaxWidth = 1680
++  Constraints.MaxHeight = 750
++  Constraints.MaxWidth = 1280
+   Font.Charset = DEFAULT_CHARSET
+   Font.Color = clWindowText
+   Font.Height = -11
+   Font.Name = 'MS Sans Serif'
+   Font.Style = []
++  FormStyle = fsStayOnTop
+   OldCreateOrder = False
+   Position = poMainFormCenter
+   Scaled = False
+@@ -25,17 +26,29 @@
+     Left = 0
+     Top = 0
+     Width = 516
+-    Height = 424
++    Height = 441
+     Caption = 'Manage groups'
+     FixedSize = True
+     Options.Maximize = False
++    object Label2: TLabel
++      Left = 8
++      Top = 416
++      Width = 411
++      Height = 13
++      Caption = 
++        'Tips : you can drag players from the main window or the battle w' +
++        'indow to the above list.'
++    end
+     object lstClients: TSpTBXCheckListBox
+       Left = 8
+       Top = 72
+       Width = 225
+       Height = 289
++      DragMode = dmAutomatic
+       ItemHeight = 16
+       TabOrder = 1
++      OnDragDrop = lstClientsDragDrop
++      OnDragOver = lstClientsDragOver
+     end
+     object cmbGroups: TSpTBXComboBox
+       Left = 8
+
+Modified: Lobby/TASClient/ManageGroups.pas
+===================================================================
+--- Lobby/TASClient/ManageGroups.pas	2009-06-14 19:22:09 UTC (rev 7270)
++++ Lobby/TASClient/ManageGroups.pas	2009-06-17 00:49:35 UTC (rev 7271)
+@@ -48,6 +48,7 @@
+     BalanceInSameTeamCheckBox: TSpTBXCheckBox;
+     SpTBXLabel12: TSpTBXLabel;
+     IgnoreCheckBox: TSpTBXCheckBox;
++    Label2: TLabel;
+     procedure FormShow(Sender: TObject);
+     procedure cmbGroupsChange(Sender: TObject);
+     procedure btRemoveClick(Sender: TObject);
+@@ -74,6 +75,9 @@
+     procedure ReplaceRankCmbChange(Sender: TObject);
+     procedure BalanceInSameTeamCheckBoxClick(Sender: TObject);
+     procedure IgnoreCheckBoxClick(Sender: TObject);
++    procedure lstClientsDragDrop(Sender, Source: TObject; X, Y: Integer);
++    procedure lstClientsDragOver(Sender, Source: TObject; X, Y: Integer;
++      State: TDragState; var Accept: Boolean);
+   private
+     { Private declarations }
+   public
+@@ -85,7 +89,7 @@
+ 
+ implementation
+ 
+-uses ColorPicker, LobbyScriptUnit, gnugettext;
++uses ColorPicker, LobbyScriptUnit, gnugettext, BattleFormUnit;
+ 
+ {$R *.dfm}
+ 
+@@ -327,4 +331,59 @@
+   TClientGroup(ClientGroups[cmbGroups.ItemIndex]).Ignore := IgnoreCheckBox.Checked;
+ end;
+ 
++procedure TManageGroupsForm.lstClientsDragDrop(Sender, Source: TObject; X,
++  Y: Integer);
++var
++  tmp,realIndex: integer;
++  cList: TList;
++  i:integer;
++  WhatToDraw: TClientNodeType;
++begin
++  if(Source = MainForm.ClientsListBox) then
++  begin
++    if MainForm.ClientsListBox.ItemIndex = -1 then Exit;
++    if MainForm.PageControl1.ActivePage.Caption = LOCAL_TAB then
++      cList := AllClients
++    else
++      cList := (MainForm.PageControl1.ActivePage as TMyTabSheet).Clients;
++
++    tmp := MainForm.ClientsListBox.ItemIndex;
++    for i:=0 to cList.Count-1 do
++    begin
++      if TClient(cList[i]).Visible then Dec(tmp);
++      if tmp = -1 then break;
++    end;
++    realIndex := i;
++
++    if realIndex&gt;-1 then
++    begin
++      TClientGroup(ClientGroups[cmbGroups.ItemIndex]).AddClient(TClient(cList[realIndex]).Name);
++      lstClients.Items.Add(TClient(cList[realIndex]).Name);
++      lstClients.Refresh;
++      MainForm.SortClientInLists(TClient(cList[realIndex]));
++    end
++    else
++      MainForm.AddMainLog('Error: Player not found in global player list. (3)',Colors.Error);
++    Exit;
++  end;
++  if(Source = BattleForm.VDTBattleClients) then
++  begin
++    BattleForm.GetNodeClient(BattleForm.VDTBattleClients.FocusedNode.Index,realIndex,WhatToDraw);
++    if WhatToDraw = NormalClient then
++    begin
++      TClientGroup(ClientGroups[cmbGroups.ItemIndex]).AddClient(TClient(BattleState.Battle.Clients[realIndex]).Name);
++      lstClients.Items.Add(TClient(BattleState.Battle.Clients[realIndex]).Name);
++      lstClients.Refresh;
++      MainForm.SortClientInLists(TClient(BattleState.Battle.Clients[realIndex]));
++    end;
++    Exit;
++  end;
++end;
++
++procedure TManageGroupsForm.lstClientsDragOver(Sender, Source: TObject; X,
++  Y: Integer; State: TDragState; var Accept: Boolean);
++begin
++  Accept := (Source = MainForm.ClientsListBox) or (Source = BattleForm.VDTBattleClients);
++end;
++
+ end.
+
+Modified: Lobby/TASClient/SearchFormUnit.dfm
+===================================================================
+--- Lobby/TASClient/SearchFormUnit.dfm	2009-06-14 19:22:09 UTC (rev 7270)
++++ Lobby/TASClient/SearchFormUnit.dfm	2009-06-17 00:49:35 UTC (rev 7271)
+@@ -13,6 +13,7 @@
+   OldCreateOrder = False
+   Scaled = False
+   OnCreate = FormCreate
++  OnShow = FormShow
+   PixelsPerInch = 96
+   TextHeight = 13
+   object SpTBXButton1: TSpTBXButton
+
+Modified: Lobby/TASClient/SearchFormUnit.pas
+===================================================================
+--- Lobby/TASClient/SearchFormUnit.pas	2009-06-14 19:22:09 UTC (rev 7270)
++++ Lobby/TASClient/SearchFormUnit.pas	2009-06-17 00:49:35 UTC (rev 7271)
+@@ -19,6 +19,7 @@
+     procedure SpTBXButton2Click(Sender: TObject);
+     procedure SpTBXButton1Click(Sender: TObject);
+     procedure FormCreate(Sender: TObject);
++    procedure FormShow(Sender: TObject);
+   private
+     { Private declarations }
+   public
+@@ -60,4 +61,10 @@
+   CategorySearchBox.ItemIndex := 0;
+ end;
+ 
++procedure TSearchForm.FormShow(Sender: TObject);
++begin
++  if CategorySearchBox.ItemIndex = -1 then
++    CategorySearchBox.ItemIndex := 0;
++end;
++
+ end.
+
+Modified: Lobby/TASClient/TASClient.cfg
+===================================================================
+--- Lobby/TASClient/TASClient.cfg	2009-06-14 19:22:09 UTC (rev 7270)
++++ Lobby/TASClient/TASClient.cfg	2009-06-17 00:49:35 UTC (rev 7271)
+@@ -24,6 +24,7 @@
+ -$X+
+ -$Y-
+ -$Z1
++-GD
+ -cg
+ -AWinTypes=Windows;WinProcs=Windows;DbiTypes=BDE;DbiProcs=BDE;DbiErrs=BDE;
+ -H-
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2009-06-14 19:22:09 UTC (rev 7270)
++++ Lobby/TASClient/TASClient.dof	2009-06-17 00:49:35 UTC (rev 7271)
+@@ -80,7 +80,7 @@
+ UnsafeCode=0
+ UnsafeCast=0
+ [Linker]
+-MapFile=0
++MapFile=3
+ OutputObjs=0
+ ConsoleApp=1
+ DebugInfo=0
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=47
+ Release=0
+-Build=608
++Build=609
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.47.0.608
++FileVersion=0.47.0.609
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002039.html">[Taspring-linux-commit] r7270 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002041.html">[Taspring-linux-commit] r7272 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2040">[ date ]</a>
+              <a href="thread.html#2040">[ thread ]</a>
+              <a href="subject.html#2040">[ subject ]</a>
+              <a href="author.html#2040">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

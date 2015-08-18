@@ -1,0 +1,635 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7379 - in Lobby/TASClient: . Python	Python/scripts Python/scripts/subf
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2009-December/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7379%20-%20in%20Lobby/TASClient%3A%20.%20Python%0A%09Python/scripts%20Python/scripts/subf&In-Reply-To=%3C20091202153731.CAA9A23D44%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   <LINK REL="Next"  HREF="002150.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7379 - in Lobby/TASClient: . Python	Python/scripts Python/scripts/subf</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7379%20-%20in%20Lobby/TASClient%3A%20.%20Python%0A%09Python/scripts%20Python/scripts/subf&In-Reply-To=%3C20091202153731.CAA9A23D44%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7379 - in Lobby/TASClient: . Python	Python/scripts Python/scripts/subf">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Dec  2 16:37:31 CET 2009</I>
+    <P><UL>
+        
+        <LI>Next message: <A HREF="002150.html">[Taspring-linux-commit] r7380 - Lobby/TASClient/Python/scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2149">[ date ]</a>
+              <a href="thread.html#2149">[ thread ]</a>
+              <a href="subject.html#2149">[ subject ]</a>
+              <a href="author.html#2149">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2009-12-02 16:37:31 +0100 (Wed, 02 Dec 2009)
+New Revision: 7379
+
+Added:
+   Lobby/TASClient/Python/scripts/stick.py
+Removed:
+   Lobby/TASClient/Python/scripts/subf/stick.py
+Modified:
+   Lobby/TASClient/BattleFormUnit.dfm
+   Lobby/TASClient/BattleFormUnit.pas
+   Lobby/TASClient/LobbyScriptUnit.pas
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/Python/api.txt
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+   Lobby/TASClient/UploadReplayUnit.pas
+Log:
+* PYTHON : fixed joining leaving battle freeze
+* PYTHON : added an option to join as spectator
+* PYTHON : fixed a AddTextToRichEdit while $current = battleform
+* fixed a wtf bug while joining as spectator
+* Upload/Keep/Delete replay form is now visible in the taskbar
+* stick script back
+
+Modified: Lobby/TASClient/BattleFormUnit.dfm
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.dfm	2009-11-22 12:40:57 UTC (rev 7378)
++++ Lobby/TASClient/BattleFormUnit.dfm	2009-12-02 15:37:31 UTC (rev 7379)
+@@ -1,6 +1,6 @@
+ object BattleForm: TBattleForm
+-  Left = 738
+-  Top = 307
++  Left = 583
++  Top = 190
+   Width = 913
+   Height = 595
+   Caption = 'Battle window'
+
+Modified: Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.pas	2009-11-22 12:40:57 UTC (rev 7378)
++++ Lobby/TASClient/BattleFormUnit.pas	2009-12-02 15:37:31 UTC (rev 7379)
+@@ -849,6 +849,7 @@
+   BattleState:
+   record
+     Status: TBattleParticipation;
++    JoiningComplete: Boolean; // used to know if the joining/hosting process is complete
+     Battle: TBattle; // don't ever free this object! It is freed automatically by RemoveBattle method! This object is only &quot;pointer&quot; to an item in Battles list!
+     Process: // we need this information when we launch game exe
+     record
+@@ -1786,6 +1787,7 @@
+   Battle := MainForm.GetBattle(BattleID);
+   if Battle = nil then Exit;
+ 
++  BattleState.JoiningComplete := False;
+   BattleState.Battle := Battle;
+   BattleState.AutoHost := False;
+ 
+@@ -1993,6 +1995,7 @@
+   Battle := MainForm.GetBattle(BattleID);
+   if Battle = nil then Exit;
+ 
++  BattleState.JoiningComplete := False;
+   BattleState.Battle := Battle;
+   BattleState.AutoHost := False;
+ 
+@@ -2114,6 +2117,7 @@
+   Battle := MainForm.GetBattle(BattleID);
+   if Battle = nil then Exit;
+ 
++  BattleState.JoiningComplete := False;
+   BattleState.Battle := Battle;
+   BattleState.AutoHost := False;
+ 
+@@ -2208,6 +2212,7 @@
+ { resets the battle screen: clears the clients list, enables/disables controls, ... }
+ procedure TBattleForm.ResetBattleScreen;
+ begin
++  BattleState.JoiningComplete := False;
+   if IsBattleActive then
+   begin
+     AddTextToChat(_('Battle closed'), Colors.Info, 1);
+@@ -2217,8 +2222,6 @@
+ 
+   PopulatePopupMenuMapList;
+ 
+-  BattleState.Status := None;
+-
+   BattleState.DisabledUnits.Clear;
+   PopulateDisabledUnitsVDT;
+ 
+@@ -3681,6 +3684,7 @@
+   end;
+   
+   Utility.ReInitLib;
++  BattleState.Status := None;
+ end;
+ 
+ procedure TBattleForm.MetalTrackerMouseUpAfterChange(Sender: TObject);
+
+Modified: Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- Lobby/TASClient/LobbyScriptUnit.pas	2009-11-22 12:40:57 UTC (rev 7378)
++++ Lobby/TASClient/LobbyScriptUnit.pas	2009-12-02 15:37:31 UTC (rev 7379)
+@@ -208,7 +208,7 @@
+       function GetMods: Variant;
+       function HostBattle(nbPlayers: integer; RankLimit: Integer; ModName: string; Description: string; Password: string; UDPHostPort: integer; NatTraversal: integer) : Boolean;
+       function HostReplay(replayFile: string; nbPlayers: integer; RankLimit: Integer; Description: string; Password: string; UDPHostPort: integer; NatTraversal: integer) : Boolean;
+-      function JoinBattle(battleId: integer; Password: String) : Boolean;
++      function JoinBattle(battleId: integer; Password: String; spectator: Boolean) : Boolean;
+       procedure LeaveBattle;
+       function StartBattle: Boolean;
+       function SetMyReadyStatus(b: Boolean): Boolean;
+@@ -289,6 +289,7 @@
+   MainThreadFocused: Boolean;
+   JoinBattleId: integer;
+   JoinBattlePassword: string;
++  JoinBattleSpectator: Boolean;
+   NotificationTempList: TList;
+   ScriptsInitialized: Boolean = False;
+   ChangeMapIndex: integer;
+@@ -496,7 +497,7 @@
+         begin
+           k := MainForm.GetClientIndexEx(TClient(Clients[j]).Name,AllClients);
+ 
+-          PyDict_SetItemString(battleClients,PChar(TClient(Clients[j]).Name),PPyObject(pyUserList[k]));
++          PyDict_SetItemString(battleClients,PChar(WideCharToString(PWideChar(TClient(Clients[j]).Name))),PPyObject(pyUserList[k]));
+           userRefCountList.Items[k] := userRefCountList.Items[k]+1;
+         end;
+         PyDict_SetItemString(PPyObject(pyBattleList[i]),'Users',battleClients);
+@@ -564,7 +565,7 @@
+   LockCallback;
+   with GetPythonEngine do
+   begin
+-    if BattleState.Status = None then
++    if (BattleState.Status = None) or (not BattleState.JoiningComplete) then
+     begin
+       UnlockCallback;
+       Exit;
+@@ -1175,7 +1176,7 @@
+   UnlockCallback;
+ end;
+ 
+-function TCallback.JoinBattle(battleId: integer; Password: String) : Boolean;
++function TCallback.JoinBattle(battleId: integer; Password: String; spectator: Boolean) : Boolean;
+ var
+   b : TBattle;
+ begin
+@@ -1196,7 +1197,8 @@
+   begin
+     JoinBattleId := battleId;
+     JoinBattlePassword := Password;
+-    SendMessage(MainForm.Handle,WM_SCRIPT,2,0);
++    JoinBattleSpectator := spectator;
++    PostMessage(MainForm.Handle,WM_SCRIPT,2,0);
+     Result := True;
+   end
+   else
+@@ -2495,13 +2497,13 @@
+ begin
+   for i:=0 to MsgList.Count -1 do
+   begin
+-    if TObject(RichEditList[i]).ClassType = TExRichEdit then
+-      Misc.AddTextToRichEdit(TExRichEdit(RichEditList[i]),MsgList[i],MsgColor.Items[i],True,0)
+-    else
+       if RichEditList[i] = nil then // battleform
+         BattleForm.AddTextToChat(MsgList[i],MsgColor.Items[i],0)
+       else
+-        MainForm.AddTextToChatWindow(TMyTabSheet(RichEditList[i]),MsgList[i],MsgColor.Items[i] );
++        if TObject(RichEditList[i]).ClassType = TExRichEdit then
++          Misc.AddTextToRichEdit(TExRichEdit(RichEditList[i]),MsgList[i],MsgColor.Items[i],True,0)
++        else
++          MainForm.AddTextToChatWindow(TMyTabSheet(RichEditList[i]),MsgList[i],MsgColor.Items[i] );
+   end;
+   MsgList.BeginUpdate;
+   MsgList.Clear;
+@@ -2639,7 +2641,7 @@
+ 
+ procedure JoinBattle;
+ begin
+-  MainForm.JoinBattle(MainForm.GetBattle(JoinBattleId),false,JoinBattlePassword);
++  MainForm.JoinBattle(MainForm.GetBattle(JoinBattleId),JoinBattleSpectator,JoinBattlePassword);
+   ScriptJoining := False;
+ end;
+ 
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2009-11-22 12:40:57 UTC (rev 7378)
++++ Lobby/TASClient/MainUnit.pas	2009-12-02 15:37:31 UTC (rev 7379)
+@@ -6286,12 +6286,12 @@
+ 
+       if not BattleForm.FigureOutBestPossibleTeamAllyAndColor(True, team, ally, color) then
+       begin
+-        BattleForm.SetMyBattleStatus(0, False, 0, 0, BoolToInt(not JoinAsSpectator)); // this probably shouldn't of happen though
++        BattleForm.SetMyBattleStatus(0, False, 0, 0, IFF(JoinAsSpectator,0,1)); // this probably shouldn't of happen though
+         MyTeamColorIndex := 0;
+       end
+       else
+       begin
+-        BattleForm.SetMyBattleStatus(BattleForm.MySideButton.Tag, False, team, ally, BoolToInt(not JoinAsSpectator));
++        BattleForm.SetMyBattleStatus(BattleForm.MySideButton.Tag, False, team, ally, IFF(JoinAsSpectator,0,1));
+         MyTeamColorIndex := color;   //-&gt; not needed anymore, we should keep last used color anyway
+       end;
+ 
+@@ -6415,6 +6415,8 @@
+ 
+         BattleForm.SortBotList(Preferences.BattleClientSortStyle,Preferences.BattleClientSortDirection,True);
+         BattleForm.SortClientList(Preferences.BattleClientSortStyle,Preferences.BattleClientSortDirection,True);
++
++        BattleState.JoiningComplete := True;
+       end
+       else MainForm.AddMainLog(_('Error: unable to join battle.'), Colors.Error);
+ 
+@@ -6597,6 +6599,7 @@
+ 
+       BattleForm.SendBattleDetailsToServer;
+       BattleForm.SendLuaOptionsDetailsToServer;
++      BattleState.JoiningComplete := True;
+     end
+     else if sl[0] = 'JOINBATTLEREQUEST' then
+     begin
+
+Modified: Lobby/TASClient/Python/api.txt
+===================================================================
+--- Lobby/TASClient/Python/api.txt	2009-11-22 12:40:57 UTC (rev 7378)
++++ Lobby/TASClient/Python/api.txt	2009-12-02 15:37:31 UTC (rev 7379)
+@@ -64,7 +64,7 @@
+ - ShowDebugWindow
+ - SocketConnect(ip,port)
+ - HostBattle(nbPlayers, RankLimit, ModName, Description, Password, UDPHostPort, NatTraversal) return true if success
+-- JoinBattle(BattleId)
++- JoinBattle(BattleId,password,joinAsSpec)
+ - HostReplay(replayFile, nbPlayers, RankLimit, Description, Password, UDPHostPort, NatTraversal) return true if success
+ - LeaveBattle
+ - StartBattle
+
+Added: Lobby/TASClient/Python/scripts/stick.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/stick.py	                        (rev 0)
++++ Lobby/TASClient/Python/scripts/stick.py	2009-12-02 15:37:31 UTC (rev 7379)
+@@ -0,0 +1,118 @@
++import time,thread
++import lobbyscript
++import sys
++
++api = lobbyscript.Callback()
++gui = lobbyscript.GUI()
++
++stickingNick = ''
++specMode = 0
++battleJoinedAndStatusChanged = 0
++
++subMenuId = 0
++menuStickSpecId = 0
++menuStickId = 0
++menuUnstickId = 0
++
++
++colors = gui.GetColors()
++
++def onUnStickClick(id):
++	global menuUnstickId
++	cmd_unstick()
++	gui.RemoveFromMenu(menuUnstickId)
++	menuUnstickId = 0
++
++def onStickClick(id,spec):
++	global subMenuId
++	global menuStickSpecId
++	global menuStickId
++	global menuUnstickId
++	if spec:
++		cmd_stick(id+' 1')
++	else:
++		cmd_stick(id+' 0')
++
++	if menuUnstickId == 0:    
++		menuUnstickId = gui.AddItemToMenu(subMenuId,'UnStick',(),'stick','onUnStickClick')
++    
++
++def _init():
++	global subMenuId
++	global menuStickSpecId
++	global menuStickId
++	global menuUnstickId
++	subMenuId = gui.AddSubmenuToMenu('PlayerItem','Stick')
++	menuStickSpecId = gui.AddItemToMenu(subMenuId,'Stick',(False,),'stick','onStickClick')
++	menuStickId = gui.AddItemToMenu(subMenuId,'Stick Spec',(True,),'stick','onStickClick')
++	gui.AddSeparatorToMenu(subMenuId)
++  
++
++# exit stick mode if the sticked user left
++def in_REMOVEUSER(nick):
++	global stickingNick
++	global menuUnstickId
++	if nick == stickingNick:
++		stickingNick = ''
++		gui.AddToRichEdit('$current','Exiting stick mode ('+nick+' left).',colors['Info'])
++		gui.RemoveFromMenu(menuUnstickId)
++
++def in_FORCEQUITBATTLE():
++	global stickingNick
++	if stickingNick  != '':
++		stickingNick = ''
++		gui.AddToRichEdit('$current','Exiting stick mode (You were kicked from the battle).',colors['Info'])    
++
++# the timer tryin to connect you to the sticked user
++def timer_2():
++	global stickingNick
++	global specMode
++
++	if stickingNick != '': 
++		curBat = api.GetCurrentBattle()
++		if curBat != None:
++			print curBat['Battle']['Users'].keys()
++			if stickingNick not in curBat['Battle']['Users']:
++				api.LeaveBattle()
++		else:
++			users = api.GetUsers()
++			if stickingNick in users:
++				if 'Battle' in users[stickingNick]:
++					api.JoinBattle(users[stickingNick]['Battle']['Id'],'',specMode=='1')
++
++def cmd_unstick():
++	global stickingNick
++	stickingNick = ''
++	gui.AddToRichEdit('$current','Exiting stick mode.',colors['Info'])
++	return True
++
++def cmd_stick(data):
++	args = data.split(' ')
++
++	if len(args) != 2:
++		gui.AddToRichEdit('$current',&quot;Stick usage : /stick user joinAsSpec={0/1} (Ex : '/stick haxor465 1' will join as spectator every battle the player haxor465 joins.&quot;,colors['Error'])
++		return 1
++	nick = args[0]
++	spec = args[1]
++	global stickingNick
++	global specMode
++
++	if stickingNick != '':
++		gui.AddToRichEdit('$current','Exiting stick mode.',colors['Info'])
++
++	users = api.GetUsers()
++	if nick in users:
++		stickingNick = nick
++		specMode = spec
++		if specMode == '1':
++			gui.AddToRichEdit('$current','Entering spectator sticking mode on : '+nick,colors['Info'])
++		else:
++			gui.AddToRichEdit('$current','Entering sticking mode on : '+nick,colors['Info'])
++		gui.AddToRichEdit('$current','Type /unstick to leave that mode.',colors['Info'])
++
++	else:
++		stickingNick = ''
++		gui.AddToRichEdit('$current',&quot;User '&quot;+nick+&quot;' does not exist.&quot;,colors['Error'])
++
++	# the command won't be processed by the lobby
++	return True
+\ No newline at end of file
+
+Deleted: Lobby/TASClient/Python/scripts/subf/stick.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/subf/stick.py	2009-11-22 12:40:57 UTC (rev 7378)
++++ Lobby/TASClient/Python/scripts/subf/stick.py	2009-12-02 15:37:31 UTC (rev 7379)
+@@ -1,148 +0,0 @@
+-import time,thread
+-import lobbyscript
+-import sys
+-
+-api = lobbyscript.Callback()
+-gui = lobbyscript.GUI()
+-
+-stickingNick = ''
+-specMode = 0
+-battleJoinedAndStatusChanged = 0
+-stickJoin = False
+-
+-subMenuId = 0
+-menuStickSpecId = 0
+-menuStickId = 0
+-menuUnstickId = 0
+-
+-
+-colors = api.GetColors()
+-
+-def onUnStickClick(id):
+-  global menuUnstickId
+-  cmd_unstick()
+-  gui.RemoveFromMenu(menuUnstickId)
+-  menuUnstickId = 0
+-
+-def onStickClick(id,spec):
+-  global subMenuId
+-  global menuStickSpecId
+-  global menuStickId
+-  global menuUnstickId
+-  if spec:
+-    cmd_stick(id+' 1')
+-  else:
+-    cmd_stick(id+' 0')
+-  
+-  if menuUnstickId == 0:    
+-    menuUnstickId = gui.AddItemToMenu(subMenuId,'UnStick',(),'stick','onUnStickClick')
+-    
+-
+-def _init():
+-  global subMenuId
+-  global menuStickSpecId
+-  global menuStickId
+-  global menuUnstickId
+-  subMenuId = gui.AddSubmenuToMenu('PlayerItem','Stick')
+-  menuStickSpecId = gui.AddItemToMenu(subMenuId,'Stick',(False,),'stick','onStickClick')
+-  menuStickId = gui.AddItemToMenu(subMenuId,'Stick Spec',(True,),'stick','onStickClick')
+-  gui.AddSeparatorToMenu(subMenuId)
+-  
+-
+-# exit stick mode if the sticked user left
+-def in_REMOVEUSER(nick):
+-  global stickingNick
+-  global menuUnstickId
+-  if nick == stickingNick:
+-    stickingNick = ''
+-    api.AddToTextBox('$current','Exiting stick mode ('+nick+' left).',colors['Info'])
+-    gui.RemoveFromMenu(menuUnstickId)
+-
+-
+-# we're joining a battle and we start waiting for 2 in_CLIENTBATTLESTATUS 
+-def in_JOINBATTLE(data):
+-  global battleJoinedAndStatusChanged
+-  global specMode
+-  global stickJoin
+-  if specMode != '0' and stickJoin:
+-    stickJoin = False
+-    battleJoinedAndStatusChanged = 2
+-
+-def in_FORCEQUITBATTLE():
+-  global stickingNick
+-  if stickingNick  != '':
+-    stickingNick = ''
+-    api.AddToTextBox('$current','Exiting stick mode (You were kicked from the battle).',colors['Info'])
+-
+-# when joining a battle we wait for the two CLIENTBATTLESTATUS from server 
+-# and then we set us to spectator if the option is checked 
+-def in_CLIENTBATTLESTATUS(nick, status, color):
+-  global battleJoinedAndStatusChanged
+-  global specMode
+-  if specMode == '1':
+-    if nick == api.GetMyUser()['Name'] and battleJoinedAndStatusChanged &gt; 0: 
+-      battleJoinedAndStatusChanged -= 1   
+-      api.SetMyBattleStatus(1)
+-        
+-
+-# the timer tryin to connect you to the sticked user
+-def timer_2():
+-  global stickingNick
+-  global specMode
+-  global stickJoin
+-  
+-  if stickingNick != '': 
+-    curBat = api.GetCurrentBattle()
+-    if curBat != None:
+-      curBat = dict(curBat)
+-    users = dict(api.GetUsers())
+-    if stickingNick in users:
+-      if 'Battle' in users[stickingNick]:
+-        if curBat != None:
+-          if curBat['Battle']['Id'] == users[stickingNick]['Battle']['Id']:
+-            return
+-          else:
+-            api.LeaveBattle()
+-        mods = dict(api.GetMods())
+-        if users[stickingNick]['Battle']['ModName'] in mods:
+-          stickJoin = True
+-          api.JoinBattle(users[stickingNick]['Battle']['Id'],'')
+-      else:
+-        api.LeaveBattle()
+-
+-def cmd_unstick():
+-  global stickingNick
+-  stickingNick = ''
+-  api.AddToTextBox('$current','Exiting stick mode.',colors['Info'])
+-  return True
+-
+-def cmd_stick(data):
+-  args = data.split(' ')
+-
+-  if len(args) != 2:
+-      api.AddToTextBox('$current',&quot;Stick usage : /stick user joinAsSpec={0/1} (Ex : '/stick haxor465 1' will join as spectator every battle the player haxor465 joins.&quot;,colors['Error'])
+-      return 1
+-  nick = args[0]
+-  spec = args[1]
+-  global stickingNick
+-  global specMode
+-  
+-  if stickingNick != '':
+-    api.AddToTextBox('$current','Exiting stick mode.',colors['Info'])
+- 
+-  users = api.GetUsers()
+-  if nick in users:
+-    stickingNick = nick
+-    specMode = spec
+-    if specMode == '1':
+-      api.AddToTextBox('$current','Entering spectator sticking mode on : '+nick,colors['Info'])
+-    else:
+-      api.AddToTextBox('$current','Entering sticking mode on : '+nick,colors['Info'])
+-    api.AddToTextBox('$current','Type /unstick to leave that mode.',colors['Info'])
+-    
+-  else:
+-    stickingNick = ''
+-    api.AddToTextBox('$current',&quot;User '&quot;+nick+&quot;' does not exist.&quot;,colors['Error'])
+-
+-  # the command won't be processed by the lobby
+-  return True
+\ No newline at end of file
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2009-11-22 12:40:57 UTC (rev 7378)
++++ Lobby/TASClient/TASClient.dof	2009-12-02 15:37:31 UTC (rev 7379)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=55
+ Release=0
+-Build=731
++Build=733
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.55.0.731
++FileVersion=0.55.0.733
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+Modified: Lobby/TASClient/UploadReplayUnit.pas
+===================================================================
+--- Lobby/TASClient/UploadReplayUnit.pas	2009-11-22 12:40:57 UTC (rev 7378)
++++ Lobby/TASClient/UploadReplayUnit.pas	2009-12-02 15:37:31 UTC (rev 7379)
+@@ -26,6 +26,7 @@
+     procedure CancelButtonClick(Sender: TObject);
+     procedure FormCreate(Sender: TObject);
+     procedure DeleteButtonClick(Sender: TObject);
++    procedure CreateParams(var Params: TCreateParams); override;
+   private
+     { Private declarations }
+   public
+@@ -56,6 +57,17 @@
+ 
+ {$R *.dfm}
+ 
++procedure TUploadReplayForm.CreateParams(var Params: TCreateParams);
++begin
++  inherited CreateParams(Params);
++
++  with Params do
++  begin
++    ExStyle := ExStyle or WS_EX_APPWINDOW;
++    WndParent := GetDesktopWindow;
++  end;
++end;
++
+ procedure TUploadReplayForm.UploadButtonClick(Sender: TObject);
+ begin
+   if not (Status.LoggedIn and (MainForm.Socket.Addr = 'taspringmaster.clan-sy.com')) then
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	<LI>Next message: <A HREF="002150.html">[Taspring-linux-commit] r7380 - Lobby/TASClient/Python/scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2149">[ date ]</a>
+              <a href="thread.html#2149">[ thread ]</a>
+              <a href="subject.html#2149">[ subject ]</a>
+              <a href="author.html#2149">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

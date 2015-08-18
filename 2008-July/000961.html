@@ -1,0 +1,1126 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6181 - in trunk/rts/Sim: Misc MoveTypes	MoveTypes/MoveMath Path Projectiles Units Weapons
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6181%20-%20in%20trunk/rts/Sim%3A%20Misc%20MoveTypes%0A%09MoveTypes/MoveMath%20Path%20Projectiles%20Units%20Weapons&In-Reply-To=%3C20080714184834.80D61494F%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000960.html">
+   <LINK REL="Next"  HREF="000962.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6181 - in trunk/rts/Sim: Misc MoveTypes	MoveTypes/MoveMath Path Projectiles Units Weapons</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6181%20-%20in%20trunk/rts/Sim%3A%20Misc%20MoveTypes%0A%09MoveTypes/MoveMath%20Path%20Projectiles%20Units%20Weapons&In-Reply-To=%3C20080714184834.80D61494F%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6181 - in trunk/rts/Sim: Misc MoveTypes	MoveTypes/MoveMath Path Projectiles Units Weapons">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon Jul 14 20:48:34 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000960.html">[Taspring-linux-commit] r6180 - trunk/rts/Lua
+</A></li>
+        <LI>Next message: <A HREF="000962.html">[Taspring-linux-commit] r6182 - in trunk: game/LuaUI/Widgets	installer/builddata/springcontent/gamedata rts/ExternalAI	rts/Game rts/Game/UI rts/Lua rts/Rendering rts/System	rts/System/FileSystem
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#961">[ date ]</a>
+              <a href="thread.html#961">[ thread ]</a>
+              <a href="subject.html#961">[ subject ]</a>
+              <a href="author.html#961">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-07-14 20:48:32 +0200 (Mon, 14 Jul 2008)
+New Revision: 6181
+
+Modified:
+   trunk/rts/Sim/Misc/GroundBlockingObjectMap.cpp
+   trunk/rts/Sim/Misc/GroundBlockingObjectMap.h
+   trunk/rts/Sim/MoveTypes/GroundMoveType.cpp
+   trunk/rts/Sim/MoveTypes/MoveInfo.cpp
+   trunk/rts/Sim/MoveTypes/MoveInfo.h
+   trunk/rts/Sim/MoveTypes/MoveMath/MoveMath.cpp
+   trunk/rts/Sim/MoveTypes/MoveMath/MoveMath.h
+   trunk/rts/Sim/Path/PathFinder.cpp
+   trunk/rts/Sim/Projectiles/ExplosionGenerator.cpp
+   trunk/rts/Sim/Units/UnitDefHandler.cpp
+   trunk/rts/Sim/Units/UnitLoader.cpp
+   trunk/rts/Sim/Weapons/Weapon.h
+Log:
+submarines can now travel directly underneath surface vessels
+and floating obstacles (and conversely; ships can move across
+underwater objects), EDIT your mod's MoveInfo entries so that
+the classes used by submarine-style units have &quot;subMarine=1;&quot;
+set if you want to enable this fully
+
+
+Modified: trunk/rts/Sim/Misc/GroundBlockingObjectMap.cpp
+===================================================================
+--- trunk/rts/Sim/Misc/GroundBlockingObjectMap.cpp	2008-07-14 02:58:58 UTC (rev 6180)
++++ trunk/rts/Sim/Misc/GroundBlockingObjectMap.cpp	2008-07-14 18:48:32 UTC (rev 6181)
+@@ -128,7 +128,7 @@
+ If it's not blocked, then NULL is returned.
+ If it's blocked, then a pointer to the blocking object is returned.
+ */
+-CSolidObject* CGroundBlockingObjectMap::GroundBlockedUnsafe(int mapSquare) {
++CSolidObject* CGroundBlockingObjectMap::GroundBlockedUnsafe(int mapSquare, bool topMost) {
+ 	if (groundBlockingMap[mapSquare].empty()) {
+ 		return 0x0;
+ 	}
+@@ -147,10 +147,10 @@
+ 	// return the top-most blocking object
+ 	// (rather than objects.begin(), since
+ 	// we cannot rely on pointer order)
+-	return p;
++	return ((topMost)? p: q);
+ }
+ 
+-CSolidObject* CGroundBlockingObjectMap::GroundBlocked(int mapSquare) {
++CSolidObject* CGroundBlockingObjectMap::GroundBlocked(int mapSquare, bool topMost) {
+ 	if (mapSquare &lt; 0 || mapSquare &gt;= gs-&gt;mapSquares) {
+ 		return NULL;
+ 	}
+@@ -158,10 +158,10 @@
+ 	return GroundBlockedUnsafe(mapSquare);
+ }
+ 
+-CSolidObject* CGroundBlockingObjectMap::GroundBlocked(float3 pos) {
++CSolidObject* CGroundBlockingObjectMap::GroundBlocked(float3 pos, bool topMost) {
+ 	int xSqr = int(pos.x / SQUARE_SIZE) % gs-&gt;mapx;
+ 	int zSqr = int(pos.z / SQUARE_SIZE) / gs-&gt;mapx;
+-	return GroundBlocked(xSqr + zSqr * gs-&gt;mapx);
++	return GroundBlocked(xSqr + zSqr * gs-&gt;mapx, topMost);
+ }
+ 
+ 
+
+Modified: trunk/rts/Sim/Misc/GroundBlockingObjectMap.h
+===================================================================
+--- trunk/rts/Sim/Misc/GroundBlockingObjectMap.h	2008-07-14 02:58:58 UTC (rev 6180)
++++ trunk/rts/Sim/Misc/GroundBlockingObjectMap.h	2008-07-14 18:48:32 UTC (rev 6181)
+@@ -23,10 +23,10 @@
+ 	void CloseBlockingYard(CSolidObject* yard, unsigned char* yardMap);
+ 	bool CanCloseYard(CSolidObject* object);
+ 
+-	CSolidObject* GroundBlocked(int mapSquare);
+-	CSolidObject* GroundBlocked(float3 pos);
++	CSolidObject* GroundBlocked(int mapSquare, bool topMost = true);
++	CSolidObject* GroundBlocked(float3 pos, bool topMost = true);
+ 	// same as GroundBlocked(), but does not bounds-check mapSquare
+-	CSolidObject* GroundBlockedUnsafe(int mapSquare);
++	CSolidObject* GroundBlockedUnsafe(int mapSquare, bool topMost = true);
+ 
+ private:
+ 	typedef std::set&lt;CSolidObject*&gt; BlockingMapCell;
+
+Modified: trunk/rts/Sim/MoveTypes/GroundMoveType.cpp
+===================================================================
+--- trunk/rts/Sim/MoveTypes/GroundMoveType.cpp	2008-07-14 02:58:58 UTC (rev 6180)
++++ trunk/rts/Sim/MoveTypes/GroundMoveType.cpp	2008-07-14 18:48:32 UTC (rev 6181)
+@@ -287,7 +287,6 @@
+ 			waypointDir.y = 0;
+ 			waypointDir.Normalize();
+ 
+-
+ 			// Has reached the waypoint? (=&gt; arrived at goal)
+ 			if (pathId &amp;&amp; !atGoal &amp;&amp; haveFinalWaypoint &amp;&amp; (owner-&gt;pos - waypoint).SqLength2D() &lt; SQUARE_SIZE * SQUARE_SIZE * 2) {
+ 				Arrived();
+@@ -297,7 +296,7 @@
+ 			// Apply obstacle avoidance.
+ 			float3 desiredVelocity = /* waypointDir / */ ObstacleAvoidance(waypointDir);
+ 
+-			if(desiredVelocity != ZeroVector){
++			if (desiredVelocity != ZeroVector) {
+ 				ChangeHeading(GetHeadingFromVector(desiredVelocity.x, desiredVelocity.z));
+ 			} else {
+ 				SetMainHeading();
+@@ -439,10 +438,10 @@
+ 		}
+ 		qf-&gt;MovedUnit(owner);
+ 
+-		// NOTE: submarines aren't always deep enough to be fully
+-		// submerged (yet should always have the isUnderWater flag
+-		// set)
+-		const float s = (owner-&gt;mobility-&gt;moveType == MoveData::Ship_Move)? 0.5f: 1.0f;
++		// submarines aren't always deep enough to be fully
++		// submerged (yet should have the isUnderWater flag
++		// set at all times)
++		const float s = (owner-&gt;mobility-&gt;moveType == MoveData::Ship_Move)? 0.25f: 1.0f;
+ 		owner-&gt;isUnderWater = ((owner-&gt;pos.y + owner-&gt;height * s) &lt; 0.0f);
+ 	}
+ }
+@@ -594,25 +593,26 @@
+ 
+ 	deltaHeading = wantedHeading - heading;
+ 
+-	if(deltaHeading&gt;0){
+-		heading += std::min(deltaHeading,(short)turnRate);
++	if (deltaHeading &gt; 0) {
++		heading += std::min(deltaHeading, (short)turnRate);
+ 	} else {
+-		heading += std::max((short)-turnRate,deltaHeading);
++		heading += std::max((short) - turnRate, deltaHeading);
+ 	}
+ 
+ 	owner-&gt;frontdir = GetVectorFromHeading(heading);
+ 	if (owner-&gt;upright) {
+-		owner-&gt;updir=UpVector;
+-		owner-&gt;rightdir=owner-&gt;frontdir.cross(owner-&gt;updir);
++		owner-&gt;updir = UpVector;
++		owner-&gt;rightdir = owner-&gt;frontdir.cross(owner-&gt;updir);
+ 	} else {
+-		owner-&gt;updir=ground-&gt;GetNormal(owner-&gt;pos.x, owner-&gt;pos.z);
+-		owner-&gt;rightdir=owner-&gt;frontdir.cross(owner-&gt;updir);
++		owner-&gt;updir = ground-&gt;GetNormal(owner-&gt;pos.x, owner-&gt;pos.z);
++		owner-&gt;rightdir = owner-&gt;frontdir.cross(owner-&gt;updir);
+ 		owner-&gt;rightdir.Normalize();
+-		owner-&gt;frontdir=owner-&gt;updir.cross(owner-&gt;rightdir);
++		owner-&gt;frontdir = owner-&gt;updir.cross(owner-&gt;rightdir);
+ 	}
+-	owner-&gt;heading=heading;
+-	flatFrontDir=owner-&gt;frontdir;
+-	flatFrontDir.y=0;
++
++	owner-&gt;heading = heading;
++	flatFrontDir = owner-&gt;frontdir;
++	flatFrontDir.y = 0;
+ 	flatFrontDir.Normalize();
+ }
+ 
+@@ -964,7 +964,7 @@
+  * follow the path even when it's not perfect.
+  */
+ float3 CGroundMoveType::ObstacleAvoidance(float3 desiredDir) {
+-	// NOTE: based on the requirement that all objects has symetrical footprints.
++	// NOTE: based on the requirement that all objects have symetrical footprints.
+ 	// If this is false, then radius has to be calculated in a different way!
+ 
+ 	// Obstacle-avoidance-system only needs to be run if the unit wants to move
+@@ -1016,15 +1016,20 @@
+ 			vector&lt;CSolidObject*&gt;::iterator oi;
+ 
+ 			for (oi = nearbyObjects.begin(); oi != nearbyObjects.end(); oi++) {
+-				CSolidObject* object = *oi;
++				CSolidObject* o = *oi;
+ 				MoveData* moveData = owner-&gt;mobility;
+ 				CMoveMath* moveMath = moveData-&gt;moveMath;
+ 
++				if (moveMath-&gt;IsNonBlocking(*moveData, o)) {
++					// no need to avoid this obstacle
++					continue;
++				}
++
+ 				// basic blocking-check
+-				if (object != owner &amp;&amp; moveMath-&gt;IsBlocking(*moveData, object) &amp;&amp; desiredDir.dot(object-&gt;pos - owner-&gt;pos) &gt; 0) {
+-					float3 objectToUnit = (owner-&gt;pos - object-&gt;pos - object-&gt;speed * 30);
++				if (o != owner &amp;&amp; moveMath-&gt;IsBlocking(*moveData, o) &amp;&amp; desiredDir.dot(o-&gt;pos - owner-&gt;pos) &gt; 0) {
++					float3 objectToUnit = (owner-&gt;pos - o-&gt;pos - o-&gt;speed * 30);
+ 					float distanceToObject = objectToUnit.Length();
+-					float radiusSum = (owner-&gt;xsize + object-&gt;xsize) * SQUARE_SIZE / 2;
++					float radiusSum = (owner-&gt;xsize + o-&gt;xsize) * SQUARE_SIZE / 2;
+ 
+ 					// if object is close enough
+ 					if (distanceToObject &lt; speedf * 35 + 10 + radiusSum &amp;&amp; distanceToObject &lt; currentDistanceToGoal &amp;&amp; distanceToObject &gt; 0.001f) {
+@@ -1033,11 +1038,13 @@
+ 						// If object and unit in relative motion are closing in to each other (or not yet fully apart),
+ 						// the object are in path of the unit and they are not collided.
+ 
+-						if (objectToUnit.dot(avoidanceDir) &lt; radiusSum &amp;&amp; fabs(objectDistToAvoidDirCenter) &lt; radiusSum &amp;&amp; (object-&gt;mobility || Distance2D(owner, object) &gt;= 0)) {
++						if (objectToUnit.dot(avoidanceDir) &lt; radiusSum &amp;&amp;
++							fabs(objectDistToAvoidDirCenter) &lt; radiusSum &amp;&amp;
++							(o-&gt;mobility || Distance2D(owner, o) &gt;= 0)) {
+ 							// Avoid collision by turning the heading to left or right.
+ 							// Using the one who need most adjustment.
+ 							if (DEBUG_CONTROLLER &amp;&amp; selectedUnits.selectedUnits.find(owner) != selectedUnits.selectedUnits.end())
+-								geometricObjects-&gt;AddLine(owner-&gt;pos + UpVector * 20, object-&gt;pos + UpVector * 20, 3, 1, 4);
++								geometricObjects-&gt;AddLine(owner-&gt;pos + UpVector * 20, o-&gt;pos + UpVector * 20, 3, 1, 4);
+ 
+ 							if (objectDistToAvoidDirCenter &gt; 0.0f) {
+ 								avoidRight += (radiusSum - objectDistToAvoidDirCenter) * AVOIDANCE_STRENGTH / distanceToObject;
+@@ -1050,7 +1057,7 @@
+ 								avoidanceDir.Normalize();
+ 								rightOfAvoid = avoidanceDir.cross(float3(0.0f, 1.0f, 0.0f));
+ 							}
+-							objectsOnPath.push_back(object);
++							objectsOnPath.push_back(o);
+ 						}
+ 					}
+ 
+@@ -1119,35 +1126,34 @@
+ // Creates a path to the goal.
+ void CGroundMoveType::GetNewPath()
+ {
+-	if(owner-&gt;pos.distance2D(lastGetPathPos)&lt;20){
+-		if(DEBUG_CONTROLLER)
+-			logOutput.Print(&quot;Non moving failure %i %i&quot;,owner-&gt;id,nonMovingFailures);
++	if (owner-&gt;pos.distance2D(lastGetPathPos) &lt; 20) {
++		if (DEBUG_CONTROLLER)
++			logOutput.Print(&quot;Non-moving path failures for unit %i: %i&quot;, owner-&gt;id, nonMovingFailures);
+ 		nonMovingFailures++;
+-		if(nonMovingFailures&gt;10){
+-			nonMovingFailures=0;
++
++		if (nonMovingFailures &gt; 10) {
++			nonMovingFailures = 0;
+ 			Fail();
+-			pathId=0;
++			pathId = 0;
+ 			return;
+ 		}
+-	}else{
+-		lastGetPathPos=owner-&gt;pos;
+-		nonMovingFailures=0;
++	}else {
++		lastGetPathPos = owner-&gt;pos;
++		nonMovingFailures = 0;
+ 	}
+ 
+ 	pathManager-&gt;DeletePath(pathId);
+ 	pathId = pathManager-&gt;RequestPath(owner-&gt;mobility, owner-&gt;pos, goalPos, goalRadius, owner);
+ 	nextWaypoint = owner-&gt;pos;
+ 	// new path received, can't be at waypoint.
+-	if(pathId){
++	if (pathId){
+ 		atGoal = false;
+-		haveFinalWaypoint=false;
++		haveFinalWaypoint = false;
+ 		GetNextWaypoint();
+ 		GetNextWaypoint();
+-	} else {
+-
+ 	}
+ 
+-	//Sets the limit for when next path-request could be done.
++	// set limit for when next path-request can be made
+ 	restartDelay = gs-&gt;frameNum + MAX_REPATH_FREQUENCY;
+ }
+ 
+@@ -1157,31 +1163,30 @@
+ */
+ void CGroundMoveType::GetNextWaypoint()
+ {
+-	if(pathId) {
+-		waypoint=nextWaypoint;
++	if (pathId) {
++		waypoint = nextWaypoint;
+ 		nextWaypoint = pathManager-&gt;NextWaypoint(pathId, waypoint, 2);
+ 
+-		if(nextWaypoint.x != -1) {
+-//			logOutput.Print(&quot;New waypoint %i %f %f&quot;,owner-&gt;id,owner-&gt;pos.distance2D(newWaypoint),wantedDistanceToWaypoint);
+-			etaWaypoint = int(30.0f / (requestedSpeed*terrainSpeed+0.001f)) + gs-&gt;frameNum+50;
+-			etaWaypoint2 = int(25.0f / (requestedSpeed*terrainSpeed+0.001f)) + gs-&gt;frameNum+10;
++		if (nextWaypoint.x != -1) {
++			etaWaypoint = int(30.0f / (requestedSpeed * terrainSpeed + 0.001f)) + gs-&gt;frameNum + 50;
++			etaWaypoint2 = int(25.0f / (requestedSpeed * terrainSpeed + 0.001f)) + gs-&gt;frameNum + 10;
+ 			atGoal = false;
+ 		} else {
+-			if(DEBUG_CONTROLLER)
+-				logOutput.Print(&quot;Path failure %i %i&quot;,owner-&gt;id,pathFailures);
++			if (DEBUG_CONTROLLER)
++				logOutput.Print(&quot;Path failure %i %i&quot;, owner-&gt;id, pathFailures);
+ 			pathFailures++;
+-			if(pathFailures&gt;0){
+-				pathFailures=0;
++			if (pathFailures &gt; 0) {
++				pathFailures = 0;
+ 				Fail();
+ 			}
+ 			etaWaypoint = INT_MAX;
+ 			etaWaypoint2 =INT_MAX;
+-			nextWaypoint=waypoint;
++			nextWaypoint = waypoint;
+ 		}
+-		//If the waypoint is very close to the goal, then correct it into the goal.
+-		if(waypoint.distance2D(goalPos) &lt; CPathManager::PATH_RESOLUTION){
++		// If the waypoint is very close to the goal, then correct it into the goal.
++		if (waypoint.distance2D(goalPos) &lt; CPathManager::PATH_RESOLUTION) {
+ 			waypoint = goalPos;
+-			haveFinalWaypoint=true;
++			haveFinalWaypoint = true;
+ 		}
+ 	}
+ }
+@@ -1424,9 +1429,15 @@
+ bool CGroundMoveType::CheckColH(int x, int y1, int y2, float xmove, int squareTestX)
+ {
+ 	for (int y = y1; y &lt;= y2; ++y) {
+-		CSolidObject* c = groundBlockingObjectMap-&gt;GroundBlockedUnsafe(y * gs-&gt;mapx + x);
++		// get the top-most blocking object
++		CSolidObject* c = groundBlockingObjectMap-&gt;GroundBlockedUnsafe(y * gs-&gt;mapx + x, true);
+ 
+ 		if (c) {
++			if (owner-&gt;mobility-&gt;moveMath-&gt;IsNonBlocking(*owner-&gt;mobility, c)) {
++				// no collision possible
++				continue;
++			}
++
+ 			if (groundBlockingObjectMap-&gt;GroundBlockedUnsafe(y * gs-&gt;mapx + squareTestX) != NULL &amp;&amp;
+ 				groundBlockingObjectMap-&gt;GroundBlockedUnsafe(y * gs-&gt;mapx + squareTestX) != owner) {
+ 				continue;
+@@ -1490,9 +1501,15 @@
+ bool CGroundMoveType::CheckColV(int y, int x1, int x2, float zmove, int squareTestY)
+ {
+ 	for (int x = x1; x &lt;= x2; ++x) {
+-		CSolidObject* c = groundBlockingObjectMap-&gt;GroundBlockedUnsafe(y * gs-&gt;mapx + x);
++		// get the top-most blocking object
++		CSolidObject* c = groundBlockingObjectMap-&gt;GroundBlockedUnsafe(y * gs-&gt;mapx + x, true);
+ 
+ 		if (c) {
++			if (owner-&gt;mobility-&gt;moveMath-&gt;IsNonBlocking(*owner-&gt;mobility, c)) {
++				// no collision possible
++				continue;
++			}
++
+ 			if (groundBlockingObjectMap-&gt;GroundBlockedUnsafe(squareTestY * gs-&gt;mapx + x) != NULL &amp;&amp;
+ 				groundBlockingObjectMap-&gt;GroundBlockedUnsafe(squareTestY * gs-&gt;mapx + x) != owner) {
+ 				continue;
+@@ -1842,32 +1859,32 @@
+ * @brief Orients owner so that weapon[0]'s arc includes mainHeadingPos
+ */
+ void CGroundMoveType::SetMainHeading(){
+-	if(useMainHeading &amp;&amp; !owner-&gt;weapons.empty()){
++	if (useMainHeading &amp;&amp; !owner-&gt;weapons.empty()) {
+ 		float3 dir1 = owner-&gt;weapons.front()-&gt;mainDir;
+ 		dir1.y = 0;
+ 		dir1.Normalize();
+-		float3 dir2 = mainHeadingPos-owner-&gt;pos;
++		float3 dir2 = mainHeadingPos - owner-&gt;pos;
+ 		dir2.y = 0;
+ 		dir2.Normalize();
+-		if(dir2 != ZeroVector){
+-			short heading = GetHeadingFromVector(dir2.x,dir2.z)
+-				- GetHeadingFromVector(dir1.x,dir1.z);
+ 
+-			if(progressState == Active &amp;&amp; owner-&gt;heading == heading){
+-				//logOutput.Print(&quot;Stop turning&quot;);
++		if (dir2 != ZeroVector) {
++			short heading = GetHeadingFromVector(dir2.x, dir2.z)
++				- GetHeadingFromVector(dir1.x, dir1.z);
++
++			if (progressState == Active &amp;&amp; owner-&gt;heading == heading) {
++				// stop turning
+ 				owner-&gt;cob-&gt;Call(COBFN_StopMoving);
+ 				progressState = Done;
+-			} else if(progressState == Active){
++			} else if (progressState == Active) {
+ 				ChangeHeading(heading);
+-				//logOutput.Print(&quot;Test headding: %d,  Real headding: %d&quot;, heading,
+-				//	owner-&gt;heading);
+-			} else if(progressState != Active
++				//logOutput.Print(&quot;Test heading: %d,  Real heading: %d&quot;, heading, owner-&gt;heading);
++			} else if (progressState != Active
+ 			  &amp;&amp; owner-&gt;heading != heading
+-			  &amp;&amp; !owner-&gt;weapons.front()-&gt;TryTarget(mainHeadingPos, true,0)){
++			  &amp;&amp; !owner-&gt;weapons.front()-&gt;TryTarget(mainHeadingPos, true, 0)) {
++				// start moving
+ 				progressState = Active;
+ 				owner-&gt;cob-&gt;Call(COBFN_StartMoving);
+ 				ChangeHeading(heading);
+-				//logOutput.Print(&quot;Start Moving&quot;);
+ 			} else {
+ 				//logOutput.Print(&quot;No set main headding&quot;);
+ 			}
+
+Modified: trunk/rts/Sim/MoveTypes/MoveInfo.cpp
+===================================================================
+--- trunk/rts/Sim/MoveTypes/MoveInfo.cpp	2008-07-14 02:58:58 UTC (rev 6180)
++++ trunk/rts/Sim/MoveTypes/MoveInfo.cpp	2008-07-14 18:48:32 UTC (rev 6181)
+@@ -20,6 +20,7 @@
+ CR_REG_METADATA(MoveData, (
+ 	CR_ENUM_MEMBER(moveType),
+ 	CR_ENUM_MEMBER(moveFamily),
++	CR_ENUM_MEMBER(terrainClass),
+ 	CR_MEMBER(size),
+ 
+ 	CR_MEMBER(depth),
+@@ -35,10 +36,11 @@
+ 	CR_MEMBER(maxTurnRate),
+ 	CR_MEMBER(maxAcceleration),
+ 	CR_MEMBER(maxBreaking),
+-	CR_MEMBER(canFly),
+ 	CR_MEMBER(subMarine),
+ 
+ 	CR_MEMBER(name),
++
++	CR_MEMBER(followGround),
+ 	CR_RESERVED(16)
+ ));
+ 
+@@ -84,11 +86,15 @@
+ 		md-&gt;depth = 0.0f;
+ 		md-&gt;crushStrength = moveTable.GetFloat(&quot;crushStrength&quot;, 10.0f);
+ 
++		const float minWaterDepth = moveTable.GetFloat(&quot;minWaterDepth&quot;, 10.0f);
++		const float maxWaterDepth = moveTable.GetFloat(&quot;maxWaterDepth&quot;, 0.0f);
++
+ 		if ((name.find(&quot;BOAT&quot;) != string::npos) ||
+ 		    (name.find(&quot;SHIP&quot;) != string::npos)) {
+ 			md-&gt;moveType = MoveData::Ship_Move;
+-			md-&gt;depth = moveTable.GetFloat(&quot;minWaterDepth&quot;, 10.0f);
++			md-&gt;depth = minWaterDepth;
+ 			md-&gt;moveFamily = MoveData::Ship;
++			md-&gt;subMarine = moveTable.GetBool(&quot;subMarine&quot;, 0);
+ 		}
+ 		else if (name.find(&quot;HOVER&quot;) != string::npos) {
+ 			md-&gt;moveType = MoveData::Hover_Move;
+@@ -98,7 +104,7 @@
+ 		else {
+ 			md-&gt;moveType = MoveData::Ground_Move;
+ 			md-&gt;depthMod = moveTable.GetFloat(&quot;depthMod&quot;, 0.1f);
+-			md-&gt;depth = moveTable.GetFloat(&quot;maxWaterDepth&quot;, 0.0f);
++			md-&gt;depth = maxWaterDepth;
+ 			md-&gt;maxSlope = DegreesToMaxSlope(moveTable.GetFloat(&quot;maxSlope&quot;, 60.0f));
+ 			if (name.find(&quot;TANK&quot;) != string::npos) {
+ 				md-&gt;moveFamily = MoveData::Tank;
+@@ -107,13 +113,44 @@
+ 			}
+ 		}
+ 
++
++		// ground units hug the ocean floor when in water,
++		// ships stay at a &quot;fixed&quot; level (their waterline)
++		md-&gt;followGround =
++			(md-&gt;moveFamily == MoveData::Tank ||
++			md-&gt;moveFamily == MoveData::KBot);
++
++		// tank or bot that cannot get its threads / feet
++		// wet, or hovercraft (which doesn't touch ground
++		// or water)
++		const bool b0 =
++			((md-&gt;followGround &amp;&amp; maxWaterDepth &lt;= 0.0) ||
++			md-&gt;moveFamily == MoveData::Hover);
++
++		// ship (or sub) that cannot crawl onto shore, OR tank or
++		// kbot restricted to snorkling (strange but possible)
++		const bool b1 =
++			((md-&gt;moveFamily == MoveData::Ship &amp;&amp; minWaterDepth &gt; 0.0) ||
++			((md-&gt;followGround) &amp;&amp; minWaterDepth &gt; 0.0));
++
++		// tank or kbot that CAN go skinny-dipping (amph.),
++		// or ship that CAN sprout legs when at the beach
++		const bool b2 =
++			((md-&gt;followGround) &amp;&amp; maxWaterDepth &gt; 0.0) ||
++			(md-&gt;moveFamily == MoveData::Ship &amp;&amp; minWaterDepth &lt; 0.0);
++
++		if (b0) { md-&gt;terrainClass = MoveData::Land; }
++		if (b1) { md-&gt;terrainClass = MoveData::Water; }
++		if (b2) { md-&gt;terrainClass = MoveData::Mixed; }
++
++
+ 		md-&gt;slopeMod = moveTable.GetFloat(&quot;slopeMod&quot;, 4.0f / (md-&gt;maxSlope + 0.001f));
+-		// TA has only half our res so multiply size with 2
++		// TA has only half our resolution, multiply size by 2
+ 		md-&gt;size = max(2, min(8, moveTable.GetInt(&quot;footprintX&quot;, 1) * 2));
+ 
+ 		moveInfoChecksum += md-&gt;size;
+-		moveInfoChecksum ^= *(unsigned int*)&amp;md-&gt;slopeMod;
+-		moveInfoChecksum += *(unsigned int*)&amp;md-&gt;depth;
++		moveInfoChecksum ^= *(unsigned int*) &amp;md-&gt;slopeMod;
++		moveInfoChecksum += *(unsigned int*) &amp;md-&gt;depth;
+ 
+ 		moveData.push_back(md);
+ 		name2moveData[name] = md-&gt;pathType;
+@@ -150,4 +187,3 @@
+ 	}
+ 	return moveData[name2moveData[name]];
+ }
+-
+
+Modified: trunk/rts/Sim/MoveTypes/MoveInfo.h
+===================================================================
+--- trunk/rts/Sim/MoveTypes/MoveInfo.h	2008-07-14 02:58:58 UTC (rev 6180)
++++ trunk/rts/Sim/MoveTypes/MoveInfo.h	2008-07-14 18:48:32 UTC (rev 6181)
+@@ -10,28 +10,29 @@
+ struct MoveData {
+ 	CR_DECLARE_STRUCT(MoveData);
+ 
+-	MoveData(float _maxAcc = 0.0f, float _maxBreaking = 0.0f,
+-			float _maxSpeed = 0.0f, short _maxTurnRate = 0,
+-			bool _canFly = false, bool _subMarine = false,
+-			const MoveData* udefMD = 0x0):
+-		maxSpeed(_maxSpeed), maxTurnRate(_maxTurnRate), maxAcceleration(_maxAcc),
+-		maxBreaking(_maxBreaking), canFly(_canFly), subMarine(_subMarine)
+-	{
+-		// udefMD is null when reading the MoveDefs
+-		moveType      = udefMD? udefMD-&gt;moveType:      MoveData::Ground_Move;
+-		size          = udefMD? udefMD-&gt;size:          0;
+-		depth         = udefMD? udefMD-&gt;depth:         0.0f;
+-		maxSlope      = udefMD? udefMD-&gt;maxSlope:      0.0f;
+-		slopeMod      = udefMD? udefMD-&gt;slopeMod:      0.0f;
+-		depthMod      = udefMD? udefMD-&gt;depthMod:      0.0f;
+-		pathType      = udefMD? udefMD-&gt;pathType:      0;
+-		moveMath      = udefMD? udefMD-&gt;moveMath:      0x0;
+-		crushStrength = udefMD? udefMD-&gt;crushStrength: 0.0f;
+-		moveFamily    = udefMD? udefMD-&gt;moveFamily:    MoveData::Tank;
+-		name          = udefMD? udefMD-&gt;name:          &quot;&quot;;
++	MoveData(const MoveData* udefMD = 0x0, int gs = 30) {
++
++		maxAcceleration = udefMD? udefMD-&gt;maxAcceleration:         0.0f;
++		maxBreaking     = udefMD? udefMD-&gt;maxAcceleration * -3.0f: 0.0f;
++		maxSpeed        = udefMD? udefMD-&gt;maxSpeed / gs:           0.0f;
++		maxTurnRate     = udefMD? (short int) udefMD-&gt;maxTurnRate: 0;
++
++		size            = udefMD? udefMD-&gt;size:                    0;
++		depth           = udefMD? udefMD-&gt;depth:                   0.0f;
++		maxSlope        = udefMD? udefMD-&gt;maxSlope:                0.0f;
++		slopeMod        = udefMD? udefMD-&gt;slopeMod:                0.0f;
++		depthMod        = udefMD? udefMD-&gt;depthMod:                0.0f;
++		pathType        = udefMD? udefMD-&gt;pathType:                0;
++		moveMath        = udefMD? udefMD-&gt;moveMath:                0x0;
++		crushStrength   = udefMD? udefMD-&gt;crushStrength:           0.0f;
++		moveType        = udefMD? udefMD-&gt;moveType:                MoveData::Ground_Move;
++		moveFamily      = udefMD? udefMD-&gt;moveFamily:              MoveData::Tank;
++		terrainClass    = udefMD? udefMD-&gt;terrainClass:            MoveData::Mixed;
++		followGround    = udefMD? udefMD-&gt;followGround:            true;
++		subMarine       = udefMD? udefMD-&gt;subMarine:               false;
++		name            = udefMD? udefMD-&gt;name:                    &quot;TANK&quot;;
+ 	}
+ 
+-
+ 	enum MoveType {
+ 		Ground_Move,
+ 		Hover_Move,
+@@ -43,9 +44,16 @@
+ 		Hover,
+ 		Ship
+ 	};
++	enum TerrainClass {
++		Land,					// we are restricted to &quot;land&quot; (terrain with height &gt;= 0)
++		Water,					// we are restricted to &quot;water&quot; (terrain with height &lt; 0)
++		Mixed					// we can exist at heights both greater and smaller than 0
++	};
+ 
+ 	MoveType moveType;			// NOTE: rename? (because of (AMoveType*) CUnit::moveType)
+ 	MoveFamily moveFamily;
++	TerrainClass terrainClass;
++	bool followGround;			// do we stick to the ground when in water?
+ 
+ 	int size;					// of the footprint
+ 	float depth;				// minWaterDepth for ships, maxWaterDepth otherwise
+@@ -67,8 +75,7 @@
+ 	float maxAcceleration;
+ 	float maxBreaking;
+ 
+-	bool canFly;
+-	bool subMarine;				// always false
++	bool subMarine;				// are we supposed to be a purely sub-surface ship?
+ };
+ 
+ 
+
+Modified: trunk/rts/Sim/MoveTypes/MoveMath/MoveMath.cpp
+===================================================================
+--- trunk/rts/Sim/MoveTypes/MoveMath/MoveMath.cpp	2008-07-14 02:58:58 UTC (rev 6180)
++++ trunk/rts/Sim/MoveTypes/MoveMath/MoveMath.cpp	2008-07-14 18:48:32 UTC (rev 6181)
+@@ -44,7 +44,7 @@
+ }
+ 
+ 
+-float CMoveMath::SpeedMod(const MoveData&amp; moveData, int xSquare, int zSquare,const float3&amp; moveDir) {
++float CMoveMath::SpeedMod(const MoveData&amp; moveData, int xSquare, int zSquare, const float3&amp; moveDir) {
+ 	// Error-check
+ 	if (xSquare &lt; 0 || zSquare &lt; 0 || xSquare &gt;= gs-&gt;mapx || zSquare &gt;= gs-&gt;mapy) {
+ 		return 0.0f;
+@@ -160,7 +160,45 @@
+ 		object-&gt;mass &gt; moveData.crushStrength));
+ }
+ 
++/*
++ * check if an object is NON-blocking for a given MoveData
++ * (ex. a submarine's moveDef vs. a surface ship object)
++ */
++bool CMoveMath::IsNonBlocking(const MoveData&amp; moveData, const CSolidObject* obstacle) {
++	if (moveData.terrainClass == MoveData::Land) {
++		return (obstacle-&gt;isUnderWater);
++	} else {
++		const int x = int(obstacle-&gt;pos.x / SQUARE_SIZE);
++		const int z = int(obstacle-&gt;pos.z / SQUARE_SIZE);
++		const int i = (x &gt;&gt; 1) + (z &gt;&gt; 1) * gs-&gt;hmapx;
++		const bool iss = moveData.subMarine;
++		const bool oss = (obstacle-&gt;mobility &amp;&amp; obstacle-&gt;mobility-&gt;subMarine);
+ 
++		const float oy = obstacle-&gt;pos.y;
++		const float oh = obstacle-&gt;height;
++		const float gy = readmap-&gt;mipHeightmap[1][i];
++
++		// note that these conditions can lead to
++		// a certain degree of clipping, for full
++		// 3D accuracy the height of the movedata
++		// owner would need to be accessible (but
++		// the path-estimator defs aren't tied to
++		// any)
++		if (moveData.followGround || gy &gt; 0.0f) {
++			return ((oy - oh) &gt; gy);
++		} else {
++			if (iss) {
++				return ((oy + oh) &gt; 0.0f);
++			} else {
++				return (((oy + oh) &lt;= 0.0f) || oss);
++			}
++		}
++	}
++
++	return false;
++}
++
++
+ /* Converts a point-request into a square-positional request. */
+ float CMoveMath::yLevel(const float3 pos) {
+ 	int x = int(pos.x / SQUARE_SIZE);
+@@ -176,7 +214,12 @@
+ 	}
+ 
+ 	CSolidObject* obstacle = groundBlockingObjectMap-&gt;GroundBlockedUnsafe(xSquare + zSquare * gs-&gt;mapx);
++
+ 	if (obstacle) {
++		if (IsNonBlocking(moveData, obstacle)) {
++			return 0;
++		}
++
+ 		if (obstacle-&gt;mobility) {
+ 			// mobile obstacle
+ 			if (obstacle-&gt;isMoving) {
+
+Modified: trunk/rts/Sim/MoveTypes/MoveMath/MoveMath.h
+===================================================================
+--- trunk/rts/Sim/MoveTypes/MoveMath/MoveMath.h	2008-07-14 02:58:58 UTC (rev 6180)
++++ trunk/rts/Sim/MoveTypes/MoveMath/MoveMath.h	2008-07-14 18:48:32 UTC (rev 6181)
+@@ -31,6 +31,7 @@
+ 
+ 	// tells whether a given object is blocking the given movedata
+ 	bool IsBlocking(const MoveData&amp; moveData, const CSolidObject* object);
++	bool IsNonBlocking(const MoveData&amp; moveData, const CSolidObject* object);
+ 
+ 	// gives the y-coordinate the unit will &quot;stand on&quot;
+ 	float yLevel(float3 pos);
+
+Modified: trunk/rts/Sim/Path/PathFinder.cpp
+===================================================================
+--- trunk/rts/Sim/Path/PathFinder.cpp	2008-07-14 02:58:58 UTC (rev 6180)
++++ trunk/rts/Sim/Path/PathFinder.cpp	2008-07-14 18:48:32 UTC (rev 6181)
+@@ -122,22 +122,22 @@
+ Search with several start positions
+ */
+ IPath::SearchResult CPathFinder::GetPath(const MoveData&amp; moveData, const std::vector&lt;float3&gt;&amp; startPos, const CPathFinderDef&amp; pfDef, Path&amp; path) {
+-	//Clear the given path.
++	// Clear the given path.
+ 	path.path.clear();
+ 	path.pathCost = PATHCOST_INFINITY;
+ 
+-	//Store som basic data.
++	// Store som basic data.
+ 	maxNodesToBeSearched = MAX_SEARCHED_SQUARES;
+-	testMobile=false;
++	testMobile = false;
+ 	exactPath = true;
+-	needPath=true;
++	needPath = true;
+ 
+-	//If exact path is reqired and the goal is blocked, then no search is needed.
+-	if(exactPath &amp;&amp; pfDef.GoalIsBlocked(moveData, (CMoveMath::BLOCK_STRUCTURE | CMoveMath::BLOCK_TERRAIN)))
++	// If exact path is reqired and the goal is blocked, then no search is needed.
++	if (exactPath &amp;&amp; pfDef.GoalIsBlocked(moveData, (CMoveMath::BLOCK_STRUCTURE | CMoveMath::BLOCK_TERRAIN)))
+ 		return CantGetCloser;
+ 
+-	//If the starting position is a goal position, then no search need to be performed.
+-	if(pfDef.IsGoal(startxSqr, startzSqr))
++	// If the starting position is a goal position, then no search need to be performed.
++	if (pfDef.IsGoal(startxSqr, startzSqr))
+ 		return CantGetCloser;
+ 
+ 	//Clearing the system from last search.
+@@ -145,10 +145,10 @@
+ 
+ 	openSquareBufferPointer = &amp;openSquareBuffer[0];
+ 
+-	for(std::vector&lt;float3&gt;::const_iterator si=startPos.begin();si!=startPos.end();++si){
++	for (std::vector&lt;float3&gt;::const_iterator si = startPos.begin(); si != startPos.end(); ++si) {
+ 		start = *si;
+-		startxSqr = (int(start.x) / SQUARE_SIZE)|1;
+-		startzSqr = (int(start.z) / SQUARE_SIZE)|1;
++		startxSqr = (int(start.x) / SQUARE_SIZE) | 1;
++		startzSqr = (int(start.z) / SQUARE_SIZE) | 1;
+ 		startSquare = startxSqr + startzSqr * gs-&gt;mapx;
+ 
+ 		squareState[startSquare].status = (PATHOPT_START | PATHOPT_OPEN);
+@@ -242,24 +242,24 @@
+ Setting up the starting point of the search.
+ */
+ IPath::SearchResult CPathFinder::InitSearch(const MoveData&amp; moveData, const CPathFinderDef&amp; pfDef) {
+-	//If exact path is reqired and the goal is blocked, then no search is needed.
+-	if(exactPath &amp;&amp; pfDef.GoalIsBlocked(moveData, (CMoveMath::BLOCK_STRUCTURE | CMoveMath::BLOCK_TERRAIN)))
++	// If exact path is reqired and the goal is blocked, then no search is needed.
++	if (exactPath &amp;&amp; pfDef.GoalIsBlocked(moveData, (CMoveMath::BLOCK_STRUCTURE | CMoveMath::BLOCK_TERRAIN)))
+ 		return CantGetCloser;
+ 
+-	//Clamp the start position
+-	if (startxSqr &lt; 0) startxSqr=0;
+-	if (startxSqr &gt;= gs-&gt;mapx) startxSqr = gs-&gt;mapx-1;
+-	if (startzSqr &lt; 0) startzSqr =0;
+-	if (startzSqr &gt;= gs-&gt;mapy) startzSqr = gs-&gt;mapy-1;
++	// Clamp the start position
++	if (startxSqr &lt; 0) startxSqr = 0;
++	if (startxSqr &gt;= gs-&gt;mapx) startxSqr = gs-&gt;mapx - 1;
++	if (startzSqr &lt; 0) startzSqr = 0;
++	if (startzSqr &gt;= gs-&gt;mapy) startzSqr = gs-&gt;mapy - 1;
+ 
+-	//If the starting position is a goal position, then no search need to be performed.
++	// If the starting position is a goal position, then no search need to be performed.
+ 	if(pfDef.IsGoal(startxSqr, startzSqr))
+ 		return CantGetCloser;
+ 
+-	//Clearing the system from last search.
++	// Clear the system from last search.
+ 	ResetSearch();
+ 
+-	//Marks and store the start-square.
++	// Marks and store the start-square.
+ 	squareState[startSquare].status = (PATHOPT_START | PATHOPT_OPEN);
+ 	squareState[startSquare].cost = 0;
+ 	dirtySquares.push_back(startSquare);
+@@ -294,42 +294,45 @@
+ */
+ IPath::SearchResult CPathFinder::DoSearch(const MoveData&amp; moveData, const CPathFinderDef&amp; pfDef) {
+ 	bool foundGoal = false;
+-	while(!openSquares.empty() &amp;&amp; openSquareBufferPointer - openSquareBuffer &lt; (maxNodesToBeSearched - 8)){
+-		//Gets the open square with lowest expected path-cost.
+-		OpenSquare* os = (OpenSquare*)openSquares.top();
++	while (!openSquares.empty() &amp;&amp; openSquareBufferPointer - openSquareBuffer &lt; (maxNodesToBeSearched - 8)) {
++		// Get the open square with lowest expected path-cost.
++		OpenSquare* os = (OpenSquare*) openSquares.top();
+ 		openSquares.pop();
+ 
+-		//Check if this OpenSquare-holder have become obsolete.
+-		if(squareState[os-&gt;sqr].cost != os-&gt;cost)
++		// Check if this OpenSquare-holder have become obsolete.
++		if (squareState[os-&gt;sqr].cost != os-&gt;cost)
+ 			continue;
+ 
+-		//Check if the goal is reached.
+-		if(pfDef.IsGoal(os-&gt;square.x, os-&gt;square.y)) {
++		// Check if the goal is reached.
++		if (pfDef.IsGoal(os-&gt;square.x, os-&gt;square.y)) {
+ 			goalSquare = os-&gt;sqr;
+ 			goalHeuristic = 0;
+ 			foundGoal = true;
+ 			break;
+ 		}
+ 
+-		//Testing the 8 surrounding squares.
+-		bool right=TestSquare(moveData, pfDef, os, PATHOPT_RIGHT);
+-		bool left=TestSquare(moveData, pfDef, os, PATHOPT_LEFT);
+-		bool up=TestSquare(moveData, pfDef, os, PATHOPT_UP);
+-		bool down=TestSquare(moveData, pfDef, os, PATHOPT_DOWN);
+-		if(up){		//we dont want to search diagonally if there is a blocking object (not blocking terrain) in one of the two side squares
+-			if(right)
++		// Test the 8 surrounding squares.
++		bool right = TestSquare(moveData, pfDef, os, PATHOPT_RIGHT);
++		bool left = TestSquare(moveData, pfDef, os, PATHOPT_LEFT);
++		bool up = TestSquare(moveData, pfDef, os, PATHOPT_UP);
++		bool down = TestSquare(moveData, pfDef, os, PATHOPT_DOWN);
++
++		if (up) {
++			// we dont want to search diagonally if there is a blocking object
++			// (not blocking terrain) in one of the two side squares
++			if (right)
+ 				TestSquare(moveData, pfDef, os, (PATHOPT_RIGHT | PATHOPT_UP));
+-			if(left)
++			if (left)
+ 				TestSquare(moveData, pfDef, os, (PATHOPT_LEFT | PATHOPT_UP));
+ 		}
+-		if(down){
+-			if(right)
++		if (down) {
++			if (right)
+ 				TestSquare(moveData, pfDef, os, (PATHOPT_RIGHT | PATHOPT_DOWN));
+-			if(left)
++			if (left)
+ 				TestSquare(moveData, pfDef, os, (PATHOPT_LEFT | PATHOPT_DOWN));
+ 		}
+ 
+-		//Mark this square as closed.
++		// Mark this square as closed.
+ 		squareState[os-&gt;sqr].status |= PATHOPT_CLOSED;
+ 	}
+ 
+@@ -358,79 +361,86 @@
+ bool CPathFinder::TestSquare(const MoveData&amp; moveData, const CPathFinderDef&amp; pfDef, OpenSquare* parentOpenSquare, unsigned int enterDirection) {
+ 	testedNodes++;
+ 
+-	//Calculate the new square.
++	// Calculate the new square.
+ 	int2 square;
+ 	square.x = parentOpenSquare-&gt;square.x + directionVector[enterDirection].x;
+ 	square.y = parentOpenSquare-&gt;square.y + directionVector[enterDirection].y;
+ 
+-	//Inside map?
+-	if(square.x &lt; 0 || square.y &lt; 0	|| square.x &gt;= gs-&gt;mapx || square.y &gt;= gs-&gt;mapy)
++	// Inside map?
++	if (square.x &lt; 0 || square.y &lt; 0 || square.x &gt;= gs-&gt;mapx || square.y &gt;= gs-&gt;mapy) {
+ 		return false;
++	}
++
+ 	int sqr = square.x + square.y * gs-&gt;mapx;
++	int sqrStatus = squareState[sqr].status;
+ 
+-	//Check if the square is unaccessable or used.
+-	if(squareState[sqr].status &amp; (PATHOPT_CLOSED | PATHOPT_FORBIDDEN | PATHOPT_BLOCKED)){
+-		if(squareState[sqr].status &amp; PATHOPT_BLOCKED)
+-			return false;
+-		else
+-			return false;
++	// Check if the square is unaccessable or used.
++	if (sqrStatus &amp; (PATHOPT_CLOSED | PATHOPT_FORBIDDEN | PATHOPT_BLOCKED)) {
++		return false;
+ 	}
+ 
+-	int blockStatus=moveData.moveMath-&gt;IsBlocked2(moveData, square.x, square.y);
+-	//Check if square are out of constraints or blocked by something.
+-	//Don't need to be done on open squares, as whose are already tested.
+-	if(!(squareState[sqr].status &amp; PATHOPT_OPEN) &amp;&amp; (!pfDef.WithinConstraints(square.x, square.y) || (blockStatus &amp; (CMoveMath::BLOCK_STRUCTURE | CMoveMath::BLOCK_TERRAIN)))){
++	int blockStatus = moveData.moveMath-&gt;IsBlocked2(moveData, square.x, square.y);
++	int blockBits = (CMoveMath::BLOCK_STRUCTURE | CMoveMath::BLOCK_TERRAIN);
++
++	// Check if square are out of constraints or blocked by something.
++	// Doesn't need to be done on open squares, as those are already tested.
++	if ((!pfDef.WithinConstraints(square.x, square.y) || (blockStatus &amp; blockBits)) &amp;&amp;
++		!(sqrStatus &amp; PATHOPT_OPEN)) {
++
+ 		squareState[sqr].status |= PATHOPT_BLOCKED;
+ 		dirtySquares.push_back(sqr);
+ 		return false;
+ 	}
+ 
+-	//Evaluate this node.
++	// Evaluate this square.
+ 	float squareSpeedMod = moveData.moveMath-&gt;SpeedMod(moveData, square.x, square.y);
++	blockBits = (CMoveMath::BLOCK_MOBILE | CMoveMath::BLOCK_MOVING | CMoveMath::BLOCK_MOBILE_BUSY);
+ 
+-	if(squareSpeedMod==0){
++	if (squareSpeedMod == 0) {
+ 		squareState[sqr].status |= PATHOPT_FORBIDDEN;
+ 		dirtySquares.push_back(sqr);
+ 		return false;
+ 	}
+-	if(testMobile &amp;&amp; (blockStatus &amp; (CMoveMath::BLOCK_MOBILE | CMoveMath::BLOCK_MOVING | CMoveMath::BLOCK_MOBILE_BUSY))){
+-		if(blockStatus &amp; CMoveMath::BLOCK_MOVING)
+-			squareSpeedMod*=0.65f;
+-		else if(blockStatus &amp; CMoveMath::BLOCK_MOBILE)
+-			squareSpeedMod*=0.35f;
++
++	if (testMobile &amp;&amp; (blockStatus &amp; blockBits)) {
++		if (blockStatus &amp; CMoveMath::BLOCK_MOVING)
++			squareSpeedMod *= 0.65f;
++		else if (blockStatus &amp; CMoveMath::BLOCK_MOBILE)
++			squareSpeedMod *= 0.35f;
+ 		else
+-			squareSpeedMod*=0.10f;
++			squareSpeedMod *= 0.10f;
+ 	}
++
+ 	float squareCost = moveCost[enterDirection] / squareSpeedMod;
+ 	float heuristicCost = pfDef.Heuristic(square.x, square.y);
+ 
+-	//Summarize cost.
++	// Summarize cost.
+ 	float currentCost = parentOpenSquare-&gt;currentCost + squareCost;
+ 	float cost = currentCost + heuristicCost;
+ 
+-	//Checks if this square are in que already.
+-	//If the old one is better then keep it, else change it.
+-	if(squareState[sqr].status &amp; PATHOPT_OPEN) {
+-		if(squareState[sqr].cost &lt;= cost)
++	// Checks if this square is in open queue already.
++	// If the old one is better then keep it, else change it.
++	if (squareState[sqr].status &amp; PATHOPT_OPEN) {
++		if (squareState[sqr].cost &lt;= cost)
+ 			return true;
+ 		squareState[sqr].status &amp;= ~PATHOPT_DIRECTION;
+ 	}
+ 
+-	//Looking for improvements.
++	// Look for improvements.
+ 	if (!exactPath &amp;&amp; heuristicCost &lt; goalHeuristic) {
+ 		goalSquare = sqr;
+ 		goalHeuristic = heuristicCost;
+ 	}
+ 
+-	//Store this square as open.
+-	OpenSquare *os = ++openSquareBufferPointer;		//Take the next OpenSquare in buffer.
++	// Store this square as open.
++	OpenSquare* os = ++openSquareBufferPointer;		//Take the next OpenSquare in buffer.
+ 	os-&gt;square = square;
+ 	os-&gt;sqr = sqr;
+ 	os-&gt;currentCost = currentCost;
+ 	os-&gt;cost = cost;
+ 	openSquares.push(os);
+ 
+-	//Set this one as open and the direction from which it was reached.
++	// Set this one as open and the direction from which it was reached.
+ 	squareState[sqr].cost = os-&gt;cost;
+ 	squareState[sqr].status |= (PATHOPT_OPEN | enterDirection);
+ 	dirtySquares.push_back(sqr);
+@@ -628,10 +638,10 @@
+ */
+ bool CRangedGoalWithCircularConstraint::WithinConstraints(int xSquare, int zSquare) const
+ {
+-	int dx=halfWayX-xSquare;
+-	int dz=halfWayZ-zSquare;
++	int dx = halfWayX - xSquare;
++	int dz = halfWayZ - zSquare;
+ 
+-	return (dx*dx+dz*dz &lt;= searchRadiusSq);
++	return ((dx * dx + dz * dz) &lt;= searchRadiusSq);
+ }
+ 
+ void CPathFinder::myPQ::DeleteAll()
+
+Modified: trunk/rts/Sim/Projectiles/ExplosionGenerator.cpp
+===================================================================
+--- trunk/rts/Sim/Projectiles/ExplosionGenerator.cpp	2008-07-14 02:58:58 UTC (rev 6180)
++++ trunk/rts/Sim/Projectiles/ExplosionGenerator.cpp	2008-07-14 18:48:32 UTC (rev 6181)
+@@ -335,7 +335,7 @@
+ #define OP_POW      17 // Power with code as exponent
+ #define OP_POWBUFF  18 // Power with buffer as exponent
+ 
+-void CCustomExplosionGenerator::ExecuteExplosionCode(const char *code, float damage, char *instance, int spawnIndex, const float3 &amp;dir)
++void CCustomExplosionGenerator::ExecuteExplosionCode(const char* code, float damage, char* instance, int spawnIndex, const float3 &amp;dir)
+ {
+ 	float val = 0.0f;
+ 	void* ptr = NULL;
+
+Modified: trunk/rts/Sim/Units/UnitDefHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-07-14 02:58:58 UTC (rev 6180)
++++ trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-07-14 18:48:32 UTC (rev 6181)
+@@ -363,10 +363,10 @@
+ 	ud.pushResistant = udTable.GetBool(&quot;pushResistant&quot;, false);
+ 
+ 	ud.waterline = udTable.GetFloat(&quot;waterline&quot;, 0.0f);
+-	if ((ud.waterline &gt; 8.0f) &amp;&amp; ud.canmove) {
++	if ((ud.waterline &gt;= 5.0f) &amp;&amp; ud.canmove) {
+ 		// make subs travel at somewhat larger depths
+ 		// to reduce vulnerability to surface weapons
+-		ud.waterline += 5.0f;
++		ud.waterline += 10.0f;
+ 	}
+ 
+ 	ud.canSelfD = udTable.GetBool(&quot;canSelfDestruct&quot;, true);
+
+Modified: trunk/rts/Sim/Units/UnitLoader.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitLoader.cpp	2008-07-14 02:58:58 UTC (rev 6180)
++++ trunk/rts/Sim/Units/UnitLoader.cpp	2008-07-14 18:48:32 UTC (rev 6181)
+@@ -94,22 +94,22 @@
+ 		team = MAX_TEAMS - 1; // FIXME use gs-&gt;gaiaTeamID ?  (once it is always enabled)
+ 	}
+ 
+-	if (type == &quot;GroundUnit&quot;){
++	if (type == &quot;GroundUnit&quot;) {
+ 		unit = SAFE_NEW CUnit;
+ 		blocking = true;
+-	} else if (type == &quot;Transport&quot;){
++	} else if (type == &quot;Transport&quot;) {
+ 		unit = SAFE_NEW CTransportUnit;
+ 		blocking = true;
+-	} else if (type == &quot;Building&quot;){
++	} else if (type == &quot;Building&quot;) {
+ 		unit = SAFE_NEW CBuilding;
+ 		blocking = true;
+-	} else if (type == &quot;Factory&quot;){
++	} else if (type == &quot;Factory&quot;) {
+ 		unit = SAFE_NEW CFactory;
+ 		blocking = true;
+-	} else if (type == &quot;Builder&quot;){
++	} else if (type == &quot;Builder&quot;) {
+ 		unit = SAFE_NEW CBuilder;
+ 		blocking = true;
+-	} else if (type == &quot;Bomber&quot; || type == &quot;Fighter&quot;){
++	} else if (type == &quot;Bomber&quot; || type == &quot;Fighter&quot;) {
+ 		unit = SAFE_NEW CUnit;
+ 	} else if (type == &quot;MetalExtractor&quot;) {
+ 		unit = SAFE_NEW CExtractorBuilding;
+@@ -121,7 +121,7 @@
+ 
+ 	unit-&gt;UnitInit(ud, team, pos);
+ 
+-	unit-&gt;beingBuilt=build;
++	unit-&gt;beingBuilt = build;
+ 
+ 	unit-&gt;xsize = ((facing &amp; 1) == 0) ? ud-&gt;xsize : ud-&gt;ysize;
+ 	unit-&gt;ysize = ((facing &amp; 1) == 1) ? ud-&gt;xsize : ud-&gt;ysize;
+@@ -238,15 +238,11 @@
+ 		unit-&gt;moveType = mt;
+ 
+ 		// Ground-mobility
+-		unit-&gt;mobility = SAFE_NEW MoveData(ud-&gt;maxAcc, ud-&gt;maxAcc * -3.0f,
+-			ud-&gt;speed / GAME_SPEED, (short int) ud-&gt;turnRate, false, false,
+-			ud-&gt;movedata);
++		unit-&gt;mobility = SAFE_NEW MoveData(ud-&gt;movedata, GAME_SPEED);
+ 
+ 	} else if (ud-&gt;canfly) {
+ 		// Air-mobility
+-		unit-&gt;mobility = SAFE_NEW MoveData(ud-&gt;maxAcc, ud-&gt;maxAcc * -3.0f,
+-			ud-&gt;speed / GAME_SPEED, (short int) ud-&gt;turnRate, true, false,
+-			ud-&gt;movedata);
++		unit-&gt;mobility = SAFE_NEW MoveData(ud-&gt;movedata, GAME_SPEED);
+ 
+ 		if (!unit-&gt;beingBuilt) {
+ 			// otherwise set this when finished building instead
+@@ -346,8 +342,10 @@
+ 		if (dynamic_cast&lt;CBeamLaser*&gt;(*i))
+ 			relMax = 150;
+ 	}
+-	relMax *= 30;		// convert ticks to milliseconds
+ 
++	// convert ticks to milliseconds
++	relMax *= 30;
++
+ 	// TA does some special handling depending on weapon count
+ 	if (unit-&gt;weapons.size() &gt; 1) {
+ 		relMax = std::max(relMax, 3000);
+
+Modified: trunk/rts/Sim/Weapons/Weapon.h
+===================================================================
+--- trunk/rts/Sim/Weapons/Weapon.h	2008-07-14 02:58:58 UTC (rev 6180)
++++ trunk/rts/Sim/Weapons/Weapon.h	2008-07-14 18:48:32 UTC (rev 6181)
+@@ -88,7 +88,7 @@
+ 
+ 	int salvoDelay;							// delay between shots in a salvo
+ 	int salvoSize;							// number of shots in a salvo
+-	int projectilesPerShot;                 // number of projectiles per shot
++	int projectilesPerShot;					// number of projectiles per shot
+ 	int nextSalvo;							// when the next shot in the current salvo will fire
+ 	int salvoLeft;							// number of shots left in current salvo
+ 	float3 salvoError;						// error vector for the whole salvo
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000960.html">[Taspring-linux-commit] r6180 - trunk/rts/Lua
+</A></li>
+	<LI>Next message: <A HREF="000962.html">[Taspring-linux-commit] r6182 - in trunk: game/LuaUI/Widgets	installer/builddata/springcontent/gamedata rts/ExternalAI	rts/Game rts/Game/UI rts/Lua rts/Rendering rts/System	rts/System/FileSystem
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#961">[ date ]</a>
+              <a href="thread.html#961">[ thread ]</a>
+              <a href="subject.html#961">[ subject ]</a>
+              <a href="author.html#961">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

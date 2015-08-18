@@ -1,0 +1,2028 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5488 - trunk/tools/MapConv
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5488%20-%20trunk/tools/MapConv&In-Reply-To=%3CE1JOsny-0003Lk-B7%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000294.html">
+   <LINK REL="Next"  HREF="000296.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5488 - trunk/tools/MapConv</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5488%20-%20trunk/tools/MapConv&In-Reply-To=%3CE1JOsny-0003Lk-B7%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5488 - trunk/tools/MapConv">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Feb 12 11:56:02 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000294.html">[Taspring-linux-commit] r5487 - trunk/rts/Game/UI
+</A></li>
+        <LI>Next message: <A HREF="000296.html">[Taspring-linux-commit] r5489 - trunk/tools/DedicatedServer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#295">[ date ]</a>
+              <a href="thread.html#295">[ thread ]</a>
+              <a href="subject.html#295">[ subject ]</a>
+              <a href="author.html#295">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: user
+Date: 2008-02-12 11:56:01 +0100 (Tue, 12 Feb 2008)
+New Revision: 5488
+
+Modified:
+   trunk/tools/MapConv/Bitmap.cpp
+   trunk/tools/MapConv/Bitmap.h
+   trunk/tools/MapConv/FeatureCreator.cpp
+   trunk/tools/MapConv/FeatureCreator.h
+   trunk/tools/MapConv/FileHandler.cpp
+   trunk/tools/MapConv/FileHandler.h
+   trunk/tools/MapConv/MapConv.cpp
+   trunk/tools/MapConv/MemPool.cpp
+   trunk/tools/MapConv/TileHandler.cpp
+   trunk/tools/MapConv/TileHandler.h
+   trunk/tools/MapConv/jpeglib.h
+   trunk/tools/MapConv/stdafx.cpp
+   trunk/tools/MapConv/stdafx.h
+   trunk/tools/MapConv/texcompress_nogui.cpp
+   trunk/tools/MapConv/texcompress_nogui.h
+Log:
+Updated all the MapConv 0.5 source code to version 1.2     
+
+Modified: trunk/tools/MapConv/Bitmap.cpp
+===================================================================
+--- trunk/tools/MapConv/Bitmap.cpp	2008-02-12 02:12:07 UTC (rev 5487)
++++ trunk/tools/MapConv/Bitmap.cpp	2008-02-12 10:56:01 UTC (rev 5488)
+@@ -2,12 +2,15 @@
+ //
+ //////////////////////////////////////////////////////////////////////
+ 
+-#include &lt;ostream&gt;
+-#include &lt;fstream&gt;
++#include &lt;ostream.h&gt;
++#include &lt;fstream.h&gt;
+ #include &quot;FileHandler.h&quot;
+ #include &lt;IL/il.h&gt;
++#include &lt;IL/ilu.h&gt;
++#include &lt;IL/ilut.h&gt;
+ #include &quot;Bitmap.h&quot;
+-#include &lt;assert.h&gt;
++#include &lt;assert.h&gt; 
++#include &lt;iostream.h&gt;
+ 
+ //////////////////////////////////////////////////////////////////////
+ // Construction/Destruction
+@@ -16,11 +19,12 @@
+ struct InitializeOpenIL {
+ 	InitializeOpenIL() {
+ 		ilInit();
++		iluInit();
+ 	}
+ 	~InitializeOpenIL() {
+ 		ilShutDown();
+ 	}
+-} static initOpenIL;
++}static initOpenIL;
+ 
+ CBitmap::CBitmap()
+   : xsize(1),
+@@ -50,12 +54,12 @@
+ 	memcpy(mem,data,xsize*ysize*4);
+ }
+ 
+-CBitmap::CBitmap(string const&amp; filename)
++CBitmap::CBitmap(string const&amp; filename,int x,int y,bool add,int type,bool tex,bool tex2,bool geotherm)
+ : mem(0),
+   xsize(0),
+   ysize(0)
+ {
+-	Load(filename);
++	Load(filename,255,x,y,2,add,type,tex,tex2,geotherm);
+ }
+ 
+ CBitmap&amp; CBitmap::operator=(const CBitmap&amp; bm)
+@@ -71,10 +75,13 @@
+ 	return *this;
+ }
+ 
+-void CBitmap::Load(string const&amp; filename, unsigned char defaultAlpha)
+-{
++void CBitmap::Load(string const&amp; filename, unsigned char defaultAlpha,int x,int y,int filter,bool add,int type,bool tex,bool typemap,bool geotherm)
++{	 
+ 	delete[] mem;
+ 	mem = NULL;
++	
++	xsize = 1;
++	ysize = 1;
+ 
+ 	ilOriginFunc(IL_ORIGIN_UPPER_LEFT);
+ 	ilEnable(IL_ORIGIN_SET);
+@@ -84,13 +91,14 @@
+ 	CFileHandler file(filename);
+ 	if(file.FileExists() == false)
+ 	{
++		cout &lt;&lt; &quot;file &quot; &lt;&lt; filename &lt;&lt; &quot; not found&quot; &lt;&lt; endl;
+ 		xsize = 1;
+ 		ysize = 1;
+ 		mem=new unsigned char[4];
+ 		memset(mem, 0, 4);
+ 		return;
+ 	}
+-
++	
+ 	unsigned char *buffer = new unsigned char[file.FileSize()];
+ 	file.Read(buffer, file.FileSize());
+ 
+@@ -103,6 +111,7 @@
+ 
+ 	if(success == false)
+ 	{
++		cout &lt;&lt; &quot;failed to load &quot; &lt;&lt; filename &lt;&lt; endl;
+ 		xsize = 1;
+ 		ysize = 1;
+ 		mem=new unsigned char[4];
+@@ -111,22 +120,147 @@
+ 	}
+ 
+ 	bool noAlpha=ilGetInteger(IL_IMAGE_BYTES_PER_PIXEL)!=4;
+-#if !defined(__APPLE__) // Temporary fix to allow testing of everything
+-						// else until i get a quicktime image loader written
++	
+ 	ilConvertImage(IL_RGBA, IL_UNSIGNED_BYTE);
++	if (!x == 1 &amp;&amp; !x &lt; 1 || !y == 1 &amp;&amp; !y &lt; 1){
++	   if (filter == 1){
++		  cout &lt;&lt; &quot;using ilu_nearest for rescaling&quot; &lt;&lt; endl; 
++          iluImageParameter(ILU_FILTER,ILU_NEAREST);
++	   }   
++	   if (filter == 3){
++	      cout &lt;&lt; &quot;using ilu_scale_mitchel for rescaling&quot; &lt;&lt; endl; 
++	      iluImageParameter(ILU_FILTER,ILU_SCALE_MITCHELL);
++	   }   
++	   if (!filter == 1 &amp;&amp; !filter == 3){
++		  cout &lt;&lt; &quot;using ilu_scale_triangle for rescaling&quot; &lt;&lt; endl;
++	      iluImageParameter(ILU_FILTER,ILU_SCALE_TRIANGLE); 
++	   }   
++	}        
++	   
++	int both = 0;
++	
++	if (geotherm == false){
++	 if (!(x == 1 || y == 1)){
++	   both = 1;
++	   if (tex == true){
++		  cout &lt;&lt; &quot;scaling texture in both xy axis...&quot; &lt;&lt; endl;  
++          iluScale(x*512,y*512,1);
++	   }
++	   if (tex == false){
++	      if (typemap == false){
++		     cout &lt;&lt; &quot;scaling something else in both xy axis...&quot; &lt;&lt; endl;
++		     if (add == true)
++	             iluScale((x*64)+1,(y*64)+1,1); 
++	         if (add == false)
++	             iluScale(x*64,y*64,1);   
++	      }   
++	      if (typemap == true){
++		     cout &lt;&lt; &quot;scaling typemap in both xy axis...&quot; &lt;&lt; endl; 
++	         iluScale(x*32,y*32,1);
++	      }   
++	   }    
++       if (both == 0){
++    	  if (x &gt; 1){  
++    	     if (tex == true){
++    		     cout &lt;&lt; &quot;scaling texture in both xy axis...&quot; &lt;&lt; endl;  
++                 iluScale(x*512,IL_IMAGE_HEIGHT,1);
++    	     }
++    	     if (tex == false){
++    	         if (typemap == false){
++    		        cout &lt;&lt; &quot;scaling something else in both xy axis...&quot; &lt;&lt; endl;
++    		        if (add == true)
++    	                iluScale((x*64)+1,ilGetInteger(IL_IMAGE_HEIGHT),1);
++    	            if (add == false)
++    	                iluScale(x*64,ilGetInteger(IL_IMAGE_HEIGHT),1); 
++    	         }
++    	         if (typemap == true){
++    		        cout &lt;&lt; &quot;scaling typemap in both xy axis...&quot; &lt;&lt; endl; 
++    	            iluScale(x*32,ilGetInteger(IL_IMAGE_HEIGHT),1);
++    	         }   
++    	     }
++    	  }
++    	  if (y &gt; 1){  
++    	     if (tex == true){
++    		     cout &lt;&lt; &quot;scaling texture in both xy axis...&quot; &lt;&lt; endl;  
++                 iluScale(ilGetInteger(IL_IMAGE_WIDTH),y*512,1);
++    	     }
++    	     if (tex == false){
++    	         if (typemap == false){
++    		        cout &lt;&lt; &quot;scaling something else in both xy axis...&quot; &lt;&lt; endl;
++    		        if (add == true)
++    	                iluScale(ilGetInteger(IL_IMAGE_WIDTH),(y*64)+1,1);
++    	            if (add == false)
++    	                iluScale(ilGetInteger(IL_IMAGE_WIDTH),y*64,1); 
++    	         }
++    	         if (typemap == true){
++    		        cout &lt;&lt; &quot;scaling typemap in both xy axis...&quot; &lt;&lt; endl; 
++    	            iluScale(ilGetInteger(IL_IMAGE_WIDTH),y*512,1);
++    	         }   
++    	     }
++    	  }
++	   }  
++	 }
++	
++	 switch (type){
++	      case 1: cout &lt;&lt; &quot;current texture width:&quot; &lt;&lt; ilGetInteger(IL_IMAGE_WIDTH) &lt;&lt; endl; 
++	              cout &lt;&lt; &quot;current texture height:&quot; &lt;&lt; ilGetInteger(IL_IMAGE_HEIGHT) &lt;&lt; endl;
++	              break;
++	      case 2: cout &lt;&lt; &quot;current heightmap width:&quot; &lt;&lt; ilGetInteger(IL_IMAGE_WIDTH) &lt;&lt; endl; 
++	              cout &lt;&lt; &quot;current heightmap height:&quot; &lt;&lt; ilGetInteger(IL_IMAGE_HEIGHT) &lt;&lt; endl;
++	              break;
++	      case 3: cout &lt;&lt; &quot;current metalmap width:&quot; &lt;&lt; ilGetInteger(IL_IMAGE_WIDTH) &lt;&lt; endl; 
++                  cout &lt;&lt; &quot;current metalmap height:&quot; &lt;&lt; ilGetInteger(IL_IMAGE_HEIGHT) &lt;&lt; endl;
++                  break;
++	      case 4: cout &lt;&lt; &quot;current feature map width:&quot; &lt;&lt; ilGetInteger(IL_IMAGE_WIDTH) &lt;&lt; endl; 
++                  cout &lt;&lt; &quot;current feature map height:&quot; &lt;&lt; ilGetInteger(IL_IMAGE_HEIGHT) &lt;&lt; endl;
++                  break;
++	      case 5: cout &lt;&lt; &quot;current feature map width:&quot; &lt;&lt; ilGetInteger(IL_IMAGE_WIDTH) &lt;&lt; endl; 
++                  cout &lt;&lt; &quot;current feature map height:&quot; &lt;&lt; ilGetInteger(IL_IMAGE_HEIGHT) &lt;&lt; endl;
++                  break;
++	      case 6: cout &lt;&lt; &quot;current typemap width:&quot; &lt;&lt; ilGetInteger(IL_IMAGE_WIDTH) &lt;&lt; endl; 
++	              cout &lt;&lt; &quot;current typemap height:&quot; &lt;&lt; ilGetInteger(IL_IMAGE_HEIGHT) &lt;&lt; endl;
++	              break;
++	 }              
++	}
++	
+ 	xsize = ilGetInteger(IL_IMAGE_WIDTH);
+ 	ysize = ilGetInteger(IL_IMAGE_HEIGHT);
+-
++	
++	if (geotherm == false){
++	 if (tex == true){
++		if (!(x == 1)) 
++	       xsize = x*512;
++	    if (!(y == 1))   
++		   ysize = y*512;
++	 }
++	 if (tex == false){
++	   if (typemap == false){	
++	      if (add == true){	
++	  	     if (!(x == 1))   
++	            xsize = (x*64) + 1;
++	 	     if (!(y == 1))      
++	  	        ysize = (y*64) + 1;
++	      }   
++	      if (add == false){
++	  	     if (!(x == 1))    
++	            xsize = x*64; 
++	 	     if (!(y == 1))   
++	  	        ysize = y*64;
++	      }
++	   }
++	   if (typemap == true){
++		  if (!(y == 1))   
++		     xsize = x*32;
++		  if (!(y == 1))   
++		     ysize = y*32;  
++	   }
++	 }
++	}
++	 
+ 	mem = new unsigned char[xsize * ysize * 4];
+-	//	ilCopyPixels(0,0,0,xsize,ysize,0,IL_RGBA,IL_UNSIGNED_BYTE,mem);
+-	memcpy(mem, ilGetData(), xsize * ysize * 4);
+-#else
+-	xsize = 4;
+-	ysize = 4;
+-
+-	mem = new unsigned char[xsize * ysize * 4];
+-#endif
+-
++	//ilCopyPixels(0,0,0,xsize,ysize,1,IL_RGBA,IL_UNSIGNED_BYTE,mem) ; 
++	memcpy(mem, ilGetData(),xsize * ysize * 4);
++		
+ 	ilDeleteImages(1, &amp;ImageName); 
+ 
+ 	if(noAlpha){
+@@ -138,16 +272,16 @@
+ 	}
+ }
+ 
+-
+-void CBitmap::Save(string const&amp; filename)
++void CBitmap::Save(string const&amp; filename,int quality)
+ {
+ 	ilOriginFunc(IL_ORIGIN_UPPER_LEFT);
+ 	ilEnable(IL_ORIGIN_SET);
++	ilEnable(IL_FILE_OVERWRITE);
+ 
+ 	unsigned char* buf=new unsigned char[xsize*ysize*4];
+ 	/* HACK Flip the image so it saves the right way up.
+-		(Fiddling with ilOriginFunc didn't do anything?)
+-		Duplicated with ReverseYAxis. */
++		(Fiddling with ilOriginFunc didn't do anything?)/
++		Duplicated with ReverseYAxis.  */
+ 	for(int y=0;y&lt;ysize;++y){
+ 		for(int x=0;x&lt;xsize;++x){
+ 			buf[((ysize-1-y)*xsize+x)*4+0]=mem[((y)*xsize+x)*4+0];
+@@ -158,7 +292,7 @@
+ 	}
+ 
+ 	ilHint(IL_COMPRESSION_HINT, IL_USE_COMPRESSION);
+-	ilSetInteger (IL_JPG_QUALITY, 80);
++	ilSetInteger (IL_JPG_QUALITY, quality);
+ 
+ 	ILuint ImageName = 0;
+ 	ilGenImages(1, &amp;ImageName);
+@@ -171,12 +305,13 @@
+ 	delete[] buf;
+ }
+ 
++
+ // Depreciated (Only used by GUI which will be replaced by CEGUI anyway)
+ void CBitmap::SetTransparent( unsigned char red, unsigned char green, unsigned char blue )
+ {
+-	for ( unsigned int y = 0; y &lt; xsize; y++ )
++	for ( int y = 0; y &lt; xsize; y++ )
+ 	{
+-		for ( unsigned int x = 0; x &lt; xsize; x++ )
++		for ( int x = 0; x &lt; xsize; x++ )
+ 		{
+ 			unsigned int index = (y*xsize + x)*4;
+ 			if ( mem[index+0] == red &amp;&amp;
+@@ -243,6 +378,25 @@
+ 
+ }
+ 
++CBitmap CBitmap::Rescale(int newx, int newy)
++{
++	CBitmap bm;
++
++	delete[] bm.mem;
++	
++	bm.mem=new unsigned char[newx*newy*4];
++	
++	iluImageParameter(ILU_FILTER,ILU_SCALE_MITCHELL); 
++	iluScale(newx,newy,1); 
++	
++	bm.xsize=ilGetInteger(IL_IMAGE_WIDTH);
++	bm.ysize=ilGetInteger(IL_IMAGE_HEIGHT);
++
++	memcpy(mem, ilGetData(),xsize * ysize * 4);
++
++	return bm;
++}
++
+ CBitmap CBitmap::CreateRescaled(int newx, int newy)
+ {
+ 	CBitmap bm;
+
+Modified: trunk/tools/MapConv/Bitmap.h
+===================================================================
+--- trunk/tools/MapConv/Bitmap.h	2008-02-12 02:12:07 UTC (rev 5487)
++++ trunk/tools/MapConv/Bitmap.h	2008-02-12 10:56:01 UTC (rev 5488)
+@@ -5,27 +5,27 @@
+ #ifndef __BITMAP_H__
+ #define __BITMAP_H__
+ 
+-#include &lt;string&gt;
++#include &lt;string.h&gt;
+ 
+ using std::string;
+ 
+-class CBitmap  
++class CBitmap 
+ {
+ public:
+ 	CBitmap(unsigned char* data,int xsize,int ysize);
+-	CBitmap(string const&amp; filename);
++	CBitmap(string const&amp; filename,int x,int y,bool add,int type,bool tex,bool tex2,bool geotherm);
+ 	CBitmap();
+ 	CBitmap(const CBitmap&amp; old);
+ 	CBitmap&amp; operator=(const CBitmap&amp; bm);
+ 
+ 	virtual ~CBitmap();
+ 
+-	void Load(string const&amp; filename, unsigned char defaultAlpha=255);
+-	void Save(string const&amp; filename);
++	void Load(string const&amp; filename, unsigned char defaultAlpha,int x,int y,int filter,bool add,int type,bool tex,bool typemap,bool geotherm);
++	void Save(string const&amp; filename,int quality);
+ 
+ 	unsigned int CreateTexture(bool mipmaps=false);
+ 	unsigned int CreateDDSTexture();
+-
++	
+ 	void CreateAlpha(unsigned char red,unsigned char green,unsigned char blue);
+ 	void SetTransparent(unsigned char red, unsigned char green, unsigned char blue);
+ 
+@@ -37,6 +37,8 @@
+ 	int ysize;
+ 
+ public:
++	
++	CBitmap Rescale(int newx, int newy);
+ 	CBitmap CreateRescaled(int newx, int newy);
+ 	void ReverseYAxis(void);
+ 	void CreateFromDXT1(unsigned char* buf, int xsize, int ysize);
+
+Modified: trunk/tools/MapConv/FeatureCreator.cpp
+===================================================================
+--- trunk/tools/MapConv/FeatureCreator.cpp	2008-02-12 02:12:07 UTC (rev 5487)
++++ trunk/tools/MapConv/FeatureCreator.cpp	2008-02-12 10:56:01 UTC (rev 5488)
+@@ -2,11 +2,11 @@
+ #include &quot;Bitmap.h&quot;
+ #include &quot;math.h&quot;
+ #define NUM_TREE_TYPES 16
+-#define treetop 215 /* TODO Shouldn't this be related to the previous define somehow? */
+-extern float* heightmap;
++#define treetop (199+NUM_TREE_TYPES)  
++extern float* heightmap; 
+ 
+-#include &lt;iostream&gt; /* cout */
+-using namespace std; /* cout */
++#include &lt;iostream&gt; 
++using namespace std; 
+ 
+ CFeatureCreator::CFeatureCreator(void)
+ {
+@@ -16,7 +16,7 @@
+ {
+ }
+ 
+-void CFeatureCreator::WriteToFile(ofstream* file, vector&lt;string&gt; F_map)
++void CFeatureCreator::WriteToFile(ofstream* file, vector&lt;string&gt; F_map,int x,int y)
+ {
+ 	//write vegetation map
+ 	file-&gt;write((char*)vegMap,xsize/4*ysize/4);
+@@ -53,7 +53,7 @@
+ 	}
+ }
+ 
+-void CFeatureCreator::CreateFeatures(CBitmap* bm, int startx, int starty, int arbFeatureTypes, std::string featurefile, std::string geoVentFile)
++void CFeatureCreator::CreateFeatures(CBitmap* bm, int startx, int starty, int arbFeatureTypes, std::string featurefile, std::string geoVentFile,int x,int y, bool igh, bool tolerance)
+ {
+ 	printf(&quot;Creating features\n&quot;);
+ 	xsize=bm-&gt;xsize/8;
+@@ -61,42 +61,58 @@
+ 	mapx=xsize+1;
+ 
+ 	//geovent decal
+-	CBitmap vent(geoVentFile);
+-	CBitmap feature(featurefile);
++	CBitmap vent(geoVentFile,x,y,false,4,false,false,true);
++	CBitmap feature(featurefile,x,y,false,5,false,false,false);
+ 	unsigned char* map=new unsigned char[ysize*xsize];
+ 
+ 	int LastTree[2]={0,0};
++	
++	int tol=0;
++	if (tolerance == true)
++		tol = 3;
++	if (tolerance == false)
++		tol = 0;
++	
+ 	for(int y=0;y&lt;feature.ysize;++y){
+ 		for(int x=0;x&lt;feature.xsize;++x){
+-			/* Read vents and trees from the green channel. */
++			/*Read vents and trees from the green channel. */
+ 			unsigned char c=feature.mem[(y*feature.xsize+x)*4+1];
+ 			if(c==255){
+-				PlaceVent(x, y, &amp;feature, &amp;vent, bm);
++				PlaceVent(x, y, &amp;feature, &amp;vent, bm, igh);
+ 			}
+ 			else if(c&gt;199 &amp;&amp; c&lt;=treetop){
+ 				//trees featuremap green 200-215
+-				float h=heightmap[y*mapx+x];
+-				if(h&lt;5)
+-					continue;
+-
+-				bool good=true;
+-				if (!FlatSpot(x, y))
+-					good = false;
+-
+-				if (!((LastTree[0]==(x-1) &amp;&amp; LastTree[1]==y) || (LastTree[0]==x &amp;&amp; LastTree[1]==(y-1)))){
+-					int t_type=(c-200);
+-					map[y*xsize+x]=1;
+-					MapFeatureStruct ffs;
+-					ffs.featureType=t_type;
+-					ffs.relativeSize=0.8f+float(rand())/RAND_MAX*0.4f;
+-					ffs.rotation=0;
+-					ffs.xpos=(float)startx+x*8+4;
+-					ffs.ypos=0;
+-					ffs.zpos=(float)starty+y*8+4;
+-					LastTree[0]=x;
+-					LastTree[1]=y;
+-					features.push_back(ffs);
++				if (!igh){
++				   float h=heightmap[y*mapx+x];
++				   if(h&lt;5)
++					    continue;
+ 				}
++			    bool good=true;
++				if (!igh){
++			       if (!FlatSpot(x, y))
++				      good = false;  
++				}   
++			       
++				if (!(((LastTree[0]==(x-1) &amp;&amp; LastTree[1]==y) || (LastTree[0]==x &amp;&amp; LastTree[1]==(y-1))) &amp;&amp; tol &lt; 3)){
++				   int t_type=(c-200);
++				   map[y*xsize+x]=1;
++				   MapFeatureStruct ffs;
++				   ffs.featureType=t_type;
++				   ffs.relativeSize=1.2f+float(rand())/RAND_MAX*0.4f;
++				   ffs.rotation=0;
++				   ffs.xpos=(float)startx+x*8+4;
++				   ffs.ypos=0;
++				   ffs.zpos=(float)starty+y*8+4;
++				   LastTree[0]=x;
++				   LastTree[1]=y;
++				   features.push_back(ffs);
++				   tol = 0;
++				} 
++				if (((LastTree[0]==(x-1) &amp;&amp; LastTree[1]==y) || (LastTree[0]==x &amp;&amp; LastTree[1]==(y-1))) &amp;&amp; tol &lt; 3){
++				  tol = tol + 1;	 
++			    }
++				if (tol &gt; 3)
++					tol = 0;
+ 			} 
+ 			else if (c != 0){
+ 				printf(&quot;Does nothing: green %02x at X %d Y %d\n&quot;, c, x, y);
+@@ -135,16 +151,11 @@
+ 		for(int x=0;x&lt;vegfeature.xsize;++x){
+ 			/* Read grass from the blue channel. */
+ 			unsigned char c=vegfeature.mem[(y*vegfeature.xsize+x)*4+2];
+-			float a=c/255;
+-			float b=1-a;
+ 			int grass=(rand()%(255))+c;
+-			if (grass &gt; 254)
++			if (grass &gt; 253)
+ 			{
+-#ifdef WIN32
+ 				cout&lt;&lt;&quot;\002&quot;;
+-#else
+-				cout&lt;&lt;&quot;@&quot;;
+-#endif
++
+ 				vegMap[y*vegfeature.xsize+x]=1;
+ 			}
+ 			else
+@@ -154,7 +165,7 @@
+ 	}
+ }
+ 
+-void CFeatureCreator::PlaceVent(int x, int y, CBitmap * feature, CBitmap * vent, CBitmap * bm)
++void CFeatureCreator::PlaceVent(int x, int y, CBitmap * feature, CBitmap * vent, CBitmap * bm,bool igh)
+ {
+ 	cout&lt;&lt;&quot;Geo at:&quot;;
+ 	int bx=x*xsize/feature-&gt;xsize;
+@@ -166,15 +177,15 @@
+ 
+ 		bool good=true;
+ 		
+-		if (!FlatSpot(x, y))
+-			good = false;
+-		
++		if (!igh){
++		   if (!FlatSpot(x, y))
++			  good = false;
++		}
++		   
+ 		if(good){
+-#ifdef WIN32
++
+ 			cout&lt;&lt;&quot;&quot;&lt;&lt;x&lt;&lt;&quot;:&quot;&lt;&lt;y&lt;&lt;&quot; \001\n&quot;;
+-#else
+-			cout&lt;&lt;&quot;&quot;&lt;&lt;x&lt;&lt;&quot;:&quot;&lt;&lt;y&lt;&lt;&quot; *\n&quot;;
+-#endif
++
+ 			MapFeatureStruct ffs;
+ 			ffs.featureType=NUM_TREE_TYPES;
+ 			ffs.relativeSize=1;
+@@ -199,18 +210,10 @@
+ 		}
+ 		else {
+ 			/* Roll up somewhere else to try and put it. */
+-#ifdef WIN32
+ 			cout&lt;&lt; x &lt;&lt;&quot;:&quot;&lt;&lt; y &lt;&lt;&quot; X \009&quot;;
+-#else
+-			cout&lt;&lt; x &lt;&lt;&quot;:&quot;&lt;&lt; y &lt;&lt;&quot; X @&quot;;
+-#endif
+-#ifdef WIN32
+ 			x=bx+rand()*(40)/RAND_MAX-20;
+ 			y=by+rand()*(40)/RAND_MAX-20;
+-#else
+-			x=bx+( (float)(rand())*(40.0) )/RAND_MAX-20;
+-			y=by+( (float)(rand())*(40.0) )/RAND_MAX-20;
+-#endif
++
+ 			if(x&lt;5)
+ 				x=5;
+ 			if(x&gt;xsize-5)
+
+Modified: trunk/tools/MapConv/FeatureCreator.h
+===================================================================
+--- trunk/tools/MapConv/FeatureCreator.h	2008-02-12 02:12:07 UTC (rev 5487)
++++ trunk/tools/MapConv/FeatureCreator.h	2008-02-12 10:56:01 UTC (rev 5488)
+@@ -13,8 +13,8 @@
+ public:
+ 	CFeatureCreator(void);
+ 	~CFeatureCreator(void);
+-	void WriteToFile(ofstream* file, vector&lt;string&gt; F_map);
+-	void CreateFeatures(CBitmap* bm, int startx, int starty, int arbFeatureTypes, std::string featurefile, std::string geoVentFile);
++	void WriteToFile(ofstream* file, vector&lt;string&gt; F_map,int x,int y);
++	void CreateFeatures(CBitmap* bm, int startx, int starty, int arbFeatureTypes, std::string featurefile, std::string geoVentFile,int x,int y,bool igh = false, bool tolerance = false);
+ 	
+ private:
+ 	int xsize,ysize;
+@@ -24,7 +24,7 @@
+ 
+ 	unsigned char* vegMap;
+ 
+-	void PlaceVent(int x, int y, CBitmap * feature, CBitmap * vent, CBitmap * bm);
++	void PlaceVent(int x, int y, CBitmap * feature, CBitmap * vent, CBitmap * bm, bool igh = false);
+ 	bool FlatSpot(int x, int y);
+ };
+ 
+
+Modified: trunk/tools/MapConv/FileHandler.cpp
+===================================================================
+--- trunk/tools/MapConv/FileHandler.cpp	2008-02-12 02:12:07 UTC (rev 5487)
++++ trunk/tools/MapConv/FileHandler.cpp	2008-02-12 10:56:01 UTC (rev 5488)
+@@ -3,10 +3,17 @@
+ #include &lt;algorithm&gt;
+ #include &lt;cctype&gt;
+ #include &quot;filefunctions.h&quot;
+-#include &lt;boost/filesystem/exception.hpp&gt;
+-
++#include &lt;boost/filesystem/path.hpp&gt;
++ 
+ using namespace std;
+ 
++CFileHandler::CFileHandler()
++: filesize(-1),
++	ifs(0)
++{
++	
++}
++
+ CFileHandler::CFileHandler(const char* filename)
+ : filesize(-1),
+ 	ifs(0)
+@@ -21,6 +28,11 @@
+ 	Init(filename.c_str());
+ }
+ 
++void CFileHandler::Open(const char* filename)
++{
++	Init(filename);
++}
++
+ void CFileHandler::Init(const char* filename)
+ {
+ 	string fnstr;
+@@ -108,7 +120,7 @@
+ 	for (std::vector&lt;fs::path&gt;::iterator it = found.begin(); it != found.end(); it++)
+ 		foundstrings.push_back(it-&gt;string());
+ 
+-	//todo: get a real regex handler
++	//how to todo: get a real regex handler
+ 	while(filter.find_last_of('*')!=string::npos)
+ 		filter.erase(filter.find_last_of('*'),1);
+ //	while(filter.find_last_of('.')!=string::npos)
+
+Modified: trunk/tools/MapConv/FileHandler.h
+===================================================================
+--- trunk/tools/MapConv/FileHandler.h	2008-02-12 02:12:07 UTC (rev 5487)
++++ trunk/tools/MapConv/FileHandler.h	2008-02-12 10:56:01 UTC (rev 5488)
+@@ -7,11 +7,13 @@
+ class CFileHandler
+ {
+ public:
++	CFileHandler();
+ 	CFileHandler(const char* filename);
+ 	CFileHandler(std::string filename);
+ 	~CFileHandler(void);
+ 	
+ 	bool FileExists();
++	void Open(const char* filename);
+ 
+ 	void Read(void* buf,int length);
+ 	void Seek(int pos);
+@@ -23,8 +25,8 @@
+ private:
+ 	void Init(const char* filename);
+ 
++	int filesize;
+ 	std::ifstream* ifs;
+-	int filesize;
+ };
+ 
+ #endif // __FILE_HANDLER_H__
+
+Modified: trunk/tools/MapConv/MapConv.cpp
+===================================================================
+--- trunk/tools/MapConv/MapConv.cpp	2008-02-12 02:12:07 UTC (rev 5487)
++++ trunk/tools/MapConv/MapConv.cpp	2008-02-12 10:56:01 UTC (rev 5488)
+@@ -1,54 +1,48 @@
+-// MapConv.cpp : Defines the entry point for the console application.
++/// MapConv.cpp : Defines the entry point for the console application.
++/// why it uses direct draw?,probably for direct draw surfaces(dds)
+ 
++#include &lt;iostream.h&gt;
+ #include &quot;Bitmap.h&quot;
+-#include &lt;string&gt;
++#include &lt;string.h&gt;     
+ #include &lt;stdio.h&gt;
+ #include &quot;mapfile.h&quot;
+-#include &lt;fstream&gt;
++#include &lt;fstream.h&gt;   
+ #include &quot;FileHandler.h&quot;
+ #include &lt;math.h&gt;
+-#ifdef WIN32
+-#include &quot;ddraw.h&quot;
+-#endif
++#include &quot;ddraw.h&quot;                    
+ #include &quot;FeatureCreator.h&quot;
+ #include &quot;TileHandler.h&quot;
+ #include &quot;tclap/CmdLine.h&quot;
+-#include &lt;vector&gt;
+-#ifndef WIN32
+-#include &quot;time.h&quot; /* time() */
+-#endif
++#include &lt;vector.h&gt;    
++#include &quot;time.h&quot; 
+ 
+ using namespace std;
+ using namespace TCLAP;
+ 
+ CFeatureCreator featureCreator;
++
+ void ConvertTextures(string intexname,string temptexname,int xsize,int ysize);
+-void LoadHeightMap(string inname,int xsize,int ysize,float minHeight,float maxHeight,bool invert,bool lowpass);
++void LoadHeightMap(string inname,int xsize,int ysize,float minHeight,float maxHeight,bool invert,bool lowpass,bool invertz,int smooth,int x,int y,float smoothval);
+ void SaveHeightMap(ofstream&amp; outfile,int xsize,int ysize,float minHeight,float maxHeight);
+ void SaveTexOffsets(ofstream &amp;outfile,string temptexname,int xsize,int ysize);
+ void SaveTextures(ofstream &amp;outfile,string temptexname,int xsize,int ysize);
+ 
+-void SaveMiniMap(ofstream &amp;outfile);
+-void SaveMetalMap(ofstream &amp;outfile, std::string metalmap, int xsize, int ysize);
+-void SaveTypeMap(ofstream &amp;outfile,int xsize,int ysize,string typemap);
++void SaveMiniMap(ofstream &amp;outfile, bool fastminimap);
++void SaveMetalMap(ofstream &amp;outfile, std::string metalmap, int xsize, int ysize,int x,int y);
++void SaveTypeMap(ofstream &amp;outfile,int xsize,int ysize,string typemap,int x,int y);
+ void MapFeatures(const char *ffile, char *F_Array);
++
+ float* heightmap;
+-#ifndef WIN32
+ string stupidGlobalCompressorName;
+-#endif
+ 
+-#ifdef WIN32
+-int _tmain(int argc, _TCHAR* argv[])
+-#else
+ int main(int argc, char ** argv)
+-#endif
+-{
++{	
+ 	int xsize;
+ 	int ysize;
+ 	string intexname=&quot;mars.bmp&quot;;
+ 	string inHeightName=&quot;mars.raw&quot;;
+ 	string outfilename=&quot;mars.smf&quot;;
+-	string metalmap=&quot;marsmetal.bmp&quot;;
++	string metalmap=&quot;marsmetal.bmp&quot;;       
+ 	string typemap=&quot;&quot;;
+ 	string extTileFile=&quot;&quot;;
+ 	string featuremap=&quot;&quot;;
+@@ -57,20 +51,56 @@
+ 	float minHeight=20;
+ 	float maxHeight=300;
+ 	float compressFactor=0.8f;
+-	float whereisit=0;
++	int quality=100; 
++	int smooth=0;
++	unsigned int x=0;
++	unsigned int y=0;
++	int filter=2; 
++	//float whereisit=0;  unused.
+ 	bool invertHeightMap=false;
+ 	bool lowpassFilter=false;
++	bool invertz=false;
++	string option = &quot;cfg.txt&quot;;
+ 	vector&lt;string&gt; F_Spec;
+ 
+ 	try {
+ 		// Define the command line object.
+ 		CmdLine cmd(
+ 			&quot;Converts a series of image files to a Spring map. This just creates the .smf and .smt files. You also need to write a .smd file using a text editor.&quot;,
+-			' ', &quot;0.5&quot;);
++			' ', &quot;0.7&quot;);
+ 
+ 		// Define a value argument and add it to the command line.
++		ValueArg&lt;string&gt; optsArg(&quot;w&quot;, &quot;options&quot;,
++			&quot;text file with special options&quot;,
++			false, &quot;cfg.txt&quot;,&quot;option file&quot;);
++		cmd.add( optsArg );
++		
++		ValueArg&lt;int&gt; xsArg(&quot;r&quot;, &quot;xscale&quot;,
++			&quot;scaling value for the map,this is the x map size,1 leaves the size to normal&quot;,
++			false, 1,&quot;xscaling&quot;);
++		cmd.add( xsArg );
++		ValueArg&lt;int&gt; ysArg(&quot;u&quot;, &quot;yscale&quot;,
++			&quot;scaling value for the map,this is the y map size,1 leaves the size to normal&quot;,
++			false, 1,&quot;yscaling&quot;);
++		cmd.add( ysArg );
++		ValueArg&lt;int&gt; filterArg(&quot;b&quot;, &quot;scalefilter&quot;,
++			&quot;filter for rescaling,only use if you are using rescaling,values are 1=fastest,2=medium,3=best,defaults to 2&quot;,
++			false, 1,&quot;scalefiltering&quot;);
++		cmd.add( filterArg );
++		ValueArg&lt;int&gt; qArg(&quot;q&quot;, &quot;quality&quot;,
++			&quot;quality of the tiles, lower = faster,not recommended setting to very low values,defaults to 100&quot;,
++			false, 100,&quot;imagequality&quot;);
++		cmd.add( qArg );
++		ValueArg&lt;int&gt; flatArg(&quot;k&quot;, &quot;Smooth&quot;,
++			&quot;like a global smooth on the heightmap,higher the height more it lowers,lower height less it lowers,must be a number from 0.00 to 1.00,defaults to 0&quot;,
++			false, 0,&quot;Smoothing&quot;);
++		cmd.add( flatArg );
++		SwitchArg invertzSwitch(&quot;p&quot;, &quot;inverty&quot;,
++			&quot;inverts your map in the y axis,this means a place with 255 white will become 0 black,this is only applied after all other heightmap modifications are done&quot;,
++			false);
++		cmd.add( invertzSwitch );
+ 		ValueArg&lt;string&gt; intexArg(&quot;t&quot;, &quot;intex&quot;,
+-			&quot;Input bitmap to use for the map. Sides must be multiple of 1024 long. xsize, ysize determined from this file: xsize = intex width / 8, ysize = height / 8.&quot;,
++			&quot;Input image to use for the map. Sides must be multiple of 1024 long. xsize, ysize determined from this file: xsize = intex width / 8, ysize = height / 8.&quot;,
+ 			true, &quot;test.bmp&quot;, &quot;texturemap file&quot;);
+ 		cmd.add( intexArg );
+ 		ValueArg&lt;string&gt; heightArg(&quot;a&quot;, &quot;heightmap&quot;,
+@@ -109,20 +139,19 @@
+ 			&quot;How much we should try to compress the texture map. Default 0.8, lower -&gt; higher quality, larger files.&quot;,
+ 			false, 0.8f, &quot;compression&quot;);
+ 		cmd.add( compressArg );
+-#ifndef WIN32
++		
+ 		ValueArg&lt;string&gt; texCompressArg(&quot;z&quot;, &quot;texcompress&quot;,
+-			&quot;Name of companion program texcompress from current working directory.&quot;,
+-			false, &quot;./texcompress&quot;, &quot;texcompress program&quot;);
++			&quot;name the file containing the name of the program and its parameters for texture compression.&quot;,
++			false, &quot;texcompress&quot;, &quot;texcompress program&quot;);
+ 		cmd.add( texCompressArg );
+-#endif
+ 
+ 		// Actually, it flips the heightmap *after* it's been read in. Hopefully this is clearer.
+ 		SwitchArg invertSwitch(&quot;i&quot;, &quot;invert&quot;,
+-			&quot;Flip the height map image upside-down on reading.&quot;,
++			&quot;Flip the height map image upside-down on reading,must be used on .bmp files.&quot;,
+ 			false);
+ 		cmd.add( invertSwitch );
+ 		SwitchArg lowpassSwitch(&quot;l&quot;, &quot;lowpass&quot;,
+-			&quot;Lowpass filters the heightmap&quot;,
++			&quot;Lowpass smoothes the heightmap&quot;,
+ 			false);
+ 		cmd.add( lowpassSwitch );
+ 		ValueArg&lt;string&gt; featureArg(&quot;f&quot;, &quot;featuremap&quot;,
+@@ -138,6 +167,15 @@
+ 		cmd.parse( argc, argv );
+ 
+ 		// Get the value parsed by each arg.
++		
++		y=ysArg.getValue();
++		x=xsArg.getValue();
++		
++		option=optsArg.getValue();
++		filter=filterArg.getValue();
++		invertz=invertzSwitch.getValue();
++		smooth=flatArg.getValue();
++		quality=qArg.getValue();
+ 		intexname=intexArg.getValue();
+ 		inHeightName=heightArg.getValue();
+ 		outfilename=outArg.getValue();
+@@ -152,22 +190,89 @@
+ 		featuremap=featureArg.getValue();
+ 		geoVentFile=geoArg.getValue();
+ 		featureListFile=featureListArg.getValue();
+-#ifndef WIN32
+ 		stupidGlobalCompressorName=texCompressArg.getValue();
+-#endif
++		
+ 	} catch (ArgException &amp;e)  // catch any exceptions
+ 	{ cerr &lt;&lt; &quot;error: &quot; &lt;&lt; e.error() &lt;&lt; &quot; for arg &quot; &lt;&lt; e.argId() &lt;&lt; endl; exit(-1);}
+-
+-	tileHandler.LoadTexture(intexname);
++	
++	if (quality &gt; 100)
++		quality = 100;
++	if (quality &lt;= 0){
++		cout &lt;&lt; &quot;quality cant be set to 0 or negative values&quot; &lt;&lt; endl;
++        cout &lt;&lt; &quot;setting quality to 100&quot; &lt;&lt; endl;	
++	}
++	if (smooth &lt; 0){
++		cout &lt;&lt; &quot;smoothing can't be set to lower than 0, maybe later it will be allowed&quot;; 
++		smooth = 0; 
++	}
++		
++	ifstream exec;
++	
++	exec.open(stupidGlobalCompressorName.c_str());
++	if (!exec.is_open()){
++	   stupidGlobalCompressorName = &quot;nvdxt.exe -file temp\\Temp*.png -dxt1 -dither -point -fadeamount 0&quot;;
++	   cout &lt;&lt; &quot;-z parameter was not specified, or the file was not found.&quot; &lt;&lt; endl; 
++	   cout &lt;&lt; &quot;using default value.&quot; &lt;&lt; endl;
++	}   
++	if (exec.is_open())
++	   getline(exec,stupidGlobalCompressorName);
++	cout &lt;&lt; stupidGlobalCompressorName &lt;&lt; endl;
++	
++	exec.close();
++	
++	ifstream cfg;
++	string configs[32];
++	string format;
++	float smoothval=0.0f;
++	bool featuretolerance=false;
++	bool ignoreheight=false;
++	bool keepminimap=false;
++	bool fastminimap=false;
++	
++	cfg.open(option.c_str(), ios::in );
++	if (!cfg.is_open()){
++		format=&quot;png&quot;;
++		cout &lt;&lt; &quot;-w parameter was not specified, or the file was not found&quot; &lt;&lt; endl; 
++		cout &lt;&lt; &quot;using default value&quot; &lt;&lt; endl;
++		cout &lt;&lt; &quot;default image format is:&quot; &lt;&lt; format &lt;&lt; &quot;.&quot; &lt;&lt; endl; 
++	}if (cfg.is_open()){
++	  for (int i=0;i&lt;32;i++){
++	    cfg &gt;&gt; configs[i];
++	    //options.
++	    if (configs[i].substr(0,configs[i].find_first_of(';'))==&quot;featuretolerance&quot;){ featuretolerance=true; cout &lt;&lt; &quot;found option featuretolerance in option file&quot; &lt;&lt; endl;}
++	    if (configs[i].substr(0,configs[i].find_first_of(';'))==&quot;ignoreheight&quot;){ ignoreheight=true; cout &lt;&lt; &quot;found option ignoreheight in option file&quot; &lt;&lt; endl;}
++	    if (configs[i].substr(0,configs[i].find_first_of(';'))==&quot;keepminimap&quot;){ keepminimap=true; cout &lt;&lt; &quot;found option keepminimap in option file&quot; &lt;&lt; endl;}	
++	    if (configs[i].substr(0,configs[i].find_first_of(';'))==&quot;minimap-fast&quot;){ fastminimap=true; cout &lt;&lt; &quot;found option minimap-fast in option file&quot; &lt;&lt; endl;}	
++	    //format of the tiles.
++	    if (configs[i].substr(0,configs[i].find_first_of(';'))==&quot;formatbmp&quot;){ format=&quot;bmp&quot;; cout &lt;&lt; &quot;file format for tiles is:&quot; &lt;&lt; format &lt;&lt; &quot;.&quot; &lt;&lt; endl;} 
++	    if (configs[i].substr(0,configs[i].find_first_of(';'))==&quot;formatpng&quot;){ format=&quot;png&quot;; cout &lt;&lt; &quot;file format for tiles is:&quot; &lt;&lt; format &lt;&lt; &quot;.&quot; &lt;&lt;endl;} 
++	    if (configs[i].substr(0,configs[i].find_first_of(';'))==&quot;formatjpg&quot;){ format=&quot;jpg&quot;; cout &lt;&lt; &quot;file format for tiles is:&quot; &lt;&lt; format &lt;&lt; &quot;.&quot; &lt;&lt;endl;}  
++	    if (configs[i].substr(0,configs[i].find_first_of(';'))==&quot;formattga&quot;){ format=&quot;tga&quot;; cout &lt;&lt; &quot;file format for tiles is:&quot; &lt;&lt; format &lt;&lt; &quot;.&quot; &lt;&lt;endl;} 
++	    if (configs[i].substr(0,configs[i].find_first_of(';'))==&quot;formatdds&quot;){ format=&quot;dds&quot;; cout &lt;&lt; &quot;file format for tiles is:&quot; &lt;&lt; format &lt;&lt; &quot;.&quot; &lt;&lt;endl;}  
++	    if (configs[i].substr(0,configs[i].find_first_of(';'))==&quot;formatraw&quot;){ format=&quot;raw&quot;; cout &lt;&lt; &quot;file format for tiles is:&quot; &lt;&lt; format &lt;&lt; &quot;.&quot; &lt;&lt;endl;} 
++	    if (configs[i].substr(0,configs[i].find_first_of(';'))==&quot;formatppm&quot;){ format=&quot;ppm&quot;; cout &lt;&lt; &quot;file format for tiles is:&quot; &lt;&lt; format &lt;&lt; &quot;.&quot; &lt;&lt; endl;} 
++	    if (configs[i].substr(0,configs[i].find_first_of(';'))==&quot;formatrgb&quot;){ format=&quot;rgb&quot;; cout &lt;&lt; &quot;file format for tiles is:&quot; &lt;&lt; format &lt;&lt; &quot;.&quot; &lt;&lt; endl;} 
++	    if (configs[i].substr(0,configs[i].find_first_of(';'))==&quot;formattif&quot;){ format=&quot;tif&quot;; cout &lt;&lt; &quot;file format for tiles is:&quot; &lt;&lt; format &lt;&lt; &quot;.&quot; &lt;&lt; endl;} 
++	    //smoothing.
++	    if (configs[i].substr(0,configs[i].find_first_of(';'))==&quot;smooth3x3&quot;){ smoothval=0.11f; cout &lt;&lt; &quot;smoothing matrix size is 3x3.&quot; &lt;&lt; endl;} 
++	    if (configs[i].substr(0,configs[i].find_first_of(';'))==&quot;smooth5x5&quot;){ smoothval=0.04f; cout &lt;&lt; &quot;smoothing matrix size is 5x5.&quot; &lt;&lt; endl;} 
++	    if (configs[i].substr(0,configs[i].find_first_of(';'))==&quot;smooth7x7&quot;){ smoothval=0.0204f; cout &lt;&lt; &quot;smoothing matrix size is 7x7.&quot; &lt;&lt; endl;} 
++	  }
++	}
++	
++	cfg.close();
++	
++	tileHandler.LoadTexture(intexname,x,y,filter);
+ 	tileHandler.SetOutputFile(outfilename);
++	
+ 	if(!extTileFile.empty())
+ 		tileHandler.AddExternalTileFile(extTileFile);
+ 
+ 	xsize=tileHandler.xsize;
+ 	ysize=tileHandler.ysize;
++	
++	LoadHeightMap(inHeightName,xsize,ysize,minHeight,maxHeight,invertHeightMap,lowpassFilter,invertz,smooth,x,y,smoothval);
+ 
+-	LoadHeightMap(inHeightName,xsize,ysize,minHeight,maxHeight,invertHeightMap,lowpassFilter);
+-
+ 	ifstream ifs;
+ 	int numNamedFeatures=0;
+ 
+@@ -178,23 +283,46 @@
+ 			F_Spec.push_back(c);
+ 			numNamedFeatures++;
+ 	}
+-	featureCreator.CreateFeatures(&amp;tileHandler.bigTex,0,0,numNamedFeatures,featuremap,geoVentFile);
++	featureCreator.CreateFeatures(&amp;tileHandler.bigTex,0,0,numNamedFeatures,featuremap,geoVentFile,x,y,ignoreheight,featuretolerance);
+ 
+-	tileHandler.ProcessTiles(compressFactor);
+-
+-#ifdef WIN32
+-	LARGE_INTEGER li;
+-	QueryPerformanceCounter(&amp;li);
+-#endif
+-
++	tileHandler.ProcessTiles(compressFactor,quality,format);
++	
+ 	MapHeader header;
+ 	strcpy(header.magic,&quot;spring map file&quot;);
+ 	header.version=1;
+-#ifdef WIN32
+-	header.mapid=li.LowPart;		//todo: this should be made better to make it depend on heightmap etc, but this should be enough to make each map unique
+-#else
+-	header.mapid = time(NULL);
+-#endif
++    
++	cout &lt;&lt; &quot;calculating map id...&quot; &lt;&lt; endl;
++	
++	unsigned long long id = 0;
++	unsigned long long id2 = 0;
++	unsigned long long id3 = 0;
++	int div = ((xsize+ysize)*3)/2;
++	int mul = (((xsize+ysize)*2)+((xsize+ysize)*3));
++	
++	for (int ix=0;ix&lt;xsize;ix++){
++		for (int iz=0;iz&lt;ysize;iz++){
++			srand((ix*time(NULL))+(iz*time(NULL)));
++			id = id+((unsigned long long)ceil(heightmap[iz*xsize+ix]*10));
++		    id2 = (id2+id3)+(unsigned long long)(((ysize*xsize)*mul)/div)+(unsigned long long)(maxHeight+minHeight);
++		    id3 = ((quality+numNamedFeatures)*((unsigned long long)ceil(compressFactor*10)))*((ix*iz)*mul); 
++		    id = ((id+id2+id3)*(unsigned long long)rand())*(unsigned long long)rand();
++		}      //this never fails.
++	}                      
++	
++	ofstream fileid;
++	
++	fileid.open(&quot;mapid.txt&quot;, ios::out | ios::app);
++	fileid &lt;&lt; endl &lt;&lt;&quot;current map id:&quot; &lt;&lt; id; 
++	
++	fileid.close();
++	
++	cout &lt;&lt; &quot;map id:&quot; &lt;&lt; id &lt;&lt; endl;
++	cout &lt;&lt; &quot;converting it to something that can be used in spring...&quot; &lt;&lt; endl;
++	
++	header.mapid=id;		//done,needs tests and fixes: this should be made better to make it depend on heightmap etc, but this should be enough to make each map unique
++
++	cout &lt;&lt; &quot;map id:&quot; &lt;&lt; header.mapid &lt;&lt; endl;
++	
+ 	header.mapx=xsize;
+ 	header.mapy=ysize;
+ 	header.squareSize=8;
+@@ -224,65 +352,73 @@
+ 	outfile.write((char*)&amp;temp,4);
+ 	temp=MEH_Vegetation;	//extra header type
+ 	outfile.write((char*)&amp;temp,4);
+-	temp=header.metalmapPtr + (xsize/2)*(ysize/2);		//offset to vegetation map
++	temp=header.metalmapPtr + (xsize/2)*(ysize/2);		// offset to vegetation map
+ 	outfile.write((char*)&amp;temp,4);
+ 
+-	SaveHeightMap(outfile,xsize,ysize,minHeight,maxHeight/*,whereisit*/);
++	SaveHeightMap(outfile,xsize,ysize,minHeight,maxHeight);
+ 
+-	SaveTypeMap(outfile,xsize,ysize,typemap);
+-	SaveMiniMap(outfile);
++	SaveTypeMap(outfile,xsize,ysize,typemap,x,y);
++	SaveMiniMap(outfile, fastminimap);
+ 
+ 	tileHandler.ProcessTiles2();
+ 	tileHandler.SaveData(outfile);
+ 
+-	SaveMetalMap(outfile, metalmap,xsize,ysize);
++	SaveMetalMap(outfile, metalmap,xsize,ysize,x,y);
+ 
+-	featureCreator.WriteToFile(&amp;outfile, F_Spec);
++	featureCreator.WriteToFile(&amp;outfile, F_Spec,x,y);
++	
++	if (keepminimap == false){
++	   system(&quot;del mini.png&quot;);
++	   system(&quot;del mini.dds&quot;);
++	}
++	
++	system(&quot;del temp\\Temp*.*&quot;);
++	system(&quot;del temp\\Temp*.png.raw&quot;);
++	system(&quot;del temp*.dds&quot;);
+ 
+ 	delete[] heightmap;
+ 	return 0;
+ }
+ 
+-void SaveMiniMap(ofstream &amp;outfile)
++void SaveMiniMap(ofstream &amp;outfile, bool fastminimap)
+ {
+-	printf(&quot;creating minimap\n&quot;);
++	cout &lt;&lt; &quot;creating minimap...&quot; &lt;&lt; endl;
+ 
+ 	CBitmap mini = tileHandler.bigTex.CreateRescaled(1024, 1024);
+-	mini.Save(&quot;mini.bmp&quot;);
+-#ifdef WIN32
+-	system(&quot;nvdxt.exe -file mini.bmp -dxt1c -dither&quot;);
+-
++	mini.Save(&quot;mini.png&quot;,100);
++	if (fastminimap == false)
++	   system(&quot;nvdxt.exe -file mini.png -dxt1c -dither&quot;);
++	if (fastminimap == true)
++	   system(&quot;nvdxt.exe -file mini.png -quick -dxt1c -dither&quot;);
++	
+ 	DDSURFACEDESC2 ddsheader;
+ 	int ddssignature;
+ 
+ 	CFileHandler file(&quot;mini.dds&quot;);
+ 	file.Read(&amp;ddssignature, sizeof(int));
+ 	file.Read(&amp;ddsheader, sizeof(DDSURFACEDESC2));
+-#else
+-	char execstring[512];
+-	snprintf(execstring, 512, &quot;%s mini.bmp&quot;, stupidGlobalCompressorName.c_str());
+-	system(execstring);
+-	CFileHandler file(&quot;mini.bmp.raw&quot;);
+-#endif
+ 
++	cout &lt;&lt; &quot;saving minimap...&quot; &lt;&lt; endl;
++	
+ 	char minidata[MINIMAP_SIZE];
+ 	file.Read(minidata, MINIMAP_SIZE);
+ 
+ 	outfile.write(minidata, MINIMAP_SIZE);
+ }
+ 
+-void LoadHeightMap(string inname,int xsize,int ysize,float minHeight,float maxHeight,bool invert,bool lowpass)
++void LoadHeightMap(string inname,int xsize,int ysize,float minHeight,float maxHeight,bool invert,bool lowpass,bool invertz,int smooth,int x,int y,float smoothval)
+ {
+-	printf(&quot;Creating height map\n&quot;);
+-
++	cout &lt;&lt; &quot;Creating height map...&quot; &lt;&lt; endl;
++	
+ 	float hDif=maxHeight-minHeight;
+ 	int mapx=xsize+1;
+ 	int mapy=ysize+1;
++	
+ 	heightmap=new float[mapx*mapy];
+-
++	
+ 	if(inname.find(&quot;.raw&quot;)!=string::npos){		//16 bit raw
+ 		CFileHandler fh(inname);
+-
++		    
+ 		for(int y=0;y&lt;mapy;++y){
+ 			for(int x=0;x&lt;mapx;++x){
+ 				unsigned short h;
+@@ -290,11 +426,13 @@
+ 				heightmap[(ysize-y)*mapx+x]=(float(h))/65535*hDif+minHeight;
+ 			}
+ 		}
+-	} else {		//standard image
+-		CBitmap bm(inname);
++	} else {	/////standard image
++		cout &lt;&lt; &quot;loading heightmap image...&quot; &lt;&lt; endl; 
++		CBitmap bm; 
++		bm.Load(inname,255,x,y,3,true,2,false,false,false);
+ 		if(bm.xsize!=mapx || bm.ysize!=mapy){
+-			printf(&quot;Errenous dimensions for heightmap image&quot;);
+-			exit(0);
++		   cout &lt;&lt; &quot;heightmap dimensions are wrong, rescaling it&quot; &lt;&lt; endl; 
++           CBitmap bm2 = bm.Rescale((x*512)+1,(y*512)+1);  
+ 		}
+ 		for(int y=0;y&lt;mapy;++y){
+ 			for(int x=0;x&lt;mapx;++x){
+@@ -303,7 +441,7 @@
+ 			}
+ 		}
+ 	}
+-
++	
+ 	if(invert){
+ 		float* heightmap2=heightmap;
+ 		heightmap=new float[mapx*mapy];
+@@ -314,7 +452,7 @@
+ 		}
+ 		delete[] heightmap2;
+ 	}
+-
++	
+ 	if(lowpass){
+ 		float* heightmap2=heightmap;
+ 		heightmap=new float[mapx*mapy];
+@@ -334,12 +472,291 @@
+ 				heightmap[y*mapx+x]=h/tmod;
+ 			}
+ 		}
+-		delete[] heightmap2;
++		delete[] heightmap2;	
+ 	}
++	if (smooth&gt;0){
++	   float mv = smoothval;
++	   if (mv == 0.04f){  //5x5 matrix/
++		  float sm[5][5];  
++		  cout &lt;&lt; &quot;using a 5x5 matrix for smoothing...&quot; &lt;&lt; endl; 
++	      for (int i=0;i&lt;5;i++ ){
++	      	 for (int j=0;j&lt;5;j++){
++	        	 sm[i][j]=mv;	  
++	         }
++	      }
++	      for (int k=0;k&lt;smooth;k++){
++			  float* heightmap2=heightmap;
++			  heightmap=new float[mapx*mapy]; 
++	    	  cout &lt;&lt; &quot;smooth iteration number:&quot; &lt;&lt; k &lt;&lt; endl; 
++		      for(int y = 0;y &lt; mapy; y++){ 
++			   for (int x = 0;x &lt; mapx; x++){
++				   if (x &lt; 3 || x &gt; mapx-3 || y &lt; 3 || y &gt; mapy-3){
++					   heightmap[y*mapx+x] = heightmap2[y*mapx+x];
++					   continue;
++				   }
++				   heightmap[y*mapx+x] = sm[0][0] * heightmap2[(y-2)*mapx+(x-2)] + sm[0][1] * heightmap2[(y-2)*mapx+(x-1)] + sm[0][2] * heightmap2[(y-2)*mapx+(x)] + sm[0][3] * heightmap2[(y-2)*mapx+(x+1)] + sm[0][4] * heightmap2[(y-2)*mapx+(x+2)] +
++				                         sm[1][0] * heightmap2[(y-1)*mapx+(x-2)] + sm[1][1] * heightmap2[(y-1)*mapx+(x-1)] + sm[1][2] * heightmap2[(y-1)*mapx+(x)] + sm[1][3] * heightmap2[(y-1)*mapx+(x+1)] + sm[1][4] * heightmap2[(y-1)*mapx+(x+2)] +
++				                         sm[2][0] * heightmap2[(y  )*mapx+(x-2)] + sm[2][1] * heightmap2[(y  )*mapx+(x-1)] + sm[2][2] * heightmap2[(y  )*mapx+(x)] + sm[2][3] * heightmap2[(y  )*mapx+(x+1)] + sm[2][4] * heightmap2[(y  )*mapx+(x+2)] +
++				                         sm[3][0] * heightmap2[(y+1)*mapx+(x-2)] + sm[3][1] * heightmap2[(y+1)*mapx+(x-1)] + sm[3][2] * heightmap2[(y+1)*mapx+(x)] + sm[3][3] * heightmap2[(y+1)*mapx+(x+1)] + sm[3][4] * heightmap2[(y+1)*mapx+(x+2)] +
++				                         sm[4][0] * heightmap2[(y+2)*mapx+(x-2)] + sm[4][1] * heightmap2[(y+2)*mapx+(x-1)] + sm[4][2] * heightmap2[(y+2)*mapx+(x)] + sm[4][3] * heightmap2[(y+2)*mapx+(x+1)] + sm[4][4] * heightmap2[(y+2)*mapx+(x+2)];
++		           heightmap[y*mapx+x] = heightmap[y*mapx+x] / (sm[0][0]+sm[0][1]+sm[0][2]+sm[0][3]+sm[0][4]+
++		        		                                        sm[1][0]+sm[1][1]+sm[1][2]+sm[1][3]+sm[1][4]+
++		        		                                        sm[2][0]+sm[2][1]+sm[2][2]+sm[2][3]+sm[2][4]+
++		        		                                        sm[3][0]+sm[3][1]+sm[3][2]+sm[3][3]+sm[3][4]+
++		        		                                        sm[4][0]+sm[4][1]+sm[4][2]+sm[4][3]+sm[4][4]);
++			   } 
++		     }                             
++		     for(int y = mapy;y &lt; 0; y--){
++			   for (int x = 0;x &lt; mapx; x++){
++				   if (x &lt; 3 || x &gt; mapx-3 || y &lt; 3 || y &gt; mapy-3){
++					   heightmap[y*mapx+x] = heightmap2[y*mapx+x];
++					   continue;
++				   }
++				   heightmap[y*mapx+x] = sm[0][0] * heightmap2[(y-2)*mapx+(x-2)] + sm[0][1] * heightmap2[(y-2)*mapx+(x-1)] + sm[0][2] * heightmap2[(y-2)*mapx+(x)] + sm[0][3] * heightmap2[(y-2)*mapx+(x+1)] + sm[0][4] * heightmap2[(y-2)*mapx+(x+2)] +
++				                         sm[1][0] * heightmap2[(y-1)*mapx+(x-2)] + sm[1][1] * heightmap2[(y-1)*mapx+(x-1)] + sm[1][2] * heightmap2[(y-1)*mapx+(x)] + sm[1][3] * heightmap2[(y-1)*mapx+(x+1)] + sm[1][4] * heightmap2[(y-1)*mapx+(x+2)] +
++				                         sm[2][0] * heightmap2[(y  )*mapx+(x-2)] + sm[2][1] * heightmap2[(y  )*mapx+(x-1)] + sm[2][2] * heightmap2[(y  )*mapx+(x)] + sm[2][3] * heightmap2[(y  )*mapx+(x+1)] + sm[2][4] * heightmap2[(y  )*mapx+(x+2)] +
++				                         sm[3][0] * heightmap2[(y+1)*mapx+(x-2)] + sm[3][1] * heightmap2[(y+1)*mapx+(x-1)] + sm[3][2] * heightmap2[(y+1)*mapx+(x)] + sm[3][3] * heightmap2[(y+1)*mapx+(x+1)] + sm[3][4] * heightmap2[(y+1)*mapx+(x+2)] +
++				                         sm[4][0] * heightmap2[(y+2)*mapx+(x-2)] + sm[4][1] * heightmap2[(y+2)*mapx+(x-1)] + sm[4][2] * heightmap2[(y+2)*mapx+(x)] + sm[4][3] * heightmap2[(y+2)*mapx+(x+1)] + sm[4][4] * heightmap2[(y+2)*mapx+(x+2)];
++		           heightmap[y*mapx+x] = heightmap[y*mapx+x] / (sm[0][0]+sm[0][1]+sm[0][2]+sm[0][3]+sm[0][4]+
++		        		                                        sm[1][0]+sm[1][1]+sm[1][2]+sm[1][3]+sm[1][4]+
++		        		                                        sm[2][0]+sm[2][1]+sm[2][2]+sm[2][3]+sm[2][4]+
++		        		                                        sm[3][0]+sm[3][1]+sm[3][2]+sm[3][3]+sm[3][4]+
++		        		                                        sm[4][0]+sm[4][1]+sm[4][2]+sm[4][3]+sm[4][4]);
++			   }
++		     } 	 
++		     for(int y = 0;y &lt; mapy; y++){
++			   for (int x = 0;x &lt; mapx; x++){
++				   if (x &lt; 3 || x &gt; mapx-3 || y &lt; 3 || y &gt; mapy-3){
++					   heightmap[y*mapx+x] = heightmap2[y*mapx+x];
++					   continue;
++				   }
++				   heightmap[y*mapx+x] = sm[0][0] * heightmap2[(y-2)*mapx+(x-2)] + sm[0][1] * heightmap2[(y-2)*mapx+(x-1)] + sm[0][2] * heightmap2[(y-2)*mapx+(x)] + sm[0][3] * heightmap2[(y-2)*mapx+(x+1)] + sm[0][4] * heightmap2[(y-2)*mapx+(x+2)] +
++				                         sm[1][0] * heightmap2[(y-1)*mapx+(x-2)] + sm[1][1] * heightmap2[(y-1)*mapx+(x-1)] + sm[1][2] * heightmap2[(y-1)*mapx+(x)] + sm[1][3] * heightmap2[(y-1)*mapx+(x+1)] + sm[1][4] * heightmap2[(y-1)*mapx+(x+2)] +
++				                         sm[2][0] * heightmap2[(y  )*mapx+(x-2)] + sm[2][1] * heightmap2[(y  )*mapx+(x-1)] + sm[2][2] * heightmap2[(y  )*mapx+(x)] + sm[2][3] * heightmap2[(y  )*mapx+(x+1)] + sm[2][4] * heightmap2[(y  )*mapx+(x+2)] +
++				                         sm[3][0] * heightmap2[(y+1)*mapx+(x-2)] + sm[3][1] * heightmap2[(y+1)*mapx+(x-1)] + sm[3][2] * heightmap2[(y+1)*mapx+(x)] + sm[3][3] * heightmap2[(y+1)*mapx+(x+1)] + sm[3][4] * heightmap2[(y+1)*mapx+(x+2)] +
++				                         sm[4][0] * heightmap2[(y+2)*mapx+(x-2)] + sm[4][1] * heightmap2[(y+2)*mapx+(x-1)] + sm[4][2] * heightmap2[(y+2)*mapx+(x)] + sm[4][3] * heightmap2[(y+2)*mapx+(x+1)] + sm[4][4] * heightmap2[(y+2)*mapx+(x+2)];
++		           heightmap[y*mapx+x] = heightmap[y*mapx+x] / (sm[0][0]+sm[0][1]+sm[0][2]+sm[0][3]+sm[0][4]+
++		        		                                        sm[1][0]+sm[1][1]+sm[1][2]+sm[1][3]+sm[1][4]+
++		        		                                        sm[2][0]+sm[2][1]+sm[2][2]+sm[2][3]+sm[2][4]+
++		        		                                        sm[3][0]+sm[3][1]+sm[3][2]+sm[3][3]+sm[3][4]+
++		        		                                        sm[4][0]+sm[4][1]+sm[4][2]+sm[4][3]+sm[4][4]);	 
++			   }
++		     }    
++		     for(int y = 0;y &lt; mapx; y++){
++			   for (int x = mapy; x &lt; 0; x--){
++				   if (x &lt; 3 || x &gt; mapx-3 || y &lt; 3 || y &gt; mapy-3){
++					   heightmap[y*mapx+x] = heightmap2[y*mapx+x];
++					   continue;
++				   }
++				   heightmap[y*mapx+x] = sm[0][0] * heightmap2[(y-2)*mapx+(x-2)] + sm[0][1] * heightmap2[(y-2)*mapx+(x-1)] + sm[0][2] * heightmap2[(y-2)*mapx+(x)] + sm[0][3] * heightmap2[(y-2)*mapx+(x+1)] + sm[0][4] * heightmap2[(y-2)*mapx+(x+2)] +
++				                         sm[1][0] * heightmap2[(y-1)*mapx+(x-2)] + sm[1][1] * heightmap2[(y-1)*mapx+(x-1)] + sm[1][2] * heightmap2[(y-1)*mapx+(x)] + sm[1][3] * heightmap2[(y-1)*mapx+(x+1)] + sm[1][4] * heightmap2[(y-1)*mapx+(x+2)] +
++				                         sm[2][0] * heightmap2[(y  )*mapx+(x-2)] + sm[2][1] * heightmap2[(y  )*mapx+(x-1)] + sm[2][2] * heightmap2[(y  )*mapx+(x)] + sm[2][3] * heightmap2[(y  )*mapx+(x+1)] + sm[2][4] * heightmap2[(y  )*mapx+(x+2)] +
++				                         sm[3][0] * heightmap2[(y+1)*mapx+(x-2)] + sm[3][1] * heightmap2[(y+1)*mapx+(x-1)] + sm[3][2] * heightmap2[(y+1)*mapx+(x)] + sm[3][3] * heightmap2[(y+1)*mapx+(x+1)] + sm[3][4] * heightmap2[(y+1)*mapx+(x+2)] +
++				                         sm[4][0] * heightmap2[(y+2)*mapx+(x-2)] + sm[4][1] * heightmap2[(y+2)*mapx+(x-1)] + sm[4][2] * heightmap2[(y+2)*mapx+(x)] + sm[4][3] * heightmap2[(y+2)*mapx+(x+1)] + sm[4][4] * heightmap2[(y+2)*mapx+(x+2)];
++		           heightmap[y*mapx+x] = heightmap[y*mapx+x] / (sm[0][0]+sm[0][1]+sm[0][2]+sm[0][3]+sm[0][4]+
++		        		                                        sm[1][0]+sm[1][1]+sm[1][2]+sm[1][3]+sm[1][4]+
++		        		                                        sm[2][0]+sm[2][1]+sm[2][2]+sm[2][3]+sm[2][4]+
++		        		                                        sm[3][0]+sm[3][1]+sm[3][2]+sm[3][3]+sm[3][4]+
++		        		                                        sm[4][0]+sm[4][1]+sm[4][2]+sm[4][3]+sm[4][4]);
++			   }
++		     }   
++		     delete[] heightmap2;
++	      } 
++	    }   
++	   if (mv == 0.0204f){ //7x7 matrix
++		  float sm[7][7];  
++		  cout &lt;&lt; &quot;using a 7x7 matrix for smoothing...&quot; &lt;&lt; endl; 
++	      for (int i=0;i&lt;7;i++ ){
++	      	 for (int j=0;j&lt;7;j++){
++	        	 sm[i][j]=mv;	  
++	         }
++	      }
++	      for (int k=0;k&lt;smooth;k++){
++			  float* heightmap2=heightmap;
++			  heightmap=new float[mapx*mapy]; 
++	    	  cout &lt;&lt; &quot;smooth iteration number:&quot; &lt;&lt; k &lt;&lt; endl; 
++		      for(int y = 0;y &lt; mapy; y++){ 
++			   for (int x = 0;x &lt; mapx; x++){
++				   if (x &lt; 4 || x &gt; mapx-4 || y &lt; 4 || y &gt; mapy-4){
++					   heightmap[y*mapx+x] = heightmap2[y*mapx+x];
++					   continue;
++				   }
++				   heightmap[y*mapx+x] = sm[0][0] * heightmap2[(y-3)*mapx+(x-3)] + sm[0][1] * heightmap2[(y-3)*mapx+(x-2)] + sm[0][2] * heightmap2[(y-3)*mapx+(x-1)] + sm[0][3] * heightmap2[(y-3)*mapx+(x  )] + sm[0][4] * heightmap2[(y-3)*mapx+(x+1)] + sm[0][5] * heightmap2[(y-3)*mapx+(x+2)] + sm[0][6] * heightmap2[(y-3)*mapx+(x+3)]+ 
++				                         sm[1][0] * heightmap2[(y-2)*mapx+(x-3)] + sm[1][1] * heightmap2[(y-2)*mapx+(x-2)] + sm[1][2] * heightmap2[(y-2)*mapx+(x-1)] + sm[1][3] * heightmap2[(y-2)*mapx+(x  )] + sm[1][4] * heightmap2[(y-2)*mapx+(x+1)] + sm[1][5] * heightmap2[(y-2)*mapx+(x+2)] + sm[1][6] * heightmap2[(y-2)*mapx+(x+3)]+ 
++				                         sm[2][0] * heightmap2[(y-1)*mapx+(x-3)] + sm[2][1] * heightmap2[(y-1)*mapx+(x-2)] + sm[2][2] * heightmap2[(y-1)*mapx+(x-1)] + sm[2][3] * heightmap2[(y-1)*mapx+(x  )] + sm[2][4] * heightmap2[(y-1)*mapx+(x+1)] + sm[2][5] * heightmap2[(y-1)*mapx+(x+2)] + sm[2][6] * heightmap2[(y-1)*mapx+(x+3)]+ 
++				                         sm[3][0] * heightmap2[(y  )*mapx+(x-3)] + sm[3][1] * heightmap2[(y  )*mapx+(x-2)] + sm[3][2] * heightmap2[(y  )*mapx+(x-1)] + sm[3][3] * heightmap2[(y  )*mapx+(x  )] + sm[3][4] * heightmap2[(y  )*mapx+(x+1)] + sm[3][5] * heightmap2[(y  )*mapx+(x+2)] + sm[3][6] * heightmap2[(y  )*mapx+(x+3)]+ 
++				                         sm[4][0] * heightmap2[(y+1)*mapx+(x-3)] + sm[4][1] * heightmap2[(y+1)*mapx+(x-2)] + sm[4][2] * heightmap2[(y+1)*mapx+(x-1)] + sm[4][3] * heightmap2[(y+1)*mapx+(x  )] + sm[4][4] * heightmap2[(y+1)*mapx+(x+1)] + sm[4][5] * heightmap2[(y+1)*mapx+(x+2)] + sm[4][6] * heightmap2[(y+1)*mapx+(x+3)]+ 
++				                         sm[5][0] * heightmap2[(y+2)*mapx+(x-3)] + sm[5][1] * heightmap2[(y+2)*mapx+(x-2)] + sm[5][2] * heightmap2[(y+2)*mapx+(x-1)] + sm[5][3] * heightmap2[(y+2)*mapx+(x  )] + sm[5][4] * heightmap2[(y+2)*mapx+(x+1)] + sm[5][5] * heightmap2[(y+2)*mapx+(x+2)] + sm[5][6] * heightmap2[(y+2)*mapx+(x+3)]+ 
++				                         sm[6][0] * heightmap2[(y+3)*mapx+(x-3)] + sm[6][1] * heightmap2[(y+3)*mapx+(x-2)] + sm[6][2] * heightmap2[(y+3)*mapx+(x-1)] + sm[6][3] * heightmap2[(y+3)*mapx+(x  )] + sm[6][4] * heightmap2[(y+3)*mapx+(x+1)] + sm[6][5] * heightmap2[(y+3)*mapx+(x+2)] + sm[6][6] * heightmap2[(y+3)*mapx+(x+3)]; 				                         
++		           heightmap[y*mapx+x] = heightmap[y*mapx+x] / (sm[0][0]+sm[0][1]+sm[0][2]+sm[0][3]+sm[0][4]+sm[0][5]+sm[0][6]+
++		        		                                        sm[1][0]+sm[1][1]+sm[1][2]+sm[1][3]+sm[1][4]+sm[1][5]+sm[1][6]+
++		        		                                        sm[2][0]+sm[2][1]+sm[2][2]+sm[2][3]+sm[2][4]+sm[2][5]+sm[2][6]+
++		        		                                        sm[3][0]+sm[3][1]+sm[3][2]+sm[3][3]+sm[3][4]+sm[3][5]+sm[3][6]+
++		        		                                        sm[4][0]+sm[4][1]+sm[4][2]+sm[4][3]+sm[4][4]+sm[4][5]+sm[4][6]+
++		        		                                        sm[5][0]+sm[5][1]+sm[5][2]+sm[5][3]+sm[5][4]+sm[5][5]+sm[5][6]+
++		        		                                        sm[6][0]+sm[6][1]+sm[6][2]+sm[6][3]+sm[6][4]+sm[6][5]+sm[6][6]);
++			   } 
++		     }                             
++		     for(int y = mapy;y &lt; 0; y--){
++			   for (int x = 0;x &lt; mapx; x++){
++				   if (x &lt; 4 || x &gt; mapx-4 || y &lt; 4 || y &gt; mapy-4){
++					   heightmap[y*mapx+x] = heightmap2[y*mapx+x];
++					   continue;
++				   }
++				   heightmap[y*mapx+x] = sm[0][0] * heightmap2[(y-3)*mapx+(x-3)] + sm[0][1] * heightmap2[(y-3)*mapx+(x-2)] + sm[0][2] * heightmap2[(y-3)*mapx+(x-1)] + sm[0][3] * heightmap2[(y-3)*mapx+(x  )] + sm[0][4] * heightmap2[(y-3)*mapx+(x+1)] + sm[0][5] * heightmap2[(y-3)*mapx+(x+2)] + sm[0][6] * heightmap2[(y-3)*mapx+(x+3)]+ 
++				                         sm[1][0] * heightmap2[(y-2)*mapx+(x-3)] + sm[1][1] * heightmap2[(y-2)*mapx+(x-2)] + sm[1][2] * heightmap2[(y-2)*mapx+(x-1)] + sm[1][3] * heightmap2[(y-2)*mapx+(x  )] + sm[1][4] * heightmap2[(y-2)*mapx+(x+1)] + sm[1][5] * heightmap2[(y-2)*mapx+(x+2)] + sm[1][6] * heightmap2[(y-2)*mapx+(x+3)]+ 
++				                         sm[2][0] * heightmap2[(y-1)*mapx+(x-3)] + sm[2][1] * heightmap2[(y-1)*mapx+(x-2)] + sm[2][2] * heightmap2[(y-1)*mapx+(x-1)] + sm[2][3] * heightmap2[(y-1)*mapx+(x  )] + sm[2][4] * heightmap2[(y-1)*mapx+(x+1)] + sm[2][5] * heightmap2[(y-1)*mapx+(x+2)] + sm[2][6] * heightmap2[(y-1)*mapx+(x+3)]+ 
++				                         sm[3][0] * heightmap2[(y  )*mapx+(x-3)] + sm[3][1] * heightmap2[(y  )*mapx+(x-2)] + sm[3][2] * heightmap2[(y  )*mapx+(x-1)] + sm[3][3] * heightmap2[(y  )*mapx+(x  )] + sm[3][4] * heightmap2[(y  )*mapx+(x+1)] + sm[3][5] * heightmap2[(y  )*mapx+(x+2)] + sm[3][6] * heightmap2[(y  )*mapx+(x+3)]+ 
++				                         sm[4][0] * heightmap2[(y+1)*mapx+(x-3)] + sm[4][1] * heightmap2[(y+1)*mapx+(x-2)] + sm[4][2] * heightmap2[(y+1)*mapx+(x-1)] + sm[4][3] * heightmap2[(y+1)*mapx+(x  )] + sm[4][4] * heightmap2[(y+1)*mapx+(x+1)] + sm[4][5] * heightmap2[(y+1)*mapx+(x+2)] + sm[4][6] * heightmap2[(y+1)*mapx+(x+3)]+ 
++				                         sm[5][0] * heightmap2[(y+2)*mapx+(x-3)] + sm[5][1] * heightmap2[(y+2)*mapx+(x-2)] + sm[5][2] * heightmap2[(y+2)*mapx+(x-1)] + sm[5][3] * heightmap2[(y+2)*mapx+(x  )] + sm[5][4] * heightmap2[(y+2)*mapx+(x+1)] + sm[5][5] * heightmap2[(y+2)*mapx+(x+2)] + sm[5][6] * heightmap2[(y+2)*mapx+(x+3)]+ 
++				                         sm[6][0] * heightmap2[(y+3)*mapx+(x-3)] + sm[6][1] * heightmap2[(y+3)*mapx+(x-2)] + sm[6][2] * heightmap2[(y+3)*mapx+(x-1)] + sm[6][3] * heightmap2[(y+3)*mapx+(x  )] + sm[6][4] * heightmap2[(y+3)*mapx+(x+1)] + sm[6][5] * heightmap2[(y+3)*mapx+(x+2)] + sm[6][6] * heightmap2[(y+3)*mapx+(x+3)]; 				                         
++		           heightmap[y*mapx+x] = heightmap[y*mapx+x] / (sm[0][0]+sm[0][1]+sm[0][2]+sm[0][3]+sm[0][4]+sm[0][5]+sm[0][6]+
++		        		                                        sm[1][0]+sm[1][1]+sm[1][2]+sm[1][3]+sm[1][4]+sm[1][5]+sm[1][6]+
++		        		                                        sm[2][0]+sm[2][1]+sm[2][2]+sm[2][3]+sm[2][4]+sm[2][5]+sm[2][6]+
++		        		                                        sm[3][0]+sm[3][1]+sm[3][2]+sm[3][3]+sm[3][4]+sm[3][5]+sm[3][6]+
++		        		                                        sm[4][0]+sm[4][1]+sm[4][2]+sm[4][3]+sm[4][4]+sm[4][5]+sm[4][6]+
++		        		                                        sm[5][0]+sm[5][1]+sm[5][2]+sm[5][3]+sm[5][4]+sm[5][5]+sm[5][6]+
++		        		                                        sm[6][0]+sm[6][1]+sm[6][2]+sm[6][3]+sm[6][4]+sm[6][5]+sm[6][6]);
++			   } 
++		     } 	 
++		     for(int y = 0;y &lt; mapy; y++){
++			   for (int x = 0;x &lt; mapx; x++){
++				   if (x &lt; 4 || x &gt; mapx-4 || y &lt; 4 || y &gt; mapy-4){
++					   heightmap[y*mapx+x] = heightmap2[y*mapx+x];
++					   continue;
++				   }
++				   heightmap[y*mapx+x] = sm[0][0] * heightmap2[(y-3)*mapx+(x-3)] + sm[0][1] * heightmap2[(y-3)*mapx+(x-2)] + sm[0][2] * heightmap2[(y-3)*mapx+(x-1)] + sm[0][3] * heightmap2[(y-3)*mapx+(x  )] + sm[0][4] * heightmap2[(y-3)*mapx+(x+1)] + sm[0][5] * heightmap2[(y-3)*mapx+(x+2)] + sm[0][6] * heightmap2[(y-3)*mapx+(x+3)]+ 
++				                         sm[1][0] * heightmap2[(y-2)*mapx+(x-3)] + sm[1][1] * heightmap2[(y-2)*mapx+(x-2)] + sm[1][2] * heightmap2[(y-2)*mapx+(x-1)] + sm[1][3] * heightmap2[(y-2)*mapx+(x  )] + sm[1][4] * heightmap2[(y-2)*mapx+(x+1)] + sm[1][5] * heightmap2[(y-2)*mapx+(x+2)] + sm[1][6] * heightmap2[(y-2)*mapx+(x+3)]+ 
++				                         sm[2][0] * heightmap2[(y-1)*mapx+(x-3)] + sm[2][1] * heightmap2[(y-1)*mapx+(x-2)] + sm[2][2] * heightmap2[(y-1)*mapx+(x-1)] + sm[2][3] * heightmap2[(y-1)*mapx+(x  )] + sm[2][4] * heightmap2[(y-1)*mapx+(x+1)] + sm[2][5] * heightmap2[(y-1)*mapx+(x+2)] + sm[2][6] * heightmap2[(y-1)*mapx+(x+3)]+ 
++				                         sm[3][0] * heightmap2[(y  )*mapx+(x-3)] + sm[3][1] * heightmap2[(y  )*mapx+(x-2)] + sm[3][2] * heightmap2[(y  )*mapx+(x-1)] + sm[3][3] * heightmap2[(y  )*mapx+(x  )] + sm[3][4] * heightmap2[(y  )*mapx+(x+1)] + sm[3][5] * heightmap2[(y  )*mapx+(x+2)] + sm[3][6] * heightmap2[(y  )*mapx+(x+3)]+ 
++				                         sm[4][0] * heightmap2[(y+1)*mapx+(x-3)] + sm[4][1] * heightmap2[(y+1)*mapx+(x-2)] + sm[4][2] * heightmap2[(y+1)*mapx+(x-1)] + sm[4][3] * heightmap2[(y+1)*mapx+(x  )] + sm[4][4] * heightmap2[(y+1)*mapx+(x+1)] + sm[4][5] * heightmap2[(y+1)*mapx+(x+2)] + sm[4][6] * heightmap2[(y+1)*mapx+(x+3)]+ 
++				                         sm[5][0] * heightmap2[(y+2)*mapx+(x-3)] + sm[5][1] * heightmap2[(y+2)*mapx+(x-2)] + sm[5][2] * heightmap2[(y+2)*mapx+(x-1)] + sm[5][3] * heightmap2[(y+2)*mapx+(x  )] + sm[5][4] * heightmap2[(y+2)*mapx+(x+1)] + sm[5][5] * heightmap2[(y+2)*mapx+(x+2)] + sm[5][6] * heightmap2[(y+2)*mapx+(x+3)]+ 
++				                         sm[6][0] * heightmap2[(y+3)*mapx+(x-3)] + sm[6][1] * heightmap2[(y+3)*mapx+(x-2)] + sm[6][2] * heightmap2[(y+3)*mapx+(x-1)] + sm[6][3] * heightmap2[(y+3)*mapx+(x  )] + sm[6][4] * heightmap2[(y+3)*mapx+(x+1)] + sm[6][5] * heightmap2[(y+3)*mapx+(x+2)] + sm[6][6] * heightmap2[(y+3)*mapx+(x+3)]; 				                         
++		           heightmap[y*mapx+x] = heightmap[y*mapx+x] / (sm[0][0]+sm[0][1]+sm[0][2]+sm[0][3]+sm[0][4]+sm[0][5]+sm[0][6]+
++		        		                                        sm[1][0]+sm[1][1]+sm[1][2]+sm[1][3]+sm[1][4]+sm[1][5]+sm[1][6]+
++		        		                                        sm[2][0]+sm[2][1]+sm[2][2]+sm[2][3]+sm[2][4]+sm[2][5]+sm[2][6]+
++		        		                                        sm[3][0]+sm[3][1]+sm[3][2]+sm[3][3]+sm[3][4]+sm[3][5]+sm[3][6]+
++		        		                                        sm[4][0]+sm[4][1]+sm[4][2]+sm[4][3]+sm[4][4]+sm[4][5]+sm[4][6]+
++		        		                                        sm[5][0]+sm[5][1]+sm[5][2]+sm[5][3]+sm[5][4]+sm[5][5]+sm[5][6]+
++		        		                                        sm[6][0]+sm[6][1]+sm[6][2]+sm[6][3]+sm[6][4]+sm[6][5]+sm[6][6]);
++			   } 
++		     }    
++		     for(int y = 0;y &lt; mapx; y++){
++			   for (int x = mapy; x &lt; 0; x--){
++				   if (x &lt; 4 || x &gt; mapx-4 || y &lt; 4 || y &gt; mapy-4){
++					   heightmap[y*mapx+x] = heightmap2[y*mapx+x];
++					   continue;
++				   }
++				   heightmap[y*mapx+x] = sm[0][0] * heightmap2[(y-3)*mapx+(x-3)] + sm[0][1] * heightmap2[(y-3)*mapx+(x-2)] + sm[0][2] * heightmap2[(y-3)*mapx+(x-1)] + sm[0][3] * heightmap2[(y-3)*mapx+(x  )] + sm[0][4] * heightmap2[(y-3)*mapx+(x+1)] + sm[0][5] * heightmap2[(y-3)*mapx+(x+2)] + sm[0][6] * heightmap2[(y-3)*mapx+(x+3)]+ 
++				                         sm[1][0] * heightmap2[(y-2)*mapx+(x-3)] + sm[1][1] * heightmap2[(y-2)*mapx+(x-2)] + sm[1][2] * heightmap2[(y-2)*mapx+(x-1)] + sm[1][3] * heightmap2[(y-2)*mapx+(x  )] + sm[1][4] * heightmap2[(y-2)*mapx+(x+1)] + sm[1][5] * heightmap2[(y-2)*mapx+(x+2)] + sm[1][6] * heightmap2[(y-2)*mapx+(x+3)]+ 
++				                         sm[2][0] * heightmap2[(y-1)*mapx+(x-3)] + sm[2][1] * heightmap2[(y-1)*mapx+(x-2)] + sm[2][2] * heightmap2[(y-1)*mapx+(x-1)] + sm[2][3] * heightmap2[(y-1)*mapx+(x  )] + sm[2][4] * heightmap2[(y-1)*mapx+(x+1)] + sm[2][5] * heightmap2[(y-1)*mapx+(x+2)] + sm[2][6] * heightmap2[(y-1)*mapx+(x+3)]+ 
++				                         sm[3][0] * heightmap2[(y  )*mapx+(x-3)] + sm[3][1] * heightmap2[(y  )*mapx+(x-2)] + sm[3][2] * heightmap2[(y  )*mapx+(x-1)] + sm[3][3] * heightmap2[(y  )*mapx+(x  )] + sm[3][4] * heightmap2[(y  )*mapx+(x+1)] + sm[3][5] * heightmap2[(y  )*mapx+(x+2)] + sm[3][6] * heightmap2[(y  )*mapx+(x+3)]+ 
++				                         sm[4][0] * heightmap2[(y+1)*mapx+(x-3)] + sm[4][1] * heightmap2[(y+1)*mapx+(x-2)] + sm[4][2] * heightmap2[(y+1)*mapx+(x-1)] + sm[4][3] * heightmap2[(y+1)*mapx+(x  )] + sm[4][4] * heightmap2[(y+1)*mapx+(x+1)] + sm[4][5] * heightmap2[(y+1)*mapx+(x+2)] + sm[4][6] * heightmap2[(y+1)*mapx+(x+3)]+ 
++				                         sm[5][0] * heightmap2[(y+2)*mapx+(x-3)] + sm[5][1] * heightmap2[(y+2)*mapx+(x-2)] + sm[5][2] * heightmap2[(y+2)*mapx+(x-1)] + sm[5][3] * heightmap2[(y+2)*mapx+(x  )] + sm[5][4] * heightmap2[(y+2)*mapx+(x+1)] + sm[5][5] * heightmap2[(y+2)*mapx+(x+2)] + sm[5][6] * heightmap2[(y+2)*mapx+(x+3)]+ 
++				                         sm[6][0] * heightmap2[(y+3)*mapx+(x-3)] + sm[6][1] * heightmap2[(y+3)*mapx+(x-2)] + sm[6][2] * heightmap2[(y+3)*mapx+(x-1)] + sm[6][3] * heightmap2[(y+3)*mapx+(x  )] + sm[6][4] * heightmap2[(y+3)*mapx+(x+1)] + sm[6][5] * heightmap2[(y+3)*mapx+(x+2)] + sm[6][6] * heightmap2[(y+3)*mapx+(x+3)]; 				                         
++		           heightmap[y*mapx+x] = heightmap[y*mapx+x] / (sm[0][0]+sm[0][1]+sm[0][2]+sm[0][3]+sm[0][4]+sm[0][5]+sm[0][6]+
++		        		                                        sm[1][0]+sm[1][1]+sm[1][2]+sm[1][3]+sm[1][4]+sm[1][5]+sm[1][6]+
++		        		                                        sm[2][0]+sm[2][1]+sm[2][2]+sm[2][3]+sm[2][4]+sm[2][5]+sm[2][6]+
++		        		                                        sm[3][0]+sm[3][1]+sm[3][2]+sm[3][3]+sm[3][4]+sm[3][5]+sm[3][6]+
++		        		                                        sm[4][0]+sm[4][1]+sm[4][2]+sm[4][3]+sm[4][4]+sm[4][5]+sm[4][6]+
++		        		                                        sm[5][0]+sm[5][1]+sm[5][2]+sm[5][3]+sm[5][4]+sm[5][5]+sm[5][6]+
++		        		                                        sm[6][0]+sm[6][1]+sm[6][2]+sm[6][3]+sm[6][4]+sm[6][5]+sm[6][6]);
++			   } 
++		     }   
++		     delete[] heightmap2;
++	      } 
++	    }   
++		if (mv == 0.11f){   //3x3 matrix
++		   float sm[3][3];  
++		   cout &lt;&lt; &quot;using a 3x3 matrix for smoothing...&quot; &lt;&lt; endl; 
++	       for (int i=0;i&lt;3;i++ ){
++	       	   for (int j=0;j&lt;3;j++){
++	        	   sm[i][j]=mv;	  
++	       	   }
++	       }
++		   for (int k=0;k&lt;smooth;k++){
++			   float* heightmap2=heightmap;
++			   heightmap=new float[mapx*mapy];
++		       cout &lt;&lt; &quot;smooth iteration number:&quot; &lt;&lt; k &lt;&lt; endl; 
++			   for(int y = 0;y &lt; mapx; y++){
++			      for (int x = 0;x &lt; mapy; x++){
++					   if (x &lt; 2 || x &gt; mapx-2 || y &lt; 3 || y &gt; mapy-2){
++						   heightmap[y*mapx+x] = heightmap2[y*mapx+x];
++						   continue;
++					   }
++				      heightmap[y*mapx+x] = sm[0][0] * heightmap2[(y-1)*mapx+(x-1)] + sm[0][1] * heightmap2[(y-1)*mapx+(x)] + sm[0][2] * heightmap2[(y-1)*mapx+(x+1)] +
++				                            sm[1][0] * heightmap2[(y  )*mapx+(x-1)] + sm[1][1] * heightmap2[(y  )*mapx+(x)] + sm[1][2] * heightmap2[(y  )*mapx+(x+1)] + 
++				                            sm[2][0] * heightmap2[(y+1)*mapx+(x-1)] + sm[2][1] * heightmap2[(y+1)*mapx+(x)] + sm[2][2] * heightmap2[(y+1)*mapx+(x+1)]; 
++			          heightmap[y*mapx+x] = heightmap[y*mapx+x] / (sm[0][0]+sm[0][1]+sm[0][2]+
++			        	    	                                   sm[1][0]+sm[1][1]+sm[1][2]+
++			        		                                       sm[2][0]+sm[2][1]+sm[2][2]);
++				  } 
++			   }                             
++			   for(int y = mapx;y &lt; 0; y--){
++				  for (int x = 0;x &lt; mapy; x++){
++					   if (x &lt; 2 || x &gt; mapx-2 || y &lt; 3 || y &gt; mapy-2){
++						   heightmap[y*mapx+x] = heightmap2[y*mapx+x];
++						   continue;
++					   }
++					  heightmap[y*mapx+x] = sm[0][0] * heightmap2[(y-1)*mapx+(x-1)] + sm[0][1] * heightmap2[(y-1)*mapx+(x)] + sm[0][2] * heightmap2[(y-1)*mapx+(x+1)] +
++						                    sm[1][0] * heightmap2[(y  )*mapx+(x-1)] + sm[1][1] * heightmap2[(y  )*mapx+(x)] + sm[1][2] * heightmap2[(y  )*mapx+(x+1)] + 
++						                    sm[2][0] * heightmap2[(y+1)*mapx+(x-1)] + sm[2][1] * heightmap2[(y+1)*mapx+(x)] + sm[2][2] * heightmap2[(y+1)*mapx+(x+1)]; 
++				      heightmap[y*mapx+x] = heightmap[y*mapx+x] / (sm[0][0]+sm[0][1]+sm[0][2]+
++				            	                                   sm[1][0]+sm[1][1]+sm[1][2]+
++				        		                                   sm[2][0]+sm[2][1]+sm[2][2]);
++				  }
++			   } 	 
++			   for(int y = 0;y &lt; mapx; y++){
++				  for (int x = 1;x &lt; mapy; x++){
++					  if (x &lt; 2 || x &gt; mapx-2 || y &lt; 2 || y &gt; mapy-2){
++						  heightmap[y*mapx+x] = heightmap2[y*mapx+x];
++						  continue;
++					  }
++					  heightmap[y*mapx+x] = sm[0][0] * heightmap2[(y-1)*mapx+(x-1)] + sm[0][1] * heightmap2[(y-1)*mapx+(x)] + sm[0][2] * heightmap2[(y-1)*mapx+(x+1)] +
++					                        sm[1][0] * heightmap2[(y  )*mapx+(x-1)] + sm[1][1] * heightmap2[(y  )*mapx+(x)] + sm[1][2] * heightmap2[(y  )*mapx+(x+1)] + 
++					                        sm[2][0] * heightmap2[(y+1)*mapx+(x-1)] + sm[2][1] * heightmap2[(y+1)*mapx+(x)] + sm[2][2] * heightmap2[(y+1)*mapx+(x+1)]; 
++				      heightmap[y*mapx+x] = heightmap[y*mapx+x] / (sm[0][0]+sm[0][1]+sm[0][2]+
++				             	                                   sm[1][0]+sm[1][1]+sm[1][2]+
++				        		                                   sm[2][0]+sm[2][1]+sm[2][2]);	 
++				  }
++			   }    
++			   for(int y = 0;y &lt; mapx; y++){
++				  for (int x = mapy; x &lt; 0; x--){
++					  if (x &lt; 2 || x &gt; mapx-2 || y &lt; 2 || y &gt; mapy-2){
++						  heightmap[y*mapx+x] = heightmap2[y*mapx+x];
++					      continue;
++					  } 
++				      heightmap[y*mapx+x] = sm[0][0] * heightmap2[(y-1)*mapx+(x-1)] + sm[0][1] * heightmap2[(y-1)*mapx+(x)] + sm[0][2] * heightmap2[(y-1)*mapx+(x+1)] +
++					                        sm[1][0] * heightmap2[(y  )*mapx+(x-1)] + sm[1][1] * heightmap2[(y  )*mapx+(x)] + sm[1][2] * heightmap2[(y  )*mapx+(x+1)] + 
++						                    sm[2][0] * heightmap2[(y+1)*mapx+(x-1)] + sm[2][1] * heightmap2[(y+1)*mapx+(x)] + sm[2][2] * heightmap2[(y+1)*mapx+(x+1)]; 
++				      heightmap[y*mapx+x] = heightmap[y*mapx+x] / (sm[0][0]+sm[0][1]+sm[0][2]+
++				        		                                   sm[1][0]+sm[1][1]+sm[1][2]+
++				        		                                   sm[2][0]+sm[2][1]+sm[2][2]);
++				  }
++			   }  
++			   delete[] heightmap2;   
++		   }
++		}
++	}
++	
++    float value = 0;
++	if(invertz){
++		float* heightmap2=heightmap;
++		heightmap=new float[mapx*mapy];
++		for(int y=0;y&lt;mapy;++y){
++			for(int x=0;x&lt;mapx;++x){
++               value = heightmap2[y*mapx+x] - maxHeight;
++               heightmap2[y*mapx+x] = value;            
++			}
++		}
++		heightmap=heightmap2;
++	}
+ }
+ 
+ void SaveHeightMap(ofstream&amp; outfile,int xsize,int ysize,float minHeight,float maxHeight)
+ {
++	cout &lt;&lt; &quot;saving heightmap...&quot; &lt;&lt; endl;
++	
+ 	int mapx=xsize+1;
+ 	int mapy=ysize+1;
+ 	unsigned short* hm=new unsigned short[mapx*mapy];
+@@ -355,11 +772,11 @@
+ 	delete[] hm;
+ }
+ 
+-void SaveMetalMap(ofstream &amp;outfile, std::string metalmap, int xsize, int ysize)
++void SaveMetalMap(ofstream &amp;outfile, std::string metalmap, int xsize, int ysize,int x,int y)
+ {
+-	printf(&quot;Saving metal map\n&quot;);
++	cout &lt;&lt; &quot;Saving metal map...&quot; &lt;&lt; endl;
+ 
+-	CBitmap metal(metalmap);
++	CBitmap metal(metalmap,x,y,true,3,false,false,false);
+ 	if(metal.xsize!=xsize/2 || metal.ysize!=ysize/2){
+ 		metal=metal.CreateRescaled(xsize/2,ysize/2);
+ 	}
+@@ -375,8 +792,10 @@
+ 	delete [] buf;
+ }
+ 
+-void SaveTypeMap(ofstream &amp;outfile,int xsize,int ysize,string typemap)
++void SaveTypeMap(ofstream &amp;outfile,int xsize,int ysize,string typemap,int x,int y)
+ {
++	cout &lt;&lt; &quot;saving type map...&quot; &lt;&lt; endl;
++	
+ 	int mapx=xsize/2;
+ 	int mapy=ysize/2;
+ 
+@@ -385,11 +804,12 @@
+ 
+ 	if(!typemap.empty()){
+ 		CBitmap tm;
+-		tm.Load(typemap);
++		tm.Load(typemap,255,x,y,2,false,6,false,true,false);
+ 		CBitmap tm2=tm.CreateRescaled(mapx,mapy);
+ 		for(int a=0;a&lt;mapx*mapy;++a)
+ 			typeMapMem[a]=tm2.mem[a*4];
+ 	}
++	
+ 	outfile.write((char*)typeMapMem,mapx*mapy);
+ 
+ 	delete[] typeMapMem;
+
+Modified: trunk/tools/MapConv/MemPool.cpp
+===================================================================
+--- trunk/tools/MapConv/MemPool.cpp	2008-02-12 02:12:07 UTC (rev 5487)
++++ trunk/tools/MapConv/MemPool.cpp	2008-02-12 10:56:01 UTC (rev 5488)
+@@ -13,8 +13,9 @@
+ 	}
+ };
+ 
+-void* CMemPool::Alloc(size_t n)
++void* CMemPool::Alloc(size_t nn)
+ {
++  int n = nn;	 
+   if(n&gt;MAX_MEM_SIZE || n&lt;4){
+     return ::operator new(n);
+   }
+@@ -36,10 +37,11 @@
+   return p;
+ }
+ 
+-void CMemPool::Free(void* p,size_t n)
++void CMemPool::Free(void* p,size_t nn)
+ {
+   if(p==0) return;
+   
++  int n = nn;	
+   if(n&gt;MAX_MEM_SIZE || n&lt;4){
+     ::operator delete(p);
+     return;
+
+Modified: trunk/tools/MapConv/TileHandler.cpp
+===================================================================
+--- trunk/tools/MapConv/TileHandler.cpp	2008-02-12 02:12:07 UTC (rev 5487)
++++ trunk/tools/MapConv/TileHandler.cpp	2008-02-12 10:56:01 UTC (rev 5488)
+@@ -1,11 +1,16 @@
+ #include &quot;TileHandler.h&quot;
+ #include &quot;FileHandler.h&quot;
+-#ifdef WIN32
+ #include &quot;ddraw.h&quot;
+-#endif
+ #include &quot;mapfile.h&quot;
++#include &lt;iostream.h&gt;
++#include &lt;IL/ilut.h&gt;
++#include &lt;IL/ilu.h&gt;
++#include &lt;IL/il.h&gt;
++#include &lt;string&gt;
+ 
+-extern string stupidGlobalCompressorName; /* MapConv.cpp */
++extern string stupidGlobalCompressorName;
++using namespace std;
++string prog;
+ 
+ CTileHandler tileHandler;
+ 
+@@ -19,16 +24,17 @@
+ 		delete tiles[a];
+ }
+ 
+-void CTileHandler::LoadTexture(string name)
++void CTileHandler::LoadTexture(string name,unsigned int x,unsigned int y,int filter)
+ {
+ 	printf(&quot;Loading texture\n&quot;);
+-	bigTex.Load(name);
+-
++	
++	bigTex.Load(name,255,x,y,filter,false,1,true,(bool)false,false);
++	
+ 	xsize=bigTex.xsize/8;
+ 	ysize=bigTex.ysize/8;
+ }
+ 
+-void CTileHandler::ProcessTiles(float compressFactor)
++void CTileHandler::ProcessTiles(float compressFactor,int quality,string format)
+ {
+ 	meanThreshold=(int)(2000*compressFactor);
+ 	meanDirThreshold=(int)(20000*compressFactor);
+@@ -89,56 +95,71 @@
+ 		}
+ 		CBitmap square(data,1024,1024);
+ 		char name[100];
+-#ifdef WIN32
+-		sprintf(name,&quot;temp\\Temp%03i.bmp&quot;,a);
+-#else
+-		sprintf(name,&quot;temp/Temp%03i.bmp&quot;,a);
+-#endif
+-		square.Save(name);
+-		printf(&quot;Writing bmp files %i%%\n&quot;, (((a+1)*1024)*100)/(tilex*tiley));
++		if (format.substr(0,format.length())==&quot;bmp&quot;) sprintf(name,&quot;temp\\Temp%03i.bmp&quot;,a);
++		if (format.substr(0,format.length())==&quot;png&quot;) sprintf(name,&quot;temp\\Temp%03i.png&quot;,a);
++		if (format.substr(0,format.length())==&quot;jpg&quot;) sprintf(name,&quot;temp\\Temp%03i.jpg&quot;,a);
++		if (format.substr(0,format.length())==&quot;tga&quot;) sprintf(name,&quot;temp\\Temp%03i.tga&quot;,a);
++		if (format.substr(0,format.length())==&quot;raw&quot;) sprintf(name,&quot;temp\\Temp%03i.raw&quot;,a);
++		if (format.substr(0,format.length())==&quot;ppm&quot;) sprintf(name,&quot;temp\\Temp%03i.ppm&quot;,a);
++		if (format.substr(0,format.length())==&quot;dds&quot;) sprintf(name,&quot;temp\\Temp%03i.dds&quot;,a);
++		if (format.substr(0,format.length())==&quot;rgb&quot;) sprintf(name,&quot;temp\\Temp%03i.rgb&quot;,a);
++		if (format.substr(0,format.length())==&quot;tif&quot;) sprintf(name,&quot;temp\\Temp%03i.tif&quot;,a);
++
++		square.Save(name,quality);
++		printf(&quot;Writing tile files %i%%\n&quot;, (((a+1)*1024)*100)/(tilex*tiley));
+ 	}
+-
+ 	printf(&quot;Creating dds files\n&quot;);
+-	char execstring[512];
+-#ifdef WIN32
+-	sprintf(execstring, &quot;nvdxt.exe -file temp\\*.bmp -dxt1c -dither&quot;);
+-	system(execstring);
+-	system(&quot;del temp\\temp*.bmp&quot;);
+-#else
+-	snprintf(execstring, 512,
+-		&quot;%s temp/*.bmp&quot;, stupidGlobalCompressorName.c_str());
+-	system(execstring);
+-	system(&quot;rm temp/Temp*.bmp&quot;);
+-#endif
+-
++	string execstring=stupidGlobalCompressorName.c_str();
++	char program[32];
++	
++	execstring.copy(program,execstring.find_first_of('-'),0);
++	
++	prog+=program;
++	
++	if (prog == &quot;nvdxt.exe &quot;)	
++	   cout &lt;&lt; &quot;texture program: nvdxt.&quot; &lt;&lt; endl;
++	if (prog == &quot;nvcompress.exe &quot;)   
++	   cout &lt;&lt; &quot;texture program: nvcompress&quot; &lt;&lt; endl;
++	if ( prog == &quot;texconv.exe &quot;)
++	   cout &lt;&lt; &quot;texture program: texconv&quot; &lt;&lt; endl;
++	if ( prog == &quot;texcompress.exe &quot;)
++	   cout &lt;&lt; &quot;texture program: texcompress&quot; &lt;&lt; endl;
++	if ( prog == &quot;old_nvdxt.exe &quot;)
++	   cout &lt;&lt; &quot;texture program: the old nvdxt&quot; &lt;&lt; endl;
++	
++	system(execstring.c_str());
++	
+ 	delete[] data;
+ }
+ 
++
+ void CTileHandler::ProcessTiles2(void)
+ {
+ 	unsigned char* data=new unsigned char[1024*1024*4];
+-	bigTex=CBitmap(data,1,1);	//free big tex memory
++	bigTex=CBitmap(data,1,1);	/// /free big tex memory
+ 	int tilex=xsize/4;
+ 	int tiley=ysize/4;
+ 
+ 	for(int a=0;a&lt;(tilex*tiley)/1024;++a){
+ 		int startTile=a*1024;
+ 
+-#ifdef WIN32
++		char name[100];
+ 		DDSURFACEDESC2 ddsheader;
+ 		int ddssignature;
+-		char name[100];
+-		sprintf(name,&quot;Temp%03i.dds&quot;,a);
+-		CFileHandler file(name);
+-		file.Read(&amp;ddssignature, sizeof(int));
+-		file.Read(&amp;ddsheader, sizeof(DDSURFACEDESC2));
+-#else
+-		char name[100];
+-		snprintf(name, 100, &quot;temp/Temp%03i.bmp.raw&quot;, a);
+-		CFileHandler file(name);
+-#endif
++		CFileHandler file;
++		
++		if (prog == &quot;nvdxt.exe &quot; || prog == &quot;nvcompress.exe &quot; || prog == &quot;texconv.exe &quot; || prog == &quot;old_nvdxt.exe &quot;){	
++			sprintf(name,&quot;Temp%03i.dds&quot;,a);	
++		    file.Open(name);
++			file.Read(&amp;ddssignature, sizeof(int));
++			file.Read(&amp;ddsheader, sizeof(DDSURFACEDESC2));
++		} 
++		if (prog == &quot;texcompress.exe &quot;){
++		    sprintf(name, &quot;temp\\Temp%03i.png.raw&quot;, a);
++		    file.Open(name);
++		}    
+ 
+-		char bigtile[696320]; //1024x1024 and 4 mipmaps
++		char bigtile[696320]; // /1024x1024 and 4 mipmaps
+ 		file.Read(bigtile, 696320);
+ 
+ 		for(int b=0;b&lt;1024;++b){
+@@ -169,11 +190,6 @@
+ 	}
+ 
+ 	delete[] data;
+-#ifdef WIN32
+-	system(&quot;del temp*.dds&quot;);
+-#else
+-	system(&quot;rm temp/Temp*.bmp.raw&quot;);
+-#endif
+ }
+ 
+ void CTileHandler::SaveData(ofstream&amp; ofs)
+
+Modified: trunk/tools/MapConv/TileHandler.h
+===================================================================
+--- trunk/tools/MapConv/TileHandler.h	2008-02-12 02:12:07 UTC (rev 5487)
++++ trunk/tools/MapConv/TileHandler.h	2008-02-12 10:56:01 UTC (rev 5488)
+@@ -8,7 +8,7 @@
+ 
+ using namespace std;
+ 
+-#define MAX_MAP_SIZE 40					//increase maybe
++#define MAX_MAP_SIZE 50	
+ #define MAX_TILES (MAX_MAP_SIZE*MAX_MAP_SIZE*16*16)
+ 
+ class CTileHandler
+@@ -16,8 +16,8 @@
+ public:
+ 	CTileHandler();
+ 	~CTileHandler(void);
+-	void LoadTexture(string name);
+-	void ProcessTiles(float compressFactor);
++	void LoadTexture(string name,unsigned int x,unsigned int y,int filter);
++	void ProcessTiles(float compressFactor,int quality,string format);
+ 	void SaveData(ofstream&amp; ofs);
+ 	void ReadTile(int xpos, int ypos, char *destbuf, char *sourcebuf);
+ 	int FindCloseTile(CBitmap* bm,int forbidden);
+@@ -25,31 +25,33 @@
+ 
+ 	int GetFileSize(void);
+ 	void AddExternalTileFile(string file);
+-	void SetOutputFile(string file);
+-
++	void SetOutputFile(string file);	
++	
++	int max_size,max_tiles;
++	
+ 	CBitmap bigTex;
+ 	int xsize;
+ 	int ysize;
+ 
+-	CBitmap* tiles[MAX_TILES];
++    CBitmap* tiles[MAX_TILES];
+ 	vector&lt;char*&gt; newTiles;
+-	int tileUse[MAX_TILES];
++    int tileUse[MAX_TILES];
+ 	int usedTiles;
+ 	int numExternalTile;
+-
++	
+ 	struct FastStat{
+ 		int r,g,b;
+ 		int rx,gx,bx;
+ 		int ry,gy,by;
+ 	};
+-	FastStat fastStats[MAX_TILES];
++    FastStat fastStats[MAX_TILES];
+ 	FastStat CalcFastStat(CBitmap* bm);
+ 	bool CompareTiles(CBitmap* bm, CBitmap* bm2);
+ 
+ 	int meanThreshold;
+ 	int meanDirThreshold;
+-	int borderThreshold;
+-
++	int borderThreshold;	
++	
+ 	vector&lt;string&gt; externalFiles;
+ 	vector&lt;int&gt; externalFileTileSize;
+ 
+
+Modified: trunk/tools/MapConv/jpeglib.h
+===================================================================
+--- trunk/tools/MapConv/jpeglib.h	2008-02-12 02:12:07 UTC (rev 5487)
++++ trunk/tools/MapConv/jpeglib.h	2008-02-12 10:56:01 UTC (rev 5488)
+@@ -932,7 +932,7 @@
+    * Links to compression subobjects (methods and private variables of modules)
+    */
+   struct jpeg_comp_master * master;
+-  struct jpeg_c_main_controller * main;
++  //struct jpeg_c_main_controller * main;
+   struct jpeg_c_prep_controller * prep;
+   struct jpeg_c_coef_controller * coef;
+   struct jpeg_marker_writer * marker;
+@@ -1157,7 +1157,7 @@
+    * Links to decompression subobjects (methods, private variables of modules)
+    */
+   struct jpeg_decomp_master * master;
+-  struct jpeg_d_main_controller * main;
++  //struct jpeg_d_main_controller * main;
+   struct jpeg_d_coef_controller * coef;
+   struct jpeg_d_post_controller * post;
+   struct jpeg_input_controller * inputctl;
+@@ -1605,7 +1605,7 @@
+ struct jvirt_sarray_control { long dummy; };
+ struct jvirt_barray_control { long dummy; };
+ struct jpeg_comp_master { long dummy; };
+-struct jpeg_c_main_controller { long dummy; };
++//struct jpeg_c_main_controller { long dummy; };
+ struct jpeg_c_prep_controller { long dummy; };
+ struct jpeg_c_coef_controller { long dummy; };
+ struct jpeg_marker_writer { long dummy; };
+@@ -1614,7 +1614,7 @@
+ struct jpeg_forward_dct { long dummy; };
+ struct jpeg_entropy_encoder { long dummy; };
+ struct jpeg_decomp_master { long dummy; };
+-struct jpeg_d_main_controller { long dummy; };
++//struct jpeg_d_main_controller { long dummy; };
+ struct jpeg_d_coef_controller { long dummy; };
+ struct jpeg_d_post_controller { long dummy; };
+ struct jpeg_input_controller { long dummy; };
+
+Modified: trunk/tools/MapConv/stdafx.cpp
+===================================================================
+--- trunk/tools/MapConv/stdafx.cpp	2008-02-12 02:12:07 UTC (rev 5487)
++++ trunk/tools/MapConv/stdafx.cpp	2008-02-12 10:56:01 UTC (rev 5488)
+@@ -4,5 +4,5 @@
+ 
+ #include &quot;stdafx.h&quot;
+ 
+-// TODO: reference any additional headers you need in STDAFX.H
++// done: reference any additional headers you need in STDAFX.H
+ // and not in this file
+
+Modified: trunk/tools/MapConv/stdafx.h
+===================================================================
+--- trunk/tools/MapConv/stdafx.h	2008-02-12 02:12:07 UTC (rev 5487)
++++ trunk/tools/MapConv/stdafx.h	2008-02-12 10:56:01 UTC (rev 5488)
+@@ -9,4 +9,4 @@
+ #include &lt;iostream&gt;
+ #include &lt;tchar.h&gt;
+ 
+-// TODO: reference additional headers your program requires here
++// done: reference additional headers your program requires here
+
+Modified: trunk/tools/MapConv/texcompress_nogui.cpp
+===================================================================
+--- trunk/tools/MapConv/texcompress_nogui.cpp	2008-02-12 02:12:07 UTC (rev 5487)
++++ trunk/tools/MapConv/texcompress_nogui.cpp	2008-02-12 10:56:01 UTC (rev 5488)
+@@ -11,10 +11,9 @@
+   code made available by me according to the terms of the GPL.
+ 
+   Copyright (C) 2007 Joachim Schiele &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">js at dune2.de</A>&gt;
++   
++  ---------------------------------------
+ 
+-
+-  --
+-
+   DDS GIMP plugin
+ 
+   Copyright (C) 2004 Shawn Kirst &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">skirst at fuse.net</A>&gt;,
+@@ -45,9 +44,19 @@
+ ** before using this code
+ */
+ 
++#include &lt;GL/glew.h&gt;
+ #include &lt;fstream&gt;
+ #include &quot;Bitmap.h&quot;
+ #include &quot;texcompress_nogui.h&quot;
++#include &lt;libtxc_dxtn/txc_compress_dxtn.c&gt;
++//#include &lt;dlfcn.c&gt;
++#include &lt;windows.h&gt;
++#include &lt;stdio.h&gt;
++#include &lt;GL/gl.h&gt;
++#include &lt;IL/ilut.h&gt;
++#include &lt;IL/ilu.h&gt;
++#include &lt;IL/il.h&gt;
++#include &quot;FileHandler.h&quot;
+ 
+ using namespace std;
+ 
+@@ -64,7 +73,7 @@
+ int dxt_compress(unsigned char *dst, unsigned char *src, int format,
+                  unsigned int width, unsigned int height, int bpp,
+                  int mipmaps) {
+-    int internal = GL_COMPRESSED_RGBA_S3TC_DXT1_EXT;
++    int internal = 0x83F1;
+     int i, size, w, h;
+     unsigned int offset;
+     unsigned char *tmp;
+@@ -134,8 +143,10 @@
+         h = height &gt;&gt; i;
+         if (w &lt; 1) w = 1;
+         if (h &lt; 1) h = 1;
+-
++        
+         scale_image_cubic(dst + offset, w, h, src, width, height, bpp);
++        
++        //iluBlurGaussian(5);
+ 
+         offset += (w * h * bpp);
+     }
+@@ -248,7 +259,7 @@
+     return(n);
+ }
+ 
+-bool compress_one(const char * in_filename) {
++bool ccompress_one(const char * in_filename) {
+     int w, h;
+     int bpp=4;
+     unsigned char* dst;
+@@ -329,6 +340,9 @@
+ 
+ int main(int argc, char **argv) {
+ 
++	ilInit();
++	iluInit();
++	
+     if (argc &lt; 2) {
+         printf(&quot;Usage: %s image.png\n&quot;, argv[0]);
+         return 1;
+@@ -338,7 +352,7 @@
+      * Load the shared library for dxt compression
+      */
+ 
+-    hdxtn = dlopen(DXTN_DLL, RTLD_LAZY | RTLD_GLOBAL);
++    HINSTANCE hdxtn = LoadLibrary(DXTN_DLL);
+     if (hdxtn == NULL) {
+         printf(&quot;Unable to load library %s\n&quot;, DXTN_DLL);
+         printf(&quot;If the library libtxc isn't installed. DO THIS NOW ;-)\n&quot;);
+@@ -348,10 +362,10 @@
+     }
+     printf(&quot;Library %s found and loaded with success\n&quot;, DXTN_DLL);
+ 
+-    compress_dxtn = (void (*)(int, int, int, const unsigned char*, int, unsigned char*))dlsym(hdxtn, &quot;tx_compress_dxtn&quot;);
++    compress_dxtn = (void (*)(int, int, int, const unsigned char*, int, unsigned char*))GetProcAddress(hdxtn, &quot;tx_compress_dxtn&quot;);
+ 
+     if (compress_dxtn == NULL) {
+-        dlclose(hdxtn);
++        //dlclose(hdxtn);
+         printf(&quot;Missing symbol `tx_compress_dxtn' in %s\n&quot;, DXTN_DLL);
+         return 1;
+     }
+@@ -361,11 +375,12 @@
+      */
+ 
+     for (int i = 1; i &lt; argc; i++) {
+-        if (!compress_one(argv[i])) {
+-            printf(&quot;ERROR, couldn't compress_one(%s)\n&quot;, argv[i]);
++        if (!ccompress_one(argv[i])) {
++            printf(&quot;ERROR, couldn't ccompress_one(%s)\n&quot;, argv[i]);
+             return 1;
+         }
+     }
++    FreeLibrary(hdxtn);
+ 
+     return 0;
+ }
+
+Modified: trunk/tools/MapConv/texcompress_nogui.h
+===================================================================
+--- trunk/tools/MapConv/texcompress_nogui.h	2008-02-12 02:12:07 UTC (rev 5487)
++++ trunk/tools/MapConv/texcompress_nogui.h	2008-02-12 10:56:01 UTC (rev 5488)
+@@ -36,14 +36,18 @@
+ #define IS_POT(x)      (!((x) &amp; ((x) - 1)))
+ #include &lt;stdlib.h&gt;
+ 
+-#include &lt;GL/gl.h&gt;
+-#include &lt;dlfcn.h&gt;
++/*#include &lt;GL/gl.h&gt;
++#include &lt;GL/glew.h&gt;
++#include &lt;GL/glu.h&gt;*/
+ 
++
+ #include &lt;string.h&gt;
+ #include &lt;math.h&gt;
+ 
+ void *hdxtn = NULL;
+-#define DXTN_DLL &quot;libtxc_dxtn.so&quot;
++#define DXTN_DLL &quot;dxtn.dll&quot;
++#define RTLD_LAZY   1
++#define RTLD_GLOBAL 1
+ 
+ static void (*compress_dxtn)(int, int, int, const unsigned char*, int, unsigned char *) = NULL;
+ 
+@@ -62,7 +66,9 @@
+ unsigned int get_mipmapped_size(int width, int height, int bpp,
+                                 int level, int num, int format);
+ int get_num_mipmaps(int width, int height);
++bool ccompress_one(const char * in_filename);
+ bool compress_one(const char * in_filename);
++typedef double (*importFunction)(double, double);
+ 
+ 
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000294.html">[Taspring-linux-commit] r5487 - trunk/rts/Game/UI
+</A></li>
+	<LI>Next message: <A HREF="000296.html">[Taspring-linux-commit] r5489 - trunk/tools/DedicatedServer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#295">[ date ]</a>
+              <a href="thread.html#295">[ thread ]</a>
+              <a href="subject.html#295">[ subject ]</a>
+              <a href="author.html#295">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

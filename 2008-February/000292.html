@@ -1,0 +1,359 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5485 - in trunk/tools/springie/Springie: .	autohost client doc utils
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5485%20-%20in%20trunk/tools/springie/Springie%3A%20.%0A%09autohost%20client%20doc%20utils&In-Reply-To=%3CE1JOdJk-0003kK-Qw%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000291.html">
+   <LINK REL="Next"  HREF="000293.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5485 - in trunk/tools/springie/Springie: .	autohost client doc utils</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5485%20-%20in%20trunk/tools/springie/Springie%3A%20.%0A%09autohost%20client%20doc%20utils&In-Reply-To=%3CE1JOdJk-0003kK-Qw%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5485 - in trunk/tools/springie/Springie: .	autohost client doc utils">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon Feb 11 19:23:48 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000291.html">[Taspring-linux-commit] r5484 - trunk/tools/unitsync
+</A></li>
+        <LI>Next message: <A HREF="000293.html">[Taspring-linux-commit] r5486 - trunk/game/LuaUI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#292">[ date ]</a>
+              <a href="thread.html#292">[ thread ]</a>
+              <a href="subject.html#292">[ subject ]</a>
+              <a href="author.html#292">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Licho
+Date: 2008-02-11 19:23:48 +0100 (Mon, 11 Feb 2008)
+New Revision: 5485
+
+Modified:
+   trunk/tools/springie/Springie/MainConfig.cs
+   trunk/tools/springie/Springie/autohost/AutoHost.cs
+   trunk/tools/springie/Springie/autohost/AutoHost_commands.cs
+   trunk/tools/springie/Springie/client/BattleRect.cs
+   trunk/tools/springie/Springie/doc/readme.txt
+   trunk/tools/springie/Springie/utils/AutoUpdater.cs
+Log:
+springie now autosaves boxes settings for each map. (Save happens on !start, and boxes are applied on map change)
+
+
+Modified: trunk/tools/springie/Springie/MainConfig.cs
+===================================================================
+--- trunk/tools/springie/Springie/MainConfig.cs	2008-02-11 14:41:43 UTC (rev 5484)
++++ trunk/tools/springie/Springie/MainConfig.cs	2008-02-11 18:23:48 UTC (rev 5485)
+@@ -8,7 +8,7 @@
+ {
+   public class MainConfig
+   {
+-    public const string SpringieVersion = &quot;Springie 1.10&quot;;
++    public const string SpringieVersion = &quot;Springie 1.11&quot;;
+ 
+     bool autoUpdate = true;
+     [Description(&quot;Should Springie automatically update itself to latest version?&quot;)]
+
+Modified: trunk/tools/springie/Springie/autohost/AutoHost.cs
+===================================================================
+--- trunk/tools/springie/Springie/autohost/AutoHost.cs	2008-02-11 14:41:43 UTC (rev 5484)
++++ trunk/tools/springie/Springie/autohost/AutoHost.cs	2008-02-11 18:23:48 UTC (rev 5485)
+@@ -7,6 +7,8 @@
+ using Springie.Client;
+ using Springie.SpringNamespace;
+ using System.Windows.Forms;
++using System.Runtime.Serialization.Formatters;
++using System.Runtime.Serialization.Formatters.Binary;
+ 
+ namespace Springie.AutoHostNamespace
+ {
+@@ -15,6 +17,7 @@
+   {
+     public const string ConfigName = &quot;autohost.xml&quot;;
+     public const string PresetsName = &quot;presets.xml&quot;;
++    public const string BoxesName = &quot;boxes.bin&quot;;
+ 
+     public const int PollTimeout = 60;
+ 
+@@ -24,6 +27,7 @@
+ 
+     public Ladder ladder;
+ 
++    public Dictionary&lt;string, Dictionary&lt;int, BattleRect&gt;&gt; MapBoxes = new Dictionary&lt;string, Dictionary&lt;int, BattleRect&gt;&gt;();
+ 
+ 
+     TasClient tas;
+@@ -158,43 +162,63 @@
+ 
+       if (File.Exists(Application.StartupPath + '/' + PresetsName)) {
+         XmlSerializer s = new XmlSerializer(presets.GetType());
+-        StreamReader r = File.OpenText(Application.StartupPath + '/' + PresetsName);
++        using (StreamReader r = File.OpenText(Application.StartupPath + '/' + PresetsName)) {
+         presets = (List&lt;Preset&gt;)s.Deserialize(r);
+         r.Close();
++        }
+       }
+ 
++      if (File.Exists(Application.StartupPath + '/' + BoxesName)) {
++        BinaryFormatter frm = new BinaryFormatter();
++        using (FileStream r = new FileStream(Application.StartupPath+ '/' + BoxesName,FileMode.Open)) {
++          MapBoxes = (Dictionary&lt;string,Dictionary&lt;int, BattleRect&gt;&gt;)frm.Deserialize(r);
++          r.Close();
++        }
++      }
++
+       banList.Load();
+     }
+ 
++
++    private object savLock = new object();
+     public void SaveConfig()
+     {
+-      config.Commands.Sort(AutoHostConfig.CommandComparer);
++      lock (savLock) {
++        config.Commands.Sort(AutoHostConfig.CommandComparer);
+ 
+-      // remove duplicated admins
+-      List&lt;PrivilegedUser&gt; l = new List&lt;PrivilegedUser&gt;();
+-      foreach (PrivilegedUser p in config.PrivilegedUsers) {
+-        if (l.Find(delegate(PrivilegedUser u) { return u.Name == p.Name; }) == null) {
+-          l.Add(p);
+-        }
+-      };
+-      config.PrivilegedUsers = l;
+-      config.PrivilegedUsers.Sort(AutoHostConfig.UserComparer);
++        // remove duplicated admins
++        List&lt;PrivilegedUser&gt; l = new List&lt;PrivilegedUser&gt;();
++        foreach (PrivilegedUser p in config.PrivilegedUsers) {
++          if (l.Find(delegate(PrivilegedUser u) { return u.Name == p.Name; }) == null) {
++            l.Add(p);
++          }
++        };
++        config.PrivilegedUsers = l;
++        config.PrivilegedUsers.Sort(AutoHostConfig.UserComparer);
+ 
+-      presets.Sort(delegate(Preset a, Preset b) { return a.Name.CompareTo(b.Name); });
++        presets.Sort(delegate(Preset a, Preset b) { return a.Name.CompareTo(b.Name); });
+ 
+-      XmlSerializer s = new XmlSerializer(config.GetType());
+-      FileStream f = File.OpenWrite(Application.StartupPath + '/' + ConfigName);
+-      f.SetLength(0);
+-      s.Serialize(f, config);
+-      f.Close();
++        XmlSerializer s = new XmlSerializer(config.GetType());
++        FileStream f = File.OpenWrite(Application.StartupPath + '/' + ConfigName);
++        f.SetLength(0);
++        s.Serialize(f, config);
++        f.Close();
+ 
+-      s = new XmlSerializer(presets.GetType());
+-      f = File.OpenWrite(Application.StartupPath + '/' + PresetsName);
+-      f.SetLength(0);
+-      s.Serialize(f, presets);
+-      f.Close();
++        s = new XmlSerializer(presets.GetType());
++        f = File.OpenWrite(Application.StartupPath + '/' + PresetsName);
++        f.SetLength(0);
++        s.Serialize(f, presets);
++        f.Close();
+ 
+-      banList.Save();
++        banList.Save();
++
++
++        BinaryFormatter fm = new BinaryFormatter();
++        using (FileStream fs = new FileStream(Application.StartupPath + '/' + BoxesName, FileMode.Create)) {
++          fm.Serialize(fs, MapBoxes);
++          fs.Close();
++        }
++      }
+     }
+ 
+ 
+@@ -289,6 +313,17 @@
+       foreach (UserBattleStatus p in tas.GetBattle().Users) { //ring all people that host changed the map
+         tas.Ring(p.name);
+       }
++      Battle b = tas.GetBattle();
++      string mapName = b.Map.ArchiveName.ToLower();
++      if (MapBoxes.ContainsKey(mapName)) {
++        for (int i = 0; i &lt; b.Rectangles.Count; ++i) {
++          tas.RemoveBattleRectangle(i);
++        }
++        Dictionary&lt;int, BattleRect&gt; dict = MapBoxes[mapName];
++        foreach (KeyValuePair&lt;int, BattleRect&gt; v in dict) {
++          tas.AddBattleRectangle(v.Key, v.Value);
++        }
++      }
+     }
+ 
+ 
+
+Modified: trunk/tools/springie/Springie/autohost/AutoHost_commands.cs
+===================================================================
+--- trunk/tools/springie/Springie/autohost/AutoHost_commands.cs	2008-02-11 14:41:43 UTC (rev 5484)
++++ trunk/tools/springie/Springie/autohost/AutoHost_commands.cs	2008-02-11 18:23:48 UTC (rev 5485)
+@@ -307,6 +307,20 @@
+ 
+       StopVote();
+ 
++      Battle b = tas.GetBattle();
++      if (b!= null) {
++        string curMap = b.Map.ArchiveName.ToLower();
++        
++        Dictionary&lt;int, BattleRect&gt; nd = new Dictionary&lt;int, BattleRect&gt;();
++        foreach (KeyValuePair&lt;int, BattleRect&gt; v in b.Rectangles) {
++          nd.Add(v.Key, v.Value);
++        }
++
++        if (MapBoxes.ContainsKey(curMap)) {
++          MapBoxes[curMap] = nd;
++        } else MapBoxes.Add(curMap, nd);
++        SaveConfig();
++      }
+       tas.ChangeLock(true);
+       tas.StartGame();
+     }
+
+Modified: trunk/tools/springie/Springie/client/BattleRect.cs
+===================================================================
+--- trunk/tools/springie/Springie/client/BattleRect.cs	2008-02-11 14:41:43 UTC (rev 5484)
++++ trunk/tools/springie/Springie/client/BattleRect.cs	2008-02-11 18:23:48 UTC (rev 5485)
+@@ -4,6 +4,7 @@
+ 
+ namespace Springie.Client
+ {
++  [Serializable]
+   public struct BattleRect
+   {
+     private int left, top, right, bottom; // values 0-200 (native tasclient format)
+
+Modified: trunk/tools/springie/Springie/doc/readme.txt
+===================================================================
+--- trunk/tools/springie/Springie/doc/readme.txt	2008-02-11 14:41:43 UTC (rev 5484)
++++ trunk/tools/springie/Springie/doc/readme.txt	2008-02-11 18:23:48 UTC (rev 5485)
+@@ -159,6 +159,11 @@
+ CHANGELOG
+ 
+ ===============================
++SPRINGIE 1.11
++===============================
++* springie now autosaves boxes settings for each map. (Save happens on !start, and boxes are applied on map change)
++
++===============================
+ SPRINGIE 1.10
+ ===============================
+ * added LadderId to settings - if set to nonzero value springie will host ladder games for given ladder (it will limit map selection to those allowed by ladder and keep game settings compatible with ladder)
+
+Modified: trunk/tools/springie/Springie/utils/AutoUpdater.cs
+===================================================================
+--- trunk/tools/springie/Springie/utils/AutoUpdater.cs	2008-02-11 14:41:43 UTC (rev 5484)
++++ trunk/tools/springie/Springie/utils/AutoUpdater.cs	2008-02-11 18:23:48 UTC (rev 5485)
+@@ -76,10 +76,10 @@
+     {
+       if (enabled &amp;&amp; !spring.IsRunning) {
+         timer.Enabled = false;
+-        
++
+         UpdateCa();
+-        
+ 
++
+         using (WebClient wc = new WebClient()) {
+           try {
+             string remoteVersion = wc.DownloadString(updateSite + &quot;version.txt&quot;).Trim();
+@@ -106,30 +106,43 @@
+       }
+     }
+ 
++    private int ExtractVersionNumber(string modname)
++    {
++      int ver = 0;
++      Match m = Regex.Match(modname, &quot;r([0-9]+)&quot;);
++      if (m.Success) {
++        int.TryParse(m.Groups[1].Value, out ver);
++      }
++      return ver;
++    }
++
++
+     private void UpdateCa()
+     {
+       if (Program.main.config.CaUpdating == MainConfig.CaUpdateMode.None) return;
+-      using (WebClient wc = new WebClient()) {
+-        try {
+-          string remoteVersion = wc.DownloadString(&quot;<A HREF="http://files.caspring.org/snapshots/latest_revision">http://files.caspring.org/snapshots/latest_revision</A>&quot;).Trim();
+-          Battle b = tas.GetBattle();
+-          if (b != null) {
+-            if (!string.IsNullOrEmpty(remoteVersion)) {
+-              spring.Reload(true, false);
+-              foreach (string s in spring.UnitSync.ModList.Keys) {
+-                if (s.Contains(remoteVersion) &amp;&amp; b.Mod.Name != s) {
+-                  if ((Program.main.config.CaUpdating == MainConfig.CaUpdateMode.Stable &amp;&amp; s.Contains(&quot;STABLE&quot;)) || (Program.main.config.CaUpdating == MainConfig.CaUpdateMode.Latest)) {
+-                    tas.Say(TasClient.SayPlace.Battle, &quot;&quot;, &quot;Springie is now rehosting to new version of CA - &quot; + remoteVersion, true);
+-                    Program.main.AutoHost.ComRehost(TasSayEventArgs.Default, new string[] { remoteVersion });
+-                  }
+-                }
++
++      Battle b = tas.GetBattle();
++      if (b != null) {
++        spring.Reload(true, false);
++        string selMod = b.Mod.Name;
++        int vers = int.MinValue;
++        foreach (string s in spring.UnitSync.ModList.Keys) {
++          if (s.Contains(&quot;Complete Annihilation&quot;)) {
++            if ((Program.main.config.CaUpdating == MainConfig.CaUpdateMode.Stable &amp;&amp; s.Contains(&quot;STABLE&quot;)) || Program.main.config.CaUpdating == MainConfig.CaUpdateMode.Latest) {
++              int nv = ExtractVersionNumber(s);
++              if (nv &gt; vers) {
++                vers = nv;
++                selMod = s;
+               }
+             }
+           }
+-        } catch (WebException) {
+         }
++
++        if (b.Mod.Name != selMod) {
++          tas.Say(TasClient.SayPlace.Battle, &quot;&quot;, &quot;Springie is now rehosting to new version of CA - &quot; + selMod, true);
++          Program.main.AutoHost.ComRehost(TasSayEventArgs.Default, new string[] { selMod });
++        }
+       }
+     }
+-
+   }
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000291.html">[Taspring-linux-commit] r5484 - trunk/tools/unitsync
+</A></li>
+	<LI>Next message: <A HREF="000293.html">[Taspring-linux-commit] r5486 - trunk/game/LuaUI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#292">[ date ]</a>
+              <a href="thread.html#292">[ thread ]</a>
+              <a href="subject.html#292">[ subject ]</a>
+              <a href="author.html#292">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

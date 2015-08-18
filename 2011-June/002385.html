@@ -1,0 +1,585 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7615 - in Lobby/TASClient: . Python/scripts
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2011-June/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7615%20-%20in%20Lobby/TASClient%3A%20.%20Python/scripts&In-Reply-To=%3C20110622210610.B3AD1313DF%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002384.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7615 - in Lobby/TASClient: . Python/scripts</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7615%20-%20in%20Lobby/TASClient%3A%20.%20Python/scripts&In-Reply-To=%3C20110622210610.B3AD1313DF%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7615 - in Lobby/TASClient: . Python/scripts">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Jun 22 23:06:10 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002384.html">[Taspring-linux-commit] r7614 - in Lobby/TASClient: . Python
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2385">[ date ]</a>
+              <a href="thread.html#2385">[ thread ]</a>
+              <a href="subject.html#2385">[ subject ]</a>
+              <a href="author.html#2385">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2011-06-22 23:06:04 +0200 (Wed, 22 Jun 2011)
+New Revision: 7615
+
+Added:
+   Lobby/TASClient/Python/scripts/z_autoUnspec.py
+Modified:
+   Lobby/TASClient/BattleFormUnit.pas
+   Lobby/TASClient/LobbyScriptUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* PYTHON : stability improved
+* PYTHON : autoUnspec script added
+* my options should be grayed now when not waiting in a battle
+
+Modified: Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.pas	2011-06-19 16:09:45 UTC (rev 7614)
++++ Lobby/TASClient/BattleFormUnit.pas	2011-06-22 21:06:04 UTC (rev 7615)
+@@ -2171,6 +2171,7 @@
+   LadderRulesButton.Enabled := False;
+ 
+   SetMyBattleStatus(MySideButton.Tag, False, 0, 0, 1);
++  DisableControlAndChildren(MyOptionsGroupBox);
+   ChangeTeamColor(MyTeamColorIndex, False);
+ 
+   lblTeamNbr.Caption := '';
+
+Modified: Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- Lobby/TASClient/LobbyScriptUnit.pas	2011-06-19 16:09:45 UTC (rev 7614)
++++ Lobby/TASClient/LobbyScriptUnit.pas	2011-06-22 21:06:04 UTC (rev 7615)
+@@ -295,7 +295,7 @@
+   end;
+ 
+   function AcquireMainThread:boolean;
+-  procedure ReleaseMainThread;
++  function ReleaseMainThread: Boolean;
+   procedure PyDict_SetItemStringDecRef(dp: PPyObject; Key: PAnsiChar; const V : Variant);
+   function PyListFromStrings(sl: TStrings):PPyObject;
+   function PyListFromWideStrings(sl: TWideStrings):PPyObject;
+@@ -436,28 +436,48 @@
+ end;
+ 
+ procedure TCallback.Disconnect;
++var
++  mtReleased: Boolean;
+ begin
++  mtReleased := ReleaseMainThread;
+   try
+     MainForm.TryToDisconnect;
+   except
+     on E:Exception do
+       Print(E.Message);
+   end;
++  if mtReleased then
++    AcquireMainThread;
+ end;
+ 
+ procedure TCallback.SocketConnect(adress: string; port: integer);
++var
++  mtReleased: Boolean;
+ begin
++  mtReleased := ReleaseMainThread;
+   MainForm.TryToConnect(adress,IntToStr(port),true);
++  if mtReleased then
++    AcquireMainThread;
+ end;
+ 
+ procedure TCallback.PerformConnected;
++var
++  mtReleased: Boolean;
+ begin
++  mtReleased := ReleaseMainThread;
+   MainForm.SocketSessionConnected(nil,0);
++  if mtReleased then
++    AcquireMainThread;
+ end;
+ 
+ procedure TCallback.PerformDisconnected;
++var
++  mtReleased: Boolean;
+ begin
++  mtReleased := ReleaseMainThread;
+   MainForm.SocketChangeState(nil,wsConnected,wsClosed);
++  if mtReleased then
++    AcquireMainThread;
+ end;
+ 
+ 
+@@ -481,22 +501,26 @@
+ end;
+ procedure TCallback.SendProtocol(data: WideString);
+ var
++  mtReleased: Boolean;
+   i:integer;
+ begin
+   i := Pos(' ',data);
+-  ReleaseMainThread;
++  mtReleased := ReleaseMainThread;
+   try
+     MainForm.TryToSendCommand(LeftStr(data,i-1),MidStr(data,i+1,9999999));
+   except
+     on E:Exception do
+       Print(E.Message);
+   end;
+-  AcquireMainThread;
++  if mtReleased then
++    AcquireMainThread;
+ end;
+ procedure TCallback.HandleProtocol(data: WideString);
++var
++  mtReleased: Boolean;
+ begin
+   if Status.ConnectionState &lt;&gt; Connected then Exit;
+-  ReleaseMainThread;
++  mtReleased := ReleaseMainThread;
+   Status.TimeOfLastDataReceived := GetTickCount;
+   try
+     MainForm.ProcessRemoteCommand(data);
+@@ -504,19 +528,23 @@
+     on E:Exception do
+       Print(E.Message);
+   end;
+-  AcquireMainThread;
++  if mtReleased then
++    AcquireMainThread;
+ end;
+ 
+ procedure TCallback.ProcessCommand(command: WideString; fromBattleScreen: Boolean);
++var
++  mtReleased: Boolean;
+ begin
+-  ReleaseMainThread;
++  mtReleased := ReleaseMainThread;
+   try
+     MainForm.ProcessCommand(command,fromBattleScreen);
+   except
+     on E:Exception do
+       Print(E.Message);
+   end;
+-  AcquireMainThread;
++  if mtReleased then
++    AcquireMainThread; 
+ end;
+ 
+ {procedure TCallback.NewThread(functionName: String;tuple: Variant);
+@@ -1799,6 +1827,7 @@
+ 
+ function TCallback.JoinBattle(battleId: integer; Password: String; spectator: Boolean) : Boolean;
+ var
++  mtReleased: Boolean;
+   b : TBattle;
+ begin
+   LockCallback;
+@@ -1811,7 +1840,7 @@
+     Exit;
+   end;
+ 
+-  ReleaseMainThread;
++  mtReleased := ReleaseMainThread;
+   ScriptJoining := True;
+   b := MainForm.GetBattle(battleId);
+   if b &lt;&gt; nil then
+@@ -1824,11 +1853,14 @@
+   end
+   else
+     Result := False;
+-  AcquireMainThread;
++  if mtReleased then
++    AcquireMainThread;
+   UnlockCallback;
+ end;
+ 
+ function TCallback.HostReplay(replayFile: string; nbPlayers: integer; RankLimit: Integer; Description: string; Password: string; UDPHostPort: integer; NatTraversal: integer) : Boolean;
++var
++  mtReleased: Boolean;
+ begin
+   Result := True;
+ 
+@@ -1841,7 +1873,7 @@
+   ScriptHostingReplayRunning := True;
+   ScriptHostingRunning := True;
+ 
+-  ReleaseMainThread;
++  mtReleased := ReleaseMainThread;
+   with HostBattleForm do
+   begin
+     try
+@@ -1852,7 +1884,8 @@
+         ScriptHostingReplayRunning := false;
+         ScriptHostingRunning := false;
+         Result := false;
+-        AcquireMainThread;
++        if mtReleased then
++          AcquireMainThread;
+         Exit;
+       end;
+ 
+@@ -1871,10 +1904,13 @@
+       Result := false;
+     end;
+   end;
+-  AcquireMainThread;
++  if mtReleased then
++    AcquireMainThread;
+ end;
+ 
+ function TCallback.HostBattle(nbPlayers: integer; RankLimit: Integer; ModName: string; Description: string; Password: string; UDPHostPort: integer; NatTraversal: integer) : Boolean;
++var
++  mtReleased: Boolean;
+ begin
+   Result := True;
+ 
+@@ -1886,7 +1922,7 @@
+ 
+   ScriptHostingRunning := True;
+ 
+-  ReleaseMainThread;
++  mtReleased := ReleaseMainThread;
+   with HostBattleForm do
+   begin
+     try
+@@ -1906,7 +1942,8 @@
+       Result := false;
+     end;
+   end;
+-  AcquireMainThread;
++  if mtReleased then
++    AcquireMainThread;
+ end;
+ 
+ procedure TCallback.LeaveBattle;
+@@ -1936,23 +1973,30 @@
+ end;
+ 
+ function TCallback.StartBattle: Boolean;
++var
++  mtReleased: Boolean;
+ begin
+   Result := False;
+   if ScriptStart then
+     Exit;
+   ScriptStart := True;
+   StartBattleSuccess := False;
++  mtReleased := ReleaseMainThread;
+   try
+     BattleForm.StartButtonClick(nil);
+   except
+     on E:Exception do
+       Print(E.Message);
+   end;
++  if mtReleased then
++    AcquireMainThread;
+   Result := StartBattleSuccess;
+   ScriptStart := False;
+ end;
+ 
+ function TCallback.SetMyReadyStatus(b: Boolean): Boolean;
++var
++  mtReleased: Boolean;
+ begin
+   Result := False;
+   if BattleState.Battle = nil then
+@@ -1962,21 +2006,24 @@
+     Result := True;
+     Exit;
+   end;
+-  ReleaseMainThread;
++  mtReleased := ReleaseMainThread;
+   BattleForm.ReadyButtonClick(BattleForm.ReadyButton);
+   Result := BattleForm.AmIReady;
+   if Result then
+     Status.Me.SetReadyStatus(Result);
+-  AcquireMainThread;
++  if mtReleased then
++    AcquireMainThread;
+ end;
+ 
+ procedure TCallback.SetMyBattleStatus(spec: boolean);
++var
++  mtReleased: Boolean;
+ begin
+-  ReleaseMainThread;
++  mtReleased := ReleaseMainThread;
+   BattleForm.SpectateCheckBox.Checked := spec;
+   BattleForm.ReadyButton.Enabled := ((BattleState.Battle &lt;&gt; nil) and (BattleState.Battle.BattleType = 1)) or not BattleForm.SpectateCheckBox.Checked;
+-  BattleForm.SendMyBattleStatusToServer;
+-  AcquireMainThread;
++  if mtReleased then
++    AcquireMainThread;
+ end;
+ 
+ procedure TCallback.DownloadMap2(mapName: string; callbackArgs: Variant; callbackFunction: Variant);
+@@ -2831,16 +2878,24 @@
+   tmpSl: TStringList;
+ 
+   p: TProperty;
++
++  mtReleased: Boolean;
+ begin
+   Result := False;
+ 
+   try
+     c := GetComponentFromString(component) as TComponent;
+   except
++    Print('SetControlProperties error : component &quot;'+component+'&quot; not found');
+     Exit;
+   end;
+ 
+-  if c = nil then Exit;
++  if c = nil then
++  begin
++    Print('SetControlProperties error : component &quot;'+component+'&quot; not found');
++    Exit;
++  end;
++  mtReleased := ReleaseMainThread;
+   LockGUI;
+   try
+     Result := True;
+@@ -2851,6 +2906,7 @@
+       if not PyDict_Check(properties) then
+       begin
+         UnlockGUI;
++        AcquireMainThread;
+         Exit;
+       end;
+ 
+@@ -2876,6 +2932,7 @@
+           if (i &gt;= propNames.Count) and (propNames[i] &lt;&gt; propSl[0]) then
+           begin
+             UnlockGUI;
++            AcquireMainThread;
+             Exit;
+           end;
+ 
+@@ -2956,6 +3013,8 @@
+     Result := False;
+   end;
+   UnlockGUI;
++  if mtReleased then
++    AcquireMainThread;
+ end;
+ 
+ 
+@@ -3261,6 +3320,12 @@
+   func: PPyObject;
+ begin
+   comp := GetComponentFromString(component);
++  if comp = nil then
++  begin
++    Print('AddEvent2 error : component &quot;'+component+'&quot; not found');
++    Exit;
++  end;
++
+   New(eh);
+   func := GetPythonEngine.VariantAsPyObject(callbackFunction);
+   if GetPerpertyInfo(comp,event).PropType^.Name = 'TWebBrowserBeforeNavigate2' then
+@@ -3335,6 +3400,8 @@
+   l: TList;
+ 
+   freeList: TList;
++
++  mtReleased: Boolean;
+ begin
+   Result := -1;
+   comp := GetComponentFromString(component);
+@@ -3399,9 +3466,10 @@
+     end;
+   end;
+ 
+-  ReleaseMainThread;
++  mtReleased := ReleaseMainThread;
+   Result := Misc.CallFunction(m,l);
+-  AcquireMainThread;
++  if mtReleased then
++    AcquireMainThread;
+ 
+   for i:=0 to freeList.Count-1 do
+     Dispose(freeList[i]);
+@@ -3561,14 +3629,16 @@
+   MsgList.EndUpdate;
+ end;
+ 
+-procedure ReleaseMainThread;
++function ReleaseMainThread: Boolean;
+ var
+   i: integer;
+ begin
++  Result := False;
+   if Preferences.ScriptsDisabled or not ScriptsInitialized then Exit;
+   if GetCurrentThreadId &lt;&gt; MainThreadID then Exit;
+   if not MainThreadFocused then Exit;
+   GetPythonEngine.PyEval_ReleaseThread(MainThreadState);
++  Result := True;
+   MainThreadFocused := False;
+ end;
+ 
+
+Added: Lobby/TASClient/Python/scripts/z_autoUnspec.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/z_autoUnspec.py	                        (rev 0)
++++ Lobby/TASClient/Python/scripts/z_autoUnspec.py	2011-06-22 21:06:04 UTC (rev 7615)
+@@ -0,0 +1,93 @@
++import lobbyscript
++import datetime
++
++api = lobbyscript.Callback()
++gui = lobbyscript.GUI()
++
++autoUnspecEnabled = False
++myName = ''
++oldNbPlayer = 0
++currentBattleId = -1
++lastUnspecSent = datetime.datetime.now()
++maxUnspecInterval = datetime.timedelta(seconds=1)
++retryNextTime = False
++
++def onChkAutoSpecClick(sender):
++	global autoUnspecEnabled
++	global lastUnspecSent
++	autoUnspecEnabled = gui.GetControlProperties('BattleForm.MyOptionsGroupBox.chkAutoUnspec','')['Checked']
++	if autoUnspecEnabled:
++		api.SetMyBattleStatus(False) # in case there is already a slot available
++		lastUnspecSent = datetime.datetime.now()
++
++def _init():
++	specChkBoxProp = gui.GetControlProperties('BattleForm.SpectateCheckBox','')
++	gui.AddControl('chkAutoUnspec','BattleForm.MyOptionsGroupBox','TSpTBXCheckBox')
++	chkAutoUnspecProp = dict()
++	chkAutoUnspecProp['Checked'] = 'False'
++	chkAutoUnspecProp['Left'] = specChkBoxProp['Left']+specChkBoxProp['Width']+4
++	chkAutoUnspecProp['Top'] = specChkBoxProp['Top']
++	chkAutoUnspecProp['Caption'] = 'Auto unspec'
++	chkAutoUnspecProp['Enabled'] = False
++	chkAutoUnspecProp['Visible'] = True
++	gui.SetControlProperties('BattleForm.MyOptionsGroupBox.chkAutoUnspec','',chkAutoUnspecProp)
++	gui.AddEvent2('BattleForm.MyOptionsGroupBox.chkAutoUnspec','OnClick',onChkAutoSpecClick)
++
++def out_LOGIN(userName, infos):
++	global myName
++	myName = userName
++	
++def in_JOINBATTLE(battleid,infos):
++	global oldNbPlayer
++	global currentBattleId
++	currentBattleId = int(battleid)
++	oldNbPlayer = 0
++	gui.SetControlProperties('BattleForm.MyOptionsGroupBox.chkAutoUnspec','',{'Enabled':True, 'Checked':False})
++		
++def out_LEAVEBATTLE():
++	global currentBattleId
++	global autoUnspecEnabled
++	currentBattleId = -1
++	autoUnspecEnabled = False
++	gui.SetControlProperties('BattleForm.MyOptionsGroupBox.chkAutoUnspec','',{'Checked':False})
++	
++def onDisconnect():
++	gui.SetControlProperties('BattleForm.MyOptionsGroupBox.chkAutoUnspec','',{'Enabled':False, 'Checked':False})
++	
++def tryToUnspec():
++	global oldNbPlayer
++	global autoUnspecEnabled
++	global wasSpec
++	global lastUnspecSent
++	global retryNextTime
++
++	if datetime.datetime.now()-lastUnspecSent &gt; maxUnspecInterval:
++		iAmSpec = gui.GetControlProperties('BattleForm.SpectateCheckBox','')['Checked']
++		
++		currentBattle = api.GetCurrentBattle()
++		if currentBattle != None:
++			currentNbPlayer = len(currentBattle['Battle']['Users'])-api.GetCurrentBattle()['Battle']['SpectatorCount']
++			if autoUnspecEnabled and oldNbPlayer &gt; currentNbPlayer and iAmSpec:
++				api.SetMyBattleStatus(False)
++				lastUnspecSent = datetime.datetime.now()
++			oldNbPlayer = currentNbPlayer
++	else:
++		retryNextTime = True
++	
++def in2_CLIENTBATTLESTATUS(infos):
++	global autoUnspecEnabled
++	if autoUnspecEnabled:
++		tryToUnspec()
++
++def in_LEFTBATTLE(id,username):
++	global currentBattleId
++	global autoUnspecEnabled
++	if autoUnspecEnabled and int(id) == currentBattleId:
++		tryToUnspec()
++		
++def all_in(args):
++	global retryNextTime
++	if retryNextTime:
++		retryNextTime = False
++		tryToUnspec()
++	
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2011-06-19 16:09:45 UTC (rev 7614)
++++ Lobby/TASClient/TASClient.dof	2011-06-22 21:06:04 UTC (rev 7615)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=91
+ Release=0
+-Build=1316
++Build=1317
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.91.0.1316
++FileVersion=0.91.0.1317
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002384.html">[Taspring-linux-commit] r7614 - in Lobby/TASClient: . Python
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2385">[ date ]</a>
+              <a href="thread.html#2385">[ thread ]</a>
+              <a href="subject.html#2385">[ subject ]</a>
+              <a href="author.html#2385">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

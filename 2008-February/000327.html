@@ -1,0 +1,958 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5520 - in trunk/rts: Game System System/Net
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5520%20-%20in%20trunk/rts%3A%20Game%20System%20System/Net&In-Reply-To=%3CE1JSCzz-000267-B7%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000326.html">
+   <LINK REL="Next"  HREF="000328.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5520 - in trunk/rts: Game System System/Net</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5520%20-%20in%20trunk/rts%3A%20Game%20System%20System/Net&In-Reply-To=%3CE1JSCzz-000267-B7%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5520 - in trunk/rts: Game System System/Net">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Feb 21 16:06:11 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000326.html">[Taspring-linux-commit] r5519 - trunk/rts/Lua
+</A></li>
+        <LI>Next message: <A HREF="000328.html">[Taspring-linux-commit] r5521 - trunk/rts/System/Net
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#327">[ date ]</a>
+              <a href="thread.html#327">[ thread ]</a>
+              <a href="subject.html#327">[ subject ]</a>
+              <a href="author.html#327">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-02-21 16:06:10 +0100 (Thu, 21 Feb 2008)
+New Revision: 5520
+
+Added:
+   trunk/rts/System/Net/UDPConnectedSocket.cpp
+   trunk/rts/System/Net/UDPConnectedSocket.h
+Removed:
+   trunk/rts/System/Net/UDPHardlink.cpp
+   trunk/rts/System/Net/UDPHardlink.h
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameServer.h
+   trunk/rts/Game/PreGame.cpp
+   trunk/rts/System/AutohostInterface.cpp
+   trunk/rts/System/AutohostInterface.h
+   trunk/rts/System/Net/Net.cpp
+   trunk/rts/System/Net/Net.h
+   trunk/rts/System/Net/UDPConnection.cpp
+   trunk/rts/System/Net/UDPListener.cpp
+   trunk/rts/System/Net/UDPListener.h
+   trunk/rts/System/Net/UDPSocket.cpp
+   trunk/rts/System/Net/UDPSocket.h
+   trunk/rts/System/NetProtocol.cpp
+Log:
+* some cleanup in the network code
+* local connection  now connect like remote ones
+
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-02-20 20:31:17 UTC (rev 5519)
++++ trunk/rts/Game/Game.cpp	2008-02-21 15:06:10 UTC (rev 5520)
+@@ -1894,7 +1894,7 @@
+ 		return false;
+ 	}
+ 
+-	if( gameServer &amp;&amp; gameServer-&gt;WaitsOnCon() &amp;&amp; !gameSetup)
++	if( gameServer &amp;&amp; !gameServer-&gt;GameHasStarted() &amp;&amp; !gameSetup)
+ 	{
+ 		bool allReady = true;
+ 		for(int a=0;a&lt;gs-&gt;activePlayers;a++) {
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-02-20 20:31:17 UTC (rev 5519)
++++ trunk/rts/Game/GameServer.cpp	2008-02-21 15:06:10 UTC (rev 5520)
+@@ -133,11 +133,10 @@
+ 	}
+ }
+ 
+-void CGameServer::AddLocalClient(unsigned wantedNumber)
++void CGameServer::AddLocalClient()
+ {
+ 	boost::mutex::scoped_lock scoped_lock(gameServerMutex);
+ 	serverNet-&gt;ServerInitLocalClient();
+-	BindConnection(wantedNumber, true);
+ }
+ 
+ void CGameServer::AddAutohostInterface(const int usePort, const int remotePort)
+@@ -379,7 +378,7 @@
+ 	{
+ 		RawPacket* packet = serverNet-&gt;GetData();
+ 		const unsigned char* inbuf = packet-&gt;data;
+-
++		
+ 		if (packet-&gt;length &gt;= 3 &amp;&amp; inbuf[0] == NETMSG_ATTEMPTCONNECT &amp;&amp; inbuf[2] == NETWORK_VERSION)
+ 		{
+ 			const unsigned wantedNumber = inbuf[1];
+@@ -1022,6 +1021,11 @@
+ 	return serverNet-&gt;Listening();
+ }
+ 
++bool CGameServer::GameHasStarted() const
++{
++	return (gameStartTime&gt;0);
++}
++
+ void CGameServer::KickPlayer(const int playerNum)
+ {
+ 	if (players[playerNum]) {
+@@ -1037,7 +1041,7 @@
+ 	}
+ }
+ 
+-void CGameServer::BindConnection(unsigned wantedNumber, bool grantRights)
++void CGameServer::BindConnection(unsigned wantedNumber)
+ {
+ 	unsigned hisNewNumber = wantedNumber;
+ 	if (demoReader) {
+@@ -1057,6 +1061,8 @@
+ 			serverNet-&gt;SendPlayerName(a, players[a]-&gt;name);
+ 	}
+ 
++	// is this is the local player (== host) then he can kick, set options etc.
++	bool grantRights = setup ? (hisNewNumber == setup-&gt;myPlayerNum) : (wantedNumber == 0);
+ 	players[hisNewNumber].reset(new GameParticipant(grantRights)); // give him rights to change speed, kick players etc
+ 	if (setup &amp;&amp; hisNewNumber &lt; (unsigned)setup-&gt;numPlayers/* needed for non-hosted demo playback */)
+ 	{
+
+Modified: trunk/rts/Game/GameServer.h
+===================================================================
+--- trunk/rts/Game/GameServer.h	2008-02-20 20:31:17 UTC (rev 5519)
++++ trunk/rts/Game/GameServer.h	2008-02-21 15:06:10 UTC (rev 5520)
+@@ -58,7 +58,7 @@
+ 	CGameServer(int port, const std::string&amp; mapName, const std::string&amp; modName, const std::string&amp; scriptName, const CGameSetupData* const setup, const std::string&amp; demoName = &quot;&quot;);
+ 	~CGameServer();
+ 
+-	void AddLocalClient(unsigned wantedNumber);
++	void AddLocalClient();
+ 
+ 	void AddAutohostInterface(const int usePort, const int remotePort);
+ 
+@@ -78,6 +78,7 @@
+ 	void CreateNewFrame(bool fromServerThread, bool fixedFrameTime);
+ 
+ 	bool WaitsOnCon() const;
++	bool GameHasStarted() const;
+ 
+ 	void SetGamePausable(const bool arg);
+ 	
+@@ -104,7 +105,7 @@
+ 	*/
+ 	void KickPlayer(const int playerNum);
+ 
+-	void BindConnection(unsigned wantedNumber, bool grantRights=false);
++	void BindConnection(unsigned wantedNumber);
+ 
+ 	void CheckForGameStart(bool forced=false);
+ 	void StartGame();
+
+Modified: trunk/rts/Game/PreGame.cpp
+===================================================================
+--- trunk/rts/Game/PreGame.cpp	2008-02-20 20:31:17 UTC (rev 5519)
++++ trunk/rts/Game/PreGame.cpp	2008-02-21 15:06:10 UTC (rev 5520)
+@@ -342,7 +342,7 @@
+ 				gameServer = new CGameServer(myPort, mapName, modName, scriptName, gameSetup, demoFile);
+ 				if (gameSetup &amp;&amp; gameSetup-&gt;autohostport &gt; 0)
+ 					gameServer-&gt;AddAutohostInterface(myPort+1, gameSetup-&gt;autohostport);
+-				gameServer-&gt;AddLocalClient(gameSetup? gameSetup-&gt;myPlayerNum : 0);
++				gameServer-&gt;AddLocalClient();
+ 				good_fpu_control_registers(&quot;after CGameServer creation&quot;);
+ 			}
+ 
+
+Modified: trunk/rts/System/AutohostInterface.cpp
+===================================================================
+--- trunk/rts/System/AutohostInterface.cpp	2008-02-20 20:31:17 UTC (rev 5519)
++++ trunk/rts/System/AutohostInterface.cpp	2008-02-21 15:06:10 UTC (rev 5520)
+@@ -1,6 +1,6 @@
+ #include &quot;AutohostInterface.h&quot;
+ 
+-#include &quot;Net/UDPHardlink.h&quot; 
++#include &quot;Net/UDPConnectedSocket.h&quot; 
+ 
+ namespace {
+ 
+@@ -46,7 +46,7 @@
+ 
+ AutohostInterface::AutohostInterface(int localport, int remoteport)
+ {
+-	autohost = new netcode::UDPHardlink(&quot;127.0.0.1&quot;, remoteport, localport);
++	autohost = new netcode::UDPConnectedSocket(&quot;127.0.0.1&quot;, remoteport, localport);
+ }
+ 
+ AutohostInterface::~AutohostInterface()
+
+Modified: trunk/rts/System/AutohostInterface.h
+===================================================================
+--- trunk/rts/System/AutohostInterface.h	2008-02-20 20:31:17 UTC (rev 5519)
++++ trunk/rts/System/AutohostInterface.h	2008-02-21 15:06:10 UTC (rev 5520)
+@@ -6,7 +6,7 @@
+ #include &quot;Game/Server/ServerLog.h&quot;
+ 
+ namespace netcode {
+-class UDPHardlink;
++	class UDPConnectedSocket;
+ }
+ 
+ /**
+@@ -47,7 +47,7 @@
+ 	std::string GetChatMessage() const;
+ 	
+ private:
+-	netcode::UDPHardlink* autohost;
++	netcode::UDPConnectedSocket* autohost;
+ };
+ 
+ #endif
+
+Modified: trunk/rts/System/Net/Net.cpp
+===================================================================
+--- trunk/rts/System/Net/Net.cpp	2008-02-20 20:31:17 UTC (rev 5519)
++++ trunk/rts/System/Net/Net.cpp	2008-02-21 15:06:10 UTC (rev 5520)
+@@ -7,6 +7,7 @@
+ #include &quot;Net.h&quot;
+ 
+ #include &lt;boost/format.hpp&gt;
++#include &lt;boost/weak_ptr.hpp&gt;
+ 
+ #include &quot;Connection.h&quot;
+ #include &quot;UDPConnection.h&quot;
+@@ -51,7 +52,7 @@
+ void CNet::ServerInitLocalClient()
+ {
+ 	boost::shared_ptr&lt;CLocalConnection&gt; conn(new CLocalConnection());
+-	waitingQueue.push(conn);
++	localConnBuf = conn;
+ }
+ 
+ void CNet::RegisterMessage(unsigned char id, int length)
+@@ -68,7 +69,7 @@
+ {
+ 	if (udplistener)
+ 	{
+-		return udplistener-&gt;GetWaitingForConnections();
++		return udplistener-&gt;Listen();
+ 	}
+ 	else
+ 	{
+@@ -80,7 +81,7 @@
+ {
+ 	if (udplistener)
+ 	{
+-		udplistener-&gt;SetWaitingForConnections(state);
++		udplistener-&gt;Listen(state);
+ 	}
+ }
+ 
+@@ -213,7 +214,7 @@
+ {
+ 	if (udplistener)
+ 	{
+-		udplistener-&gt;Update(waitingQueue);
++		udplistener-&gt;Update();
+ 	}
+ 	
+ 	for (connVec::iterator i = connections.begin(); i &lt; connections.end(); ++i)
+@@ -263,16 +264,22 @@
+ 
+ bool CNet::HasIncomingConnection() const
+ {
+-	return !waitingQueue.empty();
++	return (localConnBuf || (udplistener &amp;&amp; udplistener-&gt;HasIncomingConnections()));
+ }
+ 
+ RawPacket* CNet::GetData()
+ {
+-	if (HasIncomingConnection())
++	if (localConnBuf)
+ 	{
+-		RawPacket* data = waitingQueue.front()-&gt;GetData();
++		RawPacket* data = localConnBuf-&gt;GetData();
+ 		return data;
+ 	}
++	else if (udplistener &amp;&amp; udplistener-&gt;HasIncomingConnections())
++	{
++		boost::shared_ptr&lt;UDPConnection&gt; locked(udplistener-&gt;PreviewConnection());
++		RawPacket* data = locked-&gt;GetData();
++		return data;
++	}
+ 	else
+ 	{
+ 		throw network_error(&quot;No Connection waiting (no data recieved)&quot;);
+@@ -281,12 +288,17 @@
+ 
+ unsigned CNet::AcceptIncomingConnection(const unsigned wantedNumber)
+ {
+-	if (HasIncomingConnection())
++	if (localConnBuf)
+ 	{
+-		unsigned buffer = InitNewConn(waitingQueue.front(), wantedNumber);
+-		waitingQueue.pop();
++		unsigned buffer = InitNewConn(localConnBuf, wantedNumber);
++		localConnBuf.reset();
+ 		return buffer;
+ 	}
++	else if (udplistener &amp;&amp; udplistener-&gt;HasIncomingConnections())
++	{
++		unsigned buffer = InitNewConn(udplistener-&gt;AcceptConnection(), wantedNumber);
++		return buffer;
++	}
+ 	else
+ 	{
+ 		throw network_error(&quot;No Connection waiting (no connection accepted)&quot;);
+@@ -295,10 +307,14 @@
+ 
+ void CNet::RejectIncomingConnection()
+ {
+-	if (HasIncomingConnection())
++	if (localConnBuf)
+ 	{
+-		waitingQueue.pop();
++		localConnBuf.reset();
+ 	}
++	else if (udplistener &amp;&amp; udplistener-&gt;HasIncomingConnections())
++	{
++		udplistener-&gt;RejectConnection();
++	}
+ 	else
+ 	{
+ 		throw network_error(&quot;No connection found to reject&quot;);
+
+Modified: trunk/rts/System/Net/Net.h
+===================================================================
+--- trunk/rts/System/Net/Net.h	2008-02-20 20:31:17 UTC (rev 5519)
++++ trunk/rts/System/Net/Net.h	2008-02-21 15:06:10 UTC (rev 5520)
+@@ -2,7 +2,7 @@
+ #define NET_H
+ 
+ #include &lt;string&gt;
+-#include &lt;queue&gt;
++#include &lt;vector&gt;
+ #include &lt;boost/scoped_array.hpp&gt;
+ #include &lt;boost/shared_ptr.hpp&gt;
+ #include &lt;boost/scoped_ptr.hpp&gt;
+@@ -388,11 +388,12 @@
+ 	*/
+ 	boost::scoped_ptr&lt;UDPListener&gt; udplistener;
+ 	
++	connPtr localConnBuf;
++	
+ 	/**
+ 	@brief All active connections
+ 	*/
+ 	connVec connections;
+-	std::queue&lt; connPtr &gt; waitingQueue;
+ 	
+ 	struct AssembleBuffer
+ 	{
+
+Added: trunk/rts/System/Net/UDPConnectedSocket.cpp
+===================================================================
+--- trunk/rts/System/Net/UDPConnectedSocket.cpp	                        (rev 0)
++++ trunk/rts/System/Net/UDPConnectedSocket.cpp	2008-02-21 15:06:10 UTC (rev 5520)
+@@ -0,0 +1,54 @@
++#include &quot;UDPConnectedSocket.h&quot;
++
++#include &lt;string&gt;
++
++#ifdef _WIN32
++#else
++#include &lt;sys/socket.h&gt;
++#endif
++
++#include &quot;Exception.h&quot;
++
++namespace netcode
++{
++
++#ifdef _WIN32
++#else
++	const int SOCKET_ERROR = -1;
++#endif
++
++UDPConnectedSocket::UDPConnectedSocket(const char* const server, const unsigned remoteport, const int port)
++: UDPSocket(port)
++{
++	sockaddr_in remoteAddr = ResolveHost(server, remoteport);
++	connect(mySocket, (sockaddr*)&amp;remoteAddr, sizeof(remoteAddr));
++}
++
++
++void UDPConnectedSocket::Send(const unsigned char* const buf, const unsigned dataLength) const
++{
++	send(mySocket, (char*)buf, dataLength, 0);
++}
++
++unsigned UDPConnectedSocket::Recv(unsigned char* buf, const unsigned bufLength) const
++{
++	const int data = recv(mySocket,(char*)buf,bufLength,0);
++	
++	if (data == SOCKET_ERROR)
++	{
++		if (IsFakeError())
++		{
++			return 0;
++		}
++		else
++		{
++			throw network_error(std::string(&quot;Error receiving data from socket: &quot;) + GetErrorMsg());
++		}
++	}
++	return data;
++}
++
++
++} // namespace netcode
++ 
++ 
+
+Added: trunk/rts/System/Net/UDPConnectedSocket.h
+===================================================================
+--- trunk/rts/System/Net/UDPConnectedSocket.h	                        (rev 0)
++++ trunk/rts/System/Net/UDPConnectedSocket.h	2008-02-21 15:06:10 UTC (rev 5520)
+@@ -0,0 +1,47 @@
++#ifndef _UDP_CONNECTED_SOCKET
++#define _UDP_CONNECTED_SOCKET
++
++#include &quot;UDPSocket.h&quot;
++
++namespace netcode {
++
++/**
+<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">+ at brief</A> Simple Class for communication with a socket location
++This is simply a UDPSocket which has been connect()'ed to a specific address and will send / recieve only to / from this address
+<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">+ at author</A> Karl-Robert Ernst
++*/
++class UDPConnectedSocket : private UDPSocket
++{
++public:
++	/**
++	@brief Constructor
++	@param address The DNS or IP of the other side
++	@param remoteport the port the other side use
++	@param port The port we will use here
++	@param range if $port is blocked, try port +1, +2, ... +range
++	@throw network_error when hostname cannot be resolved
++	*/
++	UDPConnectedSocket(const char* const address, const unsigned remoteport, const int port);
++
++	/**
++	@brief Send some data
++	*/
++	void Send(const unsigned char* const buf, const unsigned dataLength) const;
++	
++	/**
++	@brief Recieve some data
++	*/
++	unsigned Recv(unsigned char* buf, const unsigned bufLength) const;
++
++private:
++
++};
++
++
++
++} // namespace netcode
++
++#endif
++
++
++ 
+
+Modified: trunk/rts/System/Net/UDPConnection.cpp
+===================================================================
+--- trunk/rts/System/Net/UDPConnection.cpp	2008-02-20 20:31:17 UTC (rev 5519)
++++ trunk/rts/System/Net/UDPConnection.cpp	2008-02-21 15:06:10 UTC (rev 5520)
+@@ -29,33 +29,13 @@
+ 
+ UDPConnection::UDPConnection(boost::shared_ptr&lt;UDPSocket&gt; NetSocket, const sockaddr_in&amp; MyAddr) : mySocket(NetSocket)
+ {
+-	addr=MyAddr;
++	addr = MyAddr;
+ 	Init();
+ }
+ 
+ UDPConnection::UDPConnection(boost::shared_ptr&lt;UDPSocket&gt; NetSocket, const std::string&amp; address, const unsigned port) : mySocket(NetSocket)
+ {
+-	LPHOSTENT lpHostEntry;
+-
+-	addr.sin_family = AF_INET;
+-	addr.sin_port = htons(port);
+-
+-#ifdef _WIN32
+-	unsigned long ul;
+-	if((ul=inet_addr(address.c_str()))!=INADDR_NONE){
+-		addr.sin_addr.S_un.S_addr = 	ul;
+-	} else
+-#else
+-		if(inet_aton(address.c_str(),&amp;(addr.sin_addr))==0)
+-#endif
+-		{
+-			lpHostEntry = gethostbyname(address.c_str());
+-			if (lpHostEntry == NULL)
+-			{
+-				throw network_error(&quot;Error looking up server from DNS: &quot;+address);
+-			}
+-			addr.sin_addr = *((LPIN_ADDR)*lpHostEntry-&gt;h_addr_list);
+-		}
++	addr = mySocket-&gt;ResolveHost(address.c_str(), port);
+ 	Init();
+ }
+ 
+
+Deleted: trunk/rts/System/Net/UDPHardlink.cpp
+===================================================================
+--- trunk/rts/System/Net/UDPHardlink.cpp	2008-02-20 20:31:17 UTC (rev 5519)
++++ trunk/rts/System/Net/UDPHardlink.cpp	2008-02-21 15:06:10 UTC (rev 5520)
+@@ -1,78 +0,0 @@
+-#include &quot;UDPHardlink.h&quot;
+-
+-#include &lt;string&gt;
+-
+-#ifdef _WIN32
+-#else
+-#include &lt;netdb.h&gt;
+-#include &lt;arpa/inet.h&gt;
+-#include &lt;sys/socket.h&gt;
+-#endif
+-
+-#include &quot;Exception.h&quot;
+-
+-namespace netcode
+-{
+-
+-#ifdef _WIN32
+-#else
+-	typedef struct hostent* LPHOSTENT;
+-	typedef struct in_addr* LPIN_ADDR;
+-	const int SOCKET_ERROR = -1;
+-#endif
+-
+-UDPHardlink::UDPHardlink(const char* const server, const unsigned remoteport, const int port)
+-: UDPSocket(port)
+-{
+-	LPHOSTENT lpHostEntry;
+-	sockaddr_in remoteAddr;
+-
+-	remoteAddr.sin_family = AF_INET;
+-	remoteAddr.sin_port = htons(remoteport);
+-
+-#ifdef _WIN32
+-	unsigned long ul;
+-	if((ul=inet_addr(server))!=INADDR_NONE){
+-		remoteAddr.sin_addr.S_un.S_addr = ul;
+-	} else
+-#else
+-		if(inet_aton(server,&amp;(remoteAddr.sin_addr))==0)
+-#endif
+-		{
+-			lpHostEntry = gethostbyname(server);
+-			if (lpHostEntry == NULL)
+-			{
+-				throw network_error(std::string(&quot;Error looking up server from DNS: &quot;)+std::string(server));
+-			}
+-			remoteAddr.sin_addr = *((LPIN_ADDR)*lpHostEntry-&gt;h_addr_list);
+-		}
+-		connect(mySocket, (sockaddr*)&amp;remoteAddr, sizeof(remoteAddr));
+-}
+-
+-
+-void UDPHardlink::Send(const unsigned char* const buf, const unsigned dataLength) const
+-{
+-	send(mySocket, (char*)buf, dataLength, 0);
+-}
+-
+-unsigned UDPHardlink::Recv(unsigned char* buf, const unsigned bufLength) const
+-{
+-	const int data = recv(mySocket,(char*)buf,bufLength,0);
+-	
+-	if (data == SOCKET_ERROR)
+-	{
+-		if (IsFakeError())
+-		{
+-			return 0;
+-		}
+-		else
+-		{
+-			throw network_error(std::string(&quot;Error receiving data from socket: &quot;) + GetErrorMsg());
+-		}
+-	}
+-	return data;
+-}
+-
+-
+-} // namespace netcode
+- 
+
+Deleted: trunk/rts/System/Net/UDPHardlink.h
+===================================================================
+--- trunk/rts/System/Net/UDPHardlink.h	2008-02-20 20:31:17 UTC (rev 5519)
++++ trunk/rts/System/Net/UDPHardlink.h	2008-02-21 15:06:10 UTC (rev 5520)
+@@ -1,46 +0,0 @@
+-#ifndef _UDPHARDLINK
+-#define _UDPHARDLINK
+-
+-#include &quot;UDPSocket.h&quot;
+-
+-namespace netcode {
+-
+-/**
+<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">- at brief</A> Simple Class for communication with a socket location
+-This is simply a UDPSocket which has been connect()'ed to a specific address and will send / recieve only to / from this address
+<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">- at author</A> Karl-Robert Ernst
+-*/
+-class UDPHardlink : private UDPSocket
+-{
+-public:
+-	/**
+-	@brief Constructor
+-	@param address The DNS or IP of the other side
+-	@param remoteport the port the other side use
+-	@param port The port we will use here
+-	@param range if $port is blocked, try port +1, +2, ... +range
+-	@throw network_error when hostname cannot be resolved
+-	*/
+-	UDPHardlink(const char* const address, const unsigned remoteport, const int port);
+-
+-	/**
+-	@brief Send some data
+-	*/
+-	void Send(const unsigned char* const buf, const unsigned dataLength) const;
+-	
+-	/**
+-	@brief Recieve some data
+-	*/
+-	unsigned Recv(unsigned char* buf, const unsigned bufLength) const;
+-
+-private:
+-
+-};
+-
+-
+-
+-} // namespace netcode
+-
+-#endif
+-
+-
+
+Modified: trunk/rts/System/Net/UDPListener.cpp
+===================================================================
+--- trunk/rts/System/Net/UDPListener.cpp	2008-02-20 20:31:17 UTC (rev 5519)
++++ trunk/rts/System/Net/UDPListener.cpp	2008-02-21 15:06:10 UTC (rev 5520)
+@@ -18,7 +18,7 @@
+ {
+ }
+ 
+-void UDPListener::Update(std::queue&lt; boost::shared_ptr&lt;CConnection&gt; &gt;&amp; waitingQueue)
++void UDPListener::Update()
+ {
+ 	for (std::list&lt; boost::weak_ptr&lt; UDPConnection&gt; &gt;::iterator i = conn.begin(); i != conn.end(); )
+ 	{
+@@ -55,7 +55,7 @@
+ 			{
+ 				// new client wants to connect
+ 				boost::shared_ptr&lt;UDPConnection&gt; incoming(new UDPConnection(mySocket, fromAddr));
+-				waitingQueue.push(incoming);
++				waiting.push(incoming);
+ 				conn.push_back(incoming);
+ 				incoming-&gt;ProcessRawPacket(data);
+ 			}
+@@ -81,14 +81,38 @@
+ 	return temp;
+ }
+ 
+-void UDPListener::SetWaitingForConnections(const bool state)
++bool UDPListener::Listen(const bool state)
+ {
+ 	acceptNewConnections = state;
++	return acceptNewConnections;
+ }
+ 
+-bool UDPListener::GetWaitingForConnections() const
++bool UDPListener::Listen() const
+ {
+ 	return acceptNewConnections;
+ }
+ 
++bool UDPListener::HasIncomingConnections() const
++{
++	return !waiting.empty();
+ }
++
++boost::weak_ptr&lt;UDPConnection&gt; UDPListener::PreviewConnection()
++{
++	return waiting.front();
++}
++
++boost::shared_ptr&lt;UDPConnection&gt; UDPListener::AcceptConnection()
++{
++	boost::shared_ptr&lt;UDPConnection&gt; newConn = waiting.front();
++	waiting.pop();
++	conn.push_back(newConn);
++	return newConn;
++}
++
++void UDPListener::RejectConnection()
++{
++	waiting.pop();
++}
++
++}
+
+Modified: trunk/rts/System/Net/UDPListener.h
+===================================================================
+--- trunk/rts/System/Net/UDPListener.h	2008-02-20 20:31:17 UTC (rev 5519)
++++ trunk/rts/System/Net/UDPListener.h	2008-02-21 15:06:10 UTC (rev 5520)
+@@ -35,7 +35,7 @@
+ 	@brief Run this from time to time
+ 	This does: recieve data from the socket and hand it to the associated UDPConnection, or open a new UDPConnection. It also Updates all of its connections
+ 	*/
+-	void Update(std::queue&lt; boost::shared_ptr&lt;CConnection&gt; &gt;&amp; waitingQueue);
++	void Update();
+ 	
+ 	/**
+ 	@brief Initiate a connection
+@@ -46,13 +46,15 @@
+ 	/**
+ 	@brief Set if we are going to accept new connections or drop all data from unconnected addresses
+ 	*/
+-	void SetWaitingForConnections(const bool state);
++	bool Listen(const bool state);
++	bool Listen() const;
+ 	
+-	/**
+-	@brief Are we accepting new connections?
+-	*/
+-	bool GetWaitingForConnections() const;
++	bool HasIncomingConnections() const;
++	boost::weak_ptr&lt;UDPConnection&gt; PreviewConnection();
++	boost::shared_ptr&lt;UDPConnection&gt; AcceptConnection();
++	void RejectConnection();
+ 	
++	
+ private:
+ 	/**
+ 	@brief Do we accept packets from unknown sources?
+@@ -65,6 +67,8 @@
+ 	
+ 	/// all connections
+ 	std::list&lt; boost::weak_ptr&lt; UDPConnection&gt; &gt; conn;
++	
++	std::queue&lt; boost::shared_ptr&lt;UDPConnection&gt; &gt; waiting;
+ };
+ 
+ }
+
+Modified: trunk/rts/System/Net/UDPSocket.cpp
+===================================================================
+--- trunk/rts/System/Net/UDPSocket.cpp	2008-02-20 20:31:17 UTC (rev 5519)
++++ trunk/rts/System/Net/UDPSocket.cpp	2008-02-21 15:06:10 UTC (rev 5520)
+@@ -6,6 +6,8 @@
+ #else
+ 	#include &lt;fcntl.h&gt;
+ 	#include &lt;errno.h&gt;
++	#include &lt;netdb.h&gt;
++	#include &lt;arpa/inet.h&gt;
+ #endif
+ 
+ #include &quot;Exception.h&quot;
+@@ -16,7 +18,10 @@
+ #ifdef _WIN32
+ 	typedef int socklen_t;
+ 	inline int close(SOCKET mySocket) { return closesocket(mySocket); };
++	numSockets = 0;
+ #else
++	typedef struct hostent* LPHOSTENT;
++	typedef struct in_addr* LPIN_ADDR;
+ 	const int INVALID_SOCKET = -1;
+ 	const int SOCKET_ERROR = -1;
+ #endif
+@@ -25,25 +30,29 @@
+ UDPSocket::UDPSocket(const int port)
+ {
+ #ifdef _WIN32
+-	unsigned short wVersionRequested;
+-	WSADATA wsaData;
+-	int err;
+-		
+-	wVersionRequested = MAKEWORD( 2, 2 );
+-	err = WSAStartup( wVersionRequested, &amp;wsaData );if ( err != 0 ) {
+-		throw network_error(&quot;Error initializing winsock: failed to start&quot;);
+-		return;
++	if (numSockets == 0)
++	{
++		unsigned short wVersionRequested;
++		WSADATA wsaData;
++		int err;
++			
++		wVersionRequested = MAKEWORD( 2, 2 );
++		err = WSAStartup( wVersionRequested, &amp;wsaData );if ( err != 0 ) {
++			throw network_error(&quot;Error initializing winsock: failed to start&quot;);
++			return;
++		}
++		/* Confirm that the WinSock DLL supports 2.2.*/
++		/* Note that if the DLL supports versions greater    */
++		/* than 2.2 in addition to 2.2, it will still return */
++		/* 2.2 in wVersion since that is the version we      */
++		/* requested.                                        */
++		if ( LOBYTE( wsaData.wVersion ) != 2 || HIBYTE( wsaData.wVersion ) != 2 ) {
++			throw network_error(&quot;Error initializing winsock: wrong version&quot;);
++			WSACleanup( );
++			return;
++		}
+ 	}
+-	/* Confirm that the WinSock DLL supports 2.2.*/
+-	/* Note that if the DLL supports versions greater    */
+-	/* than 2.2 in addition to 2.2, it will still return */
+-	/* 2.2 in wVersion since that is the version we      */
+-	/* requested.                                        */
+-	if ( LOBYTE( wsaData.wVersion ) != 2 || HIBYTE( wsaData.wVersion ) != 2 ) {
+-		throw network_error(&quot;Error initializing winsock: wrong version&quot;);
+-		WSACleanup( );
+-		return;
+-	}
++	++numSockets;
+ #endif
+ 	
+ 	mySocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP); // create socket
+@@ -79,7 +88,9 @@
+ {
+ 	close(mySocket);
+ #ifdef _WIN32
+-	WSACleanup();
++	--numSockets;
++	if (numSockets == 0)
++		WSACleanup();
+ #endif
+ }
+ 
+@@ -114,6 +125,35 @@
+ 	}
+ }
+ 
++sockaddr_in UDPSocket::ResolveHost(const char* const address, const unsigned port) const
++{
++	sockaddr_in remoteAddr;
++
++	remoteAddr.sin_family = AF_INET;
++	remoteAddr.sin_port = htons(port);
++
++#ifdef _WIN32
++	unsigned long ul;
++	if((ul=inet_addr(address)) != INADDR_NONE)
++	{
++		remoteAddr.sin_addr.S_un.S_addr = ul;
++	}
++	else
++#else
++		if (inet_aton(address,&amp;(remoteAddr.sin_addr)) == 0)
++#endif
++	{
++		LPHOSTENT lpHostEntry;
++		lpHostEntry = gethostbyname(address);
++		if (lpHostEntry == NULL)
++		{
++			throw network_error(std::string(&quot;Error looking up server from DNS: &quot;)+std::string(address));
++		}
++		remoteAddr.sin_addr = *((LPIN_ADDR)*lpHostEntry-&gt;h_addr_list);
++	}
++	return remoteAddr;
++}
++
+ std::string UDPSocket::GetErrorMsg() const
+ {
+ #ifdef _WIN32
+
+Modified: trunk/rts/System/Net/UDPSocket.h
+===================================================================
+--- trunk/rts/System/Net/UDPSocket.h	2008-02-20 20:31:17 UTC (rev 5519)
++++ trunk/rts/System/Net/UDPSocket.h	2008-02-21 15:06:10 UTC (rev 5520)
+@@ -52,6 +52,8 @@
+ 	 */
+ 	void SendTo(const unsigned char* const buf, const unsigned dataLength, const sockaddr_in* const destination) const;
+ 	
++	sockaddr_in ResolveHost(const char* const address, const unsigned port) const;
++	
+ protected:
+ 	/// return the last errormessage from the OS
+ 	std::string GetErrorMsg() const;
+@@ -60,6 +62,9 @@
+ 
+ #ifndef _WIN32
+ 	typedef int SOCKET;
++#else
++	/// track number of open sockets ()
++	static unsigned numSockets;
+ #endif
+ 
+ 	/// our descriptor
+
+Modified: trunk/rts/System/NetProtocol.cpp
+===================================================================
+--- trunk/rts/System/NetProtocol.cpp	2008-02-20 20:31:17 UTC (rev 5519)
++++ trunk/rts/System/NetProtocol.cpp	2008-02-21 15:06:10 UTC (rev 5520)
+@@ -26,7 +26,7 @@
+ {
+ 	unsigned myNum = CNet::InitClient(server, portnum, sourceport,wantedNumber);
+ 	Listening(false);
+-	SendAttemptConnect(wantedNumber, NETWORK_VERSION);
++	SendAttemptConnect(myNum, NETWORK_VERSION);
+ 	FlushNet();
+ 
+ 	if (!gameSetup || !gameSetup-&gt;hostDemo)	//TODO do we really want this?
+@@ -47,7 +47,7 @@
+ 	}
+ 
+ 	unsigned myNum = CNet::InitLocalClient(wantedNumber);
+-	SendAttemptConnect(wantedNumber, NETWORK_VERSION);
++	SendAttemptConnect(myNum, NETWORK_VERSION);
+ 	serverSlot = myNum;
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000326.html">[Taspring-linux-commit] r5519 - trunk/rts/Lua
+</A></li>
+	<LI>Next message: <A HREF="000328.html">[Taspring-linux-commit] r5521 - trunk/rts/System/Net
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#327">[ date ]</a>
+              <a href="thread.html#327">[ thread ]</a>
+              <a href="subject.html#327">[ subject ]</a>
+              <a href="author.html#327">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,185 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5382 - trunk/rts/Lua
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5382%20-%20trunk/rts/Lua&In-Reply-To=%3CE1JIIse-0000dK-1G%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000188.html">
+   <LINK REL="Next"  HREF="000190.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5382 - trunk/rts/Lua</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5382%20-%20trunk/rts/Lua&In-Reply-To=%3CE1JIIse-0000dK-1G%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5382 - trunk/rts/Lua">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Jan 25 08:21:40 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000188.html">[Taspring-linux-commit] r5381 - in trunk/rts: Game Lua System	System/Platform System/Platform/Linux
+</A></li>
+        <LI>Next message: <A HREF="000190.html">[Taspring-linux-commit] r5383 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#189">[ date ]</a>
+              <a href="thread.html#189">[ thread ]</a>
+              <a href="subject.html#189">[ subject ]</a>
+              <a href="author.html#189">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: trepan
+Date: 2008-01-25 08:21:39 +0100 (Fri, 25 Jan 2008)
+New Revision: 5382
+
+Modified:
+   trunk/rts/Lua/LuaOpenGL.cpp
+   trunk/rts/Lua/LuaOpenGL.h
+Log:
+* Added gl.OcclusionQuery(function)
+  - only available when GL2.0 is supported
+
+
+Modified: trunk/rts/Lua/LuaOpenGL.cpp
+===================================================================
+--- trunk/rts/Lua/LuaOpenGL.cpp	2008-01-25 04:25:36 UTC (rev 5381)
++++ trunk/rts/Lua/LuaOpenGL.cpp	2008-01-25 07:21:39 UTC (rev 5382)
+@@ -78,6 +78,7 @@
+ void (*LuaOpenGL::resetMatrixFunc)(void) = NULL;
+ 
+ unsigned int LuaOpenGL::resetStateList = 0;
++unsigned int LuaOpenGL::occlusionQuery = 0;
+ 
+ LuaOpenGL::DrawMode LuaOpenGL::drawMode = LuaOpenGL::DRAW_NONE;
+ LuaOpenGL::DrawMode LuaOpenGL::prevDrawMode = LuaOpenGL::DRAW_NONE;
+@@ -112,12 +113,19 @@
+ 	if (haveGL20 &amp;&amp; !!configHandler.GetInt(&quot;LuaShaders&quot;, 1)) {
+ 		canUseShaders = true;
+ 	}
++
++	if (haveGL20) {
++		glGenQueries(1, &amp;occlusionQuery);
++	}
+ }
+ 
+ 
+ void LuaOpenGL::Free()
+ {
+ 	glDeleteLists(resetStateList, 1);
++	if (haveGL20) {
++		glDeleteQueries(1, &amp;occlusionQuery);
++	}
+ }
+ 
+ 
+@@ -268,6 +276,10 @@
+ 
+ 	REGISTER_LUA_CFUNC(ReadPixels);
+ 
++	if (haveGL20) {
++		REGISTER_LUA_CFUNC(OcclusionQuery);
++	}
++
+ 	REGISTER_LUA_CFUNC(GetGlobalTexNames);
+ 	REGISTER_LUA_CFUNC(GetGlobalTexCoords);
+ 	REGISTER_LUA_CFUNC(GetShadowMapParams);
+@@ -4477,6 +4489,45 @@
+ 
+ /******************************************************************************/
+ 
++int LuaOpenGL::OcclusionQuery(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++
++	const int args = lua_gettop(L); // number of arguments
++	if (!lua_isfunction(L, 1)) {
++		luaL_error(L, &quot;Incorrect arguments to gl.OcclusionQuery(func, ...)&quot;);
++	}
++
++	glBeginQuery(GL_SAMPLES_PASSED, occlusionQuery);
++
++	// call the function
++	const int error = lua_pcall(L, (args - 1), 0, 0);
++
++	glEndQuery(GL_SAMPLES_PASSED);
++
++	GLuint ready, count;
++	while (true) {
++		glGetQueryObjectuiv(occlusionQuery, GL_QUERY_RESULT_AVAILABLE, &amp;ready);
++		if (ready == GL_TRUE) {
++			break;
++		}
++	}
++	glGetQueryObjectuiv(occlusionQuery, GL_QUERY_RESULT, &amp;count);
++
++	if (error != 0) {
++		logOutput.Print(&quot;gl.OcclusionQuery: error(%i) = %s\n&quot;,
++		                error, lua_tostring(L, -1));
++		lua_error(L);
++	}
++
++	lua_pushnumber(L, count);
++
++	return 1;
++}
++
++
++/******************************************************************************/
++
+ int LuaOpenGL::GetGlobalTexNames(lua_State* L)
+ {
+ 	map&lt;string, CTextureHandler::UnitTexture*&gt;::const_iterator it;
+
+Modified: trunk/rts/Lua/LuaOpenGL.h
+===================================================================
+--- trunk/rts/Lua/LuaOpenGL.h	2008-01-25 04:25:36 UTC (rev 5381)
++++ trunk/rts/Lua/LuaOpenGL.h	2008-01-25 07:21:39 UTC (rev 5382)
+@@ -110,6 +110,7 @@
+ 		static float screenDistance;
+ 		static void (*resetMatrixFunc)(void);
+ 		static unsigned int resetStateList;
++		static unsigned int occlusionQuery;
+ 
+ 	private:
+ 		static void CheckDrawingEnabled(lua_State* L, const char* caller);
+@@ -243,6 +244,8 @@
+ 
+ 		static int ReadPixels(lua_State* L);
+ 
++		static int OcclusionQuery(lua_State* L);
++
+ 		static int GetGlobalTexNames(lua_State* L);
+ 		static int GetGlobalTexCoords(lua_State* L);
+ 		static int GetShadowMapParams(lua_State* L);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000188.html">[Taspring-linux-commit] r5381 - in trunk/rts: Game Lua System	System/Platform System/Platform/Linux
+</A></li>
+	<LI>Next message: <A HREF="000190.html">[Taspring-linux-commit] r5383 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#189">[ date ]</a>
+              <a href="thread.html#189">[ thread ]</a>
+              <a href="subject.html#189">[ subject ]</a>
+              <a href="author.html#189">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

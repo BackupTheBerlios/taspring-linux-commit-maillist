@@ -1,0 +1,449 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6188 - in trunk/rts/Sim: . Features Units	Units/CommandAI Units/UnitTypes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6188%20-%20in%20trunk/rts/Sim%3A%20.%20Features%20Units%0A%09Units/CommandAI%20Units/UnitTypes&In-Reply-To=%3C20080716175439.9BB19494F%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000967.html">
+   <LINK REL="Next"  HREF="000969.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6188 - in trunk/rts/Sim: . Features Units	Units/CommandAI Units/UnitTypes</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6188%20-%20in%20trunk/rts/Sim%3A%20.%20Features%20Units%0A%09Units/CommandAI%20Units/UnitTypes&In-Reply-To=%3C20080716175439.9BB19494F%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6188 - in trunk/rts/Sim: . Features Units	Units/CommandAI Units/UnitTypes">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Jul 16 19:54:39 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000967.html">[Taspring-linux-commit] r6187 - trunk
+</A></li>
+        <LI>Next message: <A HREF="000969.html">[Taspring-linux-commit] r6189 - in trunk/rts/Sim: Misc MoveTypes	MoveTypes/MoveMath Units/CommandAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#968">[ date ]</a>
+              <a href="thread.html#968">[ thread ]</a>
+              <a href="subject.html#968">[ subject ]</a>
+              <a href="author.html#968">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: det
+Date: 2008-07-16 19:54:38 +0200 (Wed, 16 Jul 2008)
+New Revision: 6188
+
+Modified:
+   trunk/rts/Sim/Features/Feature.cpp
+   trunk/rts/Sim/ModInfo.cpp
+   trunk/rts/Sim/ModInfo.h
+   trunk/rts/Sim/Units/CommandAI/BuilderCAI.cpp
+   trunk/rts/Sim/Units/CommandAI/CommandAI.cpp
+   trunk/rts/Sim/Units/Unit.cpp
+   trunk/rts/Sim/Units/Unit.h
+   trunk/rts/Sim/Units/UnitTypes/Builder.cpp
+Log:
+Adds the following new tags to modrules.{lua,tdf}
+
+ * repair.energyCostFactor: Used to determine the energy cost used to repair a unit. Defaults to 0.0, which is backwards compatible behavior.
+ * capture.energyCostFactor: Used to determine the energy cost used to capture a unit. Defaults to 0.0, which is backwards compatible behavior.
+ * resurrect.energyCostFactor: Used to determine the energy cost used to resurrect a unit. Defaults to 0.5, which is backwards compatible behavior.
+ * reclaim.unitEnergyCostFactor: Used to determine the energy cost used to reclaim a live or under construction unit. Defaults to 0.0, which is backwards compatible behaviour.
+ * reclaim.featureEnergyCostFactor: Used to determine the energy cost used to reclaim a feature. Defaults to 0.0, which is backwards compatible behavior.
+ * reclaim.unitMethod: Used to determine the method for reclaiming live units. 0 = Revert to nano-frame and do gradual reclaim. 1 = Old method of subtracting HP. Defaults to 1, which is backwards compatible behaviour.
+ * reclaim.unitEfficiency: Used to determine how much metal you get back for reclaiming units (not features, corpses). Defaults to 1.0, which is backwards compatible behaviour.
+ * reclaim.allowEnemies: Whether or not you are allowed to reclaim a living enemy unit. Defaults to true, which is backwards compatible behaviour.
+ * reclaim.allowAllies: Whether or not you are allowed to reclaim a living ally unit. Defaults to true, which is backwards compatible behaviour.
+
+
+
+Modified: trunk/rts/Sim/Features/Feature.cpp
+===================================================================
+--- trunk/rts/Sim/Features/Feature.cpp	2008-07-16 15:56:30 UTC (rev 6187)
++++ trunk/rts/Sim/Features/Feature.cpp	2008-07-16 17:54:38 UTC (rev 6188)
+@@ -306,15 +306,24 @@
+ 			return false;
+ 		}
+ 
+-		reclaimLeft -= part;
+-
++		float reclaimLeftTemp = reclaimLeft - part;
+ 		// stop the last bit giving too much resource
+-		if (reclaimLeft &lt; 0) {
+-			reclaimLeft = 0;
++		if (reclaimLeftTemp &lt; 0) {
++			reclaimLeftTemp = 0;
+ 		}
+ 
+-		const float fractionReclaimed = oldReclaimLeft - reclaimLeft;
++		const float fractionReclaimed = oldReclaimLeft - reclaimLeftTemp;
++		const float metalFraction = def-&gt;metal * fractionReclaimed;
++		const float energyFraction = def-&gt;energy * fractionReclaimed;
++		const float energyUseScaled = metalFraction * modInfo.reclaimFeatureEnergyCostFactor;
+ 
++		if (!builder-&gt;UseEnergy(energyUseScaled)) {
++			gs-&gt;Team(builder-&gt;team)-&gt;energyPull += energyUseScaled;
++			return false;
++		}
++
++		reclaimLeft = reclaimLeftTemp;
++
+ 		if ((modInfo.reclaimMethod == 1) &amp;&amp; (reclaimLeft == 0)) {
+ 			// All-at-end method
+ 			builder-&gt;AddMetal(def-&gt;metal);
+@@ -322,8 +331,8 @@
+ 		}
+ 		else if (modInfo.reclaimMethod == 0) {
+ 			// Gradual reclaim
+-			builder-&gt;AddMetal(def-&gt;metal * fractionReclaimed);
+-			builder-&gt;AddEnergy(def-&gt;energy * fractionReclaimed);
++			builder-&gt;AddMetal(metalFraction);
++			builder-&gt;AddEnergy(energyFraction);
+ 		}
+ 		else {
+ 			// Chunky reclaiming, work out how many chunk boundaries we crossed
+
+Modified: trunk/rts/Sim/ModInfo.cpp
+===================================================================
+--- trunk/rts/Sim/ModInfo.cpp	2008-07-16 15:56:30 UTC (rev 6187)
++++ trunk/rts/Sim/ModInfo.cpp	2008-07-16 17:54:38 UTC (rev 6188)
+@@ -60,7 +60,25 @@
+ 	const LuaTable reclaimTbl = root.SubTable(&quot;reclaim&quot;);
+ 	multiReclaim  = reclaimTbl.GetInt(&quot;multiReclaim&quot;,  0);
+ 	reclaimMethod = reclaimTbl.GetInt(&quot;reclaimMethod&quot;, 1);
++	reclaimUnitMethod = reclaimTbl.GetInt(&quot;unitMethod&quot;, 1);
++	reclaimUnitEnergyCostFactor = reclaimTbl.GetFloat(&quot;unitEnergyCostFactor&quot;, 0.0);
++	reclaimUnitEfficiency = reclaimTbl.GetFloat(&quot;unitEfficiency&quot;, 1.0);
++	reclaimFeatureEnergyCostFactor = reclaimTbl.GetFloat(&quot;featureEnergyCostFactor&quot;, 0.0);
++	reclaimAllowEnemies = reclaimTbl.GetBool(&quot;allowEnemies&quot;, true);
++	reclaimAllowAllies = reclaimTbl.GetBool(&quot;allowAllies&quot;, true);
+ 
++	// repair
++	const LuaTable repairTbl = root.SubTable(&quot;repair&quot;);
++	repairEnergyCostFactor = repairTbl.GetFloat(&quot;energyCostFactor&quot;, 0.0);
++
++	// resurrect
++	const LuaTable resurrectTbl = root.SubTable(&quot;resurrect&quot;);
++	resurrectEnergyCostFactor  = resurrectTbl.GetFloat(&quot;energyCostFactor&quot;,  0.5);
++
++	// capture
++	const LuaTable captureTbl = root.SubTable(&quot;capture&quot;);
++	captureEnergyCostFactor = captureTbl.GetFloat(&quot;energyCostFactor&quot;, 0.0);
++
+ 	// fire-at-dead-units
+ 	const LuaTable fireAtDeadTbl = root.SubTable(&quot;fireAtDead&quot;);
+ 	fireAtKilled   = fireAtDeadTbl.GetBool(&quot;fireAtKilled&quot;, false);
+
+Modified: trunk/rts/Sim/ModInfo.h
+===================================================================
+--- trunk/rts/Sim/ModInfo.h	2008-07-16 15:56:30 UTC (rev 6187)
++++ trunk/rts/Sim/ModInfo.h	2008-07-16 17:54:38 UTC (rev 6188)
+@@ -25,10 +25,25 @@
+ 	int constructionDecayTime;  //How long until they start decaying?
+ 	float constructionDecaySpeed; //How fast do they decay?
+ 
+-	// Reclaim behaviour
+-	int multiReclaim;	// 0 = 1 reclaimer per feature max, otherwise unlimited
+-	int reclaimMethod;	// 0 = gradual reclaim, 1 = all reclaimed at end, otherwise reclaim in reclaimMethod chunks
++	//Reclaim behaviour
++	int multiReclaim;	              // 0 = 1 reclaimer per feature max, otherwise unlimited
++	int reclaimMethod;	              // 0 = gradual reclaim, 1 = all reclaimed at end, otherwise reclaim in reclaimMethod chunks
++	int reclaimUnitMethod;                // 0 = Revert to wireframe, gradual reclaim, 1 = Subtract HP, give full metal at end, default 1
++	float reclaimUnitEnergyCostFactor;    // How much should energy should reclaiming a unit cost, default 0.0
++	float reclaimUnitEfficiency;          // How much metal should reclaim return, default 1.0
++	float reclaimFeatureEnergyCostFactor; // How much should energy should reclaiming a feature cost, default 0.0
++	bool reclaimAllowEnemies;             // Allow reclaiming enemies? default true
++	bool reclaimAllowAllies;              // Allow reclaiming allies? default true
+ 
++	//Repair beheaviour
++	float repairEnergyCostFactor; // How much should energy should repair cost, default 0.0
++
++	//Ressurect behaviour
++	float resurrectEnergyCostFactor; // How much should energy should resurrect cost, default 0.5
++
++	//Capture beheaviour
++	float captureEnergyCostFactor; // How much should energy should capture cost, default 0.0
++
+ 	//Transportation behaviour
+ 	int transportGround;	//0 = all ground units cannot be transported, 1 = all ground units can be transported (mass and size restrictions still apply). Defaults to 1.
+ 	int transportHover;	//0 = all hover units cannot be transported, 1 = all hover units can be transported (mass and size restrictions still apply). Defaults to 0.
+
+Modified: trunk/rts/Sim/Units/CommandAI/BuilderCAI.cpp
+===================================================================
+--- trunk/rts/Sim/Units/CommandAI/BuilderCAI.cpp	2008-07-16 15:56:30 UTC (rev 6187)
++++ trunk/rts/Sim/Units/CommandAI/BuilderCAI.cpp	2008-07-16 17:54:38 UTC (rev 6188)
+@@ -20,6 +20,7 @@
+ #include &quot;Sim/Features/FeatureHandler.h&quot;
+ #include &quot;Sim/Misc/GroundBlockingObjectMap.h&quot;
+ #include &quot;Sim/Misc/QuadField.h&quot;
++#include &quot;Sim/ModInfo.h&quot;
+ #include &quot;Sim/MoveTypes/MoveType.h&quot;
+ #include &quot;Sim/Units/UnitSet.h&quot;
+ #include &quot;Sim/Units/UnitDefHandler.h&quot;
+@@ -724,7 +725,8 @@
+ 
+ 		} else {                   //reclaim unit
+ 			CUnit* unit=uh-&gt;units[id];
+-			if(unit &amp;&amp; unit!=owner &amp;&amp; unit-&gt;unitDef-&gt;reclaimable &amp;&amp; UpdateTargetLostTimer(id)){
++
++			if(unit &amp;&amp; unit!=owner &amp;&amp; unit-&gt;unitDef-&gt;reclaimable &amp;&amp; UpdateTargetLostTimer(id) &amp;&amp; unit-&gt;AllowedReclaim(owner) ){
+ 				if(!ReclaimObject(unit)){
+ 					StopMove();
+ 					FinishCommand();
+
+Modified: trunk/rts/Sim/Units/CommandAI/CommandAI.cpp
+===================================================================
+--- trunk/rts/Sim/Units/CommandAI/CommandAI.cpp	2008-07-16 15:56:30 UTC (rev 6187)
++++ trunk/rts/Sim/Units/CommandAI/CommandAI.cpp	2008-07-16 17:54:38 UTC (rev 6188)
+@@ -15,6 +15,7 @@
+ #include &quot;Map/Ground.h&quot;
+ #include &quot;Sim/Features/Feature.h&quot;
+ #include &quot;Sim/Features/FeatureHandler.h&quot;
++#include &quot;Sim/ModInfo.h&quot;
+ #include &quot;Sim/MoveTypes/MoveType.h&quot;
+ #include &quot;Sim/Units/UnitDef.h&quot;
+ #include &quot;Sim/Units/UnitDefHandler.h&quot;
+@@ -401,6 +402,7 @@
+ 			CUnit* unit = uh-&gt;units[unitID];
+ 			if (unit &amp;&amp; !unit-&gt;unitDef-&gt;reclaimable)
+ 				return false;
++			if (unit &amp;&amp; !unit-&gt;AllowedReclaim(owner)) return false;
+ 		} else {
+ 			const CFeatureSet&amp; fset = featureHandler-&gt;GetActiveFeatures();
+ 			CFeatureSet::const_iterator f = fset.find(unitID - MAX_UNITS);
+
+Modified: trunk/rts/Sim/Units/Unit.cpp
+===================================================================
+--- trunk/rts/Sim/Units/Unit.cpp	2008-07-16 15:56:30 UTC (rev 6187)
++++ trunk/rts/Sim/Units/Unit.cpp	2008-07-16 17:54:38 UTC (rev 6188)
+@@ -573,7 +573,6 @@
+ 	metalMakeI = metalUseI = energyMakeI = energyUseI = 0.0f;
+ }
+ 
+-
+ void CUnit::SetLosStatus(int at, unsigned short newStatus)
+ {
+ 	const unsigned short currStatus = losStatus[at];
+@@ -1651,17 +1650,19 @@
+ 
+ bool CUnit::AddBuildPower(float amount, CUnit* builder)
+ {
++	const float part = amount / buildTime;
++	const float metalUse  = (metalCost  * part);
++	const float energyUse = (energyCost * part);
++
+ 	if (amount &gt;= 0.0f) { //  build / repair
+ 		if (!beingBuilt &amp;&amp; (health &gt;= maxHealth)) {
+ 			return false;
+ 		}
+ 
+ 		lastNanoAdd = gs-&gt;frameNum;
+-		const float part = amount / buildTime;
+ 
+-		if (beingBuilt) {
+-			const float metalUse  = (metalCost  * part);
+-			const float energyUse = (energyCost * part);
++
++		if (beingBuilt) { //build
+ 			if ((gs-&gt;Team(builder-&gt;team)-&gt;metal  &gt;= metalUse) &amp;&amp;
+ 			    (gs-&gt;Team(builder-&gt;team)-&gt;energy &gt;= energyUse) &amp;&amp;
+ 			    (!luaRules || luaRules-&gt;AllowUnitBuildStep(builder, this, part))) {
+@@ -1688,7 +1689,14 @@
+ 			}
+ 			return false;
+ 		}
+-		else {
++		else { //repair
++			const float energyUseScaled = energyUse * modInfo.repairEnergyCostFactor;
++
++	  		if (!builder-&gt;UseEnergy(energyUseScaled)) {
++				gs-&gt;Team(builder-&gt;team)-&gt;energyPull += energyUseScaled;
++				return false;
++			}
++
+ 			if (health &lt; maxHealth) {
+ 				repairAmount += amount;
+ 				health += maxHealth * part;
+@@ -1704,22 +1712,43 @@
+ 		if (isDead) {
+ 			return false;
+ 		}
+-		const float part = amount / buildTime;
++
+ 		if (luaRules &amp;&amp; !luaRules-&gt;AllowUnitBuildStep(builder, this, part)) {
+ 			return false;
+ 		}
++
+ 		restTime = 0;
++
++		if (!AllowedReclaim(builder)) {
++			builder-&gt;DependentDied(this);
++			return false;
++		}
++
++		const float energyUseScaled = energyUse * modInfo.reclaimUnitEnergyCostFactor;
++	  
++		if (!builder-&gt;UseEnergy(-energyUseScaled)) {
++			gs-&gt;Team(builder-&gt;team)-&gt;energyPull += energyUseScaled;
++			return false;
++		}
++
++		if ((modInfo.reclaimUnitMethod == 0) &amp;&amp; (!beingBuilt)) {
++			beingBuilt = true;
++		}
++
+ 		health += maxHealth * part;
+ 		if (beingBuilt) {
+-			builder-&gt;AddMetal(metalCost*-part);
++			builder-&gt;AddMetal(-metalUse * modInfo.reclaimUnitEfficiency);
+ 			buildProgress+=part;
+ 			if(buildProgress&lt;0 || health&lt;0){
+ 				KillUnit(false, true, NULL);
+ 				return false;
+ 			}
+-		} else {
++		}
++
++		
++		else {
+ 			if (health &lt; 0) {
+-				builder-&gt;AddMetal(metalCost);
++				builder-&gt;AddMetal(metalCost * modInfo.reclaimUnitEfficiency);
+ 				KillUnit(false, true, NULL);
+ 				return false;
+ 			}
+@@ -1893,7 +1922,20 @@
+ 	}
+ }
+ 
++bool CUnit::AllowedReclaim (CUnit *builder)
++{
++	// Don't allow the reclaim if the unit is finished and we arent allowed to reclaim it
++	if (!beingBuilt) {
++		if (allyteam == builder-&gt;allyteam) {
++			if ((team != builder-&gt;team) &amp;&amp; (!modInfo.reclaimAllowAllies)) return false;
++		} else {
++			if (!modInfo.reclaimAllowEnemies) return false;
++		}
++	}
+ 
++	return true;
++}
++
+ bool CUnit::UseMetal(float metal)
+ {
+ 	if (metal &lt; 0) {
+
+Modified: trunk/rts/Sim/Units/Unit.h
+===================================================================
+--- trunk/rts/Sim/Units/Unit.h	2008-07-16 15:56:30 UTC (rev 6187)
++++ trunk/rts/Sim/Units/Unit.h	2008-07-16 17:54:38 UTC (rev 6188)
+@@ -113,6 +113,7 @@
+ 	virtual void Init(const CUnit* builder);
+ 	bool SetGroup(CGroup* group);
+ 
++	bool AllowedReclaim(CUnit *builder);
+ 	bool UseMetal(float metal);
+ 	void AddMetal(float metal);
+ 	bool UseEnergy(float energy);
+
+Modified: trunk/rts/Sim/Units/UnitTypes/Builder.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitTypes/Builder.cpp	2008-07-16 15:56:30 UTC (rev 6187)
++++ trunk/rts/Sim/Units/UnitTypes/Builder.cpp	2008-07-16 17:54:38 UTC (rev 6188)
+@@ -288,7 +288,7 @@
+ 			}
+ 			else {
+ 				// Corpse has been restored, begin resurrection
+-				if (UseEnergy(ud-&gt;energyCost * resurrectSpeed / ud-&gt;buildTime * 0.5f)) {
++				if (UseEnergy(ud-&gt;energyCost * resurrectSpeed / ud-&gt;buildTime * modInfo.resurrectEnergyCostFactor)) {
+ 					curResurrect-&gt;resurrectProgress+=resurrectSpeed/ud-&gt;buildTime;
+ 					CreateNanoParticle(curResurrect-&gt;midPos,curResurrect-&gt;radius*0.7f,gs-&gt;randInt()&amp;1);
+ 				}
+@@ -314,25 +314,38 @@
+ 	}
+ 	else if(curCapture &amp;&amp; f3Dist(curCapture-&gt;pos, pos)&lt;buildDistance+curCapture-&gt;radius &amp;&amp; inBuildStance){
+ 		if(curCapture-&gt;team!=team){
+-			curCapture-&gt;captureProgress+=1.0f/(150+curCapture-&gt;buildTime/captureSpeed*(curCapture-&gt;health+curCapture-&gt;maxHealth)/curCapture-&gt;maxHealth*0.4f);
+-			CreateNanoParticle(curCapture-&gt;midPos,curCapture-&gt;radius*0.7f,false);
+-			if(curCapture-&gt;captureProgress &gt; 1.0f){
+-				if (!curCapture-&gt;ChangeTeam(team, CUnit::ChangeCaptured)) {
+-					// capture failed
+-					ENTER_MIXED;
+-					if (team == gu-&gt;myTeam) {
+-						logOutput.Print(&quot;%s: Capture failed, unit type limit reached&quot;, unitDef-&gt;humanName.c_str());
+-						logOutput.SetLastMsgPos(pos);
++
++			float captureProgressTemp = curCapture-&gt;captureProgress + 1.0f/(150+curCapture-&gt;buildTime/captureSpeed*(curCapture-&gt;health+curCapture-&gt;maxHealth)/curCapture-&gt;maxHealth*0.4f);
++			if (captureProgressTemp &gt;= 1.0f) {
++				captureProgressTemp = 1.0f;
++			}
++	
++			const float captureFraction = captureProgressTemp - curCapture-&gt;captureProgress;
++			const float energyUseScaled = curCapture-&gt;energyCost * captureFraction * modInfo.captureEnergyCostFactor;
++
++			if (!UseEnergy(energyUseScaled)) {
++				gs-&gt;Team(team)-&gt;energyPull += energyUseScaled;
++			} else {
++				curCapture-&gt;captureProgress = captureProgressTemp;
++				CreateNanoParticle(curCapture-&gt;midPos,curCapture-&gt;radius*0.7f,false);
++				if(curCapture-&gt;captureProgress &gt; 1.0f){
++					if (!curCapture-&gt;ChangeTeam(team, CUnit::ChangeCaptured)) {
++						// capture failed
++						ENTER_MIXED;
++						if (team == gu-&gt;myTeam) {
++							logOutput.Print(&quot;%s: Capture failed, unit type limit reached&quot;, unitDef-&gt;humanName.c_str());
++							logOutput.SetLastMsgPos(pos);
++						}
++						ENTER_SYNCED;
++					} else {
++						// capture succesful
++						int oldLineage = curCapture-&gt;lineage;
++						curCapture-&gt;lineage = this-&gt;lineage;
++						gs-&gt;Team(oldLineage)-&gt;LeftLineage(curCapture);
+ 					}
+-					ENTER_SYNCED;
+-				} else {
+-					// capture succesful
+-					int oldLineage = curCapture-&gt;lineage;
+-					curCapture-&gt;lineage = this-&gt;lineage;
+-					gs-&gt;Team(oldLineage)-&gt;LeftLineage(curCapture);
++					curCapture-&gt;captureProgress=0.0f;
++					StopBuild(true);
+ 				}
+-				curCapture-&gt;captureProgress=0.0f;
+-				StopBuild(true);
+ 			}
+ 		} else {
+ 			StopBuild(true);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000967.html">[Taspring-linux-commit] r6187 - trunk
+</A></li>
+	<LI>Next message: <A HREF="000969.html">[Taspring-linux-commit] r6189 - in trunk/rts/Sim: Misc MoveTypes	MoveTypes/MoveMath Units/CommandAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#968">[ date ]</a>
+              <a href="thread.html#968">[ thread ]</a>
+              <a href="subject.html#968">[ subject ]</a>
+              <a href="author.html#968">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

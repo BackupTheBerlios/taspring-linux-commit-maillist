@@ -1,0 +1,205 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6883 - in trunk/rts/System/Platform: .	Linux
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6883%20-%20in%20trunk/rts/System/Platform%3A%20.%0A%09Linux&In-Reply-To=%3C20081025133629.389874744%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001651.html">
+   <LINK REL="Next"  HREF="001653.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6883 - in trunk/rts/System/Platform: .	Linux</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6883%20-%20in%20trunk/rts/System/Platform%3A%20.%0A%09Linux&In-Reply-To=%3C20081025133629.389874744%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6883 - in trunk/rts/System/Platform: .	Linux">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Oct 25 15:36:29 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001651.html">[Taspring-linux-commit] r6882 - trunk/tools/unitsync
+</A></li>
+        <LI>Next message: <A HREF="001653.html">[Taspring-linux-commit] r6884 - trunk/rts/System/FileSystem
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1652">[ date ]</a>
+              <a href="thread.html#1652">[ thread ]</a>
+              <a href="subject.html#1652">[ subject ]</a>
+              <a href="author.html#1652">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-10-25 15:36:28 +0200 (Sat, 25 Oct 2008)
+New Revision: 6883
+
+Modified:
+   trunk/rts/System/Platform/FileSystem.cpp
+   trunk/rts/System/Platform/FileSystem.h
+   trunk/rts/System/Platform/Linux/UnixFileSystemHandler.cpp
+   trunk/rts/System/Platform/Linux/UnixFileSystemHandler.h
+Log:
+Fix crash bug in unitsync when UnInit/Init was called after an earlier Init which returned error code.
+
+This was caused by dangling pointer to object that never even existed,
+because the constructor had thrown an exception.
+
+
+
+Modified: trunk/rts/System/Platform/FileSystem.cpp
+===================================================================
+--- trunk/rts/System/Platform/FileSystem.cpp	2008-10-25 13:34:13 UTC (rev 6882)
++++ trunk/rts/System/Platform/FileSystem.cpp	2008-10-25 13:36:28 UTC (rev 6883)
+@@ -29,6 +29,7 @@
+ #include &quot;FileSystem/ArchiveScanner.h&quot;
+ #include &quot;FileSystem/VFSHandler.h&quot;
+ #include &quot;LogOutput.h&quot;
++#include &quot;Util.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
+ 
+@@ -69,29 +70,41 @@
+ #else
+ 		instance = new UnixFileSystemHandler(verbose);
+ #endif
++		try {
++			instance-&gt;Initialize();
++		}
++		catch (...) {
++			SafeDelete(instance);
++			throw;
++		}
+ 	}
+ }
+ 
+ void FileSystemHandler::Cleanup()
+ {
+-	delete instance;
+-	instance = NULL;
++	SafeDelete(instance);
+ }
+ 
+ FileSystemHandler::~FileSystemHandler()
+ {
+-	delete archiveScanner;
+-	delete vfsHandler;
+-	archiveScanner = NULL;
+-	vfsHandler = NULL;
++	SafeDelete(archiveScanner);
++	SafeDelete(vfsHandler);
+ }
+ 
+ FileSystemHandler::FileSystemHandler(int native_path_sep): native_path_separator(native_path_sep)
+ {
+-	// need to set this here already or we get stuck in an infinite loop
+-	// because WinFileSystemHandler/UnixFileSystemHandler ctor initializes the
+-	// ArchiveScanner (which uses FileSystemHandler::GetInstance again...).
+-	instance = this;
++	// NOTE TO SELF: NEVER EVAR DO THIS AGAIN THIS WAY
++
++	// combined with init code in constructor and exceptions being thrown
++	// when this init code fails it results in dangling pointers.
++
++	// (if constructor throws exception object doesn't exist, by definition,
++	//  but global variable instance would still point to it....)
++
++//	// need to set this here already or we get stuck in an infinite loop
++//	// because WinFileSystemHandler/UnixFileSystemHandler ctor initializes the
++//	// ArchiveScanner (which uses FileSystemHandler::GetInstance again...).
++//	instance = this;
+ }
+ 
+ ////////////////////////////////////////
+
+Modified: trunk/rts/System/Platform/FileSystem.h
+===================================================================
+--- trunk/rts/System/Platform/FileSystem.h	2008-10-25 13:34:13 UTC (rev 6882)
++++ trunk/rts/System/Platform/FileSystem.h	2008-10-25 13:36:28 UTC (rev 6883)
+@@ -31,6 +31,7 @@
+ 
+ 		virtual ~FileSystemHandler();
+ 		FileSystemHandler(int native_path_sep = '/');
++		virtual void Initialize() = 0;
+ 
+ 		// almost direct wrappers to system calls
+ 		virtual bool mkdir(const std::string&amp; dir) const = 0;
+
+Modified: trunk/rts/System/Platform/Linux/UnixFileSystemHandler.cpp
+===================================================================
+--- trunk/rts/System/Platform/Linux/UnixFileSystemHandler.cpp	2008-10-25 13:34:13 UTC (rev 6882)
++++ trunk/rts/System/Platform/Linux/UnixFileSystemHandler.cpp	2008-10-25 13:36:28 UTC (rev 6883)
+@@ -71,20 +71,23 @@
+  *
+  * Locates data directories and initializes the VFS.
+  */
+-UnixFileSystemHandler::UnixFileSystemHandler(bool verbose, bool initialize) :
++UnixFileSystemHandler::UnixFileSystemHandler(bool verbose) :
+ #ifndef _WIN32
+ 		FileSystemHandler('/')
+ #else
+ 		FileSystemHandler('\\')
+ #endif
+ {
+-	if (initialize) {
+-		locater.LocateDataDirs();
+-		InitVFS();
+-	}
+ }
+ 
+ 
++void UnixFileSystemHandler::Initialize()
++{
++	locater.LocateDataDirs();
++	InitVFS();
++}
++
++
+ UnixFileSystemHandler::~UnixFileSystemHandler()
+ {
+ 	configHandler.Deallocate();
+
+Modified: trunk/rts/System/Platform/Linux/UnixFileSystemHandler.h
+===================================================================
+--- trunk/rts/System/Platform/Linux/UnixFileSystemHandler.h	2008-10-25 13:34:13 UTC (rev 6882)
++++ trunk/rts/System/Platform/Linux/UnixFileSystemHandler.h	2008-10-25 13:36:28 UTC (rev 6883)
+@@ -25,7 +25,8 @@
+ 	public:
+ 
+ 		virtual ~UnixFileSystemHandler();
+-		UnixFileSystemHandler(bool verbose, bool initialize = true);
++		UnixFileSystemHandler(bool verbose);
++		virtual void Initialize();
+ 
+ 		virtual bool mkdir(const std::string&amp; dir) const;
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001651.html">[Taspring-linux-commit] r6882 - trunk/tools/unitsync
+</A></li>
+	<LI>Next message: <A HREF="001653.html">[Taspring-linux-commit] r6884 - trunk/rts/System/FileSystem
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1652">[ date ]</a>
+              <a href="thread.html#1652">[ thread ]</a>
+              <a href="subject.html#1652">[ subject ]</a>
+              <a href="author.html#1652">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

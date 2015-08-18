@@ -1,0 +1,770 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5660 - in trunk/rts: Game Lua	Sim/Projectiles Sim/Units Sim/Weapons
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5660%20-%20in%20trunk/rts%3A%20Game%20Lua%0A%09Sim/Projectiles%20Sim/Units%20Sim/Weapons&In-Reply-To=%3C20080404185900.627524696%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000440.html">
+   <LINK REL="Next"  HREF="000442.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5660 - in trunk/rts: Game Lua	Sim/Projectiles Sim/Units Sim/Weapons</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5660%20-%20in%20trunk/rts%3A%20Game%20Lua%0A%09Sim/Projectiles%20Sim/Units%20Sim/Weapons&In-Reply-To=%3C20080404185900.627524696%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5660 - in trunk/rts: Game Lua	Sim/Projectiles Sim/Units Sim/Weapons">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Apr  4 20:59:00 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000440.html">[Taspring-linux-commit] r5659 - in trunk/rts: Map Map/SMF Rendering	Rendering/Env Rendering/GL Rendering/Textures Sim/Projectiles
+</A></li>
+        <LI>Next message: <A HREF="000442.html">[Taspring-linux-commit] r5661 - trunk/rts/Sim/Units
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#441">[ date ]</a>
+              <a href="thread.html#441">[ thread ]</a>
+              <a href="subject.html#441">[ subject ]</a>
+              <a href="author.html#441">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-04-04 20:58:59 +0200 (Fri, 04 Apr 2008)
+New Revision: 5660
+
+Modified:
+   trunk/rts/Game/GameHelper.cpp
+   trunk/rts/Lua/LuaWeaponDefs.cpp
+   trunk/rts/Sim/Projectiles/Projectile.h
+   trunk/rts/Sim/Projectiles/ProjectileHandler.cpp
+   trunk/rts/Sim/Units/UnitLoader.cpp
+   trunk/rts/Sim/Units/UnitLoader.h
+   trunk/rts/Sim/Weapons/Weapon.h
+   trunk/rts/Sim/Weapons/WeaponDefHandler.cpp
+   trunk/rts/Sim/Weapons/WeaponDefHandler.h
+Log:
+implement the avoidNeutral (targetting) and collideNeutral (projectiles) weapon tags
+
+Modified: trunk/rts/Game/GameHelper.cpp
+===================================================================
+--- trunk/rts/Game/GameHelper.cpp	2008-04-04 18:17:39 UTC (rev 5659)
++++ trunk/rts/Game/GameHelper.cpp	2008-04-04 18:58:59 UTC (rev 5660)
+@@ -198,71 +198,79 @@
+ 
+ float CGameHelper::TraceRay(const float3 &amp;start, const float3 &amp;dir, float length, float power, CUnit* owner, CUnit *&amp;hit, int collisionFlags)
+ {
+-	float groundLength=ground-&gt;LineGroundCol(start,start+dir*length);
++	float groundLength = ground-&gt;LineGroundCol(start, start + dir * length);
+ 	const bool ignoreAllies = !!(collisionFlags &amp; COLLISION_NOFRIENDLY);
+ 	const bool ignoreFeatures = !!(collisionFlags &amp; COLLISION_NOFEATURE);
++	const bool ignoreNeutrals = !!(collisionFlags &amp; COLLISION_NONEUTRAL);
+ 
+-//	logOutput.Print(&quot;gl %f&quot;,groundLength);
+-	if(length&gt;groundLength &amp;&amp; groundLength&gt;0)
+-		length=groundLength;
++	if (length &gt; groundLength &amp;&amp; groundLength &gt; 0)
++		length = groundLength;
+ 
+ 
+ 	int quads[1000];
+ 	int* endQuad = quads;
+-	qf-&gt;GetQuadsOnRay(start,dir,length,endQuad);
++	qf-&gt;GetQuadsOnRay(start, dir, length, endQuad);
+ 
+ 	if (!ignoreFeatures) {
+ 		for (int* qi = quads; qi != endQuad; ++qi) {
+ 			const CQuadField::Quad&amp; quad = qf-&gt;GetQuad(*qi);
++
+ 			for (list&lt;CFeature*&gt;::const_iterator ui = quad.features.begin(); ui != quad.features.end(); ++ui) {
+ 				if (!(*ui)-&gt;blocking)
+ 					continue;
+-				float3 dif=(*ui)-&gt;midPos-start;
+-				float closeLength=dif.dot(dir);
+-				if(closeLength&lt;0)
++
++				float3 dif = (*ui)-&gt;midPos - start;
++				float closeLength = dif.dot(dir);
++
++				if (closeLength &lt; 0)
+ 					continue;
+-				if(closeLength&gt;length)
++				if (closeLength &gt; length)
+ 					continue;
+-				float3 closeVect=dif-dir*closeLength;
+-				if(closeVect.SqLength() &lt; (*ui)-&gt;sqRadius){
+-					length=closeLength;
++
++				float3 closeVect = dif - dir * closeLength;
++
++				if (closeVect.SqLength() &lt; (*ui)-&gt;sqRadius) {
++					length = closeLength;
+ 				}
+ 			}
+ 		}
+ 	}
+ 
+-//	float minLength=length;
+-	hit=0;
++	hit = 0;
+ 
+ 	for (int* qi = quads; qi != endQuad; ++qi) {
+ 		const CQuadField::Quad&amp; quad = qf-&gt;GetQuad(*qi);
+ 
+ 		for (list&lt;CUnit*&gt;::const_iterator ui = quad.units.begin(); ui != quad.units.end(); ++ui) {
+-			if ((*ui)==owner)
++			CUnit* u = *ui;
++
++			if (u == owner)
+ 				continue;
+-			if(ignoreAllies &amp;&amp; (*ui)-&gt;allyteam == owner-&gt;allyteam)
++			if (ignoreAllies &amp;&amp; u-&gt;allyteam == owner-&gt;allyteam)
+ 				continue;
+-			float3 dif=(*ui)-&gt;midPos-start;
+-			float closeLength=dif.dot(dir);
+-			if(closeLength&lt;0)
++			if (ignoreNeutrals) {
++				if ((gs-&gt;useLuaGaia &amp;&amp; u-&gt;team == gs-&gt;gaiaTeamID) || (u-&gt;team == MAX_TEAMS - 1)) continue;
++				if (u-&gt;neutral) continue;
++			}
++
++			float3 dif = u-&gt;midPos - start;
++			float closeLength = dif.dot(dir);
++
++			if (closeLength &lt; 0)
+ 				continue;
+-			if(closeLength&gt;length)
+-				closeLength=length;
+-			float3 closeVect=dif-dir*closeLength;
++			if (closeLength &gt; length)
++				closeLength = length;
+ 
+-			/*float rad=(*ui)-&gt;radius;
+-			float tmp = rad * rad - closeVect.SqLength();*/
++			float3 closeVect = dif - dir * closeLength;
+ 
+-			/*if(tmp &gt; 0 &amp;&amp; length&gt;closeLength+sqrt(tmp)){
+-				length=closeLength-sqrt(tmp)*0.5f;
+-				hit=*ui;
+-			}*/
+-			if(closeVect.SqLength() &lt; (*ui)-&gt;sqRadius){
+-				length=closeLength;
+-				hit=*ui;
++			// FIXME: deal with the new collision volumes
++			if (closeVect.SqLength() &lt; u-&gt;sqRadius) {
++				length = closeLength;
++				hit = u;
+ 			}
+ 		}
+ 	}
++
+ 	return length;
+ }
+ 
+
+Modified: trunk/rts/Lua/LuaWeaponDefs.cpp
+===================================================================
+--- trunk/rts/Lua/LuaWeaponDefs.cpp	2008-04-04 18:17:39 UTC (rev 5659)
++++ trunk/rts/Lua/LuaWeaponDefs.cpp	2008-04-04 18:58:59 UTC (rev 5660)
+@@ -44,6 +44,8 @@
+ // special access functions
+ static int NoFeatureCollide(lua_State* L, const void* data);
+ static int NoFriendlyCollide(lua_State* L, const void* data);
++static int NoNeutralCollide(lua_State* L, const void* data);
++
+ static int VisualsTable(lua_State* L, const void* data);
+ static int DamagesArray(lua_State* L, const void* data);
+ static int GuiSoundSetTable(lua_State* L, const void* data);
+@@ -357,20 +359,26 @@
+ 
+ static int NoFeatureCollide(lua_State* L, const void* data)
+ {
+-	const int bits = *((const int*)data);
++	const int bits = *((const int*) data);
+ 	lua_pushboolean(L, (bits &amp; COLLISION_NOFEATURE));
+ 	return 1;
+ }
+ 
+-
+ static int NoFriendlyCollide(lua_State* L, const void* data)
+ {
+-	const int bits = *((const int*)data);
++	const int bits = *((const int*) data);
+ 	lua_pushboolean(L, (bits &amp; COLLISION_NOFRIENDLY));
+ 	return 1;
+ }
+ 
++static int NoNeutralCollide(lua_State* L, const void* data)
++{
++	const int bits = *((const int*) data);
++	lua_pushboolean(L, (bits &amp; COLLISION_NONEUTRAL));
++	return 1;
++}
+ 
++
+ static inline int BuildCategorySet(lua_State* L, const vector&lt;string&gt;&amp; cats)
+ {
+ 	lua_newtable(L);
+@@ -439,11 +447,12 @@
+ 	ADD_FUNCTION(&quot;visuals&quot;,   wd.visuals,   VisualsTable);
+ 	ADD_FUNCTION(&quot;hitSound&quot;,  wd.soundhit,  GuiSoundSetTable);
+ 	ADD_FUNCTION(&quot;fireSound&quot;, wd.firesound, GuiSoundSetTable);
+-	ADD_FUNCTION(&quot;noFeatureCollide&quot;,  wd.collisionFlags, NoFeatureCollide);
+-	ADD_FUNCTION(&quot;noFriendlyCollide&quot;, wd.collisionFlags, NoFriendlyCollide);
+-	ADD_FUNCTION(&quot;onlyTargetCategories&quot;,
+-	             wd.onlyTargetCategory, CategorySetFromBits);
+ 
++	ADD_FUNCTION(&quot;noFeatureCollide&quot;,     wd.collisionFlags, NoFeatureCollide);
++	ADD_FUNCTION(&quot;noFriendlyCollide&quot;,    wd.collisionFlags, NoFriendlyCollide);
++	ADD_FUNCTION(&quot;noNeutralCollide&quot;,     wd.collisionFlags, NoNeutralCollide);
++	ADD_FUNCTION(&quot;onlyTargetCategories&quot;, wd.onlyTargetCategory, CategorySetFromBits);
++
+ 	ADD_INT(&quot;id&quot;, wd.id);
+ 
+ 	ADD_INT(&quot;tdfId&quot;, wd.tdfId);
+@@ -568,6 +577,9 @@
+ 	ADD_INT(&quot;interceptedByShieldType&quot;,  wd.interceptedByShieldType);
+ 
+ 	ADD_BOOL(&quot;avoidFriendly&quot;, wd.avoidFriendly);
++	ADD_BOOL(&quot;avoidFeature&quot;,  wd.avoidFeature);
++	ADD_BOOL(&quot;avoidNeutral&quot;,  wd.avoidNeutral);
++
+ 	ADD_FLOAT(&quot;targetBorder&quot;, wd.targetBorder);
+ 	ADD_FLOAT(&quot;cylinderTargetting&quot;, wd.cylinderTargetting);
+ 	ADD_FLOAT(&quot;minIntensity&quot;, wd.minIntensity);
+
+Modified: trunk/rts/Sim/Projectiles/Projectile.h
+===================================================================
+--- trunk/rts/Sim/Projectiles/Projectile.h	2008-04-04 18:17:39 UTC (rev 5659)
++++ trunk/rts/Sim/Projectiles/Projectile.h	2008-04-04 18:58:59 UTC (rev 5660)
+@@ -19,8 +19,9 @@
+ class CVertexArray;
+ struct S3DOModel;
+ 
+-#define COLLISION_NOFRIENDLY		1
+-#define COLLISION_NOFEATURE			2
++#define COLLISION_NOFRIENDLY	1
++#define COLLISION_NOFEATURE		2
++#define COLLISION_NONEUTRAL		4
+ 
+ class CProjectile : public CExpGenSpawnable
+ {
+@@ -33,14 +34,14 @@
+ 
+ 	virtual void Draw();
+ 	CProjectile(); // default constructor is needed for creg
+-	CProjectile(const float3&amp; pos,const float3&amp; speed,CUnit* owner, bool synced);
++	CProjectile(const float3&amp; pos, const float3&amp; speed, CUnit* owner, bool synced);
+ 	virtual void Collision();
+ 	virtual void Collision(CUnit* unit);
+ 	virtual void Collision(CFeature* feature);
+ 	virtual ~CProjectile();
+ 	virtual void Update();
+ 	void DependentDied(CObject* o);
+-	virtual void Init(const float3&amp; pos, CUnit *owner);
++	virtual void Init(const float3&amp; pos, CUnit* owner);
+ 
+ 	bool synced;
+ 	bool checkCol;
+@@ -52,7 +53,7 @@
+ 	float3 speed;
+ 	virtual void DrawCallback(void);
+ 	virtual void DrawUnitPart(void);
+-	virtual void DrawS3O(){DrawUnitPart();};
++	virtual void DrawS3O() { DrawUnitPart(); }
+ 
+ 	S3DOModel* s3domodel;
+ };
+
+Modified: trunk/rts/Sim/Projectiles/ProjectileHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Projectiles/ProjectileHandler.cpp	2008-04-04 18:17:39 UTC (rev 5659)
++++ trunk/rts/Sim/Projectiles/ProjectileHandler.cpp	2008-04-04 18:58:59 UTC (rev 5660)
+@@ -634,6 +634,17 @@
+ 				if (p-&gt;owner == unit || ((p-&gt;collisionFlags &amp; COLLISION_NOFRIENDLY) &amp;&amp; p-&gt;owner &amp;&amp; (unit-&gt;allyteam == p-&gt;owner-&gt;allyteam)))
+ 					continue;
+ 
++				if (p-&gt;collisionFlags &amp; COLLISION_NONEUTRAL) {
++					if ((gs-&gt;useLuaGaia &amp;&amp; unit-&gt;team == gs-&gt;gaiaTeamID) || (unit-&gt;team == MAX_TEAMS - 1)) {
++						// Gaia-team unit, count it as neutral
++						continue;
++					}
++					if (unit-&gt;neutral) {
++						// ordinary neutral unit
++						continue;
++					}
++				}
++
+ 				const CCollisionVolume* vol = unit-&gt;unitDef-&gt;collisionVolume;
+ 
+ 				if (vol-&gt;DetectHit(unit, p-&gt;pos, p-&gt;pos + p-&gt;speed)) {
+
+Modified: trunk/rts/Sim/Units/UnitLoader.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitLoader.cpp	2008-04-04 18:17:39 UTC (rev 5659)
++++ trunk/rts/Sim/Units/UnitLoader.cpp	2008-04-04 18:58:59 UTC (rev 5660)
+@@ -65,7 +65,7 @@
+ 	CGroundMoveType::DeleteLineTable();
+ }
+ 
+-CUnit* CUnitLoader::LoadUnit(const string&amp; name, float3 pos, int side,
++CUnit* CUnitLoader::LoadUnit(const string&amp; name, float3 pos, int team,
+                              bool build, int facing, const CUnit* builder)
+ {
+ 	CUnit* unit;
+@@ -86,8 +86,8 @@
+ 	}
+ 	bool blocking = false;	//Used to tell if ground area shall be blocked of not.
+ 
+-	if (side &lt; 0) {
+-		side = MAX_TEAMS - 1; // FIXME use gs-&gt;gaiaTeamID ?  (once it is always enabled)
++	if (team &lt; 0) {
++		team = MAX_TEAMS - 1; // FIXME use gs-&gt;gaiaTeamID ?  (once it is always enabled)
+ 	}
+ 
+ 	if (type == &quot;GroundUnit&quot;){
+@@ -115,7 +115,7 @@
+ 		return NULL;
+ 	}
+ 
+-	unit-&gt;UnitInit (ud, side, pos);
++	unit-&gt;UnitInit(ud, team, pos);
+ 
+ 	unit-&gt;beingBuilt=build;
+ 
+@@ -300,7 +300,7 @@
+ 		unit-&gt;energyTickMake += ud-&gt;tidalGenerator * readmap-&gt;tidalStrength;
+ 
+ 
+-	unit-&gt;model = ud-&gt;LoadModel(side);
++	unit-&gt;model = ud-&gt;LoadModel(team);
+ 	unit-&gt;SetRadius(unit-&gt;model-&gt;radius);
+ 
+ 	// CUnitLoader left this volume's axis-scales uninitialized
+@@ -365,82 +365,82 @@
+ {
+ 	CWeapon* weapon;
+ 
+-	if(!weapondef){
++	if (!weapondef) {
+ 		logOutput.Print(&quot;Error: No weapon def?&quot;);
+ 	}
+ 
+-	if(udw-&gt;name==&quot;NOWEAPON&quot;){
+-		weapon=SAFE_NEW CNoWeapon(owner);
+-	} else if(weapondef-&gt;type==&quot;Cannon&quot;){
+-		weapon=SAFE_NEW CCannon(owner);
+-		((CCannon*)weapon)-&gt;selfExplode=weapondef-&gt;selfExplode;
+-	} else if(weapondef-&gt;type==&quot;Rifle&quot;){
+-		weapon=SAFE_NEW CRifle(owner);
+-	} else if(weapondef-&gt;type==&quot;Melee&quot;){
+-		weapon=SAFE_NEW CMeleeWeapon(owner);
+-	} else if(weapondef-&gt;type==&quot;AircraftBomb&quot;){
+-		weapon=SAFE_NEW CBombDropper(owner,false);
+-	} else if(weapondef-&gt;type==&quot;Shield&quot;){
+-		weapon=SAFE_NEW CPlasmaRepulser(owner);
+-	} else if(weapondef-&gt;type==&quot;Flame&quot;){
+-		weapon=SAFE_NEW CFlameThrower(owner);
+-	} else if(weapondef-&gt;type==&quot;MissileLauncher&quot;){
+-		weapon=SAFE_NEW CMissileLauncher(owner);
+-	} else if(weapondef-&gt;type==&quot;TorpedoLauncher&quot;){
+-		if(owner-&gt;unitDef-&gt;canfly &amp;&amp; !weapondef-&gt;submissile){
+-			weapon=SAFE_NEW CBombDropper(owner,true);
+-			if(weapondef-&gt;tracks)
+-				((CBombDropper*)weapon)-&gt;tracking=weapondef-&gt;turnrate;
+-			((CBombDropper*)weapon)-&gt;bombMoveRange=weapondef-&gt;range;
++	if (udw-&gt;name == &quot;NOWEAPON&quot;) {
++		weapon = SAFE_NEW CNoWeapon(owner);
++	} else if (weapondef-&gt;type == &quot;Cannon&quot;) {
++		weapon = SAFE_NEW CCannon(owner);
++		((CCannon*)weapon)-&gt;selfExplode = weapondef-&gt;selfExplode;
++	} else if (weapondef-&gt;type==&quot;Rifle&quot;) {
++		weapon = SAFE_NEW CRifle(owner);
++	} else if (weapondef-&gt;type == &quot;Melee&quot;) {
++		weapon = SAFE_NEW CMeleeWeapon(owner);
++	} else if (weapondef-&gt;type == &quot;AircraftBomb&quot;) {
++		weapon = SAFE_NEW CBombDropper(owner, false);
++	} else if (weapondef-&gt;type == &quot;Shield&quot;) {
++		weapon = SAFE_NEW CPlasmaRepulser(owner);
++	} else if (weapondef-&gt;type == &quot;Flame&quot;) {
++		weapon = SAFE_NEW CFlameThrower(owner);
++	} else if (weapondef-&gt;type == &quot;MissileLauncher&quot;) {
++		weapon = SAFE_NEW CMissileLauncher(owner);
++	} else if (weapondef-&gt;type == &quot;TorpedoLauncher&quot;) {
++		if (owner-&gt;unitDef-&gt;canfly &amp;&amp; !weapondef-&gt;submissile) {
++			weapon = SAFE_NEW CBombDropper(owner, true);
++			if (weapondef-&gt;tracks)
++				((CBombDropper*) weapon)-&gt;tracking = weapondef-&gt;turnrate;
++			((CBombDropper*) weapon)-&gt;bombMoveRange = weapondef-&gt;range;
+ 		} else {
+-			weapon=SAFE_NEW CTorpedoLauncher(owner);
+-			if(weapondef-&gt;tracks)
+-				((CTorpedoLauncher*)weapon)-&gt;tracking=weapondef-&gt;turnrate;
++			weapon = SAFE_NEW CTorpedoLauncher(owner);
++			if (weapondef-&gt;tracks)
++				((CTorpedoLauncher*) weapon)-&gt;tracking = weapondef-&gt;turnrate;
+ 		}
+-	} else if(weapondef-&gt;type==&quot;LaserCannon&quot;){
+-		weapon=SAFE_NEW CLaserCannon(owner);
+-		((CLaserCannon*)weapon)-&gt;color=weapondef-&gt;visuals.color;
+-	} else if(weapondef-&gt;type==&quot;BeamLaser&quot;){
+-		weapon=SAFE_NEW CBeamLaser(owner);
+-		((CBeamLaser*)weapon)-&gt;color=weapondef-&gt;visuals.color;
+-	} else if(weapondef-&gt;type==&quot;LightingCannon&quot;){
+-		weapon=SAFE_NEW CLightingCannon(owner);
+-		((CLightingCannon*)weapon)-&gt;color=weapondef-&gt;visuals.color;
+-	} else if(weapondef-&gt;type==&quot;EmgCannon&quot;){
+-		weapon=SAFE_NEW CEmgCannon(owner);
+-	} else if(weapondef-&gt;type==&quot;DGun&quot;){
+-		weapon=SAFE_NEW CDGunWeapon(owner);
+-	} else if(weapondef-&gt;type==&quot;StarburstLauncher&quot;){
+-		weapon=SAFE_NEW CStarburstLauncher(owner);
+-		if(weapondef-&gt;tracks)
+-			((CStarburstLauncher*)weapon)-&gt;tracking=weapondef-&gt;turnrate;
++	} else if (weapondef-&gt;type == &quot;LaserCannon&quot;) {
++		weapon = SAFE_NEW CLaserCannon(owner);
++		((CLaserCannon*) weapon)-&gt;color = weapondef-&gt;visuals.color;
++	} else if (weapondef-&gt;type == &quot;BeamLaser&quot;) {
++		weapon = SAFE_NEW CBeamLaser(owner);
++		((CBeamLaser*) weapon)-&gt;color = weapondef-&gt;visuals.color;
++	} else if (weapondef-&gt;type == &quot;LightingCannon&quot;) {
++		weapon = SAFE_NEW CLightingCannon(owner);
++		((CLightingCannon*) weapon)-&gt;color = weapondef-&gt;visuals.color;
++	} else if (weapondef-&gt;type == &quot;EmgCannon&quot;) {
++		weapon = SAFE_NEW CEmgCannon(owner);
++	} else if (weapondef-&gt;type == &quot;DGun&quot;) {
++		weapon = SAFE_NEW CDGunWeapon(owner);
++	} else if (weapondef-&gt;type == &quot;StarburstLauncher&quot;){
++		weapon = SAFE_NEW CStarburstLauncher(owner);
++		if (weapondef-&gt;tracks)
++			((CStarburstLauncher*) weapon)-&gt;tracking = weapondef-&gt;turnrate;
+ 		else
+-			((CStarburstLauncher*)weapon)-&gt;tracking=0;
+-		((CStarburstLauncher*)weapon)-&gt;uptime=weapondef-&gt;uptime*GAME_SPEED;
+-	}else {
++			((CStarburstLauncher*) weapon)-&gt;tracking = 0;
++		((CStarburstLauncher*) weapon)-&gt;uptime = weapondef-&gt;uptime * GAME_SPEED;
++	} else {
+ 		logOutput &lt;&lt; &quot;Unknown weapon type &quot; &lt;&lt; weapondef-&gt;type.c_str() &lt;&lt; &quot;\n&quot;;
+ 		return 0;
+ 	}
+ 	weapon-&gt;weaponDef = weapondef;
+ 
+-	weapon-&gt;reloadTime= (int) (weapondef-&gt;reload*GAME_SPEED);
+-	if(weapon-&gt;reloadTime==0)
+-		weapon-&gt;reloadTime=1;
+-	weapon-&gt;range=weapondef-&gt;range;
+-//	weapon-&gt;baseRange=weapondef-&gt;range;
+-	weapon-&gt;heightMod=weapondef-&gt;heightmod;
+-	weapon-&gt;projectileSpeed=weapondef-&gt;projectilespeed;
+-//	weapon-&gt;baseProjectileSpeed=weapondef-&gt;projectilespeed/GAME_SPEED;
++	weapon-&gt;reloadTime = (int) (weapondef-&gt;reload * GAME_SPEED);
++	if (weapon-&gt;reloadTime == 0)
++		weapon-&gt;reloadTime = 1;
++	weapon-&gt;range = weapondef-&gt;range;
++//	weapon-&gt;baseRange = weapondef-&gt;range;
++	weapon-&gt;heightMod = weapondef-&gt;heightmod;
++	weapon-&gt;projectileSpeed = weapondef-&gt;projectilespeed;
++//	weapon-&gt;baseProjectileSpeed = weapondef-&gt;projectilespeed / GAME_SPEED;
+ 
+-	weapon-&gt;areaOfEffect=weapondef-&gt;areaOfEffect;
+-	weapon-&gt;accuracy=weapondef-&gt;accuracy;
+-	weapon-&gt;sprayangle=weapondef-&gt;sprayangle;
++	weapon-&gt;areaOfEffect = weapondef-&gt;areaOfEffect;
++	weapon-&gt;accuracy = weapondef-&gt;accuracy;
++	weapon-&gt;sprayangle = weapondef-&gt;sprayangle;
+ 
+-	weapon-&gt;salvoSize=weapondef-&gt;salvosize;
+-	weapon-&gt;salvoDelay=(int) (weapondef-&gt;salvodelay*GAME_SPEED);
++	weapon-&gt;salvoSize = weapondef-&gt;salvosize;
++	weapon-&gt;salvoDelay = (int) (weapondef-&gt;salvodelay * GAME_SPEED);
+ 
+-	weapon-&gt;metalFireCost=weapondef-&gt;metalcost;
+-	weapon-&gt;energyFireCost=weapondef-&gt;energycost;
++	weapon-&gt;metalFireCost = weapondef-&gt;metalcost;
++	weapon-&gt;energyFireCost = weapondef-&gt;energycost;
+ 
+ 
+ 	weapon-&gt;fireSoundId = weapondef-&gt;firesound.getID(0);
+@@ -448,15 +448,17 @@
+ 
+ 
+ 	weapon-&gt;onlyForward = weapondef-&gt;onlyForward;
+-	if (owner-&gt;unitDef-&gt;type == &quot;Fighter&quot; &amp;&amp; !owner-&gt;unitDef-&gt;hoverAttack)	// fighter aircraft have too big tolerance in TA
++	if (owner-&gt;unitDef-&gt;type == &quot;Fighter&quot; &amp;&amp; !owner-&gt;unitDef-&gt;hoverAttack) {
++		// fighter aircraft have too big tolerance in TA
+ 		weapon-&gt;maxAngleDif = cos(weapondef-&gt;maxAngle * 0.4f / 180 * PI);
+-	else
++	} else {
+ 		weapon-&gt;maxAngleDif = cos(weapondef-&gt;maxAngle / 180 * PI);
++	}
+ 
+ 	weapon-&gt;SetWeaponNum(owner-&gt;weapons.size());
+ 
+-	weapon-&gt;badTargetCategory=udw-&gt;badTargetCat;
+-	weapon-&gt;onlyTargetCategory=weapondef-&gt;onlyTargetCategory &amp; udw-&gt;onlyTargetCat;
++	weapon-&gt;badTargetCategory = udw-&gt;badTargetCat;
++	weapon-&gt;onlyTargetCategory = weapondef-&gt;onlyTargetCategory &amp; udw-&gt;onlyTargetCat;
+ 
+ 	if (udw-&gt;slavedTo) {
+ 		const int index = (udw-&gt;slavedTo - 1);
+@@ -466,8 +468,8 @@
+ 		weapon-&gt;slavedTo = owner-&gt;weapons[index];
+ 	}
+ 
+-	weapon-&gt;mainDir=udw-&gt;mainDir;
+-	weapon-&gt;maxMainDirAngleDif=udw-&gt;maxAngleDif;
++	weapon-&gt;mainDir = udw-&gt;mainDir;
++	weapon-&gt;maxMainDirAngleDif = udw-&gt;maxAngleDif;
+ 
+ 	weapon-&gt;fuelUsage = udw-&gt;fuelUsage;
+ 	weapon-&gt;avoidFriendly = weapondef-&gt;avoidFriendly;
+@@ -504,6 +506,3 @@
+ 		mapDamage-&gt;RecalcArea(tx1, tx2, tz1, tz2);
+ 	}
+ }
+-
+-
+-
+
+Modified: trunk/rts/Sim/Units/UnitLoader.h
+===================================================================
+--- trunk/rts/Sim/Units/UnitLoader.h	2008-04-04 18:17:39 UTC (rev 5659)
++++ trunk/rts/Sim/Units/UnitLoader.h	2008-04-04 18:58:59 UTC (rev 5660)
+@@ -19,7 +19,7 @@
+ 	CUnitLoader();
+ 	virtual ~CUnitLoader();
+ 
+-	CUnit* LoadUnit(const string&amp; name,float3 pos, int side,
++	CUnit* LoadUnit(const string&amp; name,float3 pos, int team,
+ 	                bool build, int facing, const CUnit* builder /* can be NULL */);
+ 	void FlattenGround(const CUnit* unit);
+ 
+
+Modified: trunk/rts/Sim/Weapons/Weapon.h
+===================================================================
+--- trunk/rts/Sim/Weapons/Weapon.h	2008-04-04 18:17:39 UTC (rev 5659)
++++ trunk/rts/Sim/Weapons/Weapon.h	2008-04-04 18:58:59 UTC (rev 5660)
+@@ -52,7 +52,7 @@
+ 
+ 	bool ShouldCheckForNewTarget() const;
+ 
+-	virtual void Fire(){};								//should be implemented by subclasses
++	virtual void Fire() {};					// should be implemented by subclasses
+ 	void ScriptReady(void);
+ 
+ 	CUnit* owner;
+@@ -60,91 +60,92 @@
+ 	const WeaponDef *weaponDef;
+ 	std::string modelDispList;
+ 
+-	int weaponNum;							//the weapons order among the owner weapons
++	int weaponNum;							// the weapons order among the owner weapons
+ 	bool haveUserTarget;
+ 
+ 	float areaOfEffect;
+ 
+-	float3 relWeaponPos;				//weaponpos relative to the unit
+-	float3 weaponPos;						//absolute weapon pos
++	float3 relWeaponPos;					// weaponpos relative to the unit
++	float3 weaponPos;						// absolute weapon pos
+ 
+-	float3 relWeaponMuzzlePos;			//position of the firepoint
++	float3 relWeaponMuzzlePos;				// position of the firepoint
+ 	float3 weaponMuzzlePos;
+ 	float3 weaponDir;
+ 
+-	float muzzleFlareSize;			//size of muzzle flare if drawn
+-	int useWeaponPosForAim;			//sometimes weapon pos is better to use than aimpos
+-	bool hasCloseTarget;					//might need to update weapon pos more often when enemy is near
++	float muzzleFlareSize;					// size of muzzle flare if drawn
++	int useWeaponPosForAim;					// sometimes weapon pos is better to use than aimpos
++	bool hasCloseTarget;					// might need to update weapon pos more often when enemy is near
+ 
+-	int reloadTime;							//time between succesive fires in ticks
+-	int reloadStatus;						//next tick the weapon can fire again
++	int reloadTime;							// time between succesive fires in ticks
++	int reloadStatus;						// next tick the weapon can fire again
+ 
+ 	float range;
+-	float heightMod;							//how much extra range the weapon gain per height difference
++	float heightMod;						// how much extra range the weapon gain per height difference
+ 
+ 	float projectileSpeed;
+-	float accuracy;								//inaccuracy of whole salvo
+-	float sprayangle;							//inaccuracy of individual shots inside salvo
++	float accuracy;							// inaccuracy of whole salvo
++	float sprayangle;						// inaccuracy of individual shots inside salvo
+ 
+-	int salvoDelay;								//delay between shots in a salvo
+-	int salvoSize;								//number of shots in a salvo
+-	int nextSalvo;								//when the next shot in the current salvo will fire
+-	int salvoLeft;								//number of shots left in current salvo
+-	float3 salvoError;						//error vector for the whole salvo
++	int salvoDelay;							// delay between shots in a salvo
++	int salvoSize;							// number of shots in a salvo
++	int nextSalvo;							// when the next shot in the current salvo will fire
++	int salvoLeft;							// number of shots left in current salvo
++	float3 salvoError;						// error vector for the whole salvo
+ 
+-	TargetType targetType;				//indicated if we have a target and what type
+-	CUnit* targetUnit;						//the targeted unit if targettype=unit
+-	float3 targetPos;							//the position of the target (even if targettype=unit)
+-	int lastTargetRetry;					//when we last recalculated target selection
++	TargetType targetType;					// indicated if we have a target and what type
++	CUnit* targetUnit;						// the targeted unit if targettype=unit
++	float3 targetPos;						// the position of the target (even if targettype=unit)
++	int lastTargetRetry;					// when we last recalculated target selection
+ 
+-	float predict;								//how long time we predict it take for a projectile to reach target
+-	float predictSpeedMod;				//how the weapon predicts the speed of the units goes -&gt; 1 when experience increases
++	float predict;							// how long time we predict it take for a projectile to reach target
++	float predictSpeedMod;					// how the weapon predicts the speed of the units goes -&gt; 1 when experience increases
+ 
+ 	float metalFireCost;
+-	float energyFireCost;					//part of unit supply used to fire a salvo (transformed by unitloader)
++	float energyFireCost;					// part of unit supply used to fire a salvo (transformed by unitloader)
+ 
+ 	int fireSoundId;
+ 	float fireSoundVolume;
+ 
+-	bool cobHasBlockShot;							//set when the script has a BlockShot() function for this weapon
+-	bool hasTargetWeight;                            //set when there's a TargetWeight() function for this weapon
+-	bool angleGood;										//set when script indicated ready to fire
+-	bool avoidTarget;								//set when the script wants the weapon to pick a new target, reset once one has been chosen
+-	bool subClassReady;								//set to false if the subclassed weapon cant fire for some reason
+-	bool onlyForward;									//can only fire in the forward direction of the unit (for aircrafts mostly?)
++	bool cobHasBlockShot;					// set when the script has a BlockShot() function for this weapon
++	bool hasTargetWeight;					// set when there's a TargetWeight() function for this weapon
++	bool angleGood;							// set when script indicated ready to fire
++	bool avoidTarget;						// set when the script wants the weapon to pick a new target, reset once one has been chosen
++	bool subClassReady;						// set to false if the subclassed weapon cant fire for some reason
++	bool onlyForward;						// can only fire in the forward direction of the unit (for aircrafts mostly?)
+ 
+-	float maxAngleDif;								//max dotproduct between wanted and actual angle to fire
+-	float3 wantedDir;									//the angle we want to aim in,set by the weapon subclass
+-	float3 lastRequestedDir;					//last angle we called the script with
+-	int lastRequest;									//when the last script call was done
++	float maxAngleDif;						// max dotproduct between wanted and actual angle to fire
++	float3 wantedDir;						// the angle we want to aim in,set by the weapon subclass
++	float3 lastRequestedDir;				// last angle we called the script with
++	int lastRequest;						// when the last script call was done
+ 
+-	unsigned int badTargetCategory;		//targets in this category get a lot lower targetting priority
+-	unsigned int onlyTargetCategory;	//only targets in this category can be targeted (default 0xffffffff)
++	unsigned int badTargetCategory;			// targets in this category get a lot lower targetting priority
++	unsigned int onlyTargetCategory;		// only targets in this category can be targeted (default 0xffffffff)
+ 
+-	std::list&lt;CWeaponProjectile*&gt; incoming;	//nukes that are on the way to our area
+-	CWeaponProjectile* interceptTarget;				//nuke that we currently targets
++	std::list&lt;CWeaponProjectile*&gt; incoming;	// nukes that are on the way to our area
++	CWeaponProjectile* interceptTarget;		// nuke that we currently targets
+ 
+-	float buildPercent;								//how far we have come on building current missile if stockpiling
+-	int numStockpiled;								//how many missiles we have stockpiled
+-	int numStockpileQued;							//how many weapons the user have added to our que
++	float buildPercent;						// how far we have come on building current missile if stockpiling
++	int numStockpiled;						// how many missiles we have stockpiled
++	int numStockpileQued;					// how many weapons the user have added to our que
+ 	void CheckIntercept(void);
+ 
+ 	float3 errorVector;
+ 	float3 errorVectorAdd;
+ 	int lastErrorVectorUpdate;
+ 
+-	CWeapon* slavedTo;						//use this weapon to choose target
++	CWeapon* slavedTo;						// use this weapon to choose target
+ 
+-	float3 mainDir;								//main aim dir of weapon
+-	float maxMainDirAngleDif;					//how far away from main aim dir the weapon can aim at something (as an acos value)
++	float3 mainDir;							// main aim dir of weapon
++	float maxMainDirAngleDif;				// how far away from main aim dir the weapon can aim at something (as an acos value)
+ 
+-	bool avoidFriendly;		//if true tried to avoid friendly Units when aiming.
+-	bool avoidFeature;      		//if true try to avoid Features while aiming.
++	bool avoidFriendly;						// if true, try to avoid friendly units while aiming
++	bool avoidFeature;      				// if true, try to avoid features while aiming
++	bool avoidNeutral;						// if true, try to avoid neutral units while aiming
+ 
+-	float targetBorder;  // if nonzero, targetting units will TryTarget at the edge of collision sphere (radius*tag value, [-1;1]) instead of its centre
+-	float cylinderTargetting;	//if greater than 0, range will be checked in a cylinder (height=range*cylinderTargetting) instead of a sphere
+-	float minIntensity;	// for beamlasers - always hit with some minimum intensity (a damage coeffcient normally dependent on distance). do not confuse with intensity tag, it's completely unrelated.
+-	float heightBoostFactor;	//controls cannon range height boost. default: -1 -- automatically calculate a more or less sane value
++	float targetBorder;						// if nonzero, targetting units will TryTarget at the edge of collision sphere (radius*tag value, [-1;1]) instead of its centre
++	float cylinderTargetting;				// if greater than 0, range will be checked in a cylinder (height=range*cylinderTargetting) instead of a sphere
++	float minIntensity;						// for beamlasers - always hit with some minimum intensity (a damage coeffcient normally dependent on distance). do not confuse with intensity tag, it's completely unrelated.
++	float heightBoostFactor;				// controls cannon range height boost. default: -1 -- automatically calculate a more or less sane value
+ 
+ 	unsigned int collisionFlags;
+ 
+
+Modified: trunk/rts/Sim/Weapons/WeaponDefHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Weapons/WeaponDefHandler.cpp	2008-04-04 18:17:39 UTC (rev 5659)
++++ trunk/rts/Sim/Weapons/WeaponDefHandler.cpp	2008-04-04 18:58:59 UTC (rev 5660)
+@@ -87,12 +87,15 @@
+ 
+ 	wd.avoidFriendly = wdTable.GetBool(&quot;avoidFriendly&quot;, true);
+ 	wd.avoidFeature  = wdTable.GetBool(&quot;avoidFeature&quot;,  true);
++	wd.avoidNeutral  = wdTable.GetBool(&quot;avoidNeutral&quot;,  true);
+ 
+ 	wd.collisionFlags = 0;
+ 	const bool collideFriendly = wdTable.GetBool(&quot;collideFriendly&quot;, true);
+ 	const bool collideFeature  = wdTable.GetBool(&quot;collideFeature&quot;,  true);
+-	if (!collideFriendly) { wd.collisionFlags += COLLISION_NOFRIENDLY; }
+-	if (!collideFeature)  { wd.collisionFlags += COLLISION_NOFEATURE;  }
++	const bool collideNeutral  = wdTable.GetBool(&quot;collideNeutral&quot;,  true);
++	if (!collideFriendly) { wd.collisionFlags |= COLLISION_NOFRIENDLY; }
++	if (!collideFeature)  { wd.collisionFlags |= COLLISION_NOFEATURE;  }
++	if (!collideNeutral)  { wd.collisionFlags |= COLLISION_NONEUTRAL;  }
+ 
+ 	wd.minIntensity = wdTable.GetFloat(&quot;minIntensity&quot;, 0.0f);
+ 
+
+Modified: trunk/rts/Sim/Weapons/WeaponDefHandler.h
+===================================================================
+--- trunk/rts/Sim/Weapons/WeaponDefHandler.h	2008-04-04 18:17:39 UTC (rev 5659)
++++ trunk/rts/Sim/Weapons/WeaponDefHandler.h	2008-04-04 18:58:59 UTC (rev 5660)
+@@ -200,8 +200,9 @@
+ 	unsigned int shieldInterceptType;			// type of shield (bitfield)
+ 	unsigned int interceptedByShieldType;		// weapon can be affected by shields where (shieldInterceptType &amp; interceptedByShieldType) is not zero
+ 
+-	bool avoidFriendly;							// if true try to avoid friendly Units when aiming.
+-	bool avoidFeature;							// if true try to avoid Features while aiming.
++	bool avoidFriendly;							// if true, try to avoid friendly units while aiming
++	bool avoidFeature;							// if true, try to avoid features while aiming
++	bool avoidNeutral;							// if true, try to avoid neutral units while aiming
+ 
+ 	float targetBorder;							// if nonzero, targetting units will TryTarget at the edge of collision sphere (radius*tag value, [-1;1]) instead of its centre
+ 	float cylinderTargetting;					// if greater than 0, range will be checked in a cylinder (height=range*cylinderTargetting) instead of a sphere
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000440.html">[Taspring-linux-commit] r5659 - in trunk/rts: Map Map/SMF Rendering	Rendering/Env Rendering/GL Rendering/Textures Sim/Projectiles
+</A></li>
+	<LI>Next message: <A HREF="000442.html">[Taspring-linux-commit] r5661 - trunk/rts/Sim/Units
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#441">[ date ]</a>
+              <a href="thread.html#441">[ thread ]</a>
+              <a href="subject.html#441">[ subject ]</a>
+              <a href="author.html#441">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

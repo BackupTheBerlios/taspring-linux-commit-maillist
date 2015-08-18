@@ -1,0 +1,219 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5343 - in trunk/rts: Map Sim/Units	Sim/Units/UnitTypes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5343%20-%20in%20trunk/rts%3A%20Map%20Sim/Units%0A%09Sim/Units/UnitTypes&In-Reply-To=%3CE1JFwSb-0002Q9-Qr%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000149.html">
+   <LINK REL="Next"  HREF="000151.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5343 - in trunk/rts: Map Sim/Units	Sim/Units/UnitTypes</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5343%20-%20in%20trunk/rts%3A%20Map%20Sim/Units%0A%09Sim/Units/UnitTypes&In-Reply-To=%3CE1JFwSb-0002Q9-Qr%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5343 - in trunk/rts: Map Sim/Units	Sim/Units/UnitTypes">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Jan 18 20:01:01 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000149.html">[Taspring-linux-commit] r5342 - trunk/rts/Lua
+</A></li>
+        <LI>Next message: <A HREF="000151.html">[Taspring-linux-commit] r5344 - in trunk/rts: Lua Sim/MoveTypes	Sim/Units Sim/Units/UnitTypes build/vstudio8
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#150">[ date ]</a>
+              <a href="thread.html#150">[ thread ]</a>
+              <a href="subject.html#150">[ subject ]</a>
+              <a href="author.html#150">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: KDR_11k
+Date: 2008-01-18 20:01:00 +0100 (Fri, 18 Jan 2008)
+New Revision: 5343
+
+Modified:
+   trunk/rts/Map/ReadMap.cpp
+   trunk/rts/Map/ReadMap.h
+   trunk/rts/Sim/Units/Unit.cpp
+   trunk/rts/Sim/Units/UnitDefHandler.cpp
+   trunk/rts/Sim/Units/UnitLoader.cpp
+   trunk/rts/Sim/Units/UnitTypes/Factory.cpp
+Log:
+*Implemented 'y' value for yardmaps which means this square is not blocked. Masks can now be applied to yardmaps in AddGroundBlockingObject, right now the only masking is that 1 is the opening yard for a factory but that could be extended for future uses later on.
+(since y is what mines used to be nonblocking can their special case be removed now?)
+
+Modified: trunk/rts/Map/ReadMap.cpp
+===================================================================
+--- trunk/rts/Map/ReadMap.cpp	2008-01-17 22:53:37 UTC (rev 5342)
++++ trunk/rts/Map/ReadMap.cpp	2008-01-18 19:01:00 UTC (rev 5343)
+@@ -389,7 +389,7 @@
+ 		pathManager-&gt;TerrainChange(minXSqr, minZSqr, maxXSqr, maxZSqr);
+ }
+ 
+-void CReadMap::AddGroundBlockingObject(CSolidObject *object, unsigned char *yardMap)
++void CReadMap::AddGroundBlockingObject(CSolidObject *object, unsigned char *yardMap, unsigned char mask)
+ {
+ 	object-&gt;isMarkedOnBlockingMap=true;
+ 	object-&gt;mapPos=object-&gt;GetMapPos();
+@@ -408,7 +408,7 @@
+ 	for(int z = 0; minZSqr + z &lt; maxZSqr; z++) {
+ 		for(int x = 0; minXSqr + x &lt; maxXSqr; x++) {
+ 			if(!groundBlockingObjectMap[minXSqr + x + (minZSqr + z)*gs-&gt;mapx]){
+-				if(yardMap[x + z*object-&gt;xsize]) {
++				if(yardMap[x + z*object-&gt;xsize] &amp; mask) {
+ 					groundBlockingObjectMap[minXSqr + x + (minZSqr + z)*gs-&gt;mapx] = object;
+ 				}
+ 			}
+@@ -474,7 +474,7 @@
+ */
+ void CReadMap::OpenBlockingYard(CSolidObject *yard, unsigned char *blockingMap) {
+ 	RemoveGroundBlockingObject(yard);
+-	AddGroundBlockingObject(yard, blockingMap);
++	AddGroundBlockingObject(yard, blockingMap, 2);
+ }
+ 
+ 
+@@ -482,9 +482,9 @@
+ Closes a yard, blocking the area.
+ When a factory closes, for example.
+ */
+-void CReadMap::CloseBlockingYard(CSolidObject *yard) {
++void CReadMap::CloseBlockingYard(CSolidObject *yard, unsigned char *blockingMap) {
+ 	RemoveGroundBlockingObject(yard);
+-	AddGroundBlockingObject(yard);
++	AddGroundBlockingObject(yard, blockingMap, 1);
+ }
+ 
+ 
+
+Modified: trunk/rts/Map/ReadMap.h
+===================================================================
+--- trunk/rts/Map/ReadMap.h	2008-01-17 22:53:37 UTC (rev 5342)
++++ trunk/rts/Map/ReadMap.h	2008-01-18 19:01:00 UTC (rev 5343)
+@@ -42,11 +42,11 @@
+ 	void Serialize(creg::ISerializer&amp; s); // creg serialize callback
+ 
+ 	void AddGroundBlockingObject(CSolidObject *object);
+-	void AddGroundBlockingObject(CSolidObject *object, unsigned char *blockingMap);
++	void AddGroundBlockingObject(CSolidObject *object, unsigned char *blockingMap, unsigned char mask = 255);
+ 	void RemoveGroundBlockingObject(CSolidObject *object);
+ 	void MoveGroundBlockingObject(CSolidObject *object, float3 oldPos);
+ 	void OpenBlockingYard(CSolidObject *yard, unsigned char *blockingMap);
+-	void CloseBlockingYard(CSolidObject *yard);
++	void CloseBlockingYard(CSolidObject *yard, unsigned char *blockingMap);
+ 	CSolidObject* GroundBlocked(float3 pos);
+ 	CSolidObject* GroundBlocked(int mapSquare);
+ 	inline CSolidObject* GroundBlockedUnsafe(int mapSquare){return groundBlockingObjectMap[mapSquare];} //simple version of GroundBlocked without error checking
+
+Modified: trunk/rts/Sim/Units/Unit.cpp
+===================================================================
+--- trunk/rts/Sim/Units/Unit.cpp	2008-01-17 22:53:37 UTC (rev 5342)
++++ trunk/rts/Sim/Units/Unit.cpp	2008-01-18 19:01:00 UTC (rev 5343)
+@@ -339,7 +339,7 @@
+ void CUnit::ForcedMove(const float3&amp; newPos)
+ {
+ 	// hack to make mines not block ground
+-	const bool blocking = !unitDef-&gt;canKamikaze || (unitDef-&gt;type != &quot;Building&quot;);
++	const bool blocking = !unitDef-&gt;canKamikaze || (unitDef-&gt;type == &quot;Building&quot; || unitDef-&gt;type == &quot;Factory&quot;);
+ 	if (blocking) {
+ 		UnBlock();
+ 	}
+@@ -1655,7 +1655,7 @@
+ 	if(pos.y+model-&gt;height&lt;1)	//some torp launchers etc is exactly in the surface and should be considered uw anyway
+ 		isUnderWater=true;
+ 
+-	if(!unitDef-&gt;canKamikaze || unitDef-&gt;type!=&quot;Building&quot;)	//semi hack to make mines not block ground
++	if(!unitDef-&gt;canKamikaze || unitDef-&gt;type==&quot;Building&quot; || unitDef-&gt;type==&quot;Factory&quot;)	//semi hack to make mines not block ground
+ 		Block();
+ 
+ 	UpdateTerrainType();
+
+Modified: trunk/rts/Sim/Units/UnitDefHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-01-17 22:53:37 UTC (rev 5342)
++++ trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-01-18 19:01:00 UTC (rev 5343)
+@@ -874,7 +874,7 @@
+ 		def-&gt;yardmaps[u] = SAFE_NEW unsigned char[def-&gt;xsize * def-&gt;ysize];
+ 
+ 	unsigned char *originalMap = SAFE_NEW unsigned char[def-&gt;xsize * def-&gt;ysize / 4];		//TAS resolution is double of TA resolution.
+-	memset(originalMap, 1, def-&gt;xsize * def-&gt;ysize / 4);
++	memset(originalMap, 255, def-&gt;xsize * def-&gt;ysize / 4);
+ 
+ 	if(!yardmapStr.empty()){
+ 		std::string::iterator si = yardmapStr.begin();
+@@ -883,7 +883,9 @@
+ 			for(x = 0; x &lt; def-&gt;xsize / 2; x++) {
+ 				if(*si == 'g')
+ 					def-&gt;needGeo=true;
+-				if(*si == YARDMAP_CHAR)
++				else if(*si == YARDMAP_CHAR)
++					originalMap[x + y*def-&gt;xsize/2] = 1;
++				else if(*si == 'y')
+ 					originalMap[x + y*def-&gt;xsize/2] = 0;
+ 				do {
+ 					si++;
+
+Modified: trunk/rts/Sim/Units/UnitLoader.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitLoader.cpp	2008-01-17 22:53:37 UTC (rev 5342)
++++ trunk/rts/Sim/Units/UnitLoader.cpp	2008-01-18 19:01:00 UTC (rev 5343)
+@@ -335,10 +335,10 @@
+ 	unit-&gt;updir=UpVector;
+ 	unit-&gt;rightdir=unit-&gt;frontdir.cross(unit-&gt;updir);
+ 
++	unit-&gt;yardMap = ud-&gt;yardmaps[facing];
++
+ 	unit-&gt;Init(builder);
+ 
+-	unit-&gt;yardMap = ud-&gt;yardmaps[facing];
+-
+ 	if(!build)
+ 		unit-&gt;FinishedBuilding();
+ 
+
+Modified: trunk/rts/Sim/Units/UnitTypes/Factory.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitTypes/Factory.cpp	2008-01-17 22:53:37 UTC (rev 5342)
++++ trunk/rts/Sim/Units/UnitTypes/Factory.cpp	2008-01-18 19:01:00 UTC (rev 5343)
+@@ -241,7 +241,7 @@
+ 	if (((lastBuild + 200) &lt; gs-&gt;frameNum) &amp;&amp; !stunned &amp;&amp;
+ 	    !quedBuild &amp;&amp; opening &amp;&amp; uh-&gt;CanCloseYard(this)) {
+ 		// close the factory after inactivity
+-		readmap-&gt;CloseBlockingYard(this);
++		readmap-&gt;CloseBlockingYard(this, yardMap);
+ 		opening = false;
+ 		cob-&gt;Call(COBFN_Deactivate);
+ 	}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000149.html">[Taspring-linux-commit] r5342 - trunk/rts/Lua
+</A></li>
+	<LI>Next message: <A HREF="000151.html">[Taspring-linux-commit] r5344 - in trunk/rts: Lua Sim/MoveTypes	Sim/Units Sim/Units/UnitTypes build/vstudio8
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#150">[ date ]</a>
+              <a href="thread.html#150">[ thread ]</a>
+              <a href="subject.html#150">[ subject ]</a>
+              <a href="author.html#150">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

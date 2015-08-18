@@ -1,0 +1,680 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5447 - trunk/Lobby/TASServer
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5447%20-%20trunk/Lobby/TASServer&In-Reply-To=%3CE1JLOrc-00018i-Hm%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000253.html">
+   <LINK REL="Next"  HREF="000255.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5447 - trunk/Lobby/TASServer</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5447%20-%20trunk/Lobby/TASServer&In-Reply-To=%3CE1JLOrc-00018i-Hm%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5447 - trunk/Lobby/TASServer">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Feb  2 21:21:24 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000253.html">[Taspring-linux-commit] r5446 - trunk/rts/Rendering
+</A></li>
+        <LI>Next message: <A HREF="000255.html">[Taspring-linux-commit] r5448 - trunk/Lobby/TASServer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#254">[ date ]</a>
+              <a href="thread.html#254">[ thread ]</a>
+              <a href="subject.html#254">[ subject ]</a>
+              <a href="author.html#254">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-02-02 21:21:23 +0100 (Sat, 02 Feb 2008)
+New Revision: 5447
+
+Added:
+   trunk/Lobby/TASServer/ChannelWriteTimeoutException.java
+Modified:
+   trunk/Lobby/TASServer/Battles.java
+   trunk/Lobby/TASServer/Channels.java
+   trunk/Lobby/TASServer/Client.java
+   trunk/Lobby/TASServer/Clients.java
+   trunk/Lobby/TASServer/MapGradeList.java
+   trunk/Lobby/TASServer/Misc.java
+   trunk/Lobby/TASServer/TASServer.java
+Log:
+* Revert r5443 except the DB stuff.
+
+
+
+Modified: trunk/Lobby/TASServer/Battles.java
+===================================================================
+--- trunk/Lobby/TASServer/Battles.java	2008-02-02 17:12:24 UTC (rev 5446)
++++ trunk/Lobby/TASServer/Battles.java	2008-02-02 20:21:23 UTC (rev 5447)
+@@ -63,7 +63,6 @@
+ 	
+ 	/* will send a list of all active battles and users participating in it to the given client */
+ 	public static void sendInfoOnBattlesToClient(Client client) {
+-		client.beginFastWrite();
+ 		for (int i = 0; i &lt; battles.size(); i++) {
+ 			Battle bat = battles.get(i);
+ 			// make sure that clients behind NAT get local IPs and not external ones:
+@@ -75,7 +74,6 @@
+ 				client.sendLine(&quot;JOINEDBATTLE &quot; + bat.ID + &quot; &quot; + bat.getClient(j).account.user);
+ 			}
+ 		}
+-		client.endFastWrite();
+ 	}
+ 
+ 	/* Creates new Battle object from a command that client sent to server. This method
+
+Added: trunk/Lobby/TASServer/ChannelWriteTimeoutException.java
+===================================================================
+--- trunk/Lobby/TASServer/ChannelWriteTimeoutException.java	                        (rev 0)
++++ trunk/Lobby/TASServer/ChannelWriteTimeoutException.java	2008-02-02 20:21:23 UTC (rev 5447)
+@@ -0,0 +1,15 @@
++/*
++ * Created on 2006.10.22
++ * 
++ */
++
++/**
++ * @author Betalord
++ *
++ */
++
++public class ChannelWriteTimeoutException extends Exception {
++	ChannelWriteTimeoutException() {
++		super();
++	}
++}
+
+Modified: trunk/Lobby/TASServer/Channels.java
+===================================================================
+--- trunk/Lobby/TASServer/Channels.java	2008-02-02 17:12:24 UTC (rev 5446)
++++ trunk/Lobby/TASServer/Channels.java	2008-02-02 20:21:23 UTC (rev 5447)
+@@ -45,34 +45,29 @@
+ 	public static boolean removeChannel(Channel chan) {
+ 		return channels.remove(chan);
+ 	}
+-
++	
+ 	/* sends information on all clients in a channel (and the topic if it is set) to the client */
+ 	public static boolean sendChannelInfoToClient(Channel chan, Client client) {
+-		client.beginFastWrite();
+ 		// it always sends info about at least one client - the one to whom this list must be sent
+-		StringBuilder sb = new StringBuilder();
+-		sb.append(&quot;CLIENTS &quot;).append(chan.name);
++		String s = &quot;CLIENTS &quot; + chan.name;
+ 		int c = 0;
+-
++		
+ 		for (int i = 0; i &lt; chan.getClientsSize(); i++) {
+-			sb.append(' ').append(chan.getClient(i).account.user);
++			s = s.concat(&quot; &quot; + chan.getClient(i).account.user);
+ 			c++;
+-			// 10 is the maximum number of users in a single line (we would like to avoid too long lines, but it is not vital)
+-			if (c &gt; 10) {
+-				client.sendLine(sb.toString());
+-				sb = new StringBuilder();
+-				sb.append(&quot;CLIENTS &quot;).append(chan.name);
++			if (c &gt; 10) { // 10 is the maximum number of users in a single line
++				client.sendLine(s);
++				s = &quot;CLIENTS &quot; + chan.name;
+ 				c = 0;
+ 			}
+ 		}
+ 		if (c &gt; 0) {
+-			client.sendLine(sb.toString());
++			client.sendLine(s);
+ 		}
+-
++			
+ 		// send the topic:
+ 		if (chan.isTopicSet()) client.sendLine(&quot;CHANNELTOPIC &quot; + chan.name + &quot; &quot; + chan.getTopicAuthor() + &quot; &quot; + chan.getTopicChangedTime() + &quot; &quot; + chan.getTopic());
+-
+-		client.endFastWrite();
++		
+ 		return true;
+ 	}
+ 	
+@@ -80,12 +75,10 @@
+ 	public static void sendChannelListToClient(Client client) {
+ 		if (channels.size() == 0) return ; // nothing to send
+ 		
+-		client.beginFastWrite();
+ 		for (int i = 0; i &lt; channels.size(); i++) {
+ 			client.sendLine(&quot;CHANNEL &quot; + channels.get(i).name + &quot; &quot; + channels.get(i).getClientsSize() + (channels.get(i).isTopicSet() ? &quot; &quot; + channels.get(i).getTopic() : &quot;&quot;));
+ 		}
+ 		client.sendLine(&quot;ENDOFCHANNELS&quot;);
+-		client.endFastWrite();
+ 	}
+ 	
+ 	public static void notifyClientsOfNewClientInChannel(Channel chan, Client client) {
+
+Modified: trunk/Lobby/TASServer/Client.java
+===================================================================
+--- trunk/Lobby/TASServer/Client.java	2008-02-02 17:12:24 UTC (rev 5446)
++++ trunk/Lobby/TASServer/Client.java	2008-02-02 20:21:23 UTC (rev 5447)
+@@ -15,18 +15,15 @@
+ //import java.io.*;
+ //import java.net.*;
+ 
+-import java.io.IOException;
+-import java.nio.*;
+ import java.nio.channels.*;
+-import java.nio.charset.CharacterCodingException;
+ import java.util.*;
+ 
+ public class Client {
+-	public boolean alive = false; // if false, then this client is not &quot;valid&quot; anymore (we already killed him and closed his socket).
++	public boolean alive = false;
+ 	
+ 	public Account account;
+ 	public String IP;
+-	public String localIP; // client's local IP which has to be send with LOGIN command (server can't figure out his local IP himself of course) 
++	public String localIP; // client's local IP which has to be send with LOGIN command (server can't figure out his local IP himself ofcourse) 
+ 	public int UDPSourcePort; // client's public UDP source port used with some NAT traversal techniques (e.g. &quot;hole punching&quot;)
+ 	public int status; // see MYSTATUS command for actual values of status
+ 	public int battleStatus; // see MYBATTLESTATUS command for actual values of battleStatus
+@@ -36,10 +33,8 @@
+ 	
+ 	public SocketChannel sockChan;
+ 	public SelectionKey selKey;
+-	public StringBuilder recvBuf;
++	public StringBuffer recvBuf;
+ 	private int msgID = TASServer.NO_MSG_ID; // -1 means no ID is used (NO_MSG_ID constant). This is the message/command ID used when sending command as described in the &quot;lobby protocol description&quot; document. Use setSendMsgID and resetSendMsgID methods to manipulate it.
+-	private Queue&lt;ByteBuffer&gt; sendQueue = new LinkedList&lt;ByteBuffer&gt;(); // queue of &quot;delayed data&quot;. We failed sending this the first time, so we'll have to try sending it again some time.
+-	private StringBuilder fastWrite; // temporary StringBuilder used with beginFastWrite() and endFastWrite() methods.
+ 	
+ 	public long inGameTime; // in milliseconds. Used internally to remember time when user entered game using System.currentTimeMillis().
+ 	public String country;
+@@ -67,17 +62,17 @@
+ 		localIP = new String(IP); // will be changed later once client logs in
+ 		UDPSourcePort = 0; // yet unknown
+ 		selKey = null;
+-		recvBuf = new StringBuilder();
++		recvBuf = new StringBuffer(&quot;&quot;);
+ 		status = 0;
+ 		country = IP2Country.getCountryCode(Misc.IP2Long(IP));
+ 		battleStatus = 0;
+ 		teamColor = 0;
+ 		inGameTime = 0;
+-		battleID = -1;
+-		cpu = 0;
+-		mapHashUponEnteringGame = null;
+-
+-		timeOfLastReceive = System.currentTimeMillis();
++	    battleID = -1;
++	    cpu = 0;
++	    mapHashUponEnteringGame = null;
++	    
++	    timeOfLastReceive = System.currentTimeMillis();
+ 	}
+ 	
+ 	// any messages sent via sendLine() method will contain this ID. See &quot;lobby protocol description&quot; document for more info on message/command IDs.
+@@ -97,47 +92,33 @@
+ 	/* the 'msgID' param overrides any previously set ID (via setSendMsgID method). Use NO_MSG_ID (which should equal to -1) for none.  */
+ 	public boolean sendLine(String text, int msgID) {
+ 		if (!alive) return false;
+-
++		
+ 		// prefix message with a message ID:
+ 		if (msgID != TASServer.NO_MSG_ID) text = &quot;#&quot; + msgID + &quot; &quot; + text;
+-
+-		if (fastWrite != null) {
+-			if (fastWrite.length() != 0)
+-				fastWrite.append(Misc.EOL);
+-			fastWrite.append(text);
+-			return true;
+-		}
+-
++		
+ 		if (TASServer.DEBUG &gt; 1) 
+ 			if (account.accessLevel() != Account.NIL_ACCESS) System.out.println(&quot;[-&gt;&quot; + account.user + &quot;]&quot; + &quot; \&quot;&quot; + text + &quot;\&quot;&quot;);
+ 			else System.out.println(&quot;[-&gt;&quot; + IP + &quot;]&quot; + &quot; \&quot;&quot; + text + &quot;\&quot;&quot;);
+-
+ 		try {
+-			// prepare data and add it to the send queue
+-
+-			String data = text + Misc.EOL;
+-
+-			if ((sockChan == null) || (!sockChan.isConnected())) {
+-				System.out.println(&quot;WARNING: SocketChannel is not ready to be written to. Killing the client next loop ...&quot;);
++			if (!TASServer.sendLineToSocketChannel(text, sockChan)) {
++				System.out.println(&quot;Error writing to socket. Line not sent! Killing the client next loop...&quot;);
+ 				Clients.killClientDelayed(this, &quot;Quit: undefined connection error&quot;);
+ 				return false;
+ 			}
+-
+-			ByteBuffer buf;
+-			try{
+-				buf = TASServer.asciiEncoder.encode(CharBuffer.wrap(data));
+-			} catch (CharacterCodingException e) {
+-				System.out.println(&quot;WARNING: Unable to encode message. Killing the client next loop ...&quot;);
+-				Clients.killClientDelayed(this, &quot;Quit: undefined encoder error&quot;);
+-				return false;
+-			}
+-
+-			sendQueue.add(buf);
+-			Clients.enqueueDelayedData(this);
++		} catch (ChannelWriteTimeoutException e) {
++    		System.out.println(&quot;WARNING: channelWrite() timed out. Disconnecting client ...&quot;);
++			Clients.sendToAllAdministrators(&quot;SERVERMSG [broadcast to all admins]: Serious problem: channelWrite() timed out [&quot; + IP + &quot;, &lt;&quot; + account.user + &quot;&gt;]&quot;);
++			
++			// add server notification:
++			ServerNotification sn = new ServerNotification(&quot;channelWrite() timeout&quot;);
++			sn.addLine(&quot;Serious problem detected: channelWrite() has timed out.&quot;);
++			sn.addLine(&quot;Client: &quot; + IP + &quot;(&quot; + (account.user.equals(&quot;&quot;) ? &quot;user not logged in&quot; : account.user) + &quot;)&quot;);
++			ServerNotifications.addNotification(sn);
++			Clients.killClientDelayed(this, &quot;Quit: channelWrite() timed out&quot;);
++			
+ 		} catch (Exception e) {
+-			System.out.println(&quot;Error sending data (undefined). Killing the client next loop ...&quot;);
++			System.out.println(&quot;Error writing to socket (exception). Line not sent! Killing the client next loop...&quot;);
+ 			Clients.killClientDelayed(this, &quot;Quit: undefined connection error&quot;);
+-			e.printStackTrace(); //*** DEBUG
+ 			return false;
+ 		}
+ 		return true;
+@@ -218,62 +199,8 @@
+ 		}
+ 		return null;		
+ 	}
+-
+-	/* tries to send the data from the sendQueue. Returns true if all data has been flushed or false otherwise. */
+-	public boolean tryToFlushData() {
+-		if (!alive) {
+-			// disregard any other scheduled writes:
+-			while (sendQueue.size() != 0)
+-				sendQueue.remove();
+-			return true; // no more data left to be flushed, so return true
+-		}
+-
+-		ByteBuffer buf;
+-		while ((buf = sendQueue.peek()) != null) {
+-			try {
+-				sockChan.write(buf);
+-
+-				if (buf.hasRemaining()) // this happens when send buffer is full and no more data can be written to it
+-					break; // lets just skip it without removing the packet from the send queue (we will retry sending it later)
+-
+-				// remove element from queue (it was sent entirely)
+-				sendQueue.remove();
+-			} catch (ClosedChannelException cce) {
+-				// no point sending the rest to the closed channel
+-				if (alive) {
+-					Clients.killClientDelayed(this, &quot;Quit: socket channel closed exception&quot;);
+-				}
+-				break;
+-			} catch (IOException io) {
+-				// do nothing
+-			}
+-		}
+-		
+-		return sendQueue.size() == 0;
+-	}
+ 	
+-	public void beginFastWrite() {
+-		if (fastWrite != null) {
+-			System.out.println(&quot;Serious error detected: invalid use of beginFastWrite(). Check your code! Shutting down the server ...&quot;);
+-			TASServer.closeServerAndExit();
+-		}
+-		
+-		fastWrite = new StringBuilder();
+-	}
+-
+-	public void endFastWrite() {
+-		if (fastWrite == null) {
+-			System.out.println(&quot;Serious error detected: invalid use of endFastWrite(). Check your code! Shutting down the server ...&quot;);
+-			TASServer.closeServerAndExit();
+-		}
+-		
+-		String data = fastWrite.toString();
+-		fastWrite = null;
+-		if (data.equals(&quot;&quot;)) return ;
+-		sendLine(data);
+-	}	
+-
+-
++	
+ 	/* various methods dealing with client status: */
+ 	
+ 	public boolean getInGameFromStatus() {
+
+Modified: trunk/Lobby/TASServer/Clients.java
+===================================================================
+--- trunk/Lobby/TASServer/Clients.java	2008-02-02 17:12:24 UTC (rev 5446)
++++ trunk/Lobby/TASServer/Clients.java	2008-02-02 20:21:23 UTC (rev 5447)
+@@ -10,7 +10,7 @@
+ 
+ import java.io.IOException;
+ import java.nio.channels.*;
+-import java.util.*;
++import java.util.ArrayList;
+ 
+ public class Clients {
+ 
+@@ -23,13 +23,8 @@
+ 	 * removed (client will be killed only once), so no additional logic for
+ 	 * consistency is required. */
+ 	static private ArrayList&lt;String&gt;reasonList = new ArrayList&lt;String&gt;(); // used with killList list (gives reason for each scheduled kill) 
+-
+-	/* here we keep a list (actually a set) of clients who have their send queues not empty.
+-	 * This collection is not synchronized! Use Collections.synchronizedSet to wrap it if synchronized
+-	 * access is needed. (<A HREF="http://java.sun.com/j2se/1.5.0/docs/api/java/util/Collections.html#synchronizedSet(java.util.Set">http://java.sun.com/j2se/1.5.0/docs/api/java/util/Collections.html#synchronizedSet(java.util.Set</A>))
+-	 * */
+-	static private Set&lt;Client&gt; sendQueue = new HashSet&lt;Client&gt;();
+ 	
++	
+ 	/* will create new Client object and add it to the 'clients' list
+ 	 * and will also register it's socket channel with 'readSelector'.
+ 	 * Use 'sendBufferSize' to specify socket's send buffer size. */
+@@ -112,13 +107,11 @@
+ 	
+ 	/* notifies client of all statuses, including his own (but only if they are different from 0) */
+ 	public static void sendInfoOnStatusesToClient(Client client) {
+-		client.beginFastWrite();
+ 		for (int i = 0; i &lt; clients.size(); i++) {
+ 			if (clients.get(i).account.accessLevel() &lt; Account.NORMAL_ACCESS) continue;
+ 			if (clients.get(i).status != 0) // only send it if not 0. User assumes that every new user's status is 0, so we don't need to tell him that explicitly.
+ 				client.sendLine(&quot;CLIENTSTATUS &quot; + clients.get(i).account.user + &quot; &quot; + clients.get(i).status);
+ 		}
+-		client.endFastWrite();
+ 	}
+ 
+ 	/* notifies all logged-in clients (including this client) of the client's new status */
+@@ -129,12 +122,10 @@
+ 	/* sends a list of all users connected to the server to client (this list includes
+ 	 * the client itself, assuming he is already logged in and in the list) */
+ 	public static void sendListOfAllUsersToClient(Client client) {
+-		client.beginFastWrite();
+ 		for (int i = 0; i &lt; clients.size(); i++) {
+ 			if (clients.get(i).account.accessLevel() &lt; Account.NORMAL_ACCESS) continue;
+ 			client.sendLine(&quot;ADDUSER &quot; + clients.get(i).account.user + &quot; &quot; + clients.get(i).country + &quot; &quot; + clients.get(i).cpu);
+ 		}
+-		client.endFastWrite();
+ 	}
+ 
+ 	/* notifies all registered clients of a new client who just logged in. The new client
+@@ -221,19 +212,4 @@
+ 	    	reasonList.remove(0);
+ 	    }
+ 	}
+-	
+-	/* this will go through all clients that still have pending data to be sent
+-	 * and will try to send it. */
+-	public static void flushData() {
+-		Iterator&lt;Client&gt; i = sendQueue.iterator();
+-		while (i.hasNext()) {
+-			Client client = i.next();
+-			if (client.tryToFlushData()) i.remove(); // all data from this client has been flushed so remove him from the queue
+-		}			
+-	}
+-	
+-	/* adds client to the queue of clients who have more data to be sent */
+-	public static void enqueueDelayedData(Client client) {
+-		sendQueue.add(client);
+-	}
+ }
+
+Modified: trunk/Lobby/TASServer/MapGradeList.java
+===================================================================
+--- trunk/Lobby/TASServer/MapGradeList.java	2008-02-02 17:12:24 UTC (rev 5446)
++++ trunk/Lobby/TASServer/MapGradeList.java	2008-02-02 20:21:23 UTC (rev 5447)
+@@ -59,12 +59,11 @@
+ 	public synchronized String toString() {
+ 		if (list.size() == 0) return &quot;&quot;;
+ 		else {
+-			StringBuilder result = new StringBuilder();
++			String result = &quot;&quot;;
+ 			for (int i = 0; i &lt; list.size(); i++) {
+-				result.append(list.get(i).toString());
+-				result.append(i == list.size()-1 ? &quot;&quot; : &quot; &quot;);
++				result = result + list.get(i).toString() + (i == list.size()-1 ? &quot;&quot; : &quot; &quot;);
+ 			}
+-			return result.toString();
++			return result;
+ 		}
+ 	}
+ 	
+
+Modified: trunk/Lobby/TASServer/Misc.java
+===================================================================
+--- trunk/Lobby/TASServer/Misc.java	2008-02-02 17:12:24 UTC (rev 5446)
++++ trunk/Lobby/TASServer/Misc.java	2008-02-02 20:21:23 UTC (rev 5447)
+@@ -23,7 +23,7 @@
+ import java.security.*;
+ 
+ public class Misc {
+- 	static public final String EOL = System.getProperty(&quot;line.separator&quot;);
++ 	static public final byte EOL = 13;
+  	static private String hex = &quot;0123456789ABCDEF&quot;; 
+ 	
+ 	public static String easyDateFormat (String format) {
+@@ -40,12 +40,12 @@
+ 	
+ 	/* puts together strings from 'a', starting at a[startIndex] 
+ 	 * see <A HREF="http://leepoint.net/notes-java/data/strings/96string_examples/example_arrayToString.html">http://leepoint.net/notes-java/data/strings/96string_examples/example_arrayToString.html</A>
+-	 * on why StringBuilder is faster.
++	 * on why StringBuffer is faster.
+ 	 * */
+ 	public static String makeSentence(String[] a, int startIndex) {
+ 		if (startIndex &gt; a.length-1) return &quot;&quot;;
+ 		
+-	    StringBuilder result = new StringBuilder();
++	    StringBuffer result = new StringBuffer();
+         result.append(a[startIndex]);
+         for (int i = startIndex+1; i &lt; a.length; i++) {
+             result.append(&quot; &quot;);
+@@ -228,7 +228,7 @@
+ 	    mdAlgorithm.update(plainText.getBytes());
+ 
+ 	    byte[] digest = mdAlgorithm.digest();
+-	    StringBuilder hexString = new StringBuilder();
++	    StringBuffer hexString = new StringBuffer();
+ 
+ 	    for (int i = 0; i &lt; digest.length; i++) {
+ 	    	plainText = Integer.toHexString(0xFF &amp; digest[i]);
+
+Modified: trunk/Lobby/TASServer/TASServer.java
+===================================================================
+--- trunk/Lobby/TASServer/TASServer.java	2008-02-02 17:12:24 UTC (rev 5446)
++++ trunk/Lobby/TASServer/TASServer.java	2008-02-02 20:21:23 UTC (rev 5447)
+@@ -274,7 +274,8 @@
+ 	private static String DB_password = &quot;&quot;;
+ 	
+     private static final int READ_BUFFER_SIZE = 256; // size of the ByteBuffer used to read data from the socket channel. This size doesn't really matter - server will work with any size (tested with READ_BUFFER_SIZE==1), but too small buffer size may impact the performance.
+-    private static final int SEND_BUFFER_SIZE = 8192; // socket's send buffer size
++    private static final int SEND_BUFFER_SIZE = 65536; // socket's send buffer size
++    private static final long CHANNEL_WRITE_SLEEP = 20L;
+     private static final long MAIN_LOOP_SLEEP = 10L;
+     public static final int NO_MSG_ID = -1; // meaning message isn't using an ID (see protocol description on message/command IDs)
+     
+@@ -291,8 +292,8 @@
+     //***private static SelectionKey selectKey;
+     private static boolean running;
+     private static ByteBuffer readBuffer = ByteBuffer.allocateDirect(READ_BUFFER_SIZE); // see <A HREF="http://java.sun.com/j2se/1.5.0/docs/api/java/nio/ByteBuffer.html">http://java.sun.com/j2se/1.5.0/docs/api/java/nio/ByteBuffer.html</A> for difference between direct and non-direct buffers. In this case we should use direct buffers, this is also used by the author of java.nio chat example (see links) upon which this code is built on.
+-    public static CharsetDecoder asciiDecoder;
+-    public static CharsetEncoder asciiEncoder;
++    private static CharsetDecoder asciiDecoder;
++    private static CharsetEncoder asciiEncoder;
+     
+     /* in 'updateProperties' we store a list of Spring versions and server responses to them.
+      * We use it when client doesn't have the latest Spring version or the lobby program 
+@@ -543,7 +544,7 @@
+ 					Clients.killClient(client); // will also close the socket channel 
+ 				} else {
+ 				    // use a CharsetDecoder to turn those bytes into a string
+-				    // and append to client's StringBuilder
++				    // and append to client's StringBuffer
+ 				    readBuffer.flip();
+ 				    String str = asciiDecoder.decode(readBuffer).toString();
+ 				    readBuffer.clear();
+@@ -587,6 +588,57 @@
+ 		}
+ 	}
+ 	
++	private static void channelWrite(SocketChannel channel, ByteBuffer writeBuffer) throws ChannelWriteTimeoutException {
++		long nbytes = 0;
++		long toWrite = writeBuffer.remaining();
++		long time = System.currentTimeMillis();
++
++		// loop on the channel.write() call since it will not necessarily
++		// write all bytes in one shot
++		try {
++		    while (nbytes != toWrite) {
++		    	long last = nbytes;
++		    	nbytes += channel.write(writeBuffer);
++		    	if (nbytes-last == 0) { // no bytes written
++		    		// sleep a bit to avoid creating 100% CPU usage peak:
++			    	try {
++			    		Thread.sleep(CHANNEL_WRITE_SLEEP);
++			    	} catch (InterruptedException e) {
++			    	}
++		    	}
++			
++		    	if (System.currentTimeMillis() - time &gt; 1000) throw new ChannelWriteTimeoutException();
++		    }
++		} catch (ClosedChannelException cce) {
++			// do nothing
++		} catch (IOException io) {
++			// do nothing
++		}  
++		
++		// get ready for another write if needed
++		writeBuffer.rewind();
++	}
++	
++	public static boolean sendLineToSocketChannel(String line, SocketChannel channel) throws ChannelWriteTimeoutException {
++		String data = line + '\n';
++		
++		if ((channel == null) || (!channel.isConnected())) {
++			System.out.println(&quot;WARNING: SocketChannel is not ready to be written to. Ignoring ...&quot;);
++		    return false;
++		}
++		
++		ByteBuffer buf;
++		try{
++			buf = asciiEncoder.encode(CharBuffer.wrap(data));
++		} catch (CharacterCodingException e) {
++			return false;
++		}
++				
++		channelWrite(channel, buf);
++		
++		return true;
++	}
++	
+ 	private static Account verifyLogin(String user, String pass) {
+ 		Account acc = Accounts.getAccount(user);
+ 		if (acc == null) return null;
+@@ -616,7 +668,6 @@
+ 	
+ 	/* Sends &quot;message of the day&quot; (MOTD) to client */
+ 	private static boolean sendMOTDToClient(Client client) {
+-		client.beginFastWrite();
+ 		client.sendLine(&quot;MOTD Welcome, &quot; + client.account.user + &quot;!&quot;);
+ 		client.sendLine(&quot;MOTD There are currently &quot; + (Clients.getClientsSize()-1) + &quot; clients connected&quot;); // -1 is because we shouldn't count the client to which we are sending MOTD
+ 		client.sendLine(&quot;MOTD to server talking in &quot; + Channels.getChannelsSize() + &quot; open channels and&quot;);
+@@ -627,18 +678,16 @@
+ 		for (int i = 0; i &lt; sl.length; i++) {
+ 			client.sendLine(&quot;MOTD &quot; + sl[i]);
+ 		}
+-		client.endFastWrite();
++
+ 		return true;
+ 	}
+ 
+ 	private static void sendAgreementToClient(Client client) {
+-		client.beginFastWrite();
+ 		String[] sl = agreement.split(&quot;\n&quot;);
+ 		for (int i = 0; i &lt; sl.length; i++) {
+ 			client.sendLine(&quot;AGREEMENT &quot; + sl[i]);
+ 		}
+ 		client.sendLine(&quot;AGREEMENTEND&quot;);
+-		client.endFastWrite();
+ 	}	
+ 	
+ 	public static boolean redirectAndKill(Socket socket) {
+@@ -1630,11 +1679,11 @@
+ 				Clients.sendListOfAllUsersToClient(client);
+ 				Battles.sendInfoOnBattlesToClient(client);
+ 				Clients.sendInfoOnStatusesToClient(client);
++				Clients.notifyClientsOfNewClientOnServer(client);
+ 				// notify client that we've finished sending login info:
+ 				client.sendLine(&quot;LOGININFOEND&quot;);
+ 				
+-				// notify everyone about new client:
+-				Clients.notifyClientsOfNewClientOnServer(client);
++				// notify everyone about client's status:
+ 				Clients.notifyClientsOfNewClientStatus(client);
+ 				
+ 				if (DEBUG &gt; 0) System.out.println(&quot;User just logged in: &quot; + client.account.user);
+@@ -2896,11 +2945,6 @@
+ 			if (!database.initialize(DB_URL, DB_username, DB_password)) {
+ 				closeServerAndExit();
+ 			}
+-			if (!database.testConnection()) {
+-				System.out.println(&quot;Connection to database could not be established. Shutting down ...&quot;);
+-				closeServerAndExit();
+-			}
+-			System.out.println(&quot;Connection to database has been established.&quot;);
+ 		}
+ 		
+ 		if (!LAN_MODE) {
+@@ -2984,12 +3028,9 @@
+ 	    	// check for new client connections
+ 		    acceptNewConnections();
+ 		    
+-		    // check for incoming messages
++		    // check for incoming msgs
+ 		    readIncomingMessages();
+ 		    
+-		    // flush any data that is waiting to be sent
+-		    Clients.flushData();
+-		    
+ 		    // reset received bytes count every n seconds
+ 		    if (System.currentTimeMillis() - lastFloodCheckedTime &gt; recvRecordPeriod * 1000) {
+ 		    	lastFloodCheckedTime = System.currentTimeMillis();
+@@ -3040,7 +3081,7 @@
+ 		    	}
+ 		    }
+ 		    
+-		    // purge list of failed login attempts:
++		    // pure list of failed login attempts:
+ 		    if (System.currentTimeMillis() - lastFailedLoginsPurgeTime &gt; 1000) {
+ 		    	lastFailedLoginsPurgeTime = System.currentTimeMillis();
+ 		    	for (int i = 0; i &lt; failedLoginAttempts.size(); i++) {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000253.html">[Taspring-linux-commit] r5446 - trunk/rts/Rendering
+</A></li>
+	<LI>Next message: <A HREF="000255.html">[Taspring-linux-commit] r5448 - trunk/Lobby/TASServer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#254">[ date ]</a>
+              <a href="thread.html#254">[ thread ]</a>
+              <a href="subject.html#254">[ subject ]</a>
+              <a href="author.html#254">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

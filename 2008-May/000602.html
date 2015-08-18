@@ -1,0 +1,272 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5822 - in trunk/rts: Game Rendering/GL	Sim/Units System
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5822%20-%20in%20trunk/rts%3A%20Game%20Rendering/GL%0A%09Sim/Units%20System&In-Reply-To=%3C20080502113134.9831246CC%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000601.html">
+   <LINK REL="Next"  HREF="000603.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5822 - in trunk/rts: Game Rendering/GL	Sim/Units System</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5822%20-%20in%20trunk/rts%3A%20Game%20Rendering/GL%0A%09Sim/Units%20System&In-Reply-To=%3C20080502113134.9831246CC%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5822 - in trunk/rts: Game Rendering/GL	Sim/Units System">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri May  2 13:31:34 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000601.html">[Taspring-linux-commit] r5821 - trunk/rts/Game
+</A></li>
+        <LI>Next message: <A HREF="000603.html">[Taspring-linux-commit] r5823 - trunk/rts/Sim/Units/CommandAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#602">[ date ]</a>
+              <a href="thread.html#602">[ thread ]</a>
+              <a href="subject.html#602">[ subject ]</a>
+              <a href="author.html#602">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Victor
+Date: 2008-05-02 13:31:33 +0200 (Fri, 02 May 2008)
+New Revision: 5822
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/Game.h
+   trunk/rts/Game/PreGame.cpp
+   trunk/rts/Rendering/GL/myGL.cpp
+   trunk/rts/Sim/Units/UnitDef.h
+   trunk/rts/Sim/Units/UnitDefHandler.cpp
+   trunk/rts/System/LoadSaveHandler.cpp
+Log:
+Fixed bugs in save/load
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-05-01 19:34:52 UTC (rev 5821)
++++ trunk/rts/Game/Game.cpp	2008-05-02 11:31:33 UTC (rev 5822)
+@@ -164,7 +164,7 @@
+ 
+ CGame* game = NULL;
+ 
+-CR_BIND(CGame, (std::string(&quot;&quot;), std::string(&quot;&quot;), NULL));
++CR_BIND(CGame, (std::string(&quot;&quot;), std::string(&quot;&quot;), NULL, NULL));
+ 
+ CR_REG_METADATA(CGame,(
+ 	CR_RESERVED(4),//r3927
+@@ -200,7 +200,7 @@
+ ));
+ 
+ 
+-CGame::CGame(std::string mapname, std::string modName, CInfoConsole *ic)
++CGame::CGame(std::string mapname, std::string modName, CInfoConsole *ic, CLoadSaveHandler *saveFile)
+ : lastFrameTime(0),
+   drawMode(notDrawing),
+   drawSky(true),
+@@ -399,7 +399,7 @@
+ 	modelParser = SAFE_NEW C3DModelParser();
+ 
+  	ENTER_SYNCED;
+- 	featureHandler-&gt;LoadFeaturesFromMap(CScriptHandler::Instance().chosenScript-&gt;loadGame);
++ 	featureHandler-&gt;LoadFeaturesFromMap(saveFile || CScriptHandler::Instance().chosenScript-&gt;loadGame);
+  	pathManager = SAFE_NEW CPathManager();
+ 
+  	delete defsParser;
+@@ -488,7 +488,7 @@
+ 
+ 	chatSound = sound-&gt;GetWaveId(&quot;sounds/beep4.wav&quot;);
+ 
+-	UnloadStartPicture();
++	if (!saveFile) UnloadStartPicture();
+ 	//sending your playername to the server indicates that you are finished loading
+ 	net-&gt;SendPlayerName(gu-&gt;myPlayerNum, p-&gt;playerName);
+ 
+@@ -1815,8 +1815,23 @@
+ 		CommandMessage pckt(Action(action.extra), gu-&gt;myPlayerNum);
+ 		net-&gt;SendData(pckt.Pack());
+ 	}
++	else if (cmd == &quot;save&quot;) {// /save [-y ]&lt;savename&gt;
++		if (filesystem.CreateDirectory(&quot;Saves&quot;)) {
++			bool saveoverride = action.extra.find(&quot;-y &quot;) == 0;
++			std::string savename(action.extra.c_str()+(saveoverride?3:0));
++			savename=&quot;Saves/&quot;+savename+&quot;.ssf&quot;;
++			if (filesystem.GetFilesize(savename)==0 || saveoverride) {
++				logOutput.Print(&quot;Saving game to %s\n&quot;,savename.c_str());
++				CLoadSaveHandler ls;
++				ls.mapName = stupidGlobalMapname;
++				ls.modName = modInfo.filename;
++				ls.SaveGame(savename);
++			} else {
++				logOutput.Print(&quot;File %s already exists(use /save -y to override)\n&quot;,savename.c_str());
++			}
++		}
++	}
+ 	else if (cmd == &quot;atm&quot; ||
+-			cmd == &quot;save&quot; ||
+ #ifdef DEBUG
+ 			cmd == &quot;desync&quot; ||
+ #endif
+@@ -2251,22 +2266,6 @@
+ 			}
+ 		}
+ 	}
+-	else if (action.command == &quot;save &quot;) {//.save [-y ]&lt;savename&gt;
+-		if (filesystem.CreateDirectory(&quot;Saves&quot;)) {
+-			bool saveoverride = action.extra.find(&quot;-y &quot;) == 0;
+-			std::string savename(action.extra.c_str()+(saveoverride?3:0));
+-			savename=&quot;Saves/&quot;+savename+&quot;.ssf&quot;;
+-			if (filesystem.GetFilesize(savename)==0 || saveoverride) {
+-				logOutput.Print(&quot;Saving game to %s\n&quot;,savename.c_str());
+-				CLoadSaveHandler ls;
+-				ls.mapName = stupidGlobalMapname;
+-				ls.modName = modInfo.filename;
+-				ls.SaveGame(savename);
+-			} else {
+-				logOutput.Print(&quot;File %s allready exists(use /save -y to override)\n&quot;,savename.c_str());
+-			}
+-		}
+-	}
+ 	else if (action.command == &quot;skip&quot;) {
+ 		if (action.extra.find_first_of(&quot;start&quot;) == 0) {
+ 			std::istringstream buf(action.extra.substr(6));
+
+Modified: trunk/rts/Game/Game.h
+===================================================================
+--- trunk/rts/Game/Game.h	2008-05-01 19:34:52 UTC (rev 5821)
++++ trunk/rts/Game/Game.h	2008-05-02 11:31:33 UTC (rev 5822)
+@@ -20,6 +20,7 @@
+ class CKeySet;
+ class CInfoConsole;
+ class LuaParser;
++class CLoadSaveHandler;
+ class Action;
+ class ChatMessage;
+ 
+@@ -34,7 +35,7 @@
+ 	bool Update();
+ 	int KeyReleased(unsigned short k);
+ 	int KeyPressed(unsigned short k,bool isRepeat);
+-	CGame(std::string mapname, std::string modName, CInfoConsole *infoConsole);
++	CGame(std::string mapname, std::string modName, CInfoConsole *infoConsole, CLoadSaveHandler *saveFile);
+ 	void ResizeEvent();
+ 	virtual ~CGame();
+ 
+
+Modified: trunk/rts/Game/PreGame.cpp
+===================================================================
+--- trunk/rts/Game/PreGame.cpp	2008-05-01 19:34:52 UTC (rev 5821)
++++ trunk/rts/Game/PreGame.cpp	2008-05-02 11:31:33 UTC (rev 5822)
+@@ -339,7 +339,7 @@
+ 				gs-&gt;players[gu-&gt;myPlayerNum]-&gt;StartSpectating();
+ 			LoadStartPicture(team-&gt;side);
+ 
+-			game = SAFE_NEW CGame(gameData-&gt;GetMap(), modArchive, infoConsole);
++			game = SAFE_NEW CGame(gameData-&gt;GetMap(), modArchive, infoConsole, savefile);
+ 
+ 			if (savefile) {
+ 				savefile-&gt;LoadGame();
+
+Modified: trunk/rts/Rendering/GL/myGL.cpp
+===================================================================
+--- trunk/rts/Rendering/GL/myGL.cpp	2008-05-01 19:34:52 UTC (rev 5821)
++++ trunk/rts/Rendering/GL/myGL.cpp	2008-05-02 11:31:33 UTC (rev 5822)
+@@ -120,6 +120,8 @@
+ 
+ void LoadStartPicture(const std::string&amp; sidePref)
+ {
++	if (startupTexture) 
++		return;
+ 	const string picDir = &quot;bitmaps/loadpictures/&quot;;
+ 
+ 	string name = &quot;&quot;;
+
+Modified: trunk/rts/Sim/Units/UnitDef.h
+===================================================================
+--- trunk/rts/Sim/Units/UnitDef.h	2008-05-01 19:34:52 UTC (rev 5821)
++++ trunk/rts/Sim/Units/UnitDef.h	2008-05-02 11:31:33 UTC (rev 5822)
+@@ -87,7 +87,6 @@
+ 
+ struct UnitDef
+ {
+-	CR_DECLARE_STRUCT(UnitDef);
+ 	UnitDef() : valid(false) {}
+ 	~UnitDef();
+ 	S3DOModel* LoadModel(int team) const;
+
+Modified: trunk/rts/Sim/Units/UnitDefHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-05-01 19:34:52 UTC (rev 5821)
++++ trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-05-02 11:31:33 UTC (rev 5822)
+@@ -32,8 +32,6 @@
+ #include &quot;System/TdfParser.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
+-CR_BIND(UnitDef, );
+-
+ const char YARDMAP_CHAR = 'c';		//Need to be low case.
+ 
+ 
+
+Modified: trunk/rts/System/LoadSaveHandler.cpp
+===================================================================
+--- trunk/rts/System/LoadSaveHandler.cpp	2008-05-01 19:34:52 UTC (rev 5821)
++++ trunk/rts/System/LoadSaveHandler.cpp	2008-05-02 11:31:33 UTC (rev 5822)
+@@ -66,16 +66,20 @@
+ 
+ static void WriteString(std::ostream&amp; s, std::string&amp; str)
+ {
+-	for (int a=0;a&lt;str.length();a++)
+-		s &lt;&lt; str[a];
+-	s &lt;&lt; (char)0;
++	char c;
++	for (int a=0;a&lt;str.length();a++) {
++		c = str[a];
++		s.write(&amp;c,sizeof(char));
++	}
++	c = 0;
++	s.write(&amp;c,sizeof(char));
+ }
+ 
+ static void ReadString(std::istream&amp; s, std::string&amp; str)
+ {
+ 	char c;
+ 	do {
+-		s &gt;&gt; c;
++		s.read(&amp;c,sizeof(char));
+ 		if (c) str += c;
+ 	} while (c != 0);
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000601.html">[Taspring-linux-commit] r5821 - trunk/rts/Game
+</A></li>
+	<LI>Next message: <A HREF="000603.html">[Taspring-linux-commit] r5823 - trunk/rts/Sim/Units/CommandAI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#602">[ date ]</a>
+              <a href="thread.html#602">[ thread ]</a>
+              <a href="subject.html#602">[ subject ]</a>
+              <a href="author.html#602">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

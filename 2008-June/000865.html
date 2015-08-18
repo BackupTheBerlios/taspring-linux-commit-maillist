@@ -1,0 +1,726 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6085 - in trunk/rts: Game/UI Lua	Rendering/GL Sim/Units Sim/Units/CommandAI Sim/Units/UnitTypes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-June/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6085%20-%20in%20trunk/rts%3A%20Game/UI%20Lua%0A%09Rendering/GL%20Sim/Units%20Sim/Units/CommandAI%20Sim/Units/UnitTypes&In-Reply-To=%3C20080627162606.366824858%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000864.html">
+   <LINK REL="Next"  HREF="000866.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6085 - in trunk/rts: Game/UI Lua	Rendering/GL Sim/Units Sim/Units/CommandAI Sim/Units/UnitTypes</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6085%20-%20in%20trunk/rts%3A%20Game/UI%20Lua%0A%09Rendering/GL%20Sim/Units%20Sim/Units/CommandAI%20Sim/Units/UnitTypes&In-Reply-To=%3C20080627162606.366824858%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6085 - in trunk/rts: Game/UI Lua	Rendering/GL Sim/Units Sim/Units/CommandAI Sim/Units/UnitTypes">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Jun 27 18:26:05 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000864.html">[Taspring-linux-commit] r6084 - trunk/game
+</A></li>
+        <LI>Next message: <A HREF="000866.html">[Taspring-linux-commit] r6086 - trunk/rts/Game/UI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#865">[ date ]</a>
+              <a href="thread.html#865">[ thread ]</a>
+              <a href="subject.html#865">[ subject ]</a>
+              <a href="author.html#865">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-06-27 18:26:04 +0200 (Fri, 27 Jun 2008)
+New Revision: 6085
+
+Modified:
+   trunk/rts/Game/UI/GuiHandler.cpp
+   trunk/rts/Game/UI/MiniMap.cpp
+   trunk/rts/Game/UI/MiniMap.h
+   trunk/rts/Lua/LuaUnitDefs.cpp
+   trunk/rts/Rendering/GL/glExtra.cpp
+   trunk/rts/Rendering/GL/glExtra.h
+   trunk/rts/Sim/Units/CommandAI/BuilderCAI.cpp
+   trunk/rts/Sim/Units/CommandAI/FactoryCAI.cpp
+   trunk/rts/Sim/Units/UnitDef.h
+   trunk/rts/Sim/Units/UnitDefHandler.cpp
+   trunk/rts/Sim/Units/UnitTypes/ExtractorBuilding.cpp
+   trunk/rts/Sim/Units/UnitTypes/ExtractorBuilding.h
+Log:
+allow for square metal extraction areas (use the extractSquare unitdef tag)
+
+Modified: trunk/rts/Game/UI/GuiHandler.cpp
+===================================================================
+--- trunk/rts/Game/UI/GuiHandler.cpp	2008-06-27 14:14:57 UTC (rev 6084)
++++ trunk/rts/Game/UI/GuiHandler.cpp	2008-06-27 16:26:04 UTC (rev 6085)
+@@ -3632,7 +3632,7 @@
+ 					buildPos = GetBuildPos(bi, bi);
+ 				}
+ 
+-				for(std::vector&lt;BuildInfo&gt;::iterator bpi=buildPos.begin();bpi!=buildPos.end();++bpi) {
++				for (std::vector&lt;BuildInfo&gt;::iterator bpi = buildPos.begin(); bpi != buildPos.end(); ++bpi) {
+ 					const float3&amp; buildpos = bpi-&gt;pos;
+ 					// draw weapon range
+ 					if (unitdef-&gt;weapons.size() &gt; 0) {
+@@ -3643,7 +3643,12 @@
+ 					// draw extraction range
+ 					if (unitdef-&gt;extractRange &gt; 0) {
+ 						glColor4fv(cmdColors.rangeExtract);
+-						glSurfaceCircle(buildpos, unitdef-&gt;extractRange, 40);
++
++						if (unitdef-&gt;extractSquare) {
++							glSurfaceSquare(buildpos, unitdef-&gt;extractRange, unitdef-&gt;extractRange);
++						} else {
++							glSurfaceCircle(buildpos, unitdef-&gt;extractRange, 40);
++						}
+ 					}
+ 					// draw build range for immobile builders
+ 					if (unitdef-&gt;builder &amp;&amp; !unitdef-&gt;canmove) {
+
+Modified: trunk/rts/Game/UI/MiniMap.cpp
+===================================================================
+--- trunk/rts/Game/UI/MiniMap.cpp	2008-06-27 14:14:57 UTC (rev 6084)
++++ trunk/rts/Game/UI/MiniMap.cpp	2008-06-27 16:26:04 UTC (rev 6085)
+@@ -963,11 +963,27 @@
+ 	glPopMatrix();
+ }
+ 
++void CMiniMap::DrawSquare(const float3&amp; pos, float xsize, float zsize)
++{
++	glPushMatrix();
++	glBegin(GL_LINE_LOOP);
++		glVertex3f(pos.x + xsize, 0.0f, pos.z + zsize);
++		glVertex3f(pos.x - xsize, 0.0f, pos.z + zsize);
++		glVertex3f(pos.x - xsize, 0.0f, pos.z - zsize);
++		glVertex3f(pos.x + xsize, 0.0f, pos.z - zsize);
++	glEnd();
++	glPopMatrix();
++}
+ 
++
+ void CMiniMap::DrawSurfaceCircle(const float3&amp; pos, float radius, unsigned int)
+ {
+ 	minimap-&gt;DrawCircle(pos, radius);
+ }
++void CMiniMap::DrawSurfaceSquare(const float3&amp; pos, float xsize, float ysize)
++{
++	minimap-&gt;DrawSquare(pos, xsize, ysize);
++}
+ 
+ 
+ void CMiniMap::Draw()
+@@ -985,6 +1001,7 @@
+ 	glEnable(GL_BLEND);
+ 	glDepthFunc(GL_LEQUAL);
+ 	setSurfaceCircleFunc(DrawSurfaceCircle);
++	setSurfaceSquareFunc(DrawSurfaceSquare);
+ 	cursorIcons.Enable(false);
+ 
+ 	glEnable(GL_BLEND);
+@@ -996,6 +1013,7 @@
+ 		}
+ 		cursorIcons.Enable(true);
+ 		setSurfaceCircleFunc(NULL);
++		setSurfaceSquareFunc(NULL);
+ 		return;
+ 	}
+ 
+@@ -1225,6 +1243,7 @@
+ 
+ 	cursorIcons.Enable(true);
+ 	setSurfaceCircleFunc(NULL);
++	setSurfaceSquareFunc(NULL);
+ }
+ 
+ 
+
+Modified: trunk/rts/Game/UI/MiniMap.h
+===================================================================
+--- trunk/rts/Game/UI/MiniMap.h	2008-06-27 14:14:57 UTC (rev 6084)
++++ trunk/rts/Game/UI/MiniMap.h	2008-06-27 16:26:04 UTC (rev 6085)
+@@ -69,12 +69,14 @@
+ 		void DrawUnit(CUnit* unit);
+ 		void DrawUnitHighlight(CUnit* unit);
+ 		void DrawCircle(const float3&amp; pos, float radius);
++		void DrawSquare(const float3&amp; pos, float xsize, float zsize);
+ 		const CIconData* GetUnitIcon(CUnit* unit, float&amp; scale) const;
+ 		void GetFrustumSide(float3&amp; side);
+ 		
+ 	protected:
+ 		static void DrawSurfaceCircle(const float3&amp; pos, float radius,
+ 		                              unsigned int resolution);
++		static void DrawSurfaceSquare(const float3&amp; pos, float xsize, float zsize);
+ 	protected:
+ 		int xpos, ypos;
+ 		int height, width;
+
+Modified: trunk/rts/Lua/LuaUnitDefs.cpp
+===================================================================
+--- trunk/rts/Lua/LuaUnitDefs.cpp	2008-06-27 14:14:57 UTC (rev 6084)
++++ trunk/rts/Lua/LuaUnitDefs.cpp	2008-06-27 16:26:04 UTC (rev 6085)
+@@ -692,6 +692,7 @@
+ 	ADD_FLOAT(&quot;metalStorage&quot;,   ud.metalStorage);
+ 	ADD_FLOAT(&quot;energyStorage&quot;,  ud.energyStorage);
+ 
++	ADD_BOOL(&quot;extractSquare&quot;, ud.extractSquare);
+ 	ADD_BOOL(&quot;isMetalMaker&quot;, ud.isMetalMaker);
+ 
+ 	ADD_FLOAT(&quot;power&quot;, ud.power);
+
+Modified: trunk/rts/Rendering/GL/glExtra.cpp
+===================================================================
+--- trunk/rts/Rendering/GL/glExtra.cpp	2008-06-27 14:14:57 UTC (rev 6084)
++++ trunk/rts/Rendering/GL/glExtra.cpp	2008-06-27 16:26:04 UTC (rev 6085)
+@@ -9,12 +9,11 @@
+ /*
+  *  Draws a trigonometric circle in 'resolution' steps.
+  */
+-static void defSurfaceCircle(const float3&amp; center, float radius,
+-                             unsigned int resolution)
++static void defSurfaceCircle(const float3&amp; center, float radius, unsigned int res)
+ {
+ 	glBegin(GL_LINE_LOOP);
+-	for (int i = 0; i &lt; resolution; ++i) {
+-		const float radians = (2.0f * PI) * (float)i / (float)resolution;
++	for (int i = 0; i &lt; res; ++i) {
++		const float radians = (2.0f * PI) * (float)i / (float)res;
+ 		float3 pos;
+ 		pos.x = center.x + (sin(radians) * radius);
+ 		pos.z = center.z + (cos(radians) * radius);
+@@ -24,18 +23,38 @@
+ 	glEnd();
+ }
+ 
++static void defSurfaceSquare(const float3&amp; center, float xsize, float zsize)
++{
++	// FIXME: terrain contouring
++	const float3 p0 = center + float3(-xsize, 0.0f, -zsize);
++	const float3 p1 = center + float3( xsize, 0.0f, -zsize);
++	const float3 p2 = center + float3( xsize, 0.0f,  zsize);
++	const float3 p3 = center + float3(-xsize, 0.0f,  zsize);
++
++	glBegin(GL_LINE_LOOP);
++		glVertex3f(p0.x, ground-&gt;GetHeight(p0.x, p0.z), p0.z);
++		glVertex3f(p1.x, ground-&gt;GetHeight(p1.x, p1.z), p1.z);
++		glVertex3f(p2.x, ground-&gt;GetHeight(p2.x, p2.z), p2.z);
++		glVertex3f(p3.x, ground-&gt;GetHeight(p3.x, p3.z), p3.z);
++	glEnd();
++}
++
++
+ SurfaceCircleFunc glSurfaceCircle = defSurfaceCircle;
++SurfaceSquareFunc glSurfaceSquare = defSurfaceSquare;
+ 
+ void setSurfaceCircleFunc(SurfaceCircleFunc func)
+ {
+-	if (func == NULL) {
+-		glSurfaceCircle = defSurfaceCircle;
+-	} else {
+-		glSurfaceCircle = func;
+-	}
++	glSurfaceCircle = (func == NULL)? defSurfaceCircle: func;
+ }
+ 
++void setSurfaceSquareFunc(SurfaceSquareFunc func)
++{
++	glSurfaceSquare = (func == NULL)? defSurfaceSquare: func;
++}
+ 
++
++
+ /*
+  *  Draws a trigonometric circle in 'resolution' steps, with a slope modifier
+  */
+
+Modified: trunk/rts/Rendering/GL/glExtra.h
+===================================================================
+--- trunk/rts/Rendering/GL/glExtra.h	2008-06-27 14:14:57 UTC (rev 6084)
++++ trunk/rts/Rendering/GL/glExtra.h	2008-06-27 16:26:04 UTC (rev 6085)
+@@ -4,23 +4,23 @@
+ #include &quot;myGL.h&quot;
+ 
+ /*
+- *  Draw a circle on top of the top surface (ground/water).
+- &amp;
++ *  Draw a circle / rectangle on top of the top surface (ground/water).
+  *  Note: Uses the current color.
+  */
+- 
+- class CWeapon;
+- 
+-typedef void (*SurfaceCircleFunc)(const float3&amp; center, float radius,
+-                                  unsigned int resolution);
+ 
++class CWeapon;
++
++typedef void (*SurfaceCircleFunc)(const float3&amp; center, float radius, unsigned int res);
++typedef void (*SurfaceSquareFunc)(const float3&amp; center, float xsize, float zsize);
++
+ extern SurfaceCircleFunc glSurfaceCircle;
++extern SurfaceSquareFunc glSurfaceSquare;
+ 
+ extern void glBallisticCircle(const float3&amp; center, float radius,
+-                              const CWeapon* weapon,
+-                              unsigned int resolution, float slope = 0.0f);
++	const CWeapon* weapon, unsigned int resolution, float slope = 0.0f);
+ 
+ extern void setSurfaceCircleFunc(SurfaceCircleFunc func);
++extern void setSurfaceSquareFunc(SurfaceSquareFunc func);
+ 
+ typedef void (*DrawVolumeFunc)(const void* data);
+ extern void glDrawVolume(DrawVolumeFunc drawFunc, const void* data);
+
+Modified: trunk/rts/Sim/Units/CommandAI/BuilderCAI.cpp
+===================================================================
+--- trunk/rts/Sim/Units/CommandAI/BuilderCAI.cpp	2008-06-27 14:14:57 UTC (rev 6084)
++++ trunk/rts/Sim/Units/CommandAI/BuilderCAI.cpp	2008-06-27 16:26:04 UTC (rev 6085)
+@@ -1471,7 +1471,13 @@
+ 				if (bi.def-&gt;extractRange &gt; 0) {
+ 					lineDrawer.Break(bi.pos, cmdColors.build);
+ 					glColor4fv(cmdColors.rangeExtract);
+-					glSurfaceCircle(bi.pos, bi.def-&gt;extractRange, 40);
++
++					if (bi.def-&gt;extractSquare) {
++						glSurfaceSquare(bi.pos, bi.def-&gt;extractRange, bi.def-&gt;extractRange);
++					} else {
++						glSurfaceCircle(bi.pos, bi.def-&gt;extractRange, 40);
++					}
++
+ 					lineDrawer.Restart();
+ 				}
+ 			}
+
+Modified: trunk/rts/Sim/Units/CommandAI/FactoryCAI.cpp
+===================================================================
+--- trunk/rts/Sim/Units/CommandAI/FactoryCAI.cpp	2008-06-27 14:14:57 UTC (rev 6084)
++++ trunk/rts/Sim/Units/CommandAI/FactoryCAI.cpp	2008-06-27 16:26:04 UTC (rev 6085)
+@@ -492,7 +492,7 @@
+ 			}
+ 			case CMD_GUARD:{
+ 				const CUnit* unit = uh-&gt;units[int(ci-&gt;params[0])];
+-				if((unit != NULL) &amp;&amp; isTrackable(unit)) {
++				if ((unit != NULL) &amp;&amp; isTrackable(unit)) {
+ 					const float3 endPos =
+ 						helper-&gt;GetUnitErrorPos(unit, owner-&gt;allyteam);
+ 					lineDrawer.DrawLineAndIcon(ci-&gt;id, endPos, cmdColors.guard);
+@@ -528,7 +528,13 @@
+ 			if (bi.def-&gt;extractRange &gt; 0) {
+ 				lineDrawer.Break(bi.pos, cmdColors.build);
+ 				glColor4fv(cmdColors.rangeExtract);
+-				glSurfaceCircle(bi.pos, bi.def-&gt;extractRange, 40);
++
++				if (bi.def-&gt;extractSquare) {
++					glSurfaceSquare(bi.pos, bi.def-&gt;extractRange, bi.def-&gt;extractRange);
++				} else {
++					glSurfaceCircle(bi.pos, bi.def-&gt;extractRange, 40);
++				}
++
+ 				lineDrawer.Restart();
+ 			}
+ 		}
+
+Modified: trunk/rts/Sim/Units/UnitDef.h
+===================================================================
+--- trunk/rts/Sim/Units/UnitDef.h	2008-06-27 14:14:57 UTC (rev 6084)
++++ trunk/rts/Sim/Units/UnitDef.h	2008-06-27 16:26:04 UTC (rev 6085)
+@@ -124,6 +124,9 @@
+ 	float metalStorage;
+ 	float energyStorage;
+ 
++	bool extractSquare;
++	bool isMetalMaker;
++
+ 	float autoHeal;		//amount autohealed
+ 	float idleAutoHeal;	//amount autohealed only during idling
+ 	int idleTime;		//time a unit needs to idle before its considered idling
+@@ -373,7 +376,6 @@
+ 	int flareSalvoDelay;
+ 
+ 	bool smoothAnim;								// True if the unit should use interpolated animation
+-	bool isMetalMaker;
+ 	bool canLoopbackAttack;							// only matters for fighter aircraft
+ 	bool levelGround;								// only matters for buildings
+ 
+
+Modified: trunk/rts/Sim/Units/UnitDefHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-06-27 14:14:57 UTC (rev 6084)
++++ trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-06-27 16:26:04 UTC (rev 6085)
+@@ -594,8 +594,10 @@
+ 
+ 	string TEDClass = udTable.GetString(&quot;TEDClass&quot;, &quot;0&quot;);
+ 	ud.TEDClassString = TEDClass;
+-	ud.extractRange = 0;
+ 
++	ud.extractRange = 0.0f;
++	ud.extractSquare = udTable.GetBool(&quot;extractSquare&quot;, false);
++
+ 	if (ud.extractsMetal) {
+ 		ud.extractRange = mapInfo-&gt;map.extractorRadius;
+ 		ud.type = &quot;MetalExtractor&quot;;
+
+Modified: trunk/rts/Sim/Units/UnitTypes/ExtractorBuilding.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitTypes/ExtractorBuilding.cpp	2008-06-27 14:14:57 UTC (rev 6084)
++++ trunk/rts/Sim/Units/UnitTypes/ExtractorBuilding.cpp	2008-06-27 16:26:04 UTC (rev 6085)
+@@ -1,7 +1,7 @@
+ //////////////////////////////////////
+ //       CExtractorBuilding         //
+ // Used for all metal-extractors.   //
+-// Handling the metal-make-process. //
++// Handles the metal-make-process.  //
+ //////////////////////////////////////
+ 
+ 
+@@ -23,144 +23,171 @@
+ CR_BIND_DERIVED(CExtractorBuilding, CBuilding, );
+ 
+ CR_REG_METADATA(CExtractorBuilding, (
+-				CR_MEMBER(extractionRange),
+-				CR_MEMBER(extractionDepth),
+-				CR_MEMBER(metalAreaOfControl),
+-				CR_MEMBER(neighbours),
+-				CR_RESERVED(16),
+-				CR_POSTLOAD(PostLoad)
+-				));
++	CR_MEMBER(extractionRange),
++	CR_MEMBER(extractionDepth),
++	CR_MEMBER(metalAreaOfControl),
++	CR_MEMBER(neighbours),
++	CR_RESERVED(16),
++	CR_POSTLOAD(PostLoad)
++));
+ 
+ CR_BIND(CExtractorBuilding::MetalSquareOfControl, );
+ 
+ CR_REG_METADATA_SUB(CExtractorBuilding,MetalSquareOfControl, (
+-					CR_MEMBER(x),
+-					CR_MEMBER(z),
+-					CR_MEMBER(extractionDepth)
+-					));
++	CR_MEMBER(x),
++	CR_MEMBER(z),
++	CR_MEMBER(extractionDepth)
++));
+ 
+-	// TODO: How are class statics incorporated into creg?
++// TODO: How are class statics incorporated into creg?
+ float CExtractorBuilding::maxExtractionRange = 0.0f;
+ 
+-
+-/*
+-Constructor
+-*/
+-CExtractorBuilding::CExtractorBuilding() :
+-	extractionRange(0.0f),
+-	extractionDepth(0.0f)
++CExtractorBuilding::CExtractorBuilding():
++	extractionRange(0.0f), extractionDepth(0.0f)
+ {
+ }
+ 
+-
+-/*
+-Destructor
+-*/
+ CExtractorBuilding::~CExtractorBuilding()
+ {
+ 	ResetExtraction();
+ }
+ 
+-/*
+-CReg PostLoad
+-*/
++/* CReg PostLoad */
+ void CExtractorBuilding::PostLoad()
+ {
+-	cob-&gt;Call(COBFN_SetSpeed, (int)(metalExtract *5 * 100.0f));
++	cob-&gt;Call(COBFN_SetSpeed, int(metalExtract * 5 * 100.0f));
+ }
+ 
+-/*
+-Resets the metalMap database
+-Notifies the neighbours
+-*/
++/* resets the metalMap and notifies the neighbours */
+ void CExtractorBuilding::ResetExtraction()
+ {
+-	// Leaving back the extraction-area.
++	// undo the extraction-area
+ 	for(std::list&lt;MetalSquareOfControl*&gt;::iterator si = metalAreaOfControl.begin(); si != metalAreaOfControl.end(); ++si) {
+ 		readmap-&gt;metalMap-&gt;removeExtraction((*si)-&gt;x, (*si)-&gt;z, (*si)-&gt;extractionDepth);
+ 		delete *si;
+ 	}
++
+ 	metalAreaOfControl.clear();
+ 
+-	// Tells the neighbours to take it over.
+-	for(std::list&lt;CExtractorBuilding*&gt;::iterator ei = neighbours.begin(); ei != neighbours.end(); ++ei) {
+-		(*ei)-&gt;RemoveNeighboor(this);
++	// tell the neighbours (if any) to take it over
++	for (std::list&lt;CExtractorBuilding*&gt;::iterator ei = neighbours.begin(); ei != neighbours.end(); ++ei) {
++		(*ei)-&gt;RemoveNeighbour(this);
+ 		(*ei)-&gt;ReCalculateMetalExtraction();
+ 	}
+ 	neighbours.clear();
+ }
+ 
+ 
+-/*
+-Sets the range of extraction for this extractor.
+-With this knowlege also finding intersected neighbours.
+-*/
++
++/* determine if two extraction areas overlap */
++bool CExtractorBuilding::IsNeighbour(CExtractorBuilding* other)
++{
++	const int sum = int(this-&gt;unitDef-&gt;extractSquare) + int(other-&gt;unitDef-&gt;extractSquare);
++
++	if (sum == 2) {
++		// square vs. square
++		const float dx = streflop::fabs(this-&gt;pos.x - other-&gt;pos.x);
++		const float dz = streflop::fabs(this-&gt;pos.z - other-&gt;pos.z);
++		const float r = this-&gt;extractionRange + other-&gt;extractionRange;
++		return (dx &lt; r &amp;&amp; dz &lt; r);
++	}
++	if (sum == 1) {
++		// circle vs. square or square vs. circle
++		const CExtractorBuilding* square = (this-&gt;unitDef-&gt;extractSquare)? this: other;
++		const CExtractorBuilding* circle = (this-&gt;unitDef-&gt;extractSquare)? other: this;
++
++		const float3 p0 = square-&gt;pos + float3(-square-&gt;extractionRange, 0.0f, -square-&gt;extractionRange); // top-left
++		const float3 p1 = square-&gt;pos + float3( square-&gt;extractionRange, 0.0f, -square-&gt;extractionRange); // top-right
++		const float3 p2 = square-&gt;pos + float3( square-&gt;extractionRange, 0.0f,  square-&gt;extractionRange); // bottom-right
++		const float3 p3 = square-&gt;pos + float3(-square-&gt;extractionRange, 0.0f,  square-&gt;extractionRange); // bottom-left
++		const float3 p4 = circle-&gt;pos + float3( circle-&gt;extractionRange, 0.0f,                     0.0f); //   0
++		const float3 p5 = circle-&gt;pos + float3(                    0.0f, 0.0f, -circle-&gt;extractionRange); //  90
++		const float3 p6 = circle-&gt;pos + float3(-circle-&gt;extractionRange, 0.0f,                     0.0f); // 180
++		const float3 p7 = circle-&gt;pos + float3(                    0.0f, 0.0f,  circle-&gt;extractionRange); // 270
++
++		// square corners must all lie outside circle
++		const bool b0 = (p0.distance2D(circle-&gt;pos) &gt; circle-&gt;extractionRange);
++		const bool b1 = (p1.distance2D(circle-&gt;pos) &gt; circle-&gt;extractionRange);
++		const bool b2 = (p2.distance2D(circle-&gt;pos) &gt; circle-&gt;extractionRange);
++		const bool b3 = (p3.distance2D(circle-&gt;pos) &gt; circle-&gt;extractionRange);
++		// circle &quot;corners&quot; must all lie outside square
++		const bool b4 = ((p4.x &lt; p0.x || p4.x &gt; p1.x) &amp;&amp; (p4.z &lt; p0.z || p4.z &gt; p3.z));
++		const bool b5 = ((p5.x &lt; p0.x || p5.x &gt; p1.x) &amp;&amp; (p5.z &lt; p0.z || p5.z &gt; p3.z));
++		const bool b6 = ((p6.x &lt; p0.x || p6.x &gt; p1.x) &amp;&amp; (p6.z &lt; p0.z || p6.z &gt; p3.z));
++		const bool b7 = ((p7.x &lt; p0.x || p7.x &gt; p1.x) &amp;&amp; (p7.z &lt; p0.z || p7.z &gt; p3.z));
++
++		return !(b0 &amp;&amp; b1 &amp;&amp; b2 &amp;&amp; b3  &amp;&amp;  b4 &amp;&amp; b5 &amp;&amp; b6 &amp;&amp; b7);
++	}
++	if (sum == 0) {
++		// circle vs. circle
++		return (this-&gt;pos.distance2D(other-&gt;pos) &lt; (this-&gt;extractionRange + other-&gt;extractionRange));
++	}
++
++	return false;
++}
++
++/* sets the range of extraction for this extractor, also finds overlapping neighbours. */
+ void CExtractorBuilding::SetExtractionRangeAndDepth(float range, float depth)
+ {
+ 	extractionRange = range;
+ 	extractionDepth = depth;
+ 
+-	//Finding neighbours
++	// find any neighbouring extractors
+ 	std::vector&lt;CUnit*&gt; cu = qf-&gt;GetUnits(pos, extractionRange + maxExtractionRange);
+ 	maxExtractionRange = std::max(extractionRange, maxExtractionRange);
+ 
+ 	for (std::vector&lt;CUnit*&gt;::iterator ui = cu.begin(); ui != cu.end(); ++ui) {
+-		if(typeid(**ui) == typeid(CExtractorBuilding) &amp;&amp; *ui != this) {
+-			CExtractorBuilding *eb = (CExtractorBuilding*)*ui;
+-			if(eb-&gt;pos.distance2D(this-&gt;pos) &lt; (eb-&gt;extractionRange + this-&gt;extractionRange)) {
++		if (typeid(**ui) == typeid(CExtractorBuilding) &amp;&amp; *ui != this) {
++			CExtractorBuilding* eb = (CExtractorBuilding*) *ui;
++
++			if (IsNeighbour(eb)) {
+ 				neighbours.push_back(eb);
+-				eb-&gt;AddNeighboor(this);
++				eb-&gt;AddNeighbour(this);
+ 			}
+ 		}
+ 	}
+-	int nbr = neighbours.size();
+-//	logOutput &lt;&lt; &quot;Neighboors found: &quot; &lt;&lt; nbr &lt;&lt; &quot;\n&quot;;		//Debug
+ 
+-	//Calculating area of control and metalExtract.
+-	//TODO: Improve this method.
++	// calculate this extractor's area of control and metalExtract amount
+ 	metalExtract = 0;
+-	int xBegin = std::max(0,           (int)((pos.x - extractionRange) / METAL_MAP_SQUARE_SIZE));
+-	int xEnd   = std::min(gs-&gt;mapx/2-1,(int)((pos.x + extractionRange) / METAL_MAP_SQUARE_SIZE));
+-	int zBegin = std::max(0,           (int)((pos.z - extractionRange) / METAL_MAP_SQUARE_SIZE));
+-	int zEnd   = std::min(gs-&gt;mapy/2-1,(int)((pos.z + extractionRange) / METAL_MAP_SQUARE_SIZE));
++	int xBegin = std::max(0,                (int) ((pos.x - extractionRange) / METAL_MAP_SQUARE_SIZE));
++	int xEnd   = std::min(gs-&gt;mapx / 2 - 1, (int) ((pos.x + extractionRange) / METAL_MAP_SQUARE_SIZE));
++	int zBegin = std::max(0,                (int) ((pos.z - extractionRange) / METAL_MAP_SQUARE_SIZE));
++	int zEnd   = std::min(gs-&gt;mapy / 2 - 1, (int) ((pos.z + extractionRange) / METAL_MAP_SQUARE_SIZE));
+ 
++	// go through the whole (x, z)-square
+ 	for (int x = xBegin; x &lt;= xEnd; x++) {
+ 		for (int z = zBegin; z &lt;= zEnd; z++) {
+-			// go through the whole (x, z)-square
++			// center of metalsquare at (x, z)
+ 			const float3 msqrPos((x + 0.5f) * METAL_MAP_SQUARE_SIZE, pos.y,
+-			                     (z + 0.5f) * METAL_MAP_SQUARE_SIZE);	//Center of metalsquare.
++			                     (z + 0.5f) * METAL_MAP_SQUARE_SIZE);
+ 			const float sqrCenterDistance = msqrPos.distance2D(this-&gt;pos);
+-			if (sqrCenterDistance &lt; extractionRange) {	//... and add whose within the circle.
+-				MetalSquareOfControl *msqr = SAFE_NEW MetalSquareOfControl;
++
++			if (unitDef-&gt;extractSquare || sqrCenterDistance &lt; extractionRange) {
++				MetalSquareOfControl* msqr = SAFE_NEW MetalSquareOfControl;
+ 				msqr-&gt;x = x;
+ 				msqr-&gt;z = z;
+-				msqr-&gt;extractionDepth = readmap-&gt;metalMap-&gt;requestExtraction(x, z, depth);	//Extraction is done in a cylinder
++				// extraction is done in a cylinder of height &lt;depth&gt;
++				msqr-&gt;extractionDepth = readmap-&gt;metalMap-&gt;requestExtraction(x, z, depth);
+ 				metalAreaOfControl.push_back(msqr);
+ 				metalExtract += msqr-&gt;extractionDepth * readmap-&gt;metalMap-&gt;getMetalAmount(msqr-&gt;x, msqr-&gt;z);
+ 			}
+ 		}
+ 	}
+-	nbr = metalAreaOfControl.size();
+ 
+-//	logOutput &lt;&lt; &quot;MetalSquares of control: &quot; &lt;&lt; nbr &lt;&lt; &quot;\n&quot;;	//Debug
+-
+-	// Set the COB animation speed
+-	cob-&gt;Call(COBFN_SetSpeed, (int)(metalExtract *5 * 100.0f));
++	// set the COB animation speed
++	cob-&gt;Call(COBFN_SetSpeed, (int)(metalExtract * 5 * 100.0f));
+ 	if (activated) {
+ 		cob-&gt;Call(&quot;Go&quot;);
+ 	}
+ }
+ 
+ 
+-/*
+-Adds a neighboor.
+-Most likely called from a newly built neighboor.
+-*/
+-void CExtractorBuilding::AddNeighboor(CExtractorBuilding *neighboor)
++/* adds a neighbour for this extractor */
++void CExtractorBuilding::AddNeighbour(CExtractorBuilding* neighboor)
+ {
+-	if(neighboor != this){
+-		for(std::list&lt;CExtractorBuilding*&gt;::iterator ei = neighbours.begin(); ei != neighbours.end(); ++ei) {
+-			if((*ei)==neighboor)
++	if (neighboor != this) {
++		for (std::list&lt;CExtractorBuilding*&gt;::iterator ei = neighbours.begin(); ei != neighbours.end(); ++ei) {
++			if ((*ei) == neighboor)
+ 				return;
+ 		}
+ 		neighbours.push_back(neighboor);
+@@ -168,42 +195,35 @@
+ }
+ 
+ 
+-/*
+-Removes a neighboor.
+-Most likely called from a dying neighboor.
+-*/
+-void CExtractorBuilding::RemoveNeighboor(CExtractorBuilding* neighboor)
++/* removes a neighboor for this extractor */
++void CExtractorBuilding::RemoveNeighbour(CExtractorBuilding* neighboor)
+ {
+ 	neighbours.remove(neighboor);
+ }
+ 
+ 
+-/*
+-Recalculate metalExtract.
+-Most likely called by a dying neighboor.
+-*/
++/* recalculate metalExtract for this extractor (eg. when a neighbour dies) */
+ void CExtractorBuilding::ReCalculateMetalExtraction()
+ {
+ 	metalExtract = 0;
+-	for(std::list&lt;MetalSquareOfControl*&gt;::iterator si = metalAreaOfControl.begin(); si != metalAreaOfControl.end(); ++si) {
+-		MetalSquareOfControl *msqr = *si;
++	for (std::list&lt;MetalSquareOfControl*&gt;::iterator si = metalAreaOfControl.begin(); si != metalAreaOfControl.end(); ++si) {
++		MetalSquareOfControl* msqr = *si;
+ 		readmap-&gt;metalMap-&gt;removeExtraction(msqr-&gt;x, msqr-&gt;z, msqr-&gt;extractionDepth);
+ 
+-		msqr-&gt;extractionDepth = readmap-&gt;metalMap-&gt;requestExtraction(msqr-&gt;x, msqr-&gt;z, extractionDepth);	//Extraction is done in a cylinder
++		// extraction is done in a cylinder
++		msqr-&gt;extractionDepth = readmap-&gt;metalMap-&gt;requestExtraction(msqr-&gt;x, msqr-&gt;z, extractionDepth);
+ 		metalExtract += msqr-&gt;extractionDepth * readmap-&gt;metalMap-&gt;getMetalAmount(msqr-&gt;x, msqr-&gt;z);
+ 	}
+ 
+-	//Sets the new rotation-speed.
+-	cob-&gt;Call(COBFN_SetSpeed, (int)(metalExtract*5*100.0f));
++	// set the new rotation-speed
++	cob-&gt;Call(COBFN_SetSpeed, int(metalExtract * 5 * 100.0f));
+ 	if (activated) {
+ 		cob-&gt;Call(&quot;Go&quot;);
+ 	}
+ }
+ 
+ 
+-/*
+-Finds the amount of metal to extract and sets the rotationspeed when the extractor are built.
+-*/
++/* Finds the amount of metal to extract and sets the rotationspeed when the extractor is built. */
+ void CExtractorBuilding::FinishedBuilding()
+ {
+ 	SetExtractionRangeAndDepth(unitDef-&gt;extractRange, unitDef-&gt;extractsMetal);
+
+Modified: trunk/rts/Sim/Units/UnitTypes/ExtractorBuilding.h
+===================================================================
+--- trunk/rts/Sim/Units/UnitTypes/ExtractorBuilding.h	2008-06-27 14:14:57 UTC (rev 6084)
++++ trunk/rts/Sim/Units/UnitTypes/ExtractorBuilding.h	2008-06-27 16:26:04 UTC (rev 6085)
+@@ -3,7 +3,7 @@
+ 
+ #include &quot;Building.h&quot;
+ 
+-class CExtractorBuilding : public CBuilding {
++class CExtractorBuilding: public CBuilding {
+ public:
+ 	CR_DECLARE(CExtractorBuilding);
+ 	CR_DECLARE_SUB(MetalSquareOfControl);
+@@ -15,8 +15,9 @@
+ 	void ResetExtraction();
+ 	void SetExtractionRangeAndDepth(float range, float depth);
+ 	void ReCalculateMetalExtraction();
+-	void AddNeighboor(CExtractorBuilding* neighboor);
+-	void RemoveNeighboor(CExtractorBuilding* neighboor);
++	bool IsNeighbour(CExtractorBuilding* neighbour);
++	void AddNeighbour(CExtractorBuilding* neighbour);
++	void RemoveNeighbour(CExtractorBuilding* neighbour);
+ 
+ 	float GetExtractionRange() const { return extractionRange; }
+ 	float GetExtractionDepth() const { return extractionDepth; }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000864.html">[Taspring-linux-commit] r6084 - trunk/game
+</A></li>
+	<LI>Next message: <A HREF="000866.html">[Taspring-linux-commit] r6086 - trunk/rts/Game/UI
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#865">[ date ]</a>
+              <a href="thread.html#865">[ thread ]</a>
+              <a href="subject.html#865">[ subject ]</a>
+              <a href="author.html#865">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

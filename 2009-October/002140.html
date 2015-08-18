@@ -1,0 +1,259 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7371 - in Lobby/TASClient: .	LobbyComponents/DockPanel Python/scripts/layoutScripts
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2009-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7371%20-%20in%20Lobby/TASClient%3A%20.%0A%09LobbyComponents/DockPanel%20Python/scripts/layoutScripts&In-Reply-To=%3C20091028135744.9FA803B7B5%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002139.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7371 - in Lobby/TASClient: .	LobbyComponents/DockPanel Python/scripts/layoutScripts</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7371%20-%20in%20Lobby/TASClient%3A%20.%0A%09LobbyComponents/DockPanel%20Python/scripts/layoutScripts&In-Reply-To=%3C20091028135744.9FA803B7B5%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7371 - in Lobby/TASClient: .	LobbyComponents/DockPanel Python/scripts/layoutScripts">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Oct 28 14:57:44 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002139.html">[Taspring-linux-commit] r7370 - Lobby/TASClient
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2140">[ date ]</a>
+              <a href="thread.html#2140">[ thread ]</a>
+              <a href="subject.html#2140">[ subject ]</a>
+              <a href="author.html#2140">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2009-10-28 14:57:43 +0100 (Wed, 28 Oct 2009)
+New Revision: 7371
+
+Added:
+   Lobby/TASClient/Python/scripts/layoutScripts/Dockable Autohost Options.py
+Modified:
+   Lobby/TASClient/CustomizeGUIFormUnit.pas
+   Lobby/TASClient/LobbyComponents/DockPanel/DockPanel.pas
+   Lobby/TASClient/LobbyScriptUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* new form created from a python script or the poweruser window are only dockable if the panels are unlocked
+* dock layout saving system now handles panels from one window moved to another (eg moving battle chat to main form)
+* new script layout to make the autohost options dockable
+
+Modified: Lobby/TASClient/CustomizeGUIFormUnit.pas
+===================================================================
+--- Lobby/TASClient/CustomizeGUIFormUnit.pas	2009-10-28 11:52:40 UTC (rev 7370)
++++ Lobby/TASClient/CustomizeGUIFormUnit.pas	2009-10-28 13:57:43 UTC (rev 7371)
+@@ -733,8 +733,11 @@
+   p.Name := InputBox('Add form','Control name:','');
+   p.Caption := 'Empty form';
+   p.BorderStyle := bsSizeable;
+-  p.DragKind := dkDock;
+-  p.DragMode := dmAutomatic;
++  if not MainForm.mnuLockView.Checked then
++  begin
++    p.DragKind := dkDock;
++    p.DragMode := dmAutomatic;
++  end;
+   p.Show;
+   ListAllForms;
+   FormSelectionComboBox.ItemIndex := FormSelectionComboBox.Items.IndexOf(p.Name);
+
+Modified: Lobby/TASClient/LobbyComponents/DockPanel/DockPanel.pas
+===================================================================
+--- Lobby/TASClient/LobbyComponents/DockPanel/DockPanel.pas	2009-10-28 11:52:40 UTC (rev 7370)
++++ Lobby/TASClient/LobbyComponents/DockPanel/DockPanel.pas	2009-10-28 13:57:43 UTC (rev 7371)
+@@ -390,6 +390,11 @@
+   bFloating := StrToBool(sl.Values['Floating']);
+   if not bFloating then c.ManualDock(DockHandler.m_pcShadow);
+   c.Visible := StrToBool(sl.Values['Visible']);
++  if (sl.Values['Owner'] &lt;&gt; '') and (sl.Values['Owner'] &lt;&gt; c.Owner.Name) then
++  begin
++    c.Owner.RemoveComponent(c);
++    TCustomForm(GetComponentFromString(sl.Values['Owner'])).InsertComponent(c);
++  end;
+   sl.Free;
+ end;
+ 
+@@ -397,6 +402,7 @@
+ var
+   sl: TStringList;
+   pt: TPoint;
++  p: TControl;
+ begin
+   sl := TStringList.Create;
+   pt := Point(c.Left, c.Top);
+@@ -407,6 +413,8 @@
+   sl.Values['Height'] := IntToStr(c.Height);
+   sl.Values['Visible'] := BoolToStr(c.Visible);
+   sl.Values['Floating'] := BoolToStr(c.HostDockSite = nil);
++  sl.Values['Owner'] := GetComponentOwnerFromString(GetStringFromComponent(c.Parent));
++
+   Result := sl.CommaText;
+   sl.Free;
+ end;
+@@ -1009,7 +1017,7 @@
+     if (cmp &lt;&gt; nil) then
+     begin
+       try
+-        SetWinControlAsString(TWinControl(cmp),slDockClients.Values[cmp.Name]);
++        SetWinControlAsString(TWinControl(cmp),slDockClients.Values[slDockClients.Names[i]]);
+       except
+       end;
+       if cmp is TDockableForm then
+
+Modified: Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- Lobby/TASClient/LobbyScriptUnit.pas	2009-10-28 11:52:40 UTC (rev 7370)
++++ Lobby/TASClient/LobbyScriptUnit.pas	2009-10-28 13:57:43 UTC (rev 7371)
+@@ -2047,8 +2047,11 @@
+     p := TScriptForm.CreateNew(Application,0);
+     p.Name := name;
+     p.Caption := caption;
+-    p.DragKind := dkDock;
+-    p.DragMode := dmAutomatic;
++    if not MainForm.mnuLockView.Checked then
++    begin
++      p.DragKind := dkDock;
++      p.DragMode := dmAutomatic;
++    end;
+ 
+     case style of
+       0: p.BorderStyle := bsNone;
+
+Added: Lobby/TASClient/Python/scripts/layoutScripts/Dockable Autohost Options.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/layoutScripts/Dockable Autohost Options.py	                        (rev 0)
++++ Lobby/TASClient/Python/scripts/layoutScripts/Dockable Autohost Options.py	2009-10-28 13:57:43 UTC (rev 7371)
+@@ -0,0 +1,69 @@
++import lobbyscript
++
++api = lobbyscript.Callback()
++gui = lobbyscript.GUI()
++
++opList = []
++newControlList = []
++
++def addOperationToList(control,property,subprop,oldValue):
++	op = dict()
++	op['Control'] = control
++	op['Property'] = property
++	op['SubProperty'] = subprop
++	op['OldValue'] = oldValue
++	opList.append(op)
++
++def changeControlProp(control,prop,subProp,value, undo = True):
++	p = gui.GetControlProperties(control,prop)
++
++	if undo:
++		if subProp == 'Align':
++			#  if the align changes we must save the previous pos and size
++			addOperationToList(control,prop,'Top',p['Top'])
++			addOperationToList(control,prop,'Left',p['Left'])
++			addOperationToList(control,prop,'Width',p['Width'])
++			addOperationToList(control,prop,'Height',p['Height'])
++		
++		addOperationToList(control,prop,subProp,p[subProp])
++
++	p[subProp] = value
++	return gui.SetControlProperties(control,prop,p)
++
++def loadLayout():
++	gui.StackLayoutChanges(True)
++	gui.AddForm(&quot;AutohostOptionsForm&quot;,&quot;EmptyForm&quot;,2)
++	newControlList.append(&quot;AutohostOptionsForm&quot;)
++	changeControlProp(&quot;MainForm.AutohostOptionsForm&quot;,&quot;&quot;,&quot;Caption&quot;,&quot;Autohost options&quot;);
++	changeControlProp(&quot;BattleForm.AutoHostInfoPanel&quot;,&quot;&quot;,&quot;Parent&quot;,&quot;MainForm.AutohostOptionsForm&quot;);
++	changeControlProp(&quot;BattleForm.AutoHostInfoPanel&quot;,&quot;&quot;,&quot;Visible&quot;,&quot;True&quot;);
++	changeControlProp(&quot;BattleForm.AutoHostVotePanel&quot;,&quot;&quot;,&quot;Parent&quot;,&quot;MainForm.AutohostOptionsForm&quot;);
++	changeControlProp(&quot;BattleForm.AutoHostVotePanel&quot;,&quot;&quot;,&quot;Height&quot;,&quot;39&quot;);
++	changeControlProp(&quot;BattleForm.AutoHostVotePanel&quot;,&quot;&quot;,&quot;Left&quot;,&quot;0&quot;);
++	changeControlProp(&quot;BattleForm.AutoHostVotePanel&quot;,&quot;&quot;,&quot;Top&quot;,&quot;73&quot;);
++	changeControlProp(&quot;BattleForm.AutoHostVotePanel&quot;,&quot;&quot;,&quot;Width&quot;,&quot;312&quot;);
++	changeControlProp(&quot;BattleForm.AutoHostVotePanel&quot;,&quot;&quot;,&quot;Align&quot;,&quot;alBottom&quot;);
++	changeControlProp(&quot;BattleForm.AutoHostInfoPanel&quot;,&quot;&quot;,&quot;Height&quot;,&quot;73&quot;);
++	changeControlProp(&quot;BattleForm.AutoHostInfoPanel&quot;,&quot;&quot;,&quot;Left&quot;,&quot;0&quot;);
++	changeControlProp(&quot;BattleForm.AutoHostInfoPanel&quot;,&quot;&quot;,&quot;Top&quot;,&quot;0&quot;);
++	changeControlProp(&quot;BattleForm.AutoHostInfoPanel&quot;,&quot;&quot;,&quot;Width&quot;,&quot;312&quot;);
++	changeControlProp(&quot;BattleForm.AutoHostInfoPanel&quot;,&quot;&quot;,&quot;Align&quot;,&quot;alClient&quot;);
++	changeControlProp(&quot;BattleForm.AutohostControlSplitter&quot;,&quot;&quot;,&quot;Height&quot;,&quot;0&quot;);
++
++	gui.StackLayoutChanges(False)
++	
++def unloadLayout():
++	global opList
++	global newControlList
++	
++	for i in range(len(opList)):
++		op = opList.pop()
++		changeControlProp(op['Control'],op['Property'],op['SubProperty'],op['OldValue'],False)
++	
++	for controlName in newControlList:
++		gui.DeleteControl(controlName)
++
++
++	
++	opList = []
++	newControlList = []
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2009-10-28 11:52:40 UTC (rev 7370)
++++ Lobby/TASClient/TASClient.dof	2009-10-28 13:57:43 UTC (rev 7371)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=54
+ Release=0
+-Build=722
++Build=723
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.54.0.722
++FileVersion=0.54.0.723
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002139.html">[Taspring-linux-commit] r7370 - Lobby/TASClient
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2140">[ date ]</a>
+              <a href="thread.html#2140">[ thread ]</a>
+              <a href="subject.html#2140">[ subject ]</a>
+              <a href="author.html#2140">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

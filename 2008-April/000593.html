@@ -1,0 +1,681 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5813 - in trunk: AI/Global/AAI game/AI/AAI	game/AI/AAI/cfg/help game/AI/AAI/cfg/mod
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5813%20-%20in%20trunk%3A%20AI/Global/AAI%20game/AI/AAI%0A%09game/AI/AAI/cfg/help%20game/AI/AAI/cfg/mod&In-Reply-To=%3C20080430202931.B8D6D46CC%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000592.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5813 - in trunk: AI/Global/AAI game/AI/AAI	game/AI/AAI/cfg/help game/AI/AAI/cfg/mod</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5813%20-%20in%20trunk%3A%20AI/Global/AAI%20game/AI/AAI%0A%09game/AI/AAI/cfg/help%20game/AI/AAI/cfg/mod&In-Reply-To=%3C20080430202931.B8D6D46CC%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5813 - in trunk: AI/Global/AAI game/AI/AAI	game/AI/AAI/cfg/help game/AI/AAI/cfg/mod">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Apr 30 22:29:31 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000592.html">[Taspring-linux-commit] r5812 - trunk/Lobby/TASClient
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#593">[ date ]</a>
+              <a href="thread.html#593">[ thread ]</a>
+              <a href="subject.html#593">[ subject ]</a>
+              <a href="author.html#593">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: submarine
+Date: 2008-04-30 22:29:30 +0200 (Wed, 30 Apr 2008)
+New Revision: 5813
+
+Added:
+   trunk/game/AI/AAI/cfg/mod/BA621.cfg
+Modified:
+   trunk/AI/Global/AAI/AAI ReadMe.txt
+   trunk/AI/Global/AAI/AAI.cpp
+   trunk/AI/Global/AAI/AAIConfig.cpp
+   trunk/AI/Global/AAI/AAIConfig.h
+   trunk/AI/Global/AAI/AAIExecute.cpp
+   trunk/AI/Global/AAI/AAIExecute.h
+   trunk/AI/Global/AAI/AAIGroup.cpp
+   trunk/AI/Global/AAI/AAIMap.cpp
+   trunk/AI/Global/AAI/AAIMap.h
+   trunk/AI/Global/AAI/aidef.h
+   trunk/game/AI/AAI/AAI ReadMe.txt
+   trunk/game/AI/AAI/cfg/help/example mod.cfg
+Log:
+AAI v0.864	
+- Added some unit specific combat behaviour: Units with high ranged weapons will now try to keep enemies distant (first experimental implementation, needs to be improved in future versions)
+
+- Added two new variables to mod config file:
+
+FALLBACK_DIST_RATIO 0.9 - units will try keep enemies at this ratio of their maximum weapons' range
+		  
+MIN_FALLBACK_RANGE 500  - units with lower weapons' range will not try fall back at all 
+
+Modified: trunk/AI/Global/AAI/AAI ReadMe.txt
+===================================================================
+--- trunk/AI/Global/AAI/AAI ReadMe.txt	2008-04-30 18:42:21 UTC (rev 5812)
++++ trunk/AI/Global/AAI/AAI ReadMe.txt	2008-04-30 20:29:30 UTC (rev 5813)
+@@ -105,6 +105,15 @@
+ 		- Brandon Potter for his TBT 12 cfg file
+ 
+ 
++AAI v0.864	- Added some unit specific combat behaviour: Units with high ranged weapons will now try to keep enemies distant
++
++		- Added two new variables to mod config file:
++
++		  FALLBACK_DIST_RATIO 0.9 - units will try keep enemies at this ratio of their maximum weapons' range
++		  
++		  MIN_FALLBACK_RANGE 500  - units with lower weapons' range will not try fall back at all 
++
++
+ AAI v0.862	- Added submarine defence map -&gt; AAI will now store its defence capabilities vs submarines separately from other 
+ 		  naval units
+ 
+
+Modified: trunk/AI/Global/AAI/AAI.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAI.cpp	2008-04-30 18:42:21 UTC (rev 5812)
++++ trunk/AI/Global/AAI/AAI.cpp	2008-04-30 20:29:30 UTC (rev 5813)
+@@ -188,9 +188,12 @@
+ 		cat =  bt-&gt;units_static[def-&gt;id].category;
+ 	else
+ 		cat = UNKNOWN;
++
++	if(cat &gt;= GROUND_ASSAULT &amp;&amp; cat &lt;= SUBMARINE_ASSAULT) 
++		execute-&gt;CheckFallBack(damaged, def-&gt;id);
+ 	
+ 	// known attacker
+-	if(attacker != -1)
++	if(attacker &gt;= 0)
+ 	{
+ 		att_def = cb-&gt;GetUnitDef(attacker);
+ 
+
+Modified: trunk/AI/Global/AAI/AAIConfig.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIConfig.cpp	2008-04-30 18:42:21 UTC (rev 5812)
++++ trunk/AI/Global/AAI/AAIConfig.cpp	2008-04-30 20:29:30 UTC (rev 5813)
+@@ -80,6 +80,9 @@
+ 	MEDIUM_ASSAULT_RATIO = 30.0f;
+ 	HEAVY_ASSAULT_RATIO = 25.0f;
+ 	SUPER_HEAVY_ASSAULT_RATIO = 5.0f;
++
++	FALLBACK_DIST_RATIO = 0.9;
++	MIN_FALLBACK_RANGE = 500;
+ 	
+ 	LEARN_SPEED = 0.2f;
+ 	LEARN_RATE = 5;
+@@ -339,6 +342,16 @@
+ 				fscanf(file, &quot;%i&quot;, &amp;ival);
+ 				UNIT_SPEED_SUBGROUPS = ival;
+ 			}
++			else if(!strcmp(keyword, &quot;FALLBACK_DIST_RATIO&quot;))
++			{
++				fscanf(file, &quot;%f&quot;, &amp;fval);
++				FALLBACK_DIST_RATIO = fval;
++			}
++			else if(!strcmp(keyword, &quot;MIN_FALLBACK_RANGE&quot;))
++			{
++				fscanf(file, &quot;%f&quot;, &amp;fval);
++				MIN_FALLBACK_RANGE = fval;
++			}
+ 			else if(!strcmp(keyword, &quot;MIN_EFFICIENCY&quot;))
+ 			{
+ 				fscanf(file, &quot;%f&quot;, &amp;fval);
+
+Modified: trunk/AI/Global/AAI/AAIConfig.h
+===================================================================
+--- trunk/AI/Global/AAI/AAIConfig.h	2008-04-30 18:42:21 UTC (rev 5812)
++++ trunk/AI/Global/AAI/AAIConfig.h	2008-04-30 20:29:30 UTC (rev 5813)
+@@ -112,6 +112,10 @@
+ 
+ 	vector&lt;CostMultiplier&gt; cost_multipliers;
+ 
++	// combat behaviour
++	float FALLBACK_DIST_RATIO;	// units will try to fall back if enemy is closer than ratio of weapons range of the unit
++	float MIN_FALLBACK_RANGE;	// units with lower weapons' range will not fall back
++
+ 	// internal
+ 	float CLIFF_SLOPE;  // cells with greater slope will be considered to be cliffs
+ 	int CONSTRUCTION_TIMEOUT;
+
+Modified: trunk/AI/Global/AAI/AAIExecute.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIExecute.cpp	2008-04-30 18:42:21 UTC (rev 5812)
++++ trunk/AI/Global/AAI/AAIExecute.cpp	2008-04-30 20:29:30 UTC (rev 5813)
+@@ -9,6 +9,7 @@
+ 
+ #include &quot;AAIExecute.h&quot;
+ #include &quot;AAIBuildTable.h&quot;
++#include &quot;System/FastMath.h&quot;
+ 
+ // all the static vars
+ float AAIExecute::current = 0.5;
+@@ -201,10 +202,6 @@
+ 			{
+ 				++ai-&gt;futureScouts;
+ 				++bt-&gt;units_dynamic[scout].requested;
+-
+-				//char c[120];
+-				//sprintf(c, &quot;requested scout: %i&quot;, ai-&gt;futureScouts); 
+-				//cb-&gt;SendTextMsg(c, 0);
+ 			}
+ 		}
+ 	}
+@@ -3510,4 +3507,67 @@
+ 		brain-&gt;UpdateNeighbouringSectors();
+ 		brain-&gt;UpdateBaseCenter();
+ 	}
++}
++
++void AAIExecute::CheckFallBack(int unit_id, int def_id)
++{
++	float range = bt-&gt;units_static[def_id].range;
++
++	if(range &gt; cfg-&gt;MIN_FALLBACK_RANGE)
++	{
++		float3 pos;
++
++		GetFallBackPos(&amp;pos, unit_id, range);
++
++		if(pos.x &gt; 0)
++		{	
++			Command c;
++			c.id = CMD_MOVE;
++			c.params.resize(3);
++
++			c.params[0] = pos.x;
++			c.params[1] = cb-&gt;GetElevation(pos.x, pos.z);
++			c.params[2] = pos.z;
++
++			cb-&gt;GiveOrder(unit_id, &amp;c);
++		}
++	}
++}
++
++
++void AAIExecute::GetFallBackPos(float3 *pos, int unit_id, float range)
++{
++	float3 unit_pos = cb-&gt;GetUnitPos(unit_id), temp_pos;
++
++	*pos = ZeroVector; 
++
++	// get list of enemies within weapons range
++	int number_of_enemies = cb-&gt;GetEnemyUnits(&amp;(map-&gt;unitsInLos.front()), unit_pos, range * cfg-&gt;FALLBACK_DIST_RATIO);
++
++	if(number_of_enemies &gt; 0)
++	{
++		float dist;
++
++		for(int k = 0; k &lt; number_of_enemies; ++k)
++		{
++			// get distance to enemy 
++			temp_pos = cb-&gt;GetUnitPos(map-&gt;unitsInLos[k]);
++
++			dist = fastmath::sqrt( (temp_pos.x - unit_pos.x) * (temp_pos.x - unit_pos.x) - (temp_pos.z - unit_pos.z) * (temp_pos.z - unit_pos.z) );
++
++			// get dir from unit to enemy
++			temp_pos.x -= unit_pos.x;
++			temp_pos.z -= unit_pos.z;
++
++			// 
++			pos-&gt;x += (dist / range - 1) * temp_pos.x;
++			pos-&gt;z += (dist / range - 1) * temp_pos.z;
++		}
++
++		pos-&gt;x /= (float)number_of_enemies;
++		pos-&gt;z /= (float)number_of_enemies;
++
++		pos-&gt;x += unit_pos.x;
++		pos-&gt;z += unit_pos.z;
++	}	
+ }
+\ No newline at end of file
+
+Modified: trunk/AI/Global/AAI/AAIExecute.h
+===================================================================
+--- trunk/AI/Global/AAI/AAIExecute.h	2008-04-30 18:42:21 UTC (rev 5812)
++++ trunk/AI/Global/AAI/AAIExecute.h	2008-04-30 20:29:30 UTC (rev 5813)
+@@ -84,6 +84,12 @@
+ 	// builds defences around mex spot if necessary
+ 	void DefendMex(int mex, int def_id);
+ 
++	// returns a position for the unit to withdraw from close quarters combat (but try to keep enemies in weapons range) 
++	// returns ZeroVector if no suitable pos found (or no enemies close enough)
++	void GetFallBackPos(float3 *pos, int unit_id, float range);
++
++	void CheckFallBack(int unit_id, int def_id);
++
+ 	// tries to build a defence building vs category in the specified sector
+ 	// returns BUILDORDER_SUCCESFUL if succesful
+ 	BuildOrderStatus BuildStationaryDefenceVS(UnitCategory category, AAISector *dest);
+
+Modified: trunk/AI/Global/AAI/AAIGroup.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIGroup.cpp	2008-04-30 18:42:21 UTC (rev 5812)
++++ trunk/AI/Global/AAI/AAIGroup.cpp	2008-04-30 20:29:30 UTC (rev 5813)
+@@ -238,6 +238,36 @@
+ 		target_sector = 0;
+ 		task = GROUP_IDLE;
+ 	}
++
++	// check fall back of long range units
++	if(task == GROUP_ATTACKING)
++	{
++		float range;
++		float3 pos;
++		Command c;
++
++		c.id = CMD_MOVE;
++		c.params.resize(3);
++
++		for(list&lt;int2&gt;::iterator unit = units.begin(); unit != units.end(); ++unit)
++		{
++			range = bt-&gt;units_static[unit-&gt;y].range;
++
++			if(range &gt; cfg-&gt;MIN_FALLBACK_RANGE)
++			{
++				ai-&gt;execute-&gt;GetFallBackPos(&amp;pos, unit-&gt;x, range);
++
++				if(pos.x &gt; 0)
++				{
++					c.params[0] = pos.x;
++					c.params[1] = cb-&gt;GetElevation(pos.x, pos.z);
++					c.params[2] = pos.z;
++
++					cb-&gt;GiveOrder(unit-&gt;x, &amp;c);
++				}
++			}
++		}
++	}
+ }
+ 
+ float AAIGroup::GetPowerVS(int assault_cat_id)
+
+Modified: trunk/AI/Global/AAI/AAIMap.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIMap.cpp	2008-04-30 18:42:21 UTC (rev 5812)
++++ trunk/AI/Global/AAI/AAIMap.cpp	2008-04-30 20:29:30 UTC (rev 5813)
+@@ -2115,128 +2115,113 @@
+ 	fill(units_spotted.begin(), units_spotted.end(), 0);
+ 
+ 	// first update all sectors with friendly units
+-	cb-&gt;GetFriendlyUnits(&amp;(unitsInLos.front()));
++	int number_of_units = cb-&gt;GetFriendlyUnits(&amp;(unitsInLos.front()));
+ 
+ 	// go through the list
+-	for(int i = 0; i &lt; cfg-&gt;MAX_UNITS; ++i)
++	for(int i = 0; i &lt; number_of_units; ++i)
+ 	{
+-		// if 0 end of array reached
+-		if(unitsInLos[i])
++		pos = cb-&gt;GetUnitPos(unitsInLos[i]);
++
++		if(pos.x != 0)
+ 		{
+-			pos = cb-&gt;GetUnitPos(unitsInLos[i]);
++			// calculate in which sector unit is located
++			x = pos.x/xSectorSize;
++			y = pos.z/ySectorSize;
+ 
+-			if(pos.x != 0)
++			if(x &gt;= 0 &amp;&amp; y &gt;= 0 &amp;&amp; x &lt; xSectors &amp;&amp; y &lt; ySectors)
+ 			{
+-				// calculate in which sector unit is located
+-				x = pos.x/xSectorSize;
+-				y = pos.z/ySectorSize;
++				sector = &amp;this-&gt;sector[x][y];
+ 
+-				if(x &gt;= 0 &amp;&amp; y &gt;= 0 &amp;&amp; x &lt; xSectors &amp;&amp; y &lt; ySectors)
++				// we have a unit in that sector, reset values if not already done
++				if(unitsInSector[x+y*xSectors] == 0)
+ 				{
+-					sector = &amp;this-&gt;sector[x][y];
+-
+-					// we have a unit in that sector, reset values if not already done
+-					if(unitsInSector[x+y*xSectors] == 0)
+-					{
+-						++unitsInSector[x+y*xSectors];
++					++unitsInSector[x+y*xSectors];
+ 						
+-						fill(sector-&gt;enemyUnitsOfType.begin(), sector-&gt;enemyUnitsOfType.end(), 0);
+-						fill(sector-&gt;stat_combat_power.begin(), sector-&gt;stat_combat_power.end(), 0);
+-						fill(sector-&gt;mobile_combat_power.begin(), sector-&gt;mobile_combat_power.end(), 0);
++					fill(sector-&gt;enemyUnitsOfType.begin(), sector-&gt;enemyUnitsOfType.end(), 0);
++					fill(sector-&gt;stat_combat_power.begin(), sector-&gt;stat_combat_power.end(), 0);
++					fill(sector-&gt;mobile_combat_power.begin(), sector-&gt;mobile_combat_power.end(), 0);
+ 				
+-						sector-&gt;threat = 0;
+-						sector-&gt;allied_structures = 0;
+-						sector-&gt;enemy_structures = 0;
+-						sector-&gt;own_structures = 0;
+-					}
++					sector-&gt;threat = 0;
++					sector-&gt;allied_structures = 0;
++					sector-&gt;enemy_structures = 0;
++					sector-&gt;own_structures = 0;
++				}
+ 
+-					// check if building
+-					def = cb-&gt;GetUnitDef(unitsInLos[i]);
++				// check if building
++				def = cb-&gt;GetUnitDef(unitsInLos[i]);
+ 
+-					if(def &amp;&amp; bt-&gt;units_static[def-&gt;id].category &lt;= METAL_MAKER)
+-					{
+-						team = cb-&gt;GetUnitTeam(unitsInLos[i]);
++				if(def &amp;&amp; bt-&gt;units_static[def-&gt;id].category &lt;= METAL_MAKER)
++				{
++					team = cb-&gt;GetUnitTeam(unitsInLos[i]);
+ 
+-						if(team == my_team)
+-							sector-&gt;own_structures += bt-&gt;units_static[def-&gt;id].cost;
+-						else
+-							sector-&gt;allied_structures += bt-&gt;units_static[def-&gt;id].cost;
+-					}
++					if(team == my_team)
++						sector-&gt;own_structures += bt-&gt;units_static[def-&gt;id].cost;
++					else
++						sector-&gt;allied_structures += bt-&gt;units_static[def-&gt;id].cost;
+ 				}
+ 			}
+-
+-			unitsInLos[i] = 0;
+ 		}
+-		else 	// end of array reached
+-			break;
+ 	}
+ 
+ 	// get all enemies in los
+-	cb-&gt;GetEnemyUnits(&amp;(unitsInLos.front()));
++	number_of_units = cb-&gt;GetEnemyUnits(&amp;(unitsInLos.front()));
+ 
+ 	// go through the list
+-	for(int i = 0; i &lt; cfg-&gt;MAX_UNITS; ++i)
+-	{
+-		// if 0 end of array reached
+-		if(unitsInLos[i])
+-		{
+-			pos = cb-&gt;GetUnitPos(unitsInLos[i]);
++	for(int i = 0; i &lt; number_of_units; ++i)
++	{	
++		pos = cb-&gt;GetUnitPos(unitsInLos[i]);
+ 
+-			// calculate in which sector unit is located
+-			sector = GetSectorOfPos(&amp;pos);
++		// calculate in which sector unit is located
++		sector = GetSectorOfPos(&amp;pos);
+ 
+-			if(sector)
++		if(sector)
++		{
++			if(unitsInSector[sector-&gt;x + sector-&gt;y*xSectors])
+ 			{
+-				if(unitsInSector[sector-&gt;x + sector-&gt;y*xSectors])
+-				{
+-					def = cb-&gt;GetUnitDef(unitsInLos[i]);
+-					cat = bt-&gt;units_static[def-&gt;id].category;
+-					combat_category_id = (int) bt-&gt;GetIDOfAssaultCategory(cat);
++				def = cb-&gt;GetUnitDef(unitsInLos[i]);
++				cat = bt-&gt;units_static[def-&gt;id].category;
++				combat_category_id = (int) bt-&gt;GetIDOfAssaultCategory(cat);
+ 
+-					sector-&gt;enemyUnitsOfType[(int)cat] += 1;
++				sector-&gt;enemyUnitsOfType[(int)cat] += 1;
+ 
+ 					// check if combat unit
+-					if(combat_category_id &gt;= 0)
+-					{
+-						sector-&gt;threat += 1;
+-						units_spotted[combat_category_id] += 1;
++				if(combat_category_id &gt;= 0)
++				{
++					sector-&gt;threat += 1;
++					units_spotted[combat_category_id] += 1;
+ 
+-						// count combat power of combat units
+-						for(int i = 0; i &lt; bt-&gt;combat_categories; ++i)
+-							sector-&gt;mobile_combat_power[i] += bt-&gt;units_static[def-&gt;id].efficiency[i];
+-					}
+-					else	// building or scout etc.
++					// count combat power of combat units
++					for(int i = 0; i &lt; bt-&gt;combat_categories; ++i)
++						sector-&gt;mobile_combat_power[i] += bt-&gt;units_static[def-&gt;id].efficiency[i];
++				}
++				else	// building or scout etc.
++				{
++					// check if promising bombing target
++					if(targets_checked &lt; 3 &amp;&amp; ( cat ==  EXTRACTOR || cat == STATIONARY_CONSTRUCTOR || cat == STATIONARY_ARTY || cat == STATIONARY_LAUNCHER ) )
+ 					{
+-						// check if promising bombing target
+-						if(targets_checked &lt; 3 &amp;&amp; ( cat ==  EXTRACTOR || cat == STATIONARY_CONSTRUCTOR || cat == STATIONARY_ARTY || cat == STATIONARY_LAUNCHER ) )
++						// dont check targets that are already on bombing list
++						if(ai-&gt;ut-&gt;units[unitsInLos[i]].status != BOMB_TARGET)
+ 						{
+-							// dont check targets that are already on bombing list
+-							if(ai-&gt;ut-&gt;units[unitsInLos[i]].status != BOMB_TARGET)
+-							{
+-								ai-&gt;af-&gt;CheckBombTarget(unitsInLos[i], def-&gt;id);
+-								targets_checked += 1;
++							ai-&gt;af-&gt;CheckBombTarget(unitsInLos[i], def-&gt;id);
++							targets_checked += 1;
+ 
+-								cb-&gt;SendTextMsg(&quot;Checking target&quot;, 0);
+-							}
++							cb-&gt;SendTextMsg(&quot;Checking target&quot;, 0);
+ 						}
++					}
+ 
+-						// count combat power of stat defences
+-						if(cat == STATIONARY_DEF)
+-						{
+-							for(int i = 0; i &lt; bt-&gt;ass_categories; ++i)
+-								sector-&gt;stat_combat_power[i] += bt-&gt;units_static[def-&gt;id].efficiency[i];
+-						}
+-
+-						// add enemy buildings
+-						if(cat &lt;= METAL_MAKER)
+-							sector-&gt;enemy_structures += bt-&gt;units_static[def-&gt;id].cost;
++					// count combat power of stat defences
++					if(cat == STATIONARY_DEF)
++					{
++						for(int i = 0; i &lt; bt-&gt;ass_categories; ++i)
++							sector-&gt;stat_combat_power[i] += bt-&gt;units_static[def-&gt;id].efficiency[i];
+ 					}
++
++					// add enemy buildings
++					if(cat &lt;= METAL_MAKER)
++						sector-&gt;enemy_structures += bt-&gt;units_static[def-&gt;id].cost;
+ 				}
+ 			}
+-			unitsInLos[i] = 0;
+ 		}
+-		else 	// end of arry reached
+-			break;
+ 	}
+ 
+ 	ai-&gt;brain-&gt;UpdateMaxCombatUnitsSpotted(units_spotted);
+
+Modified: trunk/AI/Global/AAI/AAIMap.h
+===================================================================
+--- trunk/AI/Global/AAI/AAIMap.h	2008-04-30 18:42:21 UTC (rev 5812)
++++ trunk/AI/Global/AAI/AAIMap.h	2008-04-30 20:29:30 UTC (rev 5813)
+@@ -22,6 +22,9 @@
+ 	void BuildMapPos2Pos(float3 *pos, const UnitDef* def);
+ 	void Pos2FinalBuildPos(float3 *pos, const UnitDef *def);
+ 
++	// ensures a position lies within the map
++	//void PosInMap(float3 *pos);
++
+ 	// returns id of continent the cell belongs to
+ 	int GetContinentID(int x, int y);
+ 	int GetContinentID(float3 *pos);
+@@ -103,8 +106,6 @@
+ 
+ 	void SearchMetalSpots();
+ 
+-
+-public:
+ 	vector&lt;vector&lt;AAISector&gt; &gt; sector;			// sectors
+ 
+ 	bool initialized;
+@@ -114,6 +115,10 @@
+ 	vector&lt;float&gt; air_defence_map; // air defence map has 1/4 of resolution of blockmap/buildmap
+ 	vector&lt;float&gt; submarine_defence_map; // submarine defence map has 1/4 of resolution of blockmap/buildmap
+ 
++	// used for scouting
++	vector&lt;int&gt; unitsInLos;
++	vector&lt;int&gt; unitsInSector;
++
+ 	// temp for scouting
+ 	vector&lt;float&gt; units_spotted;
+ 
+@@ -122,10 +127,6 @@
+ 	IAICallback *cb;
+ 	AAIBuildTable *bt;
+ 
+-	// used for scouting
+-	vector&lt;int&gt; unitsInLos;
+-	vector&lt;int&gt; unitsInSector;
+-
+ 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+ 	// static (shared with other ai players)
+ 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+Modified: trunk/AI/Global/AAI/aidef.h
+===================================================================
+--- trunk/AI/Global/AAI/aidef.h	2008-04-30 18:42:21 UTC (rev 5812)
++++ trunk/AI/Global/AAI/aidef.h	2008-04-30 20:29:30 UTC (rev 5813)
+@@ -32,7 +32,7 @@
+ #ifndef AIDEF_H
+ #define AIDEF_H
+ 
+-#define AAI_VERSION &quot;0.862&quot;
++#define AAI_VERSION &quot;0.864&quot;
+ #define MAP_FILE_VERSION &quot;MAP_LEARN_0_80&quot;
+ #define TABLE_FILE_VERSION &quot;MOD_LEARN_0_86&quot;
+ #define MAP_DATA_VERSION &quot;MAP_DATA_0_86&quot;
+
+Modified: trunk/game/AI/AAI/AAI ReadMe.txt
+===================================================================
+--- trunk/game/AI/AAI/AAI ReadMe.txt	2008-04-30 18:42:21 UTC (rev 5812)
++++ trunk/game/AI/AAI/AAI ReadMe.txt	2008-04-30 20:29:30 UTC (rev 5813)
+@@ -105,6 +105,15 @@
+ 		- Brandon Potter for his TBT 12 cfg file
+ 
+ 
++AAI v0.864	- Added some unit specific combat behaviour: Units with high ranged weapons will now try to keep enemies distant
++
++		- Added two new variables to mod config file:
++
++		  FALLBACK_DIST_RATIO 0.9 - units will try keep enemies at this ratio of their maximum weapons' range
++		  
++		  MIN_FALLBACK_RANGE 500  - units with lower weapons' range will not try fall back at all 
++
++
+ AAI v0.862	- Added submarine defence map -&gt; AAI will now store its defence capabilities vs submarines separately from other 
+ 		  naval units
+ 
+
+Modified: trunk/game/AI/AAI/cfg/help/example mod.cfg
+===================================================================
+--- trunk/game/AI/AAI/cfg/help/example mod.cfg	2008-04-30 18:42:21 UTC (rev 5812)
++++ trunk/game/AI/AAI/cfg/help/example mod.cfg	2008-04-30 20:29:30 UTC (rev 5813)
+@@ -79,9 +79,17 @@
+ MIN_SUBMARINE_WATERLINE 15 	- minimum water line of a unit to be considered as a submarine (when floater is true)
+ 
+ 
++** combat related settings **
+ 
++FALLBACK_DIST_RATIO 0.9		- units will try keep enemies at this ratio of their maximum weapons' range
+ 
++MIN_FALLBACK_RANGE 500 		- units with lower weapons' range will not try fall back at all 
+ 
++
++
++
++
++
+ ** builder/factory related settings **
+ 
+ MAX_SCOUTS 4		- max. scouts used at the same time
+
+Added: trunk/game/AI/AAI/cfg/mod/BA621.cfg
+===================================================================
+--- trunk/game/AI/AAI/cfg/mod/BA621.cfg	                        (rev 0)
++++ trunk/game/AI/AAI/cfg/mod/BA621.cfg	2008-04-30 20:29:30 UTC (rev 5813)
+@@ -0,0 +1,37 @@
++SIDES 2
++START_UNITS ARMCOM CORCOM
++SIDE_NAMES Arm Core
++MAX_SCOUTS 6
++MAX_BUILDERS 50
++MAX_BUILDERS_PER_TYPE 5
++MAX_FACTORIES_PER_TYPE 3
++MAX_GROUP_SIZE 12
++MAX_AIR_GROUP_SIZE 4
++MAX_XROW 8
++MAX_YROW 8
++X_SPACE 16
++Y_SPACE 16
++MAX_BASE_SIZE 12
++
++HIGH_RANGE_UNITS_RATE 4
++AIRCRAFT_RATE 4 
++
++SCOUT_SPEED 120.0
++SEA_ARTY_RANGE 1300.0
++STATIONARY_ARTY_RANGE 3210.0
++MAX_STAT_ARTY 3
++
++MIN_ENERGY 18 
++
++MAX_METAL_COST 8000
++MAX_DEFENCES 14
++METAL_ENERGY_RATIO 25
++MAX_METAL_MAKERS 15
++MAX_MEX_DISTANCE 8
++MAX_MEX_DEFENCE_DISTANCE 7
++
++NON_AMPHIB_MAX_WATERDEPTH 22
++
++SCOUTS 14 CORFAV ARMFAV ARMPEEP CORFINK ARMAWAC CORAWAC ARMFLEA ARMFAST ARMSH CORSH CORPT ARMPT ARMSPY CORSPY
++DONT_BUILD 4 aafus cafus armmlv cormlv
++TRANSPORTERS 8 corthovr armthovr corvalk armatlas armsl armdfly cortship armtship
+\ No newline at end of file
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000592.html">[Taspring-linux-commit] r5812 - trunk/Lobby/TASClient
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#593">[ date ]</a>
+              <a href="thread.html#593">[ thread ]</a>
+              <a href="subject.html#593">[ subject ]</a>
+              <a href="author.html#593">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

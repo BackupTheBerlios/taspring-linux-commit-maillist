@@ -1,0 +1,365 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7639 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2012-June/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7639%20-%20Lobby/TASClient&In-Reply-To=%3Cmailman.1573.1340048904.1558.taspring-linux-commit%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7639 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7639%20-%20Lobby/TASClient&In-Reply-To=%3Cmailman.1573.1340048904.1558.taspring-linux-commit%40lists.berlios.de%3E"
+       TITLE="[Taspring-linux-commit] r7639 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon Jun 18 21:41:25 CEST 2012</I>
+    <P><UL>
+        
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2409">[ date ]</a>
+              <a href="thread.html#2409">[ thread ]</a>
+              <a href="subject.html#2409">[ subject ]</a>
+              <a href="author.html#2409">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2012-06-18 21:41:24 +0200 (Mon, 18 Jun 2012)
+New Revision: 7639
+
+Modified:
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/Misc.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+   Lobby/TASClient/Utility.pas
+Log:
+** 0.96 **
+* black minimap bug fixed (try #2)
+* spring minimum version login check bug fixed
+* FORCEJOINBATTLE supported
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2012-03-24 15:14:38 UTC (rev 7638)
++++ Lobby/TASClient/MainUnit.dfm	2012-06-18 19:41:24 UTC (rev 7639)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 980
+-  Top = 181
++  Left = 219
++  Top = 112
+   Width = 882
+   Height = 567
+   Caption = 'TASClient'
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2012-03-24 15:14:38 UTC (rev 7638)
++++ Lobby/TASClient/MainUnit.pas	2012-06-18 19:41:24 UTC (rev 7639)
+@@ -412,7 +412,7 @@
+   );
+ 
+ const
+-  VERSION_NUMBER = '0.95'; // Must be float value! (with a period as a decimal seperator)
++  VERSION_NUMBER = '0.96'; // Must be float value! (with a period as a decimal seperator)
+   PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER;
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+   ASSUME_TIMEOUT_INTERVAL = 30000; // in milliseconds. Must be greater than KEEP_ALIVE_INTERVAL! If server hasn't send any data to us within this interval, then we assume timeout occured. It's us who must make sure we get constant replies from server by pinging it.
+@@ -5831,7 +5831,7 @@
+         Exit;
+       end;
+ 
+-      if (sl[2] &lt;&gt; '*') and (sl[2] &lt;&gt; Status.MySpringVersion) and (not Debug.IgnoreVersionIncompatibility) then
++      if (sl[2] &lt;&gt; '*') and ( CompareSpringVersion( sl[2], Status.MySpringVersion) &lt; 0 ) and (not Debug.IgnoreVersionIncompatibility) then
+       begin
+         AddMainLog(_('Server says our Spring version (') + Status.MySpringVersion + _(') is outdated (server only supports ') + sl[2] + ')', Colors.Info);
+         AddMainLog(_('Requesting update from server ...'), Colors.Info);
+@@ -6798,6 +6798,30 @@
+ 
+       AddTextToChatWindow(TMyTabSheet(MainForm.ChatTabs[i]), '* ' + Client.DisplayName + ' ' + MakeSentenceWS(sl, 3), Colors.SayEx);
+     end
++    else if sl[0] = 'SAIDDATAPRIVATE' then
++    begin
++      if sl.Count &lt; 3 then
++      begin
++        AmbiguousCommand(s,'', Colors.Error,400);
++        Exit;
++      end;
++
++      if sl[1] = '' then
++      begin
++        AmbiguousCommand(s,'', Colors.Error,401);
++        Exit;
++      end;
++
++      Client := GetClient(sl[1]);
++
++      if Client = nil then
++      begin
++        AmbiguousCommand(s,'', Colors.Error,402);
++        Exit;
++      end;
++
++      // not supported by the server yet
++    end
+     else if sl[0] = 'SAIDPRIVATE' then
+     begin
+       if sl.Count &lt; 3 then
+@@ -6988,6 +7012,39 @@
+       if TMyTabSheet(MainForm.ChatTabs[i]).Clients[0] = Client then // avoid multiple pm feedback when having multiple users in one PM chat because of renames
+         AddTextToChatWindow(TMyTabSheet(MainForm.ChatTabs[i]), '&lt;' + Status.Username + '&gt; ' + MakeSentenceWS(sl, 2), Colors.MyText, Length(Status.Username)+2);
+     end
++    else if sl[0] = 'SAYDATAPRIVATE' then
++    begin
++      // nothing
++    end
++    else if sl[0] = 'FORCEJOINBATTLE' then
++    begin
++      if sl.Count &lt; 2 then
++      begin
++        AmbiguousCommand(s,'', Colors.Error,350);
++        Exit;
++      end;
++      try
++        tmpInt := StrToInt(sl[1]);
++      except
++        AmbiguousCommand(s,'', Colors.Error,351);
++        Exit;
++      end;
++      Battle := GetBattle(tmpInt);
++      if Battle = nil then
++      begin
++        AmbiguousCommand(s,'', Colors.Error,352);
++        Exit;
++      end;
++
++      if sl.Count &gt;= 2 then
++      begin
++        JoinBattle(Battle,False,sl[2]);
++      end
++      else
++      begin
++        JoinBattle(Battle);
++      end;
++    end
+     else if sl[0] = 'PONG' then
+     begin
+       if MsgID &lt;&gt; -1 then
+@@ -9176,7 +9233,7 @@
+   if ip = '' then ip := '*';
+   if ((Password = '') or (Status.ServerMode = 1{LAN MODE}) and not Debug.LoginWithPasswordOnLan) then Password := '*'; // probably local LAN mode. We have to send something as a password, so we just send an &quot;*&quot;.
+   userid := IntToHex(Misc.GetLobbyUserID, 1);
+-  TryToSendCommand('LOGIN', Username + ' ' + Password + ' ' + IntToStr(Status.MyCPU) + ' ' + ip + ' TASClient ' + VERSION_NUMBER + '.' + IntToStr(Misc.GetLobbyRevision) + IFF(userid &lt;&gt; '0', #9 + userid, #9+'0')+#9+'a b sp');
++  TryToSendCommand('LOGIN', Username + ' ' + Password + ' ' + IntToStr(Status.MyCPU) + ' ' + ip + ' TASClient ' + VERSION_NUMBER + '.' + IntToStr(Misc.GetLobbyRevision) + IFF(userid &lt;&gt; '0', #9 + userid, #9+'0')+#9+'a b sp m');
+ end;
+ 
+ procedure TMainForm.TryToRegister(Username, Password: string);
+@@ -14980,7 +15037,7 @@
+ procedure TMainForm.mnuJoinMeClick(Sender: TObject);
+ begin
+   if Status.Me.Battle &lt;&gt; nil then
+-    TryToSendCommand('SAYPRIVATE',SelectedUserName+' !join '+TClient(Status.Me.Battle.Clients[0]).Name + IFF(BattleState.Password &lt;&gt; '', ' '+BattleState.Password, '') );
++    TryToSendCommand('SAYPRIVATE',SelectedUserName+' '+REMOTE_JOIN_COMMAND+' '+TClient(Status.Me.Battle.Clients[0]).Name + IFF(BattleState.Password &lt;&gt; '', ' '+BattleState.Password, '') );
+ end;
+ 
+ procedure TMainForm.BattleFiltersTextboxChange(Sender: TObject);
+
+Modified: Lobby/TASClient/Misc.pas
+===================================================================
+--- Lobby/TASClient/Misc.pas	2012-03-24 15:14:38 UTC (rev 7638)
++++ Lobby/TASClient/Misc.pas	2012-06-18 19:41:24 UTC (rev 7639)
+@@ -197,6 +197,7 @@
+ function GetFloatDecimals(value : Extended): Integer;
+ procedure RemoveEmptyStrings(var sl: TStringList); overload;
+ procedure RemoveEmptyStrings(var sl: TWideStringList); overload;
++function CompareSpringVersion(version1: string; version2: string): integer;
+ 
+ implementation
+ 
+@@ -3501,4 +3502,42 @@
+   end;
+ end;
+ 
++function CompareSpringVersion(version1: string; version2: string): integer;
++var
++  version1Sl: TStringList;
++  version2Sl: TStringList;
++  i: integer;
++  v1: integer;
++  v2: integer;
++begin
++  Result := 0;
++  
++  version1Sl := TStringList.Create;
++  version2Sl := TStringList.Create;
++
++  try
++    ParseDelimited(version1Sl,version1,'.','');
++    ParseDelimited(version2Sl,version2,'.','');
++
++    for i:=0 to min( version1Sl.Count-1, version2Sl.Count-1 ) do
++    begin
++      v1 := StrToInt( version1Sl[i] );
++      v2 := StrToInt( version2Sl[i] );
++
++      if v1 &lt; v2 then
++      begin
++        Result := 1;
++        Exit;
++      end
++      else if v2 &lt; v1 then
++      begin
++        Result := -1;
++        Exit;
++      end;
++    end;
++  except
++    Result := -1;
++  end;
++end;
++
+ end.
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2012-03-24 15:14:38 UTC (rev 7638)
++++ Lobby/TASClient/TASClient.dof	2012-06-18 19:41:24 UTC (rev 7639)
+@@ -100,7 +100,7 @@
+ DebugSourceDirs=
+ UsePackages=0
+ [Parameters]
+-RunParams=
++RunParams=-debug
+ HostApplication=C:\Program Files\Spring\TASClient.exe
+ Launcher=
+ UseLauncher=0
+@@ -113,9 +113,9 @@
+ IncludeVerInfo=1
+ AutoIncBuild=1
+ MajorVer=0
+-MinorVer=95
++MinorVer=96
+ Release=0
+-Build=1356
++Build=1357
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TASClient
+-FileVersion=0.95.0.1356
++FileVersion=0.96.0.1357
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+Modified: Lobby/TASClient/Utility.pas
+===================================================================
+--- Lobby/TASClient/Utility.pas	2012-03-24 15:14:38 UTC (rev 7638)
++++ Lobby/TASClient/Utility.pas	2012-06-18 19:41:24 UTC (rev 7639)
+@@ -609,13 +609,13 @@
+     if ilLoadImage(PChar( filePath )) = IL_TRUE then
+     begin
+       checkDevILErrors('ilLoadImage');
+-      
++
+       bmp.Width := ilGetInteger(IL_IMAGE_WIDTH);
+       bmp.Height := ilGetInteger(IL_IMAGE_HEIGHT);
+ 
+       bmp.PixelFormat := pf24bit;
+ 
+-      ilCopyPixels(0,0,0,bmp.Width,bmp.Height,1,IL_BGR,IL_BYTE,bmp.ScanLine[bmp.Height-1]);
++      ilCopyPixels(0,0,0,bmp.Width,bmp.Height,1,IL_BGR,IL_UNSIGNED_BYTE,bmp.ScanLine[bmp.Height-1]);
+       checkDevILErrors('ilCopyPixels');
+     end
+     else
+@@ -1444,14 +1444,12 @@
+ 
+   if FileExists(filePath) and (ilLoadImage(PChar(filePath)) = IL_TRUE) then
+   begin
+-    checkDevILErrors('ilLoadImage');
+-
+     width := ilGetInteger(IL_IMAGE_WIDTH);
+     height := ilGetInteger(IL_IMAGE_HEIGHT);
+ 
+     Result := malloc(width*height);
+ 
+-    ilCopyPixels(0,0,0,width,height,1,IL_LUMINANCE,IL_BYTE,Result);
++    ilCopyPixels(0,0,0,width,height,1,IL_LUMINANCE,IL_UNSIGNED_BYTE,Result);
+     checkDevILErrors('ilCopyPixels');
+   end
+   else
+@@ -1468,7 +1466,10 @@
+       if ilLoadDataL(Result,width*height,width,height,1,1) = IL_TRUE then
+       begin
+         ilSaveImage(PChar(filePath));
+-      end;
++        checkDevILErrors('ilSaveImage');
++      end
++      else
++        checkDevILErrors('ilLoadDataL');
+     end;
+   end;
+ end;
+@@ -1494,7 +1495,8 @@
+ 
+     Result := malloc(width*height);
+ 
+-    ilCopyPixels(0,0,0,width,height,1,IL_LUMINANCE,IL_BYTE,Result);
++    ilCopyPixels(0,0,0,width,height,1,IL_LUMINANCE,IL_UNSIGNED_BYTE,Result);
++    checkDevILErrors('ilCopyPixels');
+   end
+   else
+   begin
+@@ -1508,7 +1510,10 @@
+       if ilLoadDataL(Result,width*height,width,height,1,1) = IL_TRUE then
+       begin
+         ilSaveImage(PChar(filePath));
+-      end;
++        checkDevILErrors('ilSaveImage');
++      end
++      else
++        checkDevILErrors('ilLoadDataL');
+     end;
+   end;
+ end;
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2409">[ date ]</a>
+              <a href="thread.html#2409">[ thread ]</a>
+              <a href="subject.html#2409">[ subject ]</a>
+              <a href="author.html#2409">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

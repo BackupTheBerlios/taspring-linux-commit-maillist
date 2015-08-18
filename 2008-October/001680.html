@@ -1,0 +1,196 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6911 - in trunk/rts/Sim: MoveTypes Units
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6911%20-%20in%20trunk/rts/Sim%3A%20MoveTypes%20Units&In-Reply-To=%3C20081027023017.857E54751%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001679.html">
+   <LINK REL="Next"  HREF="001681.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6911 - in trunk/rts/Sim: MoveTypes Units</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6911%20-%20in%20trunk/rts/Sim%3A%20MoveTypes%20Units&In-Reply-To=%3C20081027023017.857E54751%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6911 - in trunk/rts/Sim: MoveTypes Units">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon Oct 27 03:30:17 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001679.html">[Taspring-linux-commit] r6910 - trunk/AI/Global/AAI
+</A></li>
+        <LI>Next message: <A HREF="001681.html">[Taspring-linux-commit] r6912 - trunk/rts/Sim/MoveTypes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1680">[ date ]</a>
+              <a href="thread.html#1680">[ thread ]</a>
+              <a href="subject.html#1680">[ subject ]</a>
+              <a href="author.html#1680">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: lurker
+Date: 2008-10-27 03:30:16 +0100 (Mon, 27 Oct 2008)
+New Revision: 6911
+
+Modified:
+   trunk/rts/Sim/MoveTypes/TAAirMoveType.cpp
+   trunk/rts/Sim/MoveTypes/TAAirMoveType.h
+   trunk/rts/Sim/Units/UnitDefHandler.cpp
+Log:
+* A complete reworking of the hover math to make planes bobble in place gently by default, and make hoverfactor work as intended.
+
+Modified: trunk/rts/Sim/MoveTypes/TAAirMoveType.cpp
+===================================================================
+--- trunk/rts/Sim/MoveTypes/TAAirMoveType.cpp	2008-10-26 22:43:34 UTC (rev 6910)
++++ trunk/rts/Sim/MoveTypes/TAAirMoveType.cpp	2008-10-27 02:30:16 UTC (rev 6911)
+@@ -55,7 +55,10 @@
+ 	CR_MEMBER(forceHeadingTo),
+ 
+ 	CR_MEMBER(maxDrift),
+-	CR_RESERVED(63)
++
++	CR_MEMBER(randomWind),
++
++	CR_RESERVED(59)
+ 	));
+ 
+ 
+@@ -311,8 +314,10 @@
+ void CTAAirMoveType::UpdateHovering()
+ {
+ 	const float driftSpeed = fabs(owner-&gt;unitDef-&gt;dlHoverFactor);
+-	float3 deltaVec = goalPos - owner-&gt;pos ;
+-	float3 deltaDir = float3(deltaVec).Normalize();
++	float3 deltaVec = goalPos - owner-&gt;pos;
++	float3 deltaVec2d = float3(deltaVec.x, 0, deltaVec.z);
++	float3 deltaDir = deltaVec2d.Normalize();
++	float moveFactor = pow(deltaVec2d.Length2D(), 0.5f);
+ 	const float3 &amp;pos = owner-&gt;pos;
+ 
+ 	// move towards goal position if it's not immediately
+@@ -320,27 +325,30 @@
+ 	if (aircraftState != AIRCRAFT_LANDING &amp;&amp; (owner-&gt;commandAI-&gt;HasMoreMoveCommands() &amp;&amp;
+ 		deltaVec.Length2D() &lt; 120) &amp;&amp; deltaDir.distance(deltaVec) &gt; 1.0f) {
+ 		deltaDir = owner-&gt;frontdir;
++		moveFactor = 1.0f;
+ 	}
+ 
+-	wantedSpeed += float3(deltaDir.x, 0.0f, deltaDir.z) * driftSpeed * 0.015f;
++	wantedSpeed += deltaDir * moveFactor * driftSpeed * 0.05f;
+ 	// damping
+-	wantedSpeed *= 0.97f;
++	wantedSpeed *= 0.90f;
+ 
+ 	// random movement (a sort of fake wind effect)
+ 	// random drift values are in range -0.5 ... 0.5
+-	float3 random_drift = float3(gs-&gt;randFloat() - 0.5f, 0.0f, gs-&gt;randFloat() - 0.5f) * driftSpeed * 0.5f;
++	randomWind = float3(randomWind.x + (gs-&gt;randFloat() - 0.5f), 0,
++		randomWind.z + (gs-&gt;randFloat() - 0.5f)).Normalize();
++	float3 tempwind = randomWind;
+ 	if (pos.x &lt; 0) {
+-		// When plane is off map, make random drift drift the plane onto map rather than off map.
+-		random_drift.x=fabs(random_drift.x);
++		// When plane is off map, make the wind drift the plane onto map rather than off map.
++		randomWind.x=fabs(randomWind.x);
+ 	} else if (pos.x &gt; float3::maxxpos) {
+-		random_drift.x=-fabs(random_drift.x);
++		randomWind.x=-fabs(randomWind.x);
+ 	}
+ 	if (pos.z &lt; 0) {
+-		random_drift.z=fabs(random_drift.z);
++		randomWind.z=fabs(randomWind.z);
+ 	} else if (pos.z &gt; float3::maxzpos) {
+-		random_drift.z=-fabs(random_drift.z);
++		randomWind.z=-fabs(randomWind.z);
+ 	}
+-	wantedSpeed += random_drift;
++	wantedSpeed += randomWind * 0.05f * driftSpeed;
+ 
+ 	UpdateAirPhysics();
+ }
+@@ -678,13 +686,20 @@
+ 			ws = 0.0f;
+ 	}
+ 
++	float speedNew = 0.0f;
+ 	if (speed.y &gt; ws) {
+-		speed.y = std::max(ws, speed.y - accRate * 1.5f);
++		speedNew = std::max(ws, speed.y - accRate * 1.5f);
+ 	} else {
+ 		// let them accelerate upward faster if close to ground
+-		speed.y = std::min(ws, speed.y + accRate * (h &lt; 20.0f? 2.0f: 0.7f));
++		speedNew = std::min(ws, speed.y + accRate * (h &lt; 20.0f? 2.0f: 0.7f));
+ 	}
+ 
++	if (fabs(wh - h) &lt; 1.0f) {
++		speed.y = speed.y * 0.89 + speedNew / 10.0f;
++	} else {
++		speed.y = speedNew;
++	}
++
+ 	pos += speed;
+ }
+ 
+
+Modified: trunk/rts/Sim/MoveTypes/TAAirMoveType.h
+===================================================================
+--- trunk/rts/Sim/MoveTypes/TAAirMoveType.h	2008-10-26 22:43:34 UTC (rev 6910)
++++ trunk/rts/Sim/MoveTypes/TAAirMoveType.h	2008-10-27 02:30:16 UTC (rev 6911)
+@@ -51,9 +51,11 @@
+ 
+ 	float maxDrift;
+ 
++	float3 randomWind;			//buffets the plane when idling
+ 
+ 
+ 
++
+ 	CTAAirMoveType(CUnit* owner);
+ 	~CTAAirMoveType(void);
+ 
+
+Modified: trunk/rts/Sim/Units/UnitDefHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-10-26 22:43:34 UTC (rev 6910)
++++ trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-10-27 02:30:16 UTC (rev 6911)
+@@ -455,7 +455,7 @@
+ 	ud.airStrafe     = udTable.GetBool(&quot;airStrafe&quot;, true);
+ 	ud.hoverAttack   = udTable.GetBool(&quot;hoverAttack&quot;, false);
+ 	ud.wantedHeight  = udTable.GetFloat(&quot;cruiseAlt&quot;, 0.0f);
+-	ud.dlHoverFactor = udTable.GetFloat(&quot;airHoverFactor&quot;, -0.15f);
++	ud.dlHoverFactor = udTable.GetFloat(&quot;airHoverFactor&quot;, -1.0f);
+ 	ud.bankingAllowed = udTable.GetBool(&quot;bankingAllowed&quot;, true);
+ 
+ 	ud.transportSize     = udTable.GetInt(&quot;transportSize&quot;,      0);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001679.html">[Taspring-linux-commit] r6910 - trunk/AI/Global/AAI
+</A></li>
+	<LI>Next message: <A HREF="001681.html">[Taspring-linux-commit] r6912 - trunk/rts/Sim/MoveTypes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1680">[ date ]</a>
+              <a href="thread.html#1680">[ thread ]</a>
+              <a href="subject.html#1680">[ subject ]</a>
+              <a href="author.html#1680">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

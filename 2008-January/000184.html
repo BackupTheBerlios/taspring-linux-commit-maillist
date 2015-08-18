@@ -1,0 +1,771 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5377 - trunk/AI/Global/KAIK-0.13
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5377%20-%20trunk/AI/Global/KAIK-0.13&In-Reply-To=%3CE1JI9Lu-0008G2-1W%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000183.html">
+   <LINK REL="Next"  HREF="000185.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5377 - trunk/AI/Global/KAIK-0.13</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5377%20-%20trunk/AI/Global/KAIK-0.13&In-Reply-To=%3CE1JI9Lu-0008G2-1W%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5377 - trunk/AI/Global/KAIK-0.13">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Jan 24 22:11:14 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000183.html">[Taspring-linux-commit] r5376 - in trunk: game/LuaUI	installer/builddata/springcontent/LuaGadgets rts/Game rts/Lua
+</A></li>
+        <LI>Next message: <A HREF="000185.html">[Taspring-linux-commit] r5378 - trunk/AI/Global/KAIK-0.13
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#184">[ date ]</a>
+              <a href="thread.html#184">[ thread ]</a>
+              <a href="subject.html#184">[ subject ]</a>
+              <a href="author.html#184">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-01-24 22:11:13 +0100 (Thu, 24 Jan 2008)
+New Revision: 5377
+
+Modified:
+   trunk/AI/Global/KAIK-0.13/BuildUp.cpp
+   trunk/AI/Global/KAIK-0.13/BuildUp.h
+   trunk/AI/Global/KAIK-0.13/DefenseMatrix.cpp
+   trunk/AI/Global/KAIK-0.13/Defines.h
+   trunk/AI/Global/KAIK-0.13/SpotFinder.cpp
+   trunk/AI/Global/KAIK-0.13/SpotFinder.h
+   trunk/AI/Global/KAIK-0.13/UnitTable.cpp
+   trunk/AI/Global/KAIK-0.13/UnitTable.h
+Log:
+make KAIK depreciate units (factories) based on tech-level
+
+Modified: trunk/AI/Global/KAIK-0.13/BuildUp.cpp
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/BuildUp.cpp	2008-01-24 18:45:35 UTC (rev 5376)
++++ trunk/AI/Global/KAIK-0.13/BuildUp.cpp	2008-01-24 21:11:13 UTC (rev 5377)
+@@ -233,7 +233,7 @@
+ 	bool b2 = ((mLevel &gt; (mStorage * m2)) || (mIncome &gt; 100.0f &amp;&amp; mUsage &lt; mIncome));
+ 
+ 	if (b1 &amp;&amp; b2) {
+-		FactoryCycle();
++		FactoryCycle(frame);
+ 	}
+ 
+ 	if (buildNukeSilo) {
+@@ -244,7 +244,7 @@
+ 
+ 
+ 
+-void CBuildUp::FactoryCycle(void) {
++void CBuildUp::FactoryCycle(int frame) {
+ 	int numIdleFactories = ai-&gt;uh-&gt;NumIdleUnits(CAT_FACTORY);
+ 
+ 	for (int i = 0; i &lt; numIdleFactories; i++) {
+@@ -252,50 +252,62 @@
+ 		int producedCat = 0;
+ 		int factoryUnitID = ai-&gt;uh-&gt;GetIU(CAT_FACTORY);
+ 		bool isHub = (ai-&gt;MyUnits[factoryUnitID]-&gt;isHub());
++		const UnitDef* factDef = ai-&gt;MyUnits[factoryUnitID]-&gt;def();
+ 
+-		if (isHub) {
+-			// if we are a hub then we can only construct
+-			// factories (and some other types of buildings)
+-			producedCat = CAT_FACTORY;
+-			builderTimer = 0;
+-		}
+-		else {
+-			if ((builderTimer &gt; 0) || (ai-&gt;uh-&gt;NumIdleUnits(CAT_BUILDER) &gt; 2)) {
+-				// if we have more than two idle builders
+-				// then compensate with an offensive unit
+-				producedCat = CAT_G_ATTACK;
++		// assume that factories with tech-level TL &gt; 0 are
++		// useful to keep active and building for (TL * 30)
++		// minutes, but depreciate rapidly after that point
++		// TODO: don't reduce factory build frequency, but
++		// focus more on mobile constructors instead?
++		int tchLvl = ai-&gt;ut-&gt;unitTypes[factDef-&gt;id].techLevel;
++		bool obsolete = ((tchLvl &gt; 0)? ((tchLvl * 30) &gt; (frame / 1800)): false);
++		bool mayBuild = ((obsolete)? (frame % 1800 == 0): true);
+ 
+-				if (builderTimer &gt; 0)
+-					builderTimer--;
++		if (mayBuild) {
++			if (isHub) {
++				// if we are a hub then we can only construct
++				// factories (and some other types of buildings)
++				producedCat = CAT_FACTORY;
++				builderTimer = 0;
+ 			}
+-
+ 			else {
+-				const UnitDef* leastBuiltBuilder = GetLeastBuiltBuilder();
+-				const UnitDef* builderUnit = ai-&gt;ut-&gt;GetUnitByScore(factoryUnitID, CAT_BUILDER);
+-
+-				if (builderUnit &amp;&amp; builderUnit == leastBuiltBuilder) {
+-					// if this factory makes the builder that we are short of
+-					producedCat = CAT_BUILDER;
+-					builderTimer += 4;
+-				}
+-				else {
+-					// build some offensive unit
++				if ((builderTimer &gt; 0) || (ai-&gt;uh-&gt;NumIdleUnits(CAT_BUILDER) &gt; 2)) {
++					// if we have more than two idle builders
++					// then compensate with an offensive unit
+ 					producedCat = CAT_G_ATTACK;
+ 
+ 					if (builderTimer &gt; 0)
+ 						builderTimer--;
+ 				}
++
++				else {
++					const UnitDef* leastBuiltBuilder = GetLeastBuiltBuilder();
++					const UnitDef* builderUnit = ai-&gt;ut-&gt;GetUnitByScore(factoryUnitID, CAT_BUILDER);
++
++					if (builderUnit &amp;&amp; builderUnit == leastBuiltBuilder) {
++						// if this factory makes the builder that we are short of
++						producedCat = CAT_BUILDER;
++						builderTimer += 4;
++					}
++					else {
++						// build some offensive unit
++						producedCat = CAT_G_ATTACK;
++
++						if (builderTimer &gt; 0)
++							builderTimer--;
++					}
++				}
+ 			}
+-		}
+ 
+-		// get a unit of the category we want this factory to produce
+-		const UnitDef* udef = ai-&gt;ut-&gt;GetUnitByScore(factoryUnitID, producedCat);
++			// get a unit of the category we want this factory to produce
++			const UnitDef* udef = ai-&gt;ut-&gt;GetUnitByScore(factoryUnitID, producedCat);
+ 
+-		if (udef) {
+-			if (isHub) {
+-				(ai-&gt;MyUnits[factoryUnitID])-&gt;HubBuild(udef);
+-			} else {
+-				(ai-&gt;MyUnits[factoryUnitID])-&gt;FactoryBuild(udef);
++			if (udef) {
++				if (isHub) {
++					(ai-&gt;MyUnits[factoryUnitID])-&gt;HubBuild(udef);
++				} else {
++					(ai-&gt;MyUnits[factoryUnitID])-&gt;FactoryBuild(udef);
++				}
+ 			}
+ 		}
+ 	}
+
+Modified: trunk/AI/Global/KAIK-0.13/BuildUp.h
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/BuildUp.h	2008-01-24 18:45:35 UTC (rev 5376)
++++ trunk/AI/Global/KAIK-0.13/BuildUp.h	2008-01-24 21:11:13 UTC (rev 5377)
+@@ -15,7 +15,7 @@
+ 
+ 	private:
+ 		void Buildup(int);
+-		void FactoryCycle(void);
++		void FactoryCycle(int);
+ 		void NukeSiloCycle(void);
+ 		void FallbackBuild(int, int);
+ 		bool BuildNow(int, int);
+
+Modified: trunk/AI/Global/KAIK-0.13/DefenseMatrix.cpp
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/DefenseMatrix.cpp	2008-01-24 18:45:35 UTC (rev 5376)
++++ trunk/AI/Global/KAIK-0.13/DefenseMatrix.cpp	2008-01-24 21:11:13 UTC (rev 5377)
+@@ -80,11 +80,15 @@
+ 
+ 	for (int x = 0; x &lt; ai-&gt;pather-&gt;PathMapXSize / CACHEFACTOR; x++) {
+ 		for (int y = 0; y &lt; ai-&gt;pather-&gt;PathMapYSize / CACHEFACTOR; y++) {
+-			// KLOOTNOTE: RETURNS UNINITIALIZED CRAP IN CERTAIN MODS?
+-			// MAY BE RELARED TO HUGE SIZE OF COMMS (IN EVO-RTS &amp; GUNDAM)
++			// KLOOTNOTE: SOMETIMES RETURNS UNINITIALIZED CRAP?
+ 			// (gdb) print cachePoint-&gt;y   $2 = 219024104
+ 			// (gdb) print cachePoint-&gt;x   $3 = -1215908928
+ 			CachePoint* cachePoint = spotFinder-&gt;GetBestCachePoint(x, y);
++
++			if (!cachePoint) {
++				return ZeroVector;
++			}
++
+ 			float bestScoreInThisBox = cachePoint-&gt;maxValueInBox;
+ 
+ 			// guess that this point is as good as posible
+
+Modified: trunk/AI/Global/KAIK-0.13/Defines.h
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/Defines.h	2008-01-24 18:45:35 UTC (rev 5376)
++++ trunk/AI/Global/KAIK-0.13/Defines.h	2008-01-24 21:11:13 UTC (rev 5377)
+@@ -2,7 +2,7 @@
+ #define DEFINES_H
+ 
+ #define AI_NAME			&quot;KAIK 0.13 Unofficial&quot;
+-#define AI_DATE			&quot;12/01/2008&quot;
++#define AI_DATE			&quot;24/01/2008&quot;
+ #define AI_VERSION		AI_NAME &quot; (rev. &quot; AI_DATE &quot;)&quot;
+ #define AI_CREDITS		&quot;(original developer: Krogothe, current maintainer: Kloot)&quot;
+ 
+
+Modified: trunk/AI/Global/KAIK-0.13/SpotFinder.cpp
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/SpotFinder.cpp	2008-01-24 18:45:35 UTC (rev 5376)
++++ trunk/AI/Global/KAIK-0.13/SpotFinder.cpp	2008-01-24 21:11:13 UTC (rev 5377)
+@@ -2,25 +2,27 @@
+ 
+ CSpotFinder::CSpotFinder(AIClasses* ai, int height, int width) {
+ 	this-&gt;ai = ai;
+-	//MinMetalForSpot = 50;	// from 0-255, the minimum percentage of metal a spot needs to have
+-							//from the maximum to be saved. Prevents crappier spots in between taken spaces.
+-							//They are still perfectly valid and will generate metal mind you!
++	// from 0-255, the minimum percentage of metal a spot needs to have from
++	// the maximum to be saved. Prevents crappier spots in between taken spaces.
++	// They are still perfectly valid and will generate metal mind you!
++	// MinMetalForSpot = 50;	
+ 
+-	MapHeight = height; //metal map has 1/2 resolution of normal map
++	// metal map has half resolution of normal map
++	MapHeight = height;
+ 	MapWidth = width;
+ 	TotalCells = MapHeight * MapWidth;
+ 	int cacheHeight = (height + 1) / CACHEFACTOR;
+-	int cacheWidtht = (width + 1) / CACHEFACTOR;
+-	int totalCacheCells = cacheHeight * cacheWidtht;
+-	cachePoints = new CachePoint[totalCacheCells];
++	int cacheWidth = (width + 1) / CACHEFACTOR;
++	int totalCacheCells = cacheHeight * cacheWidth;
++	cachePoints.resize(totalCacheCells);
+ 
+ 	for (int i = 0; i &lt; totalCacheCells; i++) {
+ 		cachePoints[i].isValid = false;
+ 		cachePoints[i].isMasked = false;
+ 	}
+ 
+-	//MexArrayB = new unsigned char [TotalCells];
+-	//MexArrayC = new unsigned char [TotalCells]; //used for drawing the TGA, not really needed with a couple of changes
++	// MexArrayB = new unsigned char [TotalCells];
++	// MexArrayC = new unsigned char [TotalCells]; //used for drawing the TGA
+ 	TempAverage = new float [TotalCells];
+ 	xend = new int[height + width];
+ 	haveTheBestSpotReady = false;
+@@ -29,18 +31,14 @@
+ }
+ 
+ CSpotFinder::~CSpotFinder() {
+-	//delete [] MexArrayB;
+-	//delete [] MexArrayC;
+-	delete [] TempAverage;
+-	delete [] cachePoints;
+-	delete [] xend;
++	delete[] TempAverage;
++	delete[] xend;
+ }
+ 
+ /*
+-Sets a float array as the backing array
+-
+-TODO: alow this array to be a 2^x size factor bigger than
+-*/
++ * Sets a float array as the backing array
++ * TODO: allow this array to be a 2^x size factor bigger than
++ */
+ void CSpotFinder::SetBackingArray(float* map, int height, int width)
+ {
+ 	assert(height == MapHeight);
+@@ -51,11 +49,10 @@
+ 
+ 
+ /*
+-Returns an updated SumMap.
+-Remember to use BackingArrayChanged(), SetRadius() and UpdateSumMap()
+-to get correct data.
+-
+-*/
++ * Returns an updated SumMap.
++ * Remember to use BackingArrayChanged(), SetRadius() and UpdateSumMap()
++ * to get correct data.
++ */
+ float* CSpotFinder::GetSumMap()
+ {
+ 	if (!isValid) {
+@@ -71,26 +68,25 @@
+ 
+ 
+ /*
+-Set the working radius for making the SumMap.
+-This will trigger a full remake of the SumMap only if the radius changes.
+-Radius have the same resolution as the map given to SpotFinder.
+-
+-*/
++ * Set the working radius for making the SumMap.
++ * This will trigger a full remake of the SumMap only if the radius changes.
++ * Radius have the same resolution as the map given to SpotFinder.
++ */
+ void CSpotFinder::SetRadius(int radius)
+ {
+ 	if (this-&gt;radius != radius) {
+ 		this-&gt;radius = radius;
+ 		haveTheBestSpotReady = false;
+ 		isValid = false;
+-		
++
+ 		int DoubleRadius = radius * 2;
+ 		int SquareRadius = radius * radius; //used to speed up loops so no recalculation needed
+-		
++
+ 		if (MapHeight + MapWidth &lt; DoubleRadius + 1) {
+ 			delete[] xend;
+ 			xend = new int[DoubleRadius + 1];
+ 		}
+-		
++
+ 		// TODO: make the edges smooth
+ 		for (int a = 0; a &lt; DoubleRadius + 1; a++) {
+ 			float z = a - radius;
+@@ -101,7 +97,7 @@
+ 	}
+ }
+ 
+-// This is a temp/test only
++// test only
+ void CSpotFinder::MakeCachePoints()
+ {
+ 	for (int y = 0; y &lt; MapHeight / CACHEFACTOR; y++) {
+@@ -111,18 +107,18 @@
+ 			cachePoints[cacheIndex].isValid = true;
+ 		}
+ 	}
+-	
+-	for (int y = 0; y &lt; MapHeight; y++){
++
++	for (int y = 0; y &lt; MapHeight; y++) {
+ 		// find the cache line
+ 		int cacheY = y / CACHEFACTOR;
+-		
+-		for (int x = 0; x &lt; MapWidth; x++){
++
++		for (int x = 0; x &lt; MapWidth; x++) {
+ 			int cacheX = x / CACHEFACTOR;
+ 			float sum = TempAverage[y * MapWidth + x];
+-			
++
+ 			int cacheIndex = cacheY * MapWidth/CACHEFACTOR + cacheX;
+ 			if (cachePoints[cacheIndex].maxValueInBox &lt; sum) {
+-				// Found a better spot for this cache element
++				// found a better spot for this cache element
+ 				cachePoints[cacheIndex].maxValueInBox = sum;
+ 				cachePoints[cacheIndex].x = x;
+ 				cachePoints[cacheIndex].y = y;
+@@ -131,17 +127,21 @@
+ 	}
+ }
+ 
+-CachePoint * CSpotFinder::GetBestCachePoint(int x, int y)
++CachePoint* CSpotFinder::GetBestCachePoint(int x, int y)
+ {
+-	int cacheY = y;// / CACHEFACTOR;
+-	int cacheX = x;// / CACHEFACTOR;
+-	int cacheIndex = cacheY * MapWidth/CACHEFACTOR + cacheX;
++	int cacheY = y;		// / CACHEFACTOR;
++	int cacheX = x;		// / CACHEFACTOR;
++	int cacheIndex = cacheY * MapWidth / CACHEFACTOR + cacheX;
+ 
+-	if (!cachePoints[cacheIndex].isValid) {
+-		MakeCachePoints();
++	if (cacheIndex &lt; cachePoints.size()) {
++		if (!cachePoints[cacheIndex].isValid) {
++			MakeCachePoints();
++		}
++
++		return &amp;cachePoints[cacheIndex];
++	} else {
++		return 0x0;
+ 	}
+-
+-	return &amp;cachePoints[cacheIndex];
+ }
+ 
+ 
+@@ -295,55 +295,58 @@
+ 
+ 
+ /*
+-Internal function for updating/creating both the cachePoint and SumMap at
+-the given cache point.
+-
+-Note: Currently needs that the SumMap is correct in the one to the left / up.
+-(not needed if that point is (0,0))
+-*/
++ * Internal function for updating/creating both the cachePoint and SumMap at
++ * the given cache point.
++ *
++ * Note: Currently needs that the SumMap is correct in the one to the left / up.
++ * (not needed if that point is (0, 0))
++ */
+ void CSpotFinder::UpdateSumMapArea(int cacheX, int cacheY)
+ {
+-	// Since this point isnt valid, we must use the one to the left / up.
+-	// That point IS valid, or (0,0).
+-	
++	// Since this point isn't valid, we must use the one to the left / up.
++	// That point IS valid, or (0, 0).
++
+ 	int Y_Start = cacheY * CACHEFACTOR;
+ 	int X_Start = cacheX * CACHEFACTOR;
+-	if(X_Start == 0)
++
++	if (X_Start == 0)
+ 		Y_Start -= 1;
+ 	else
+ 		X_Start -= 1;
+-	if(Y_Start &lt; 0)
++
++	if (Y_Start &lt; 0)
+ 		Y_Start = 0;
+-	
++
+ 	int Y_End = cacheY * CACHEFACTOR + CACHEFACTOR;
+-	if(Y_End &gt;= MapHeight )
+-		Y_End = MapHeight -1;
+-	
++	if (Y_End &gt;= MapHeight)
++		Y_End = MapHeight - 1;
++
+ 	int X_End = cacheX * CACHEFACTOR + CACHEFACTOR;
+-	if(X_End &gt;= MapWidth )
+-		X_End = MapWidth -1;	
+-		
+-	//int CacheMapWidth = MapWidth/CACHEFACTOR;
+-	// cachePoints[y * CacheMapWidth + x].isValid = false;
++	if (X_End &gt;= MapWidth)
++		X_End = MapWidth - 1;
++
+ 	float currentBest = FLT_MIN;
+ 	int currentBestX = 0;
+ 	int currentBestY = 0;
+ 	int XtractorRadius = radius;
+-	for (int y = Y_Start; y &lt;= Y_End; y++)
+-	{
+-		for (int x = X_Start; x &lt;= X_End; x++)
+-		{
++
++	for (int y = Y_Start; y &lt;= Y_End; y++) {
++		for (int x = X_Start; x &lt;= X_End; x++) {
+ 			float TotalMetal = 0;
+-			if(x == 0 &amp;&amp; y == 0) // Comment out for debug
+-				for (int sy=y-XtractorRadius,a=0;sy&lt;=y+XtractorRadius;sy++,a++){
+-					if (sy &gt;= 0 &amp;&amp; sy &lt; MapHeight){
+-						for (int sx=x-xend[a];sx&lt;=x+xend[a];sx++){ 
+-							if (sx &gt;= 0 &amp;&amp; sx &lt; MapWidth){
+-								TotalMetal += MexArrayA[sy * MapWidth + sx]; //get the metal from all pixels around the extractor radius  
++
++			if (x == 0 &amp;&amp; y == 0) {
++				// Comment out for debug
++				for (int sy = y - XtractorRadius, a = 0; sy &lt;= y + XtractorRadius; sy++, a++) {
++					if (sy &gt;= 0 &amp;&amp; sy &lt; MapHeight) {
++						for (int sx = x - xend[a]; sx &lt;= x + xend[a]; sx++) {
++							if (sx &gt;= 0 &amp;&amp; sx &lt; MapWidth) {
++								// get the metal from all pixels around the extractor radius
++								TotalMetal += MexArrayA[sy * MapWidth + sx];
+ 							}
+-						} 
++						}
+ 					}
+ 				}
++			}
+ 
+ 			// Quick calc test:
+ 			if(x &gt; 0){
+@@ -382,15 +385,12 @@
+ 				}
+ 			}
+ 			TempAverage[y * MapWidth + x] = TotalMetal;
+-			if(currentBest &lt; TotalMetal)
+-			{
+-				// Found a better spot for this cache element
++			if (currentBest &lt; TotalMetal) {
++				// found a better spot for this cache element
+ 				currentBest = TotalMetal;
+ 				currentBestX = x;
+ 				currentBestY = y;
+-				////L(&quot;cacheIndex: &quot; &lt;&lt; cacheIndex &lt;&lt; &quot;, sum: &quot; &lt;&lt; sum &lt;&lt; &quot;, x: &quot; &lt;&lt; x &lt;&lt; &quot;, y: &quot; &lt;&lt; y);
+ 			}
+-			// end
+ 		}
+ 	}
+ 	int cacheIndex = cacheY * MapWidth/CACHEFACTOR + cacheX;
+
+Modified: trunk/AI/Global/KAIK-0.13/SpotFinder.h
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/SpotFinder.h	2008-01-24 18:45:35 UTC (rev 5376)
++++ trunk/AI/Global/KAIK-0.13/SpotFinder.h	2008-01-24 21:11:13 UTC (rev 5377)
+@@ -31,7 +31,7 @@
+ 		void UpdateSumMapArea(int cacheX, int cacheY);
+ 		void UpdateSumMap();
+ 
+-		// Temp
++		// temp
+ 		void UpdateSumMap(int coordx, int coordy, int clearRadius);
+ 
+ 		bool haveTheBestSpotReady;
+@@ -48,7 +48,7 @@
+ 		int* xend;
+ 
+ 		AIClasses* ai;
+-		CachePoint* cachePoints;
++		std::vector&lt;CachePoint&gt; cachePoints;
+ };
+ 
+ 
+
+Modified: trunk/AI/Global/KAIK-0.13/UnitTable.cpp
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/UnitTable.cpp	2008-01-24 18:45:35 UTC (rev 5376)
++++ trunk/AI/Global/KAIK-0.13/UnitTable.cpp	2008-01-24 21:11:13 UTC (rev 5377)
+@@ -144,10 +144,11 @@
+ }
+ 
+ // called at the end of Init()
+-void CUnitTable::ReadUnitCostMultipliers() {
++void CUnitTable::ReadModConfig() {
+ 	const char* modName = ai-&gt;cb-&gt;GetModName();
+ 	char configFileName[1024] = {0};
+ 	snprintf(configFileName, 1023, &quot;%s%s.cfg&quot;, CFGFOLDER, modName);
++	ai-&gt;cb-&gt;GetValue(AIVAL_LOCATE_FILE_W, configFileName);
+ 
+ 	FILE* f = fopen(configFileName, &quot;r&quot;);
+ 
+@@ -157,32 +158,44 @@
+ 		char name[512];
+ 		float costMult = 1.0f;
+ 		int techLvl = -1;
++		int category = -1;
+ 
+ 		while (fgets(str, 1024, f) != 0x0) {
+ 			if (str[0] == '/' &amp;&amp; str[1] == '/') {
+ 				continue;
+ 			}
+ 
+-			int i = sscanf(str, &quot;%s %f %d&quot;, name, &amp;costMult, &amp;techLvl);
++			int i = sscanf(str, &quot;%s %f %d %d&quot;, name, &amp;costMult, &amp;techLvl, &amp;category);
+ 			const UnitDef* udef = ai-&gt;cb-&gt;GetUnitDef(name);
+ 
+-			if ((i == 3) &amp;&amp; udef) {
++			if ((i == 4) &amp;&amp; udef) {
+ 				unitTypes[udef-&gt;id].costMultiplier = costMult;
+ 				unitTypes[udef-&gt;id].techLevel = techLvl;
++
++				if (category &gt;= 0 &amp;&amp; category &lt; LASTCATEGORY) {
++					// overwrite the category set in Init()
++					// TODO: also push udef-&gt;id onto proper
++					// list (eg. ground_factories if .cfg
++					// category is CAT_FACTORY), but this
++					// requires looking up its side(s)
++					// unitTypes[udef-&gt;id].category = category;
++				}
+ 			}
+ 		}
+ 	} else {
+ 		// write a new file with default values
+ 		// for each UnitType in unitTypes array
+ 		f = fopen(configFileName, &quot;w&quot;);
+-		fprintf(f, &quot;// unitName costMultiplier techLevel\n&quot;);
++		fprintf(f, &quot;// unitName costMultiplier techLevel category\n&quot;);
+ 
+ 		for (int i = 1; i &lt;= numOfUnits; i++) {
+ 			UnitType* utype = &amp;unitTypes[i];
+-			// assign default values
++			// assign and write default values (costMultiplier
++			// and techLevel values are not set in Init(), but
++			// category is)
+ 			utype-&gt;costMultiplier = 1.0f;
+ 			utype-&gt;techLevel = -1;
+-			fprintf(f, &quot;%s %f %d\n&quot;, utype-&gt;def-&gt;name.c_str(), utype-&gt;costMultiplier, utype-&gt;techLevel);
++			fprintf(f, &quot;%s %f %d %d\n&quot;, utype-&gt;def-&gt;name.c_str(), utype-&gt;costMultiplier, utype-&gt;techLevel, utype-&gt;category);
+ 		}
+ 	}
+ 
+@@ -662,18 +675,20 @@
+ 			break;
+ 	}
+ 
+-	// iterate over all units for &lt;side&gt; in tempList (eg. Core ground_defences)
+-	for (unsigned int i = 0; i != tempList[side].size(); i++) {
+-		int tempUnitDefID = tempList[side][i];
++	if (tempList-&gt;size() &gt;= side + 1) {
++		// iterate over all units for &lt;side&gt; in tempList (eg. Core ground_defences)
++		for (unsigned int i = 0; i != tempList[side].size(); i++) {
++			int tempUnitDefID = tempList[side][i];
+ 
+-		// if our builder can build the i-th unit
+-		if (CanBuildUnit(builderDef-&gt;id, tempUnitDefID)) {
+-			// get the unit's heuristic score (based on current income)
+-			tempScore = GetScore(unitTypes[tempUnitDefID].def, category);
++			// if our builder can build the i-th unit
++			if (CanBuildUnit(builderDef-&gt;id, tempUnitDefID)) {
++				// get the unit's heuristic score (based on current income)
++				tempScore = GetScore(unitTypes[tempUnitDefID].def, category);
+ 
+-			if (tempScore &gt; bestScore) {
+-				bestScore = tempScore;
+-				tempUnitDef = unitTypes[tempUnitDefID].def;
++				if (tempScore &gt; bestScore) {
++					bestScore = tempScore;
++					tempUnitDef = unitTypes[tempUnitDefID].def;
++				}
+ 			}
+ 		}
+ 	}
+@@ -729,6 +744,7 @@
+ 
+ 
+ 	// now set sides and create buildtree for each
++	// note: this skips Lua commanders completely!
+ 	for (int s = 0; s &lt; numOfSides; s++) {
+ 		// set side of start unit (eg. commander) and continue recursively
+ 		int unitDefID = startUnits[s];
+@@ -737,22 +753,31 @@
+ 		CalcBuildTree(unitDefID, s);
+ 	}
+ 
+-
+ 	// add unit to different groups
+ 	for (int i = 1; i &lt;= numOfUnits; i++) {
+ 		UnitType* me = &amp;unitTypes[i];
+ 
++		// KLOOTNOTE: this is a hack to make KAIK recognize Lua
++		// commanders ((which are unreachable from the starting
++		// units in the mod hierarchy and so will be skipped by
++		// CalcBuildTree(), meaning me-&gt;sides stays empty)) as
++		// builders, but the ground_builders[side] list for this
++		// unit might not exist (and ill never actually contain
++		// this unitDef ID)
++		if (/* me-&gt;def-&gt;isCommander &amp;&amp; */ me-&gt;def-&gt;buildOptions.size() &gt; 0) {
++			me-&gt;category = CAT_BUILDER;
++		}
++
+ 		for (std::set&lt;int&gt;::iterator it = me-&gt;sides.begin(); it != me-&gt;sides.end(); it++) {
+ 			int mySide = *it;
+ 			int UnitCost = int(me-&gt;def-&gt;metalCost * METAL2ENERGY + me-&gt;def-&gt;energyCost);
+ 
+ 			CSunParser attackerParser(ai);
+-			char weaponnumber[10] = &quot;&quot;;
+-
+ 			attackerParser.LoadVirtualFile(me-&gt;def-&gt;filename.c_str());
+ 			me-&gt;TargetCategories.resize(me-&gt;def-&gt;weapons.size());
+ 
+ 			for (unsigned int w = 0; w != me-&gt;def-&gt;weapons.size(); w++) {
++				char weaponnumber[10] = &quot;&quot;;
+ 				itoa(w, weaponnumber, 10);
+ 				attackerParser.GetDef(me-&gt;TargetCategories[w], &quot;-1&quot;, string(&quot;UNITINFO\\OnlyTargetCategory&quot;) + string(weaponnumber));
+ 			}
+@@ -764,8 +789,8 @@
+ 				me-&gt;DPSvsUnit[v] = GetDPSvsUnit(me-&gt;def, unitTypes[v].def);
+ 			}
+ 
+-			if (me-&gt;def-&gt;speed &amp;&amp; me-&gt;def-&gt;minWaterDepth &lt;= 0) {
+-				if (me-&gt;def-&gt;buildOptions.size()) {
++			if (me-&gt;def-&gt;speed &gt; 0.0f &amp;&amp; me-&gt;def-&gt;minWaterDepth &lt;= 0) {
++				if (me-&gt;def-&gt;buildOptions.size() &gt; 0) {
+ 					ground_builders[mySide].push_back(i);
+ 					me-&gt;category = CAT_BUILDER;
+ 				}
+@@ -845,7 +870,7 @@
+ 		}
+ 	}
+ 
+-	ReadUnitCostMultipliers();
++	ReadModConfig();
+ 	// dump generated unit table to file
+ 	DebugPrint();
+ }
+@@ -857,8 +882,9 @@
+ bool CUnitTable::CanBuildUnit(int id_builder, int id_unit) {
+ 	// look in build options of builder for unit
+ 	for (unsigned int i = 0; i != unitTypes[id_builder].canBuildList.size(); i++) {
+-		if (unitTypes[id_builder].canBuildList[i] == id_unit)
++		if (unitTypes[id_builder].canBuildList[i] == id_unit) {
+ 			return true;
++		}
+ 	}
+ 
+ 	// unit not found in builder's buildoptions
+@@ -869,7 +895,7 @@
+ void CUnitTable::CalcBuildTree(int unitDefID, int rootSide) {
+ 	UnitType* utype = &amp;unitTypes[unitDefID];
+ 
+-	// go through all possible build options and set side if necessary
++	// go through all possible build options
+ 	for (unsigned int i = 0; i != utype-&gt;canBuildList.size(); i++) {
+ 		// add this unit to target's built-by list
+ 		int buildOptionIndex = utype-&gt;canBuildList[i];
+@@ -878,6 +904,7 @@
+ 		// KLOOTNOTE: techLevel will not make much sense if
+ 		// unit has multiple ancestors at different depths
+ 		// in tree (eg. Adv. Vehicle Plants in XTA)
++		//
+ 		// buildOptionType-&gt;techLevel = utype-&gt;techLevel;
+ 		// buildOptionType-&gt;techLevel = utype-&gt;def-&gt;techLevel;
+ 		// FIXME: causes duplicated entries in PURE
+
+Modified: trunk/AI/Global/KAIK-0.13/UnitTable.h
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/UnitTable.h	2008-01-24 18:45:35 UTC (rev 5376)
++++ trunk/AI/Global/KAIK-0.13/UnitTable.h	2008-01-24 21:11:13 UTC (rev 5377)
+@@ -24,7 +24,7 @@
+ 
+ 		int BuildModSideMap();
+ 		int ReadTeamSides();
+-		void ReadUnitCostMultipliers();
++		void ReadModConfig();
+ 
+ 		// returns side of a unit
+ 		int GetSide(int unit);
+@@ -75,6 +75,9 @@
+ 		UnitType* unitTypes;
+ 		int numOfUnits;
+ 
++		int minTechLevel;
++		int maxTechLevel;
++
+ 	private:
+ 		// for internal use
+ 		void CalcBuildTree(int unit, int rootSide);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000183.html">[Taspring-linux-commit] r5376 - in trunk: game/LuaUI	installer/builddata/springcontent/LuaGadgets rts/Game rts/Lua
+</A></li>
+	<LI>Next message: <A HREF="000185.html">[Taspring-linux-commit] r5378 - trunk/AI/Global/KAIK-0.13
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#184">[ date ]</a>
+              <a href="thread.html#184">[ thread ]</a>
+              <a href="subject.html#184">[ subject ]</a>
+              <a href="author.html#184">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

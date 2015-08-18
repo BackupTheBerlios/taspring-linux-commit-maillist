@@ -1,0 +1,339 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5238 - trunk/rts/Game
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5238%20-%20trunk/rts/Game&In-Reply-To=%3CE1JAYjp-0002RU-7o%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000045.html">
+   <LINK REL="Next"  HREF="000047.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5238 - trunk/rts/Game</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5238%20-%20trunk/rts/Game&In-Reply-To=%3CE1JAYjp-0002RU-7o%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5238 - trunk/rts/Game">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Jan  3 23:40:33 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000045.html">[Taspring-linux-commit] r5237 - trunk/AI/Global/AAI
+</A></li>
+        <LI>Next message: <A HREF="000047.html">[Taspring-linux-commit] r5239 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#46">[ date ]</a>
+              <a href="thread.html#46">[ thread ]</a>
+              <a href="subject.html#46">[ subject ]</a>
+              <a href="author.html#46">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-01-03 23:40:31 +0100 (Thu, 03 Jan 2008)
+New Revision: 5238
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameServer.h
+Log:
+fix .cheat and .skip not working in demo-playback mode
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-01-03 20:05:24 UTC (rev 5237)
++++ trunk/rts/Game/Game.cpp	2008-01-03 22:40:31 UTC (rev 5238)
+@@ -1084,6 +1084,7 @@
+ 	         (cmd == &quot;chatally&quot;) || (cmd == &quot;chatspec&quot;)) &amp;&amp;
+ 	         // if chat is bound to enter and we're waiting for user to press enter to start game, ignore.
+ 				  (ks.Key() != SDLK_RETURN || !(gameServer &amp;&amp; gameServer-&gt;WaitsOnCon() &amp;&amp; allReady))) {
++
+ 		if (cmd == &quot;chatall&quot;)  { userInputPrefix = &quot;&quot;; }
+ 		if (cmd == &quot;chatally&quot;) { userInputPrefix = &quot;a:&quot;; }
+ 		if (cmd == &quot;chatspec&quot;) { userInputPrefix = &quot;s:&quot;; }
+@@ -1092,9 +1093,11 @@
+ 		userInput = userInputPrefix;
+ 		writingPos = (int)userInput.length();
+ 		chatting = true;
+-		if (ks.Key()!=SDLK_RETURN) {
++
++		if (ks.Key() != SDLK_RETURN) {
+ 			ignoreNextChar = true;
+ 		}
++
+ 		consoleHistory-&gt;ResetPosition();
+ 	}
+ 	else if (cmd == &quot;track&quot;) {
+@@ -3679,7 +3682,7 @@
+ 	globalAI-&gt;GotChatMsg(s.c_str(),player);
+ 	CScriptHandler::Instance().chosenScript-&gt;GotChatMsg(s, player);
+ 
+-	if ((s.find(&quot;.cheat&quot;) == 0) &amp;&amp; (player == 0)) {
++	if ((s.find(&quot;.cheat&quot;) == 0) &amp;&amp; (player == 0 || net-&gt;localDemoPlayback)) {
+ 		SetBoolArg(gs-&gt;cheatEnabled, s, &quot;.cheat&quot;);
+ 		if (gs-&gt;cheatEnabled) {
+ 			logOutput.Print(&quot;Cheating!&quot;);
+@@ -4001,10 +4004,10 @@
+ 		                gs-&gt;noHelperAIs ? &quot;disabled&quot; : &quot;enabled&quot;);
+ 	}
+ 	else if (s.find(&quot;.skip&quot;) == 0) {
+-		if (((player != 0) || !gs-&gt;cheatEnabled)) {
++		if (((player != 0) || !gs-&gt;cheatEnabled) &amp;&amp; !net-&gt;localDemoPlayback) {
+ 			logOutput.Print(&quot;.skip only works in replay, and when cheating\n&quot;);
+ 		} else if (gs-&gt;frameNum &lt; 1) {
+-			logOutput.Print(&quot;.skip only works after the game has started\n&quot;);
++			logOutput.Print(&quot;.skip only works after the demo has started\n&quot;);
+ 		} else if (s.size() &lt;= 6) {
+ 			logOutput.Print(&quot;missing argument to .skip\n&quot;);
+ 		} else {
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-01-03 20:05:24 UTC (rev 5237)
++++ trunk/rts/Game/GameServer.cpp	2008-01-03 22:40:31 UTC (rev 5238)
+@@ -49,7 +49,7 @@
+ #ifdef DEBUG
+ 	gameClientUpdated=false;
+ #endif
+-	play = 0;
++	demoReader = 0;
+ 	IsPaused = false;
+ 	gamePausable = true;
+ 	sentGameOverMsg = false;
+@@ -98,7 +98,7 @@
+ 	if (!demoName.empty())
+ 	{
+ 		SendSystemMsg(&quot;Playing demo %s&quot;, demoName.c_str());
+-		play = new CDemoReader(demoName, modGameTime+0.1f);
++		demoReader = new CDemoReader(demoName, modGameTime+0.1f);
+ 	}
+ 
+ 	thread = new boost::thread(boost::bind&lt;void, CGameServer, CGameServer*&gt;(&amp;CGameServer::UpdateLoop, this));
+@@ -116,8 +116,8 @@
+ 	quitServer=true;
+ 	thread-&gt;join();
+ 	delete thread;
+-	if (play)
+-		delete play;
++	if (demoReader)
++		delete demoReader;
+ 
+ 	delete serverNet;
+ 	serverNet=0;
+@@ -283,11 +283,11 @@
+ 	}
+ 
+ 	// when hosting a demo, read from file and broadcast data
+-	if (play != 0) {
++	if (demoReader != 0) {
+ 		unsigned char demobuffer[netcode::NETWORK_BUFFER_SIZE];
+ 		unsigned length = 0;
+ 
+-		while ( (length = play-&gt;GetData(demobuffer, netcode::NETWORK_BUFFER_SIZE, modGameTime)) &gt; 0 ) {
++		while ( (length = demoReader-&gt;GetData(demobuffer, netcode::NETWORK_BUFFER_SIZE, modGameTime)) &gt; 0 ) {
+ 			if (demobuffer[0] == NETMSG_NEWFRAME)
+ 			{
+ 				// we can't use CreateNewFrame() here
+@@ -309,17 +309,16 @@
+ 			}
+ 		}
+ 
+-		if (play-&gt;ReachedEnd())
+-		{
+-			delete play;
+-			play=0;
++		if (demoReader-&gt;ReachedEnd()) {
++			delete demoReader;
++			demoReader = 0;
+ 			SendSystemMsg(&quot;End of demo reached&quot;);
+ 		}
+ 	}
+ 
+ 	ServerReadNet();
+ 
+-	if (serverframenum &gt; 0 &amp;&amp; !play)
++	if (serverframenum &gt; 0 &amp;&amp; !demoReader)
+ 	{
+ 		// Flushing the server after each new frame will result in smoother gameplay
+ 		// don't need flushing at faster gameplay, we can save bandwith and lower the packet count
+@@ -480,7 +479,7 @@
+ 						if(inbuf[3]!=a){
+ 							SendSystemMsg(&quot;Server: Warning got command msg from %i claiming to be from %i&quot;,a,inbuf[3]);
+ 						} else {
+-							if(!play)
++							if (!demoReader)
+ 								serverNet-&gt;RawSend(inbuf,*((short int*)&amp;inbuf[1])); //forward data
+ 						}
+ 						break;
+@@ -489,7 +488,7 @@
+ 						if(inbuf[3]!=a){
+ 							SendSystemMsg(&quot;Server: Warning got select msg from %i claiming to be from %i&quot;,a,inbuf[3]);
+ 						} else {
+-							if(!play)
++							if (!demoReader)
+ 								serverNet-&gt;RawSend(inbuf,*((short int*)&amp;inbuf[1])); //forward data
+ 						}
+ 						break;
+@@ -501,7 +500,7 @@
+ 						else if (gs-&gt;noHelperAIs) {
+ 							SendSystemMsg(&quot;Server: Player %i is using a helper AI illegally&quot;, a);
+ 						}
+-						else if(!play) {
++						else if (!demoReader) {
+ 							serverNet-&gt;RawSend(inbuf,*((short int*)&amp;inbuf[1])); //forward data
+ 						}
+ 						break;
+@@ -513,7 +512,7 @@
+ 						else if (gs-&gt;noHelperAIs) {
+ 							SendSystemMsg(&quot;Server: Player %i is using a helper AI illegally&quot;, a);
+ 						}
+-						else if(!play) {
++						else if (!demoReader) {
+ 							serverNet-&gt;RawSend(inbuf,*((short int*)&amp;inbuf[1])); //forward data
+ 						}
+ 						break;
+@@ -522,7 +521,7 @@
+ 						if(inbuf[3]!=a){
+ 							SendSystemMsg(&quot;Server: Warning got LuaMsg from %i claiming to be from %i&quot;,a,inbuf[3]);
+ 						}
+-						else if(!play) {
++						else if (!demoReader) {
+ 							serverNet-&gt;RawSend(inbuf,*((short int*)&amp;inbuf[1])); //forward data
+ 						}
+ 						break;
+@@ -548,7 +547,7 @@
+ 						if(inbuf[1]!=a){
+ 							SendSystemMsg(&quot;Server: Warning got share msg from %i claiming to be from %i&quot;,a,inbuf[1]);
+ 						} else {
+-							if(!play)
++							if (!demoReader)
+ 								serverNet-&gt;SendShare(inbuf[1], inbuf[2], inbuf[3], *((float*)&amp;inbuf[4]), *((float*)&amp;inbuf[8]));
+ 						}
+ 						break;
+@@ -557,7 +556,7 @@
+ 						if(inbuf[1]!= a){
+ 							SendSystemMsg(&quot;Server: Warning got setshare msg from %i claiming to be from %i&quot;,a,inbuf[1]);
+ 						} else {
+-							if(!play)
++							if (!demoReader)
+ 								serverNet-&gt;SendSetShare(inbuf[1], inbuf[2], *((float*)&amp;inbuf[3]), *((float*)&amp;inbuf[7]));
+ 						}
+ 						break;
+@@ -579,7 +578,7 @@
+ 						if(inbuf[1]!=a){
+ 							SendSystemMsg(&quot;Server: Warning got direct control msg from %i claiming to be from %i&quot;,a,inbuf[1]);
+ 						} else {
+-							if(!play)
++							if (!demoReader)
+ 								serverNet-&gt;SendDirectControl(inbuf[1]);
+ 						}
+ 						break;
+@@ -588,7 +587,7 @@
+ 						if(inbuf[1]!=a){
+ 							SendSystemMsg(&quot;Server: Warning got dc update msg from %i claiming to be from %i&quot;,a,inbuf[1]);
+ 						} else {
+-							if(!play)
++							if (!demoReader)
+ 								serverNet-&gt;SendDirectControlUpdate(inbuf[1], inbuf[2], *((short*)&amp;inbuf[3]), *((short*)&amp;inbuf[5]));
+ 						}
+ 						break;
+@@ -602,7 +601,7 @@
+ 					}
+ 					case NETMSG_RANDSEED:
+ 					{
+-						if (players[a]-&gt;hasRights &amp;&amp; !play)
++						if (players[a]-&gt;hasRights &amp;&amp; !demoReader)
+ 							serverNet-&gt;SendRandSeed(*(unsigned int*)(inbuf+1));
+ 						break;
+ 					}
+@@ -729,7 +728,7 @@
+ 		userSpeedFactor = minUserSpeed;
+ 	}
+ 
+-	if (play) {
++	if (demoReader) {
+ 		// the client told us to start a demo
+ 		// no need to send startpos and startplaying since its in the demo
+ 		return;
+@@ -761,12 +760,11 @@
+ 
+ void CGameServer::CheckForGameEnd()
+ {
+-	if(gameEndTime &gt; 0){
+-		if(gameEndTime &lt; SDL_GetTicks()-2000 &amp;&amp; !sentGameOverMsg){
++	if (gameEndTime &gt; 0) {
++		if (gameEndTime &lt; SDL_GetTicks() - 2000 &amp;&amp; !sentGameOverMsg) {
+ 			SendSystemMsg(&quot;Server: Game has ended&quot;);
+ 			serverNet-&gt;SendGameOver();
+-			if (hostif)
+-			{
++			if (hostif) {
+ 				hostif-&gt;SendGameOver();
+ 			}
+ 			sentGameOverMsg = true;
+@@ -792,7 +790,7 @@
+ 		gameEndTime=SDL_GetTicks();
+ 		serverNet-&gt;SendSendPlayerStat();
+ 	}
+-	else if (numActiveAllyTeams == 1 &amp;&amp; !play)
++	else if (numActiveAllyTeams == 1 &amp;&amp; !demoReader)
+ 	{
+ 		// 1 ally left, end game only if we are not watching a demo
+ 		gameEndTime=SDL_GetTicks();
+@@ -876,8 +874,8 @@
+ 
+ void CGameServer::BindConnection(unsigned wantedNumber, bool grantRights)
+ {
+-	if (play) {
+-		wantedNumber = std::max(wantedNumber, (unsigned)play-&gt;GetFileHeader().maxPlayerNum+1);
++	if (demoReader) {
++		wantedNumber = std::max(wantedNumber, (unsigned)demoReader-&gt;GetFileHeader().maxPlayerNum+1);
+ 	}
+ 	unsigned hisNewNumber = serverNet-&gt;AcceptIncomingConnection(wantedNumber);
+ 
+
+Modified: trunk/rts/Game/GameServer.h
+===================================================================
+--- trunk/rts/Game/GameServer.h	2008-01-03 20:05:24 UTC (rev 5237)
++++ trunk/rts/Game/GameServer.h	2008-01-03 22:40:31 UTC (rev 5238)
+@@ -99,7 +99,7 @@
+ 	/// Class for network communication
+ 	CBaseNetProtocol* serverNet;
+ 
+-	CDemoReader* play;
++	CDemoReader* demoReader;
+ 
+ 	/// Inform 3. party programms about events
+ 	AutohostInterface* hostif;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000045.html">[Taspring-linux-commit] r5237 - trunk/AI/Global/AAI
+</A></li>
+	<LI>Next message: <A HREF="000047.html">[Taspring-linux-commit] r5239 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#46">[ date ]</a>
+              <a href="thread.html#46">[ thread ]</a>
+              <a href="subject.html#46">[ subject ]</a>
+              <a href="author.html#46">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

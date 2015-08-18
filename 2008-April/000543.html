@@ -1,0 +1,209 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5763 - trunk/rts/Rendering/Env
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5763%20-%20trunk/rts/Rendering/Env&In-Reply-To=%3C20080421193913.848D046D2%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000542.html">
+   <LINK REL="Next"  HREF="000544.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5763 - trunk/rts/Rendering/Env</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5763%20-%20trunk/rts/Rendering/Env&In-Reply-To=%3C20080421193913.848D046D2%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5763 - trunk/rts/Rendering/Env">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon Apr 21 21:39:13 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000542.html">[Taspring-linux-commit] r5762 - trunk/rts/Rendering
+</A></li>
+        <LI>Next message: <A HREF="000544.html">[Taspring-linux-commit] r5764 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#543">[ date ]</a>
+              <a href="thread.html#543">[ thread ]</a>
+              <a href="subject.html#543">[ subject ]</a>
+              <a href="author.html#543">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-04-21 21:39:12 +0200 (Mon, 21 Apr 2008)
+New Revision: 5763
+
+Modified:
+   trunk/rts/Rendering/Env/AdvTreeDrawer.cpp
+   trunk/rts/Rendering/Env/GrassDrawer.cpp
+Log:
+* Use vectors of objects instead of pointers to prevent allocating
+  and deleting hundreds of small object every CGrassDrawer::Draw().
+  
+  Note: the std::sort now copies around 8/12 bytes instead of 4.
+  I *think* this is more efficient then separately calling new/delete
+  for every 8/12 byte block just so 4/8 bytes less have to be copied
+  per item in the std::sort, but I *did not* measure this.
+
+  In either case it's less error prone, which was main motivation
+  for the change.  (wrt heap corruption etc.)
+
+* Small refactor in AdvTreeDrawer.cpp
+
+Modified: trunk/rts/Rendering/Env/AdvTreeDrawer.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/AdvTreeDrawer.cpp	2008-04-21 19:38:45 UTC (rev 5762)
++++ trunk/rts/Rendering/Env/AdvTreeDrawer.cpp	2008-04-21 19:39:12 UTC (rev 5763)
+@@ -533,7 +533,8 @@
+ 
+ void CAdvTreeSquareDrawer_SP::DrawQuad (int x,int y)
+ {
+-	CAdvTreeDrawer::TreeSquareStruct* tss=&amp;td-&gt;trees[y*td-&gt;treesX+x];
++	int treesX = td-&gt;treesX;
++	CAdvTreeDrawer::TreeSquareStruct* tss=&amp;td-&gt;trees[y*treesX+x];
+ 	if(abs(cy-y)&lt;=2 &amp;&amp; abs(cx-x)&lt;=2 &amp;&amp; drawDetailed)	//skip the closest squares
+ 		return;
+ 
+@@ -578,7 +579,7 @@
+ 				SetArray(TEX_LEAF_END_X1+xdif  ,TEX_LEAF_END_Y4+ydif  ,base-side*width+float3(0,height,0));
+ 				SetArray(TEX_LEAF_END_X1+xdif  ,TEX_LEAF_START_Y4+ydif,base-side*width);
+ 			}
+-			glNewList(td-&gt;trees[y*td-&gt;treesX+x].farDisplist,GL_COMPILE);
++			glNewList(td-&gt;trees[y*treesX+x].farDisplist,GL_COMPILE);
+ 			va-&gt;DrawArrayT(GL_QUADS);
+ 			glEndList();
+ 		}
+
+Modified: trunk/rts/Rendering/Env/GrassDrawer.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/GrassDrawer.cpp	2008-04-21 19:38:45 UTC (rev 5762)
++++ trunk/rts/Rendering/Env/GrassDrawer.cpp	2008-04-21 19:39:12 UTC (rev 5763)
+@@ -147,19 +147,19 @@
+ 	float dist;
+ };
+ 
+-static const bool GrassSort(const InviewGrass* a,const InviewGrass* b){
+-	return a-&gt;dist &gt; b-&gt;dist;
++static const bool GrassSort(const InviewGrass&amp; a, const InviewGrass&amp; b){
++	return a.dist &gt; b.dist;
+ }
+ 
+-static const bool GrassSortNear(const InviewNearGrass* a,const InviewNearGrass* b){
+-	return a-&gt;dist &gt; b-&gt;dist;
++static const bool GrassSortNear(const InviewNearGrass&amp; a, const InviewNearGrass&amp; b){
++	return a.dist &gt; b.dist;
+ }
+ 
+ class CGrassBlockDrawer : public CReadMap::IQuadDrawer
+ {
+ public:
+-	std::vector&lt;InviewGrass*&gt; inviewGrass;
+-	std::vector&lt;InviewNearGrass*&gt; inviewNearGrass;
++	std::vector&lt;InviewGrass&gt; inviewGrass;
++	std::vector&lt;InviewNearGrass&gt; inviewNearGrass;
+ 	CVertexArray* va;
+ 	int cx,cy;
+ 	CGrassDrawer *gd;
+@@ -208,10 +208,10 @@
+ 								}
+ 							}
+ 						} else {//near but not close, save for later drawing
+-							InviewNearGrass* iv=SAFE_NEW InviewNearGrass;
+-							iv-&gt;dist=sqdist;
+-							iv-&gt;x=x*grassBlockSize+x2;
+-							iv-&gt;y=y*grassBlockSize+y2;
++							InviewNearGrass iv;
++							iv.dist=sqdist;
++							iv.x=x*grassBlockSize+x2;
++							iv.y=y*grassBlockSize+y2;
+ 							inviewNearGrass.push_back(iv);
+ 							nearGrass[((y*grassBlockSize+y2)&amp;31)*32+((x*grassBlockSize+x2)&amp;31)].square=-1;
+ 						}
+@@ -269,9 +269,9 @@
+ 				}
+ 			}
+ 		}
+-		InviewGrass* ig=SAFE_NEW InviewGrass;
+-		ig-&gt;num=curModSquare;
+-		ig-&gt;dist=dist;
++		InviewGrass ig;
++		ig.num=curModSquare;
++		ig.dist=dist;
+ 		inviewGrass.push_back(ig);	
+ 	}
+ }
+@@ -451,13 +451,13 @@
+ 		glActiveTextureARB(GL_TEXTURE0_ARB);
+ 	}
+ 
+-	for(std::vector&lt;InviewGrass*&gt;::iterator gi=drawer.inviewGrass.begin();gi!=drawer.inviewGrass.end();++gi){
+-		if((*gi)-&gt;dist+128&lt;grassDistance)
++	for (std::vector&lt;InviewGrass&gt;::iterator gi = drawer.inviewGrass.begin(); gi != drawer.inviewGrass.end(); ++gi) {
++		if((*gi).dist+128&lt;grassDistance)
+ 			glColor4f(0.62f,0.62f,0.62f,1);			
+ 		else
+-			glColor4f(0.62f,0.62f,0.62f,1-((*gi)-&gt;dist+128-grassDistance)/128.0f);			
++			glColor4f(0.62f,0.62f,0.62f,1-((*gi).dist+128-grassDistance)/128.0f);			
+ 
+-		float3 v=grass[(*gi)-&gt;num].pos-camera-&gt;pos;
++		float3 v=grass[(*gi).num].pos-camera-&gt;pos;
+ 		v.Normalize();
+ 		float3 side(v.cross(UpVector));
+ 		side.Normalize();
+@@ -468,13 +468,12 @@
+ 		int texPart=min(15,(int)max(0,(int)((ang+PI/16-PI/2)/PI*30)));
+ 		glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,10, texPart/16.0f,0,0,0.0f);
+ 		glProgramEnvParameter4fARB(GL_VERTEX_PROGRAM_ARB,11,  -v.x,-v.y,-v.z,0);
+-		grass[(*gi)-&gt;num].va-&gt;DrawArrayTN(GL_QUADS);
+-		delete *gi;	
++		grass[(*gi).num].va-&gt;DrawArrayTN(GL_QUADS);
+ 	}
+ 	glColor4f(0.62f,0.62f,0.62f,1);			
+-	for(std::vector&lt;InviewNearGrass*&gt;::iterator gi=drawer.inviewNearGrass.begin();gi!=drawer.inviewNearGrass.end();++gi){
+-		int x=(*gi)-&gt;x;
+-		int y=(*gi)-&gt;y;
++	for(std::vector&lt;InviewNearGrass&gt;::iterator gi = drawer.inviewNearGrass.begin(); gi != drawer.inviewNearGrass.end(); ++gi) {
++		int x = (*gi).x;
++		int y = (*gi).y;
+ 		if(grassMap[(y)*gs-&gt;mapx/grassSquareSize+(x)]){
+ 
+ 			float3 squarePos((x+0.5f)*SQUARE_SIZE*grassSquareSize, 0, (y+0.5f)*SQUARE_SIZE*grassSquareSize);
+@@ -512,7 +511,6 @@
+ 			}
+ 			va-&gt;DrawArrayTN(GL_QUADS);
+ 		}
+-		delete *gi;	
+ 	}
+ 
+ 	//cleanup stuff
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000542.html">[Taspring-linux-commit] r5762 - trunk/rts/Rendering
+</A></li>
+	<LI>Next message: <A HREF="000544.html">[Taspring-linux-commit] r5764 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#543">[ date ]</a>
+              <a href="thread.html#543">[ thread ]</a>
+              <a href="subject.html#543">[ subject ]</a>
+              <a href="author.html#543">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,387 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5466 - in trunk/rts: Game Game/UI System
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5466%20-%20in%20trunk/rts%3A%20Game%20Game/UI%20System&In-Reply-To=%3CE1JNYQl-0000Ns-Ap%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000272.html">
+   <LINK REL="Next"  HREF="000274.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5466 - in trunk/rts: Game Game/UI System</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5466%20-%20in%20trunk/rts%3A%20Game%20Game/UI%20System&In-Reply-To=%3CE1JNYQl-0000Ns-Ap%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5466 - in trunk/rts: Game Game/UI System">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Feb  8 19:58:35 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000272.html">[Taspring-linux-commit] r5465 - trunk/Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="000274.html">[Taspring-linux-commit] r5467 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#273">[ date ]</a>
+              <a href="thread.html#273">[ thread ]</a>
+              <a href="subject.html#273">[ subject ]</a>
+              <a href="author.html#273">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-02-08 19:58:33 +0100 (Fri, 08 Feb 2008)
+New Revision: 5466
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameServer.h
+   trunk/rts/Game/GameSetup.cpp
+   trunk/rts/Game/GameSetupData.h
+   trunk/rts/Game/Team.cpp
+   trunk/rts/Game/UI/QuitBox.cpp
+   trunk/rts/System/BaseNetProtocol.cpp
+   trunk/rts/System/BaseNetProtocol.h
+Log:
+* when a team died, a netmsg is sent instead of direct function call
+* several TEAMMSG-fixes
+* added startscriptoption: FixedTeams (documentation will follow)
+
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-02-08 17:32:18 UTC (rev 5465)
++++ trunk/rts/Game/Game.cpp	2008-02-08 18:58:33 UTC (rev 5466)
+@@ -3171,7 +3171,10 @@
+ 				{
+ 					case TEAMMSG_SELFD: {
+ 						if (numPlayersInTeam == 1)
++						{
+ 							gs-&gt;Team(fromTeam)-&gt;SelfDestruct();
++							gs-&gt;Team(fromTeam)-&gt;leader = -1;
++						}
+ 						else
+ 							gs-&gt;players[player]-&gt;StartSpectating();
+ 						break;
+@@ -3179,13 +3182,18 @@
+ 					case TEAMMSG_GIVEAWAY: {
+ 						const int toTeam = inbuf[3];
+ 						if (numPlayersInTeam == 1)
++						{
+ 							gs-&gt;Team(fromTeam)-&gt;GiveEverythingTo(toTeam);
++							gs-&gt;Team(fromTeam)-&gt;leader = -1;
++						}
+ 						else
+ 							gs-&gt;players[player]-&gt;StartSpectating();
+ 						break;
+ 					}
+ 					case TEAMMSG_RESIGN: {
+ 						gs-&gt;players[player]-&gt;StartSpectating();
++						if (numPlayersInTeam == 1)
++							gs-&gt;Team(fromTeam)-&gt;leader = -1;
+ 						logOutput.Print(&quot;Player %i resigned and is now spectating!&quot;, player);
+ 						break;
+ 					}
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-02-08 17:32:18 UTC (rev 5465)
++++ trunk/rts/Game/GameServer.cpp	2008-02-08 18:58:33 UTC (rev 5466)
+@@ -35,6 +35,7 @@
+ , cpuUsage (0.0f)
+ , ping (0)
+ , hasRights(willHaveRights)
++, team(0)
+ {
+ }
+ 
+@@ -635,15 +636,84 @@
+ 					}
+ 					case NETMSG_TEAM:
+ 					{
+-						if (inbuf[1] != a)
++						//TODO update players[] and teams[] and send to hostif
++						const unsigned player = (unsigned)inbuf[1];
++						if (player != a)
+ 						{
+-							SendSystemMsg(&quot;Server: Warning got teammsg from %i claiming to be from %i&quot;,a,inbuf[1]);
++							SendSystemMsg(&quot;Server: Warning got teammsg from %i claiming to be from %i&quot;,a,player);
+ 						}
+ 						else
+ 						{
+-							serverNet-&gt;RawSend(inbuf, length);
++							const unsigned action = inbuf[2];
++							const unsigned fromTeam = players[player]-&gt;team;
++							unsigned numPlayersInTeam = 0;
++							for (unsigned a = 0; a &lt; MAX_PLAYERS; ++a)
++								if (players[a] &amp;&amp; players[a]-&gt;team == fromTeam)
++									++numPlayersInTeam;
++							
++							switch (action)
++							{
++								case TEAMMSG_SELFD: {
++									serverNet-&gt;SendSelfD(player);
++									if (numPlayersInTeam &lt;= 1 &amp;&amp; teams[fromTeam])
++									{
++										teams[fromTeam].reset();
++									}
++									players[player]-&gt;team = 0;
++									break;
++								}
++								case TEAMMSG_GIVEAWAY: {
++									const unsigned toTeam = inbuf[3];
++									serverNet-&gt;SendGiveAwayEverything(player, toTeam);
++									if (numPlayersInTeam &lt;= 1 &amp;&amp; teams[fromTeam])
++									{
++										teams[fromTeam].reset();
++									}
++									players[player]-&gt;team = 0;
++									break;
++								}
++								case TEAMMSG_RESIGN: {
++									serverNet-&gt;SendResign(player);
++									players[player]-&gt;team = 0;
++									break;
++								}
++								case TEAMMSG_JOIN_TEAM: {
++									unsigned newTeam = inbuf[3];
++									if (setup &amp;&amp; !setup-&gt;fixedTeams)
++									{
++										serverNet-&gt;SendJoinTeam(player, newTeam);
++										players[player]-&gt;team = newTeam;
++										if (!teams[newTeam])
++											teams[newTeam].reset(new GameTeam);
++									}
++									else
++									{
++										SendSystemMsg(&quot;Player %s tried to change his team.&quot;, players[player]-&gt;name.c_str());
++									}
++									break;
++								}
++								case TEAMMSG_TEAM_DIED: {
++									// don't send to clients, they don't need it
++									unsigned char team = inbuf[3];
++									if (teams[team])
++									{
++										teams[fromTeam].reset();
++										for (unsigned i = 0; i &lt; MAX_PLAYERS; ++i)
++										{
++											if (players[i] &amp;&amp; players[i]-&gt;team == team)
++											{
++												players[i]-&gt;team = 0;
++											}
++										}
++									}
++									break;
++								}
++								default: {
++									SendSystemMsg(&quot;Unknown action in NETMSG_TEAM (%i) from player %i&quot;, action, player);
++								}
++							}
++							break;
+ 						}
+-						break;
+ 					}
+ 
+ 					// CGameServer should never get these messages
+@@ -964,7 +1034,7 @@
+ 	if (setup &amp;&amp; hisNewNumber &lt; (unsigned)setup-&gt;numPlayers/* needed for non-hosted demo playback */)
+ 	{
+ 		unsigned hisTeam = setup-&gt;playerStartingTeam[hisNewNumber];
+-		if (!teams[hisTeam]) // is commsharing
++		if (!teams[hisTeam]) // create new team
+ 		{
+ 			teams[hisTeam].reset(new GameTeam());
+ 			teams[hisTeam]-&gt;startpos = setup-&gt;startPos[hisTeam];
+@@ -984,20 +1054,17 @@
+ 		teams[hisTeam].reset(new GameTeam());
+ 		players[hisNewNumber]-&gt;team = hisTeam;
+ 		serverNet-&gt;SendJoinTeam(hisNewNumber, hisTeam);
++		for (unsigned a = 0; a &lt; MAX_TEAMS; ++a)
++		{
++			if (teams[a] &amp;&amp; a != hisNewNumber)
++				serverNet-&gt;SendJoinTeam(a, players[a]-&gt;team);
++		}
+ 	}
+ 	SendSystemMsg(&quot;Client connected on slot %i (wanted number was %i)&quot;, hisNewNumber, wantedNumber);
+ 
+ 	serverNet-&gt;FlushNet();
+ }
+ 
+-void CGameServer::PlayerDefeated(const int playerNum) const
+-{
+-	if (hostif)
+-	{
+-		hostif-&gt;SendPlayerDefeated((unsigned char)playerNum);
+-	}
+-}
+-
+ void CGameServer::SendSystemMsg(const char* fmt,...)
+ {
+ 	char text[500];
+
+Modified: trunk/rts/Game/GameServer.h
+===================================================================
+--- trunk/rts/Game/GameServer.h	2008-02-08 17:32:18 UTC (rev 5465)
++++ trunk/rts/Game/GameServer.h	2008-02-08 18:58:33 UTC (rev 5466)
+@@ -77,8 +77,6 @@
+ 
+ 	bool WaitsOnCon() const;
+ 
+-	void PlayerDefeated(const int playerNum) const;
+-
+ 	void SetGamePausable(const bool arg);
+ 	
+ 	/// Is the server still running?
+
+Modified: trunk/rts/Game/GameSetup.cpp
+===================================================================
+--- trunk/rts/Game/GameSetup.cpp	2008-02-08 17:32:18 UTC (rev 5465)
++++ trunk/rts/Game/GameSetup.cpp	2008-02-08 18:58:33 UTC (rev 5466)
+@@ -400,6 +400,7 @@
+ 	file.GetDef(numPlayers,   &quot;2&quot;, &quot;GAME\\NumPlayers&quot;);
+ 	file.GetDef(numTeams,     &quot;2&quot;, &quot;GAME\\NumTeams&quot;);
+ 	file.GetDef(numAllyTeams, &quot;2&quot;, &quot;GAME\\NumAllyTeams&quot;);
++	file.GetDef(fixedTeams, &quot;1&quot;, &quot;GAME\\FixedTeams&quot;);
+ 
+ 	// Read the map &amp; mod options
+ 	if (file.SectionExist(&quot;GAME\\MapOptions&quot;)) {
+
+Modified: trunk/rts/Game/GameSetupData.h
+===================================================================
+--- trunk/rts/Game/GameSetupData.h	2008-02-08 17:32:18 UTC (rev 5465)
++++ trunk/rts/Game/GameSetupData.h	2008-02-08 18:58:33 UTC (rev 5466)
+@@ -29,6 +29,7 @@
+ 	int numPlayers; //the expected amount of players
+ 	int numTeams;
+ 	int numAllyTeams;
++	bool fixedTeams;
+ 	std::string mapName;
+ 	std::string baseMod;
+ 	std::string scriptName;
+
+Modified: trunk/rts/Game/Team.cpp
+===================================================================
+--- trunk/rts/Game/Team.cpp	2008-02-08 17:32:18 UTC (rev 5465)
++++ trunk/rts/Game/Team.cpp	2008-02-08 18:58:33 UTC (rev 5466)
+@@ -8,7 +8,6 @@
+ #include &quot;LogOutput.h&quot;
+ #include &quot;Player.h&quot;
+ #include &quot;Game/UI/LuaUI.h&quot;
+-#include &quot;Game/GameServer.h&quot;
+ #include &quot;Lua/LuaCallInHandler.h&quot;
+ #include &quot;Lua/LuaRules.h&quot;
+ #include &quot;Sim/Units/Unit.h&quot;
+@@ -20,6 +19,7 @@
+ #include &quot;ExternalAI/GlobalAI.h&quot;
+ #include &quot;ExternalAI/GlobalAIHandler.h&quot;
+ #include &quot;mmgr.h&quot;
++#include &quot;NetProtocol.h&quot;
+ 
+ CR_BIND(CTeam,);
+ 
+@@ -260,12 +260,10 @@
+ 		logOutput.Print(CMessages::Tr(&quot;Team%i is no more&quot;).c_str(), teamNum);
+ 	isDead = true;
+ 	luaCallIns.TeamDied(teamNum);
++	net-&gt;SendTeamDied(gu-&gt;myPlayerNum, teamNum);
+ 	for (int a = 0; a &lt; MAX_PLAYERS; ++a) {
+ 		if (gs-&gt;players[a]-&gt;active &amp;&amp; gs-&gt;players[a]-&gt;team == teamNum) {
+ 			gs-&gt;players[a]-&gt;StartSpectating();
+-			if (gameServer)	{
+-				gameServer-&gt;PlayerDefeated(a);
+-			}
+ 		}
+ 	}
+ 	if (globalAI-&gt;ais[teamNum]) {
+
+Modified: trunk/rts/Game/UI/QuitBox.cpp
+===================================================================
+--- trunk/rts/Game/UI/QuitBox.cpp	2008-02-08 17:32:18 UTC (rev 5465)
++++ trunk/rts/Game/UI/QuitBox.cpp	2008-02-08 18:58:33 UTC (rev 5466)
+@@ -145,7 +145,11 @@
+ 			glColor4f(1,1,1,0.4f);
+ 		}
+ 
+-		string teamName = gs-&gt;players[gs-&gt;Team(actualTeam)-&gt;leader]-&gt;playerName;
++		std::string teamName;
++		if (gs-&gt;Team(actualTeam)-&gt;leader &gt;= 0)
++			teamName = gs-&gt;players[gs-&gt;Team(actualTeam)-&gt;leader]-&gt;playerName;
++		else
++			teamName = &quot;undefined&quot;;
+ 
+ 		string ally, dead;
+ 		if (gs-&gt;Ally(gu-&gt;myAllyTeam, gs-&gt;AllyTeam(actualTeam))) {
+
+Modified: trunk/rts/System/BaseNetProtocol.cpp
+===================================================================
+--- trunk/rts/System/BaseNetProtocol.cpp	2008-02-08 17:32:18 UTC (rev 5465)
++++ trunk/rts/System/BaseNetProtocol.cpp	2008-02-08 18:58:33 UTC (rev 5466)
+@@ -361,6 +361,12 @@
+ 	SendData(msg, 4);
+ }
+ 
++void CBaseNetProtocol::SendTeamDied(uchar myPlayerNum, uchar whichTeam)
++{
++	unsigned char msg[4] = {NETMSG_TEAM, myPlayerNum, TEAMMSG_TEAM_DIED, whichTeam};
++	SendData(msg, 4);
++}
++
+ /* FIXME: add these:
+ 
+ #ifdef SYNCDEBUG
+
+Modified: trunk/rts/System/BaseNetProtocol.h
+===================================================================
+--- trunk/rts/System/BaseNetProtocol.h	2008-02-08 17:32:18 UTC (rev 5465)
++++ trunk/rts/System/BaseNetProtocol.h	2008-02-08 18:58:33 UTC (rev 5466)
+@@ -81,6 +81,7 @@
+ 	TEAMMSG_GIVEAWAY        = 1,		// team to give stuff to
+ 	TEAMMSG_RESIGN			= 2,		// not used
+ 	TEAMMSG_JOIN_TEAM		= 3,		// team to join
++	TEAMMSG_TEAM_DIED		= 4,		// team which had died special note: this is sent by all players to prevent cheating
+ //TODO: changing teams (to spectator, from spectator to specific team)
+ //TODO: in-game allyteams
+ };
+@@ -147,6 +148,9 @@
+ 	void SendGiveAwayEverything(uchar myPlayerNum, uchar giveTo);
+ 	void SendResign(uchar myPlayerNum);
+ 	void SendJoinTeam(uchar myPlayerNum, uchar wantedTeamNum);
++	// currently only used to inform the server about its death
++	// it may have some problems when desync because the team may not die on every client
++	void SendTeamDied(uchar myPlayerNum, uchar whichTeam);
+ 
+ private:
+ };
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000272.html">[Taspring-linux-commit] r5465 - trunk/Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="000274.html">[Taspring-linux-commit] r5467 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#273">[ date ]</a>
+              <a href="thread.html#273">[ thread ]</a>
+              <a href="subject.html#273">[ subject ]</a>
+              <a href="author.html#273">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

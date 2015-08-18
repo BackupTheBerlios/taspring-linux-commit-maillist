@@ -1,0 +1,1524 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7641 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2012-September/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7641%20-%20Lobby/TASClient&In-Reply-To=%3Cmailman.317.1348429325.1508.taspring-linux-commit%40lists.berlios.de%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002410.html">
+   
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7641 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7641%20-%20Lobby/TASClient&In-Reply-To=%3Cmailman.317.1348429325.1508.taspring-linux-commit%40lists.berlios.de%3E"
+       TITLE="[Taspring-linux-commit] r7641 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Sep 23 21:41:36 CEST 2012</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002410.html">[Taspring-linux-commit] r7640 - Lobby/TASClient
+</A></li>
+        
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2411">[ date ]</a>
+              <a href="thread.html#2411">[ thread ]</a>
+              <a href="subject.html#2411">[ subject ]</a>
+              <a href="author.html#2411">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2012-09-23 21:41:35 +0200 (Sun, 23 Sep 2012)
+New Revision: 7641
+
+Modified:
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/ReplaysUnit.dfm
+   Lobby/TASClient/ReplaysUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* new graph tab available in the replay window to display the team stats
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2012-09-15 19:56:27 UTC (rev 7640)
++++ Lobby/TASClient/MainUnit.pas	2012-09-23 19:41:35 UTC (rev 7641)
+@@ -412,7 +412,7 @@
+   );
+ 
+ const
+-  VERSION_NUMBER = '0.96'; // Must be float value! (with a period as a decimal seperator)
++  VERSION_NUMBER = '0.98'; // Must be float value! (with a period as a decimal seperator)
+   PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER;
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+   ASSUME_TIMEOUT_INTERVAL = 30000; // in milliseconds. Must be greater than KEEP_ALIVE_INTERVAL! If server hasn't send any data to us within this interval, then we assume timeout occured. It's us who must make sure we get constant replies from server by pinging it.
+@@ -514,6 +514,37 @@
+     unitCommands : integer; // total amount of units affected by commands   (divide by numCommands for average units/command)
+   end;
+ 
++  TTeamStatistics =
++  record
++    frame : integer;
++
++    metalUsed : single;
++    energyUsed : single;
++
++    metalProduced : single;
++    energyProduced : single;
++
++    metalExcess : single;
++    energyExcess : single;
++
++    metalReceived : single;
++    energyReceived : single;
++    
++    metalSent : single;
++    energySent : single;
++
++    damageDealt : single;
++    damageReceived : single;
++
++    unitsProduced : integer;
++    unitsDied : integer;
++    unitsReceived : integer;
++    unitsSent : integer;
++    unitsCaptured : integer;
++    unitsOutCaptured : integer;
++    unitsKilled : integer;
++  end;
++
+   TDemoHeaderV3 =
+   record
+     magic: array[0..15] of Char;
+@@ -1036,6 +1067,30 @@
+   end;
+   PPresetFilters = ^TPresetFilters;
+ 
++  TReplayPlayer = class
++  public
++    UserName: string;
++    Rank: byte;
++    CountryCode: string;
++    Id: byte;
++    Team: byte;
++    Color: TColor;
++    Spectator: boolean;
++    Node: PVirtualNode;
++    Stats : TPlayerStatistics;
++  end;
++  PReplayPlayer = ^TReplayPlayer;
++
++  TReplayTeam = class
++  public
++    TeamId: byte;
++    PlayerList: TList;
++    Stats : array of TTeamStatistics;
++
++    constructor Create;
++  end;
++  PReplayTeam = ^TReplayTeam;
++
+   TReplay = class
+   public
+     Grade: Byte; // 0..10 (where 0 is unrated/unknown)
+@@ -1045,32 +1100,23 @@
+     FullFileName: string;
+     Date: TDateTime;
+     PlayerList: TList;
++    TeamList: TList;
+     demoHeader: TDemoHeaderGeneric;
+     winningTeams: TIntegerList;
+     Script: TScript;
+     Node: PVirtualNode;
++    TeamStatsAvailable: Boolean;
+ 
+     constructor Create;
+     function GetSpectatorCount: integer;
+     function GetLength: integer;
+     function GetTeamCount: integer;
++    function GetTeam(teamId : byte): PReplayTeam;
+     function isWinningTeam(teamId: integer): Boolean;
+     destructor Destroy; override;
+   end;
++  PReplay = ^TReplay;
+ 
+-  TReplayPlayer = class
+-  public
+-    UserName: string;
+-    Rank: byte;
+-    CountryCode: string;
+-    Id: byte;
+-    Team: byte;
+-    Color: TColor;
+-    Spectator: boolean;
+-    Node: PVirtualNode;
+-    Stats : TPlayerStatistics;
+-  end;
+-
+   TMainForm = class(TForm)
+     SearchFormPopupMenu: TSpTBXFormPopupMenu;
+     BattleListPopupMenu: TSpTBXPopupMenu;
+@@ -11315,6 +11361,8 @@
+   PlayerList := TList.Create;
+   demoHeader := TDemoHeaderGeneric.Create;
+   winningTeams := TIntegerList.Create;
++  TeamList := TList.Create;
++  TeamStatsAvailable := false;
+ end;
+ 
+ destructor TReplay.Destroy;
+@@ -11323,10 +11371,18 @@
+ begin
+   for i := 0 to PlayerList.Count-1 do
+   begin
+-    TReplayPlayer(PlayerList[i]^).free;
++    PReplayPlayer(PlayerList[i]).Free;
+     FreeMem(PlayerList[i]);
+   end;
+   PlayerList.Free;
++
++  for i := 0 to TeamList.Count-1 do
++  begin
++    PReplayTeam(TeamList[i]).Free;
++    FreeMem(TeamList[i]);
++  end;
++  TeamList.Free;
++
+   Script.Free;
+   inherited Destroy;
+ end;
+@@ -11370,6 +11426,35 @@
+   Result := winningTeams.IndexOf(teamId) &gt; -1;
+ end;
+ 
++function TReplay.GetTeam(teamId : byte): PReplayTeam;
++var
++  i:integer;
++  replayTeam: PReplayTeam;
++begin
++  for i:=0 to TeamList.Count-1 do
++  begin
++    replayTeam := PReplayTeam(TeamList.Items[i]);
++    if replayTeam.TeamId = teamId then
++    begin
++      Result := replayTeam;
++      Exit;
++    end;
++  end;
++
++  // team not found, create it
++  New(replayTeam);
++  replayTeam^ := TReplayTeam.Create();
++  replayTeam.TeamId := teamId;
++
++  TeamList.Add(replayTeam);
++  Result := replayTeam;
++end;
++
++constructor TReplayTeam.Create();
++begin
++  PlayerList := TList.Create;
++end;
++
+ constructor TClientGroup.Create(Name: string; Color: Integer);
+ begin
+   Self.Clients := TStringList.Create;
+
+Modified: Lobby/TASClient/ReplaysUnit.dfm
+===================================================================
+--- Lobby/TASClient/ReplaysUnit.dfm	2012-09-15 19:56:27 UTC (rev 7640)
++++ Lobby/TASClient/ReplaysUnit.dfm	2012-09-23 19:41:35 UTC (rev 7641)
+@@ -1,8 +1,8 @@
+ object ReplaysForm: TReplaysForm
+-  Left = 835
+-  Top = 134
+-  Width = 859
+-  Height = 631
++  Left = 948
++  Top = 69
++  Width = 883
++  Height = 605
+   Caption = 'Replays'
+   Color = clBtnFace
+   Constraints.MaxHeight = 1150
+@@ -23,18 +23,22 @@
+   object SpTBXTitleBar1: TSpTBXTitleBar
+     Left = 0
+     Top = 0
+-    Width = 851
+-    Height = 604
++    Width = 875
++    Height = 578
+     Caption = 'Replays'
+     Active = False
+     DesignSize = (
+-      851
+-      604)
++      875
++      578)
++    object SpTBXItem2: TSpTBXItem
++    end
++    object SpTBXItem1: TSpTBXItem
++    end
+     object VDTReplays: TVirtualDrawTree
+       Left = 0
+       Top = 270
+-      Width = 851
+-      Height = 75
++      Width = 875
++      Height = 49
+       Align = alClient
+       BevelInner = bvNone
+       BevelOuter = bvNone
+@@ -123,34 +127,37 @@
+     end
+     object SpTBXSplitter1: TSpTBXSplitter
+       Left = 0
+-      Top = 345
+-      Width = 851
++      Top = 319
++      Width = 875
+       Height = 10
+       Cursor = crSizeNS
+       Align = alBottom
+     end
+     object BottomPanel: TSpTBXPanel
+       Left = 0
+-      Top = 355
+-      Width = 851
++      Top = 329
++      Width = 875
+       Height = 249
+       Align = alBottom
+       TabOrder = 4
+       Borders = False
+       TBXStyleBackground = True
+       DesignSize = (
+-        851
++        875
+         249)
+       object PageControl1: TSpTBXTabControl
+         Left = 158
+         Top = 0
+-        Width = 677
++        Width = 701
+         Height = 209
+         Anchors = [akLeft, akTop, akRight, akBottom]
+-        ActiveTabIndex = 0
++        ActiveTabIndex = 1
+         HiddenItems = &lt;&gt;
+         object PlayersTab: TSpTBXTabItem
+           Caption = 'Players'
++        end
++        object GraphsTab: TSpTBXTabItem
++          Caption = 'Graphs'
+           Checked = True
+         end
+         object SpTBXTabItem3: TSpTBXTabItem
+@@ -162,15 +169,55 @@
+         object SpTBXTabItem1: TSpTBXTabItem
+           Caption = 'Script'
+         end
++        object SpTBXTabSheet1: TSpTBXTabSheet
++          Left = 0
++          Top = 23
++          Width = 701
++          Height = 186
++          Caption = 'Script'
++          ImageIndex = -1
++          TabItem = 'SpTBXTabItem1'
++          object ScriptRichEdit: TRichEdit
++            Left = 2
++            Top = 0
++            Width = 697
++            Height = 184
++            Align = alClient
++            ReadOnly = True
++            ScrollBars = ssBoth
++            TabOrder = 0
++            WordWrap = False
++          end
++        end
++        object SpTBXTabSheet2: TSpTBXTabSheet
++          Left = 0
++          Top = 23
++          Width = 701
++          Height = 186
++          Caption = 'Comments'
++          ImageIndex = -1
++          TabItem = 'CommentsTab'
++          object CommentsRichEdit: TRichEdit
++            Left = 2
++            Top = 0
++            Width = 697
++            Height = 184
++            Align = alClient
++            ScrollBars = ssBoth
++            TabOrder = 0
++            WordWrap = False
++            OnChange = CommentsRichEditChange
++          end
++        end
+         object SpTBXTabSheet4: TSpTBXTabSheet
+           Left = 0
+           Top = 23
+-          Width = 677
++          Width = 701
+           Height = 186
+           Caption = 'Game settings'
+           ImageIndex = -1
+           DesignSize = (
+-            677
++            701
+             186)
+           TabItem = 'SpTBXTabItem3'
+           object frmGameOptions: TSpTBXGroupBox
+@@ -291,7 +338,7 @@
+           object SpTBXGroupBox1: TSpTBXGroupBox
+             Left = 472
+             Top = 8
+-            Width = 193
++            Width = 217
+             Height = 169
+             Caption = 'Map/Mod options'
+             Anchors = [akLeft, akTop, akRight, akBottom]
+@@ -299,7 +346,7 @@
+             object lstLuaOptions: TSpTBXListBox
+               Left = 2
+               Top = 15
+-              Width = 189
++              Width = 213
+               Height = 152
+               Align = alClient
+               BorderStyle = bsNone
+@@ -309,50 +356,10 @@
+             end
+           end
+         end
+-        object SpTBXTabSheet1: TSpTBXTabSheet
+-          Left = 0
+-          Top = 23
+-          Width = 677
+-          Height = 186
+-          Caption = 'Script'
+-          ImageIndex = -1
+-          TabItem = 'SpTBXTabItem1'
+-          object ScriptRichEdit: TRichEdit
+-            Left = 2
+-            Top = 0
+-            Width = 673
+-            Height = 184
+-            Align = alClient
+-            ReadOnly = True
+-            ScrollBars = ssBoth
+-            TabOrder = 0
+-            WordWrap = False
+-          end
+-        end
+-        object SpTBXTabSheet2: TSpTBXTabSheet
+-          Left = 0
+-          Top = 23
+-          Width = 677
+-          Height = 186
+-          Caption = 'Comments'
+-          ImageIndex = -1
+-          TabItem = 'CommentsTab'
+-          object CommentsRichEdit: TRichEdit
+-            Left = 2
+-            Top = 0
+-            Width = 673
+-            Height = 184
+-            Align = alClient
+-            ScrollBars = ssBoth
+-            TabOrder = 0
+-            WordWrap = False
+-            OnChange = CommentsRichEditChange
+-          end
+-        end
+         object SpTBXTabSheet3: TSpTBXTabSheet
+           Left = 0
+           Top = 23
+-          Width = 677
++          Width = 701
+           Height = 186
+           Caption = 'Players'
+           ImageIndex = -1
+@@ -360,7 +367,7 @@
+           object VDTPlayers: TVirtualDrawTree
+             Left = 2
+             Top = 0
+-            Width = 673
++            Width = 697
+             Height = 184
+             Align = alClient
+             Header.AutoSizeIndex = 7
+@@ -423,15 +430,356 @@
+               end
+               item
+                 Position = 7
+-                Width = 139
++                Width = 163
+                 WideText = 'ACS'
+                 WideHint = 'Averange commands size (units affected per command)'
+               end&gt;
+           end
+         end
++        object SpTBXTabSheet7: TSpTBXTabSheet
++          Left = 0
++          Top = 23
++          Width = 701
++          Height = 186
++          Caption = 'Graphs'
++          ImageIndex = -1
++          TabItem = 'GraphsTab'
++          object rscTSGChart: TRSChartPanel
++            Left = 357
++            Top = 0
++            Width = 342
++            Height = 184
++            Align = alClient
++            TabOrder = 0
++            Color = clWhite
++            ScalingFlags = []
++            OnDblClick = rscTSGChartDblClick
++            BevelEdges = []
++            UseDockManager = True
++            BevelOuter = bvNone
++            DoubleBuffered = True
++            ChartShadow.Brush.Color = clBlack
++            ChartShadow.Size = 2
++            ChartShadow.Visible = False
++            Background.Brush.Color = clBtnFace
++            Background.ImageMode = imCenter
++            Background.Visible = False
++            ChartBackground.Brush.Color = clBtnFace
++            ChartBackground.ImageMode = imCenter
++            ChartBackground.Transparent = True
++            ChartBackground.Visible = False
++            Foreground.Brush.Color = clBtnFace
++            Foreground.ImageMode = imCenter
++            Foreground.Transparent = True
++            Foreground.Visible = False
++            BottomAxis.Format = '#,##0.###'
++            BottomAxis.Grid.GridPen.Style = psDot
++            BottomAxis.Grid.MinorGridPen.Color = clInactiveBorder
++            BottomAxis.Grid.TicksPen.Color = clGray
++            BottomAxis.Grid.Visible = True
++            BottomAxis.Labels.Font.Charset = DEFAULT_CHARSET
++            BottomAxis.Labels.Font.Color = clWindowText
++            BottomAxis.Labels.Font.Height = -11
++            BottomAxis.Labels.Font.Name = 'MS Sans Serif'
++            BottomAxis.Labels.Font.Style = []
++            BottomAxis.Labels.Visible = True
++            BottomAxis.LogarithmicType = ltCompressRight
++            BottomAxis.Options = [axAutomaticMinimum, axAutomaticMaximum, axShowLabels, axShowGrid]
++            BottomAxis.Title.Font.Charset = DEFAULT_CHARSET
++            BottomAxis.Title.Font.Color = clWindowText
++            BottomAxis.Title.Font.Height = -11
++            BottomAxis.Title.Font.Name = 'MS Sans Serif'
++            BottomAxis.Title.Font.Style = []
++            BottomAxis.Title.Visible = False
++            BottomAxis.Title.Text = 'caBottom'
++            BottomAxis.Brush.Style = bsClear
++            BottomAxis.Visible = True
++            TopAxis.Format = '#,##0.###'
++            TopAxis.Grid.GridPen.Style = psDot
++            TopAxis.Grid.MinorGridPen.Color = clInactiveBorder
++            TopAxis.Grid.TicksPen.Color = clGray
++            TopAxis.Grid.Visible = True
++            TopAxis.Labels.Font.Charset = DEFAULT_CHARSET
++            TopAxis.Labels.Font.Color = clWindowText
++            TopAxis.Labels.Font.Height = -11
++            TopAxis.Labels.Font.Name = 'MS Sans Serif'
++            TopAxis.Labels.Font.Style = []
++            TopAxis.Labels.Visible = True
++            TopAxis.LogarithmicType = ltCompressRight
++            TopAxis.Options = [axAutomaticMinimum, axAutomaticMaximum, axShowLabels, axShowGrid, axShowTitle]
++            TopAxis.Title.Font.Charset = DEFAULT_CHARSET
++            TopAxis.Title.Font.Color = clWindowText
++            TopAxis.Title.Font.Height = -11
++            TopAxis.Title.Font.Name = 'MS Sans Serif'
++            TopAxis.Title.Font.Style = []
++            TopAxis.Title.Visible = True
++            TopAxis.Title.Text = 'caTop'
++            TopAxis.Brush.Style = bsClear
++            TopAxis.Visible = False
++            LeftAxis.Format = '#,##0.###'
++            LeftAxis.Grid.GridPen.Style = psDot
++            LeftAxis.Grid.MinorGridPen.Color = clInactiveBorder
++            LeftAxis.Grid.TicksPen.Color = clGray
++            LeftAxis.Grid.Visible = True
++            LeftAxis.Labels.Font.Charset = DEFAULT_CHARSET
++            LeftAxis.Labels.Font.Color = clWindowText
++            LeftAxis.Labels.Font.Height = -11
++            LeftAxis.Labels.Font.Name = 'MS Sans Serif'
++            LeftAxis.Labels.Font.Style = []
++            LeftAxis.Labels.Visible = True
++            LeftAxis.LogarithmicType = ltCompressRight
++            LeftAxis.Options = [axAutomaticMinimum, axAutomaticMaximum, axShowLabels, axShowGrid]
++            LeftAxis.Title.Font.Charset = DEFAULT_CHARSET
++            LeftAxis.Title.Font.Color = clWindowText
++            LeftAxis.Title.Font.Height = -11
++            LeftAxis.Title.Font.Name = 'Arial'
++            LeftAxis.Title.Font.Style = []
++            LeftAxis.Title.Angle = 90
++            LeftAxis.Title.Visible = False
++            LeftAxis.Title.Text = 'caLeft'
++            LeftAxis.Brush.Style = bsClear
++            LeftAxis.Visible = True
++            RightAxis.Format = '#,##0.###'
++            RightAxis.Grid.GridPen.Style = psDot
++            RightAxis.Grid.MinorGridPen.Color = clInactiveBorder
++            RightAxis.Grid.TicksPen.Color = clGray
++            RightAxis.Grid.Visible = True
++            RightAxis.Labels.Font.Charset = DEFAULT_CHARSET
++            RightAxis.Labels.Font.Color = clWindowText
++            RightAxis.Labels.Font.Height = -11
++            RightAxis.Labels.Font.Name = 'MS Sans Serif'
++            RightAxis.Labels.Font.Style = []
++            RightAxis.Labels.Visible = True
++            RightAxis.LogarithmicType = ltCompressRight
++            RightAxis.Options = [axAutomaticMinimum, axAutomaticMaximum, axShowLabels, axShowGrid, axShowTitle]
++            RightAxis.Title.Font.Charset = DEFAULT_CHARSET
++            RightAxis.Title.Font.Color = clWindowText
++            RightAxis.Title.Font.Height = -11
++            RightAxis.Title.Font.Name = 'Arial'
++            RightAxis.Title.Font.Style = []
++            RightAxis.Title.Angle = 270
++            RightAxis.Title.Visible = True
++            RightAxis.Title.Text = 'caRight'
++            RightAxis.Brush.Style = bsClear
++            RightAxis.Visible = False
++            Gradient.Visible = False
++            Footer.Text = 'Footer'
++            Footer.Font.Charset = DEFAULT_CHARSET
++            Footer.Font.Color = clRed
++            Footer.Font.Height = -11
++            Footer.Font.Name = 'MS Sans Serif'
++            Footer.Font.Style = []
++            Footer.Font.Deltas = [daColor]
++            Footer.Height = 24
++            Footer.Width = 0
++            Footer.Brush.Style = bsClear
++            Footer.ImageOptions = [ioStretch]
++            Footer.Visible = False
++            Header.Text = 'Chart'
++            Header.Font.Charset = DEFAULT_CHARSET
++            Header.Font.Color = clBlue
++            Header.Font.Height = -11
++            Header.Font.Name = 'MS Sans Serif'
++            Header.Font.Style = []
++            Header.Font.Deltas = [daColor]
++            Header.Height = 24
++            Header.Width = 0
++            Header.Brush.Style = bsClear
++            Header.ImageOptions = [ioStretch]
++            Header.Visible = False
++            Legend.Alignment = taLeftJustify
++            Legend.Font.Charset = DEFAULT_CHARSET
++            Legend.Font.Color = clWindowText
++            Legend.Font.Height = -11
++            Legend.Font.Name = 'MS Sans Serif'
++            Legend.Font.Style = []
++            Legend.Visible = False
++            Legend.Shadow.Brush.Color = clBlack
++            Legend.Shadow.Visible = True
++            Legend.LegendStyle = lsChartNames
++            UserPan = [ssRight]
++            UserSelect = [ssCtrl, ssRight]
++          end
++          object pnlTSGOptions: TSpTBXPanel
++            Left = 2
++            Top = 0
++            Width = 335
++            Height = 184
++            Caption = 'pnlTSGOptions'
++            Align = alLeft
++            TabOrder = 1
++            BorderType = pbrFramed
++            object gbTSGLine: TSpTBXGroupBox
++              Left = 2
++              Top = 2
++              Width = 100
++              Height = 180
++              Caption = 'Bold'
++              Align = alLeft
++              TabOrder = 0
++              object cmbTSGEnableLine: TSpTBXCheckBox
++                Left = 2
++                Top = 15
++                Width = 96
++                Height = 15
++                Caption = 'Enable'
++                Align = alTop
++                TabOrder = 0
++                OnClick = cmbTSGEnableLineClick
++                Checked = True
++                State = cbChecked
++              end
++              object lstTSGLineStat: TSpTBXListBox
++                Left = 2
++                Top = 30
++                Width = 96
++                Height = 148
++                Align = alClient
++                ItemHeight = 16
++                Items.Strings = (
++                  'Metal Used'
++                  'Energy Used'
++                  'Metal Produced'
++                  'Energy Produced'
++                  'Metal Received'
++                  'Energy Received'
++                  'Metal Sent'
++                  'Energy Sent'
++                  'Damage Dealt'
++                  'Damage Received'
++                  'Units Produced'
++                  'Units Died'
++                  'Units Received'
++                  'Units Sent'
++                  'Units Captured'
++                  'Units Out Captured'
++                  'Units Killed')
++                TabOrder = 1
++                OnClick = lstTSGLineStatClick
++              end
++            end
++            object gbTSGDashed: TSpTBXGroupBox
++              Left = 102
++              Top = 2
++              Width = 100
++              Height = 180
++              Caption = 'Thin'
++              Align = alLeft
++              TabOrder = 1
++              object cmbTSGEnableDashed: TSpTBXCheckBox
++                Left = 2
++                Top = 15
++                Width = 96
++                Height = 15
++                Caption = 'Enable'
++                Align = alTop
++                TabOrder = 0
++                OnClick = cmbTSGEnableDashedClick
++              end
++              object lstTSGDashedStat: TSpTBXListBox
++                Left = 2
++                Top = 30
++                Width = 96
++                Height = 148
++                Align = alClient
++                ItemHeight = 16
++                Items.Strings = (
++                  'Metal Used'
++                  'Energy Used'
++                  'Metal Produced'
++                  'Energy Produced'
++                  'Metal Received'
++                  'Energy Received'
++                  'Metal Sent'
++                  'Energy Sent'
++                  'Damage Dealt'
++                  'Damage Received'
++                  'Units Produced'
++                  'Units Died'
++                  'Units Received'
++                  'Units Sent'
++                  'Units Captured'
++                  'Units Out Captured'
++                  'Units Killed')
++                TabOrder = 1
++                OnClick = lstTSGDashedStatClick
++              end
++            end
++            object gbTSGPlayers: TSpTBXGroupBox
++              Left = 202
++              Top = 2
++              Width = 131
++              Height = 180
++              Caption = 'Players'
++              Align = alClient
++              TabOrder = 2
++              object lstTSGPlayers: TSpTBXCheckListBox
++                Left = 2
++                Top = 15
++                Width = 127
++                Height = 145
++                Align = alClient
++                ItemHeight = 16
++                TabOrder = 0
++                OnClick = lstTSGPlayersClick
++                OnDrawItem = lstTSGPlayersDrawItem
++              end
++              object SpTBXPanel4: TSpTBXPanel
++                Left = 2
++                Top = 160
++                Width = 127
++                Height = 18
++                Caption = 'SpTBXPanel4'
++                Align = alBottom
++                TabOrder = 1
++                Borders = False
++                DesignSize = (
++                  127
++                  18)
++                object btTSGAll: TSpTBXButton
++                  Left = 0
++                  Top = 0
++                  Width = 57
++                  Height = 17
++                  Caption = 'All'
++                  TabOrder = 0
++                  OnClick = btTSGAllClick
++                end
++                object btTSGNone: TSpTBXButton
++                  Left = 56
++                  Top = 0
++                  Width = 57
++                  Height = 17
++                  Caption = 'None'
++                  Anchors = [akTop, akRight]
++                  TabOrder = 1
++                  OnClick = btTSGNoneClick
++                end
++              end
++            end
++          end
++          object btTSGCollapse: TSpTBXButton
++            Left = 340
++            Top = 0
++            Width = 17
++            Height = 184
++            Align = alLeft
++            TabOrder = 2
++            OnClick = btTSGCollapseClick
++            Images = MainForm.ArrowList
++            ImageIndex = 2
++          end
++          object sptTSGOptions: TSpTBXSplitter
++            Left = 337
++            Top = 0
++            Width = 3
++            Height = 184
++            Cursor = crSizeWE
++          end
++        end
+       end
+       object WatchButton: TSpTBXButton
+-        Left = 594
++        Left = 618
+         Top = 216
+         Width = 115
+         Height = 25
+@@ -441,7 +789,7 @@
+         OnClick = WatchButtonClick
+       end
+       object CloseButton: TSpTBXButton
+-        Left = 720
++        Left = 744
+         Top = 216
+         Width = 115
+         Height = 25
+@@ -546,7 +894,7 @@
+         OnClick = ReloadButtonClick
+       end
+       object HostReplayButton: TSpTBXButton
+-        Left = 594
++        Left = 618
+         Top = 216
+         Width = 115
+         Height = 25
+@@ -560,7 +908,7 @@
+     object PanelTop: TSpTBXPanel
+       Left = 0
+       Top = 22
+-      Width = 851
++      Width = 875
+       Height = 248
+       Caption = 'PanelTop'
+       Align = alTop
+@@ -570,7 +918,7 @@
+       object FiltersTabs: TSpTBXTabControl
+         Left = 0
+         Top = 0
+-        Width = 851
++        Width = 875
+         Height = 225
+         Align = alTop
+         ActiveTabIndex = 0
+@@ -585,12 +933,12 @@
+         object SpTBXTabSheet6: TSpTBXTabSheet
+           Left = 0
+           Top = 23
+-          Width = 851
++          Width = 875
+           Height = 202
+           Caption = 'Presets'
+           ImageIndex = -1
+           DesignSize = (
+-            851
++            875
+             202)
+           TabItem = 'PresetsTab'
+           object SpTBXGroupBox2: TSpTBXGroupBox
+@@ -652,7 +1000,7 @@
+           object PresetListbox: TSpTBXListBox
+             Left = 152
+             Top = 26
+-            Width = 680
++            Width = 704
+             Height = 167
+             Anchors = [akLeft, akTop, akRight]
+             ItemHeight = 16
+@@ -666,7 +1014,7 @@
+         object SpTBXTabSheet5: TSpTBXTabSheet
+           Left = 0
+           Top = 23
+-          Width = 851
++          Width = 875
+           Height = 202
+           Caption = 'Filters'
+           ImageIndex = -1
+@@ -1151,7 +1499,7 @@
+           object FilterList: TVirtualStringTree
+             Left = 672
+             Top = 8
+-            Width = 159
++            Width = 183
+             Height = 185
+             Align = alCustom
+             Anchors = [akLeft, akTop, akRight]
+@@ -1208,7 +1556,7 @@
+               end
+               item
+                 Position = 3
+-                Width = 10
++                Width = 16
+                 WideText = 'Value'
+               end&gt;
+           end
+@@ -1217,7 +1565,7 @@
+       object EnableFiltersPanel: TSpTBXPanel
+         Left = 0
+         Top = 229
+-        Width = 851
++        Width = 875
+         Height = 19
+         Align = alBottom
+         TabOrder = 1
+@@ -1241,7 +1589,7 @@
+         object FiltersButton: TSpTBXButton
+           Left = 128
+           Top = 0
+-          Width = 723
++          Width = 747
+           Height = 19
+           Align = alClient
+           TabOrder = 1
+@@ -1273,8 +1621,8 @@
+     object LoadingPanel: TSpTBXPanel
+       Left = 368
+       Top = 256
+-      Width = 63
+-      Height = 97
++      Width = 87
++      Height = 71
+       Anchors = [akLeft, akTop, akRight, akBottom]
+       Font.Charset = DEFAULT_CHARSET
+       Font.Color = clWindowText
+@@ -1286,12 +1634,12 @@
+       OnResize = LoadingPanelResize
+       TBXStyleBackground = True
+       DesignSize = (
+-        63
+-        97)
++        87
++        71)
+       object LoadingLabel: TSpTBXLabel
+         Left = 2
+         Top = 50
+-        Width = 60
++        Width = 84
+         Height = 20
+         Caption = 'Please wait while building replay list ...'
+         Anchors = [akLeft, akTop, akRight]
+@@ -1302,7 +1650,7 @@
+   end
+   object ReplayListPopupMenu: TSpTBXPopupMenu
+     AutoHotkeys = maManual
+-    Left = 376
+-    Top = 400
++    Left = 784
++    Top = 520
+   end
+ end
+
+Modified: Lobby/TASClient/ReplaysUnit.pas
+===================================================================
+--- Lobby/TASClient/ReplaysUnit.pas	2012-09-15 19:56:27 UTC (rev 7640)
++++ Lobby/TASClient/ReplaysUnit.pas	2012-09-23 19:41:35 UTC (rev 7641)
+@@ -23,7 +23,8 @@
+   TntStdCtrls, SpTBXEditors, SpTBXTabs, TB2Item, SpTBXItem, IdBaseComponent,
+   IdComponent, IdTCPConnection, IdTCPClient, IdHTTP,MainUnit,DateUtils,
+   VirtualTrees,Utility, Mask, JvExMask, JvSpin,  IniFiles,MapListFormUnit,
+-  Menus, RegExpr, SpTBXDkPanels,SpTBXSkins;
++  Menus, RegExpr, SpTBXDkPanels,SpTBXSkins, RSChartPanel, CheckLst,
++  TntCheckLst,RSCharts;
+ 
+ type
+   TReplaysForm = class(TForm)
+@@ -138,25 +139,28 @@
+     FiltersButton: TSpTBXButton;
+     SpacerPanel2: TSpTBXPanel;
+     SpacerPanel1: TSpTBXPanel;
++    GraphsTab: TSpTBXTabItem;
++    SpTBXTabSheet7: TSpTBXTabSheet;
++    SpTBXItem1: TSpTBXItem;
++    SpTBXItem2: TSpTBXItem;
++    rscTSGChart: TRSChartPanel;
++    pnlTSGOptions: TSpTBXPanel;
++    gbTSGLine: TSpTBXGroupBox;
++    cmbTSGEnableLine: TSpTBXCheckBox;
++    lstTSGLineStat: TSpTBXListBox;
++    gbTSGDashed: TSpTBXGroupBox;
++    cmbTSGEnableDashed: TSpTBXCheckBox;
++    lstTSGDashedStat: TSpTBXListBox;
++    gbTSGPlayers: TSpTBXGroupBox;
++    lstTSGPlayers: TSpTBXCheckListBox;
++    btTSGCollapse: TSpTBXButton;
++    sptTSGOptions: TSpTBXSplitter;
++    SpTBXPanel4: TSpTBXPanel;
++    btTSGAll: TSpTBXButton;
++    btTSGNone: TSpTBXButton;
+ 
+     procedure CreateParams(var Params: TCreateParams); override;
+ 
+-    procedure EnumerateReplayList;
+-
+-    function ReadReplay(fileName: string): TReplay;
+-    function ReadScriptFromDemo(DemoFileName: string; var Script: string): Boolean;
+-    function ReadScriptFromDemo2(var replay: TReplay; var Script: string): Boolean;
+-    procedure ReadWinningTeamsFromDemo(var replay: TReplay);
+-    function FillPlayersInReplay(var replay: TReplay):boolean;
+-    function ReadHeaderFromDemo2(var replay: TReplay): Boolean;
+-    function LoadReplay(Replay: TReplay): Boolean;
+-    procedure SaveCommentsToScript(var Script: TScript; Comments: TStrings; Grade: Byte);
+-    procedure ReadCommentsFromScript(Script: TScript; Comments: TStrings; var Grade: Byte);
+-    function ChangeScriptInDemo(DemoFileName, Script: string): Boolean;
+-    function ChangeScriptInDemo2(DemoFileName, Script: string): Boolean;
+-    function ReadGradeFromScript(Script: string): Byte;
+-    function ValidateComments(Comments: TStrings): Boolean;
+-
+     procedure CloseButtonClick(Sender: TObject);
+     procedure FormCreate(Sender: TObject);
+     procedure ReloadButtonClick(Sender: TObject);
+@@ -275,8 +279,25 @@
+       const TargetCanvas: TCanvas; Node: PVirtualNode;
+       Column: TColumnIndex; TextType: TVSTTextType);
+     procedure FormShow(Sender: TObject);
++    procedure rscTSGChartDblClick(Sender: TObject);
++    procedure lstTSGLineStatClick(Sender: TObject);
++    procedure lstTSGDashedStatClick(Sender: TObject);
++    procedure cmbTSGEnableLineClick(Sender: TObject);
++    procedure cmbTSGEnableDashedClick(Sender: TObject);
++    procedure lstTSGPlayersDrawItem(Sender: TObject; ACanvas: TCanvas;
++      var ARect: TRect; Index: Integer; const State: TOwnerDrawState;
++      const PaintStage: TSpTBXPaintStage; var PaintDefault: Boolean);
++    procedure btTSGNoneClick(Sender: TObject);
++    procedure btTSGAllClick(Sender: TObject);
++    procedure lstTSGPlayersClick(Sender: TObject);
++    procedure btTSGCollapseClick(Sender: TObject);
+   private
+     { Private declarations }
++  protected
++    FTeamLineCharts: TList;
++
++    function GetValueFromStats( var stats: TTeamStatistics; var listBox: TSpTBXListBox ): double;
++    procedure UpdateTeamStatsGraph;
+   public
+     procedure VDTReplaysClick;overload;
+     function isReplayVisible(Replay: TReplay):boolean;
+@@ -288,6 +309,21 @@
+     procedure LoadReplayFiltersPresets;
+     procedure initFiltersPresets;
+     procedure FiltersUpdated;
++     procedure EnumerateReplayList;
++    function ReadReplay(fileName: string): TReplay;
++    function ReadScriptFromDemo(DemoFileName: string; var Script: string): Boolean;
++    function ReadScriptFromDemo2(var replay: TReplay; var Script: string): Boolean;
++    procedure ReadWinningTeamsFromDemo(var replay: TReplay);
++    function FillPlayersInReplay(var replay: TReplay):boolean;
++    function ReadHeaderFromDemo2(var replay: TReplay): Boolean;
++    function LoadReplay(Replay: TReplay): Boolean;
++    procedure SaveCommentsToScript(var Script: TScript; Comments: TStrings; Grade: Byte);
++    procedure ReadCommentsFromScript(Script: TScript; Comments: TStrings; var Grade: Byte);
++    function ChangeScriptInDemo(DemoFileName, Script: string): Boolean;
++    function ChangeScriptInDemo2(DemoFileName, Script: string): Boolean;
++    function ReadGradeFromScript(Script: string): Byte;
++    function ValidateComments(Comments: TStrings): Boolean;
++    function ReadTeamStats(var replay: TReplay ): Boolean;
+   end;
+ 
+   // this thread is used to load replays info from disk on application start
+@@ -378,6 +414,8 @@
+   s: TScript;
+   dateFormat: TFormatSettings;
+   tmp:String;
++  i,j: integer;
++  replayPlayer: PReplayPlayer;
+ begin
+   // old replay date format '2007-11-4 16:15: 4 GMT'
+   dateFormat.DateSeparator := '-';
+@@ -425,6 +463,16 @@
+ 
+   if ((rep.Version = 0) or ((rep.Version = 1) and (rep.demoHeader.magic = 'spring demofile'))) and FillPlayersInReplay(rep) then
+   begin
++    // create teams
++    for i:=0 to rep.PlayerList.Count-1 do
++    begin
++      replayPlayer := PReplayPlayer(rep.PlayerList.Items[i]);
++      if NOT replayPlayer.Spectator then
++        rep.GetTeam( replayPlayer.Id ).PlayerList.Add( replayPlayer );
++    end;
++
++    rep.TeamStatsAvailable := ReadTeamStats(rep);
++
+     Result := rep;
+   end
+   else
+@@ -936,9 +984,9 @@
+         FreeMem(player);
+         Exit;
+       end;
+-      player^.Id := StrToInt(tmp)+1;
++      player^.Id := StrToInt(tmp);
+ 
+-      tmp := replay.Script.ReadKeyValue('GAME/team'+ IntToStr(player^.Id-1)+'/allyteam');
++      tmp := replay.Script.ReadKeyValue('GAME/team'+ IntToStr(player^.Id)+'/allyteam');
+       if (tmp = '') then
+       begin
+         Result := false;
+@@ -949,9 +997,9 @@
+         FreeMem(player);
+         Exit;
+       end;
+-      player^.Team := StrToInt(tmp)+1;
++      player^.Team := StrToInt(tmp);
+ 
+-      tmp := replay.Script.ReadKeyValue('GAME/team'+ IntToStr(player^.Id-1)+'/rgbcolor');
++      tmp := replay.Script.ReadKeyValue('GAME/team'+ IntToStr(player^.Id)+'/rgbcolor');
+       if (tmp = '') then
+       begin
+         Result := false;
+@@ -1043,6 +1091,10 @@
+   LoadingPanel.Top := PanelTop.Top;
+   LoadingPanel.Left := PanelTop.Left;
+ 
++  FTeamLineCharts := TList.Create;
++  lstTSGLineStat.ItemIndex := 0;
++  lstTSGDashedStat.ItemIndex := 0;
++
+   FixFormSizeConstraints(self);
+ 
+   initFiltersPresets;
+@@ -1148,6 +1200,21 @@
+   tmpSubKeys := Replay.Script.GetSubKeys('GAME/MapOptions');
+   for i:=0 to tmpSubKeys.Count-1 do
+     lstLuaOptions.Items.Add(tmpSubKeys[i]+' : '+Replay.Script.ReadKeyValue('GAME/MapOptions/'+tmpSubKeys[i]));
++
++  lstTSGPlayers.Items.Clear;
++  if Replay.TeamStatsAvailable then
++  begin
++    GraphsTab.Enabled := true;
++    for i:=0 to Replay.TeamList.count -1 do
++    begin
++      lstTSGPlayers.Items.Add('');
++      lstTSGPlayers.Checked[i] := true;
++    end;
++  end
++  else
++    GraphsTab.Enabled := false;
++
++  UpdateTeamStatsGraph;
+ end;
+ 
+ procedure TReplaysForm.WatchButtonClick(Sender: TObject);
+@@ -1712,12 +1779,12 @@
+             Inc(Pos,20);
+           end;
+ 
+-          s := IntToStr(ReplayPlayer.Id);
++          s := IntToStr(ReplayPlayer.Id+1);
+         end;
+       end;
+       2: // team
+         if not ReplayPlayer.Spectator then
+-          s := IntToStr(ReplayPlayer.Team);
++          s := IntToStr(ReplayPlayer.Team+1);
+       3: // mouse pixels
+         if (ReplayPlayer.Stats.mousePixels &gt; 0) and (Replay.demoHeader.wallclockTime &gt;0 ) then
+           s := IntToStr(Ceil(ReplayPlayer.Stats.mousePixels*60/Replay.demoHeader.wallclockTime));
+@@ -3222,4 +3289,292 @@
+    ReloadButtonClick(nil);
+ end;
+ 
++function TReplaysForm.ReadTeamStats(var replay: TReplay ): Boolean;
++var
++  f: file of Byte;
++  s: string;
++  i,j: integer;
++  numStatsForTeam: integer;
++  replayTeam: PReplayTeam;
++  teamStats: TTeamStatistics;
++begin
++  Result := False;
++
++  {$I+}
++  try
++    if replay.demoHeader.numTeams &lt;&gt; replay.TeamList.Count then
++      raise Exception.Create('Incorrect number of team in replay');
++
++    AssignFile(f, replay.FullFileName);
++
++    Reset(f);
++
++    Seek(f,replay.demoHeader.headerSize + replay.demoHeader.scriptSize + replay.demoHeader.demoStreamSize + replay.demoHeader.playerStatSize +1 );
++
++    // read number of starts per team
++    for i:=0 to replay.demoHeader.numTeams-1 do
++    begin
++      replayTeam := replay.GetTeam(i);
++      BlockRead(f, numStatsForTeam, 4 );
++      if (numStatsForTeam &lt; 0) or (numStatsForTeam &gt; 2000) then
++        raise Exception.Create('Incorrect number of stats for one team');
++      SetLength( replayTeam.Stats, numStatsForTeam );
++    end;
++
++    // read the team stats
++    for i:=0 to replay.demoHeader.numTeams-1 do
++    begin
++      replayTeam := replay.GetTeam(i);
++      
++      for j:=0 to Length(replayTeam.Stats)-1 do
++      begin
++        BlockRead(f, replayTeam.Stats[j], sizeof(replayTeam.Stats[j]) );
++      end;
++    end;
++
++    CloseFile(f);
++
++  except
++    on E:Exception do
++    begin
++      if Debug.Enabled then
++      begin
++        MainForm.AddMainLog('Error when reading replay team stats ('+replay.FullFileName+'): ' + E.Message,Colors.Error);
++      end;
++
++      try
++        CloseFile(f);
++      except
++      end;
++
++      Exit;
++    end;
++  end;
++
++  Result := True;
++end;
++
++procedure TReplaysForm.UpdateTeamStatsGraph;
++var
++  Replay: TReplay;
++  i,j: integer;
++  replayTeam: PReplayTeam;
++  rsLineChart: ^TRSLineChart;
++  value: double;
++begin
++  Replay := GetReplayFromNode(VDTReplays.FocusedNode);
++
++  if NOT Replay.TeamStatsAvailable then
++  begin
++    for i:=0 to FTeamLineCharts.Count-1 do
++    begin
++      rsLineChart := FTeamLineCharts.Items[i];
++      rsLineChart.Visible := false;
++    end;
++    Exit;
++  end;
++
++  // first make two TRSLineChart for every team (one for the line and one for the dashed)
++  if FTeamLineCharts.Count &lt;= 2*Replay.TeamList.Count then
++  begin
++    // we need more TRSLineChart
++    while 2*Replay.TeamList.Count - FTeamLineCharts.Count &lt;&gt; 0 do
++    begin
++      New(rsLineChart);
++      rsLineChart^ := TRSLineChart.Create(self);
++      rsLineChart.Parent := rscTSGChart;
++      rsLineChart.Options := [];
++      FTeamLineCharts.Add(rsLineChart);
++    end;
++  end
++  else
++  begin
++    // we have too many TRSLineChart
++    while 2*Replay.TeamList.Count - FTeamLineCharts.Count &lt;&gt; 0 do
++    begin
++      rsLineChart := FTeamLineCharts.Items[0];
++      FTeamLineCharts.Remove(rsLineChart);
++      rsLineChart.Free;
++      FreeMem(rsLineChart);
++    end;
++  end;
++
++  // bold
++   for i:=0 to Replay.TeamList.Count-1 do
++  begin
++    replayTeam := PReplayTeam(Replay.TeamList[i]);
++    rsLineChart := FTeamLineCharts.Items[i];
++    rsLineChart.Color := PReplayPlayer(replayTeam.PlayerList.items[0]).Color;
++    rsLineChart.Pen.Width := 2;
++    rsLineChart.Values.Clear;
++
++    if cmbTSGEnableLine.Checked and lstTSGPlayers.Checked[i] then
++    begin
++      rsLineChart.Visible := true;
++      for j:=0 to Length(replayTeam.Stats)-1 do
++      begin
++        rsLineChart.Values.Add( Replay.demoHeader.teamStatPeriod*j/60., GetValueFromStats( replayTeam.Stats[j], lstTSGLineStat) );
++      end;
++    end
++    else
++    begin
++      rsLineChart.Visible := false;
++    end;
++  end;
++
++  // thin
++  for i:=0 to Replay.TeamList.Count-1 do
++  begin
++    replayTeam := PReplayTeam(Replay.TeamList[i]);
++    rsLineChart := FTeamLineCharts.Items[Replay.TeamList.Count+i];
++    rsLineChart.Color := PReplayPlayer(replayTeam.PlayerList.items[0]).Color;
++    rsLineChart.Pen.Width := 1;
++    rsLineChart.Values.Clear;
++
++    if cmbTSGEnableDashed.Checked and lstTSGPlayers.Checked[i] then
++    begin
++      rsLineChart.Visible := true;
++      for j:=0 to Length(replayTeam.Stats)-1 do
++      begin
++        rsLineChart.Values.Add( Replay.demoHeader.teamStatPeriod*j/60., GetValueFromStats( replayTeam.Stats[j], lstTSGDashedStat) );
++      end;
++    end
++    else
++    begin
++      rsLineChart.Visible := false;
++    end;
++  end;
++end;
++
++procedure TReplaysForm.rscTSGChartDblClick(Sender: TObject);
++begin
++  rscTSGChart.UnZoom();
++end;
++
++procedure TReplaysForm.lstTSGLineStatClick(Sender: TObject);
++begin
++  UpdateTeamStatsGraph;
++end;
++
++function TReplaysForm.GetValueFromStats( var stats: TTeamStatistics; var listBox: TSpTBXListBox ): double;
++begin
++  case listBox.ItemIndex of
++    0: Result := stats.metalUsed;
++    1: Result := stats.energyUsed;
++    2: Result := stats.metalProduced;
++    3: Result := stats.energyProduced;
++    4: Result := stats.metalReceived;
++    5: Result := stats.energyReceived;
++    6: Result := stats.metalSent;
++    7: Result := stats.energySent;
++    8: Result := stats.damageDealt;
++    9: Result := stats.damageReceived;
++    10: Result := stats.unitsProduced;
++    11: Result := stats.unitsDied;
++    12: Result := stats.unitsReceived;
++    13: Result := stats.unitsSent;
++    14: Result := stats.unitsCaptured;
++    15: Result := stats.unitsOutCaptured;
++    16: Result := stats.unitsKilled;
++  else
++    Result := stats.metalUsed;
++  end;
++end;
++
++procedure TReplaysForm.lstTSGDashedStatClick(Sender: TObject);
++begin
++  UpdateTeamStatsGraph;
++end;
++
++procedure TReplaysForm.cmbTSGEnableLineClick(Sender: TObject);
++begin
++  UpdateTeamStatsGraph;
++end;
++
++procedure TReplaysForm.cmbTSGEnableDashedClick(Sender: TObject);
++begin
++  UpdateTeamStatsGraph;
++end;
++
++procedure TReplaysForm.lstTSGPlayersDrawItem(Sender: TObject;
++  ACanvas: TCanvas; var ARect: TRect; Index: Integer;
++  const State: TOwnerDrawState; const PaintStage: TSpTBXPaintStage;
++  var PaintDefault: Boolean);
++var
++  Replay : TReplay;
++  TempPenColor: TColor;
++  TempBrushColor: TColor;
++  ReplayTeam: PReplayTeam;
++  Players: string;
++  i: integer;
++begin
++  Replay := GetReplayFromNode(VDTReplays.FocusedNode);
++  ReplayTeam := PReplayTeam(Replay.TeamList[Index]);
++  PaintDefault := false;
++
++  if ReplayTeam.PlayerList.Count = 0 then
++    Exit;
++
++  with ACanvas do
++  begin
++    TempPenColor := Pen.Color;
++    TempBrushColor := Brush.Color;
++    Brush.Color := PReplayPlayer(ReplayTeam.PlayerList[0]).Color;
++    Pen.Color := clGray;
++    Ellipse(ARect.Left + 2, ARect.Top + 2, ARect.Left + 13, ARect.Top + 13);
++    Pen.Color := TempPenColor;
++    Brush.Color := TempBrushColor;
++    Brush.Style := Graphics.bsClear;
++
++    Players := PReplayPlayer(ReplayTeam.PlayerList[0]).UserName;
++    for i:=1 to ReplayTeam.PlayerList.Count -1 do
++      Players := Players + ', ' + PReplayPlayer(ReplayTeam.PlayerList[i]).UserName;
++
++    TextOut(ARect.Left + 15,ARect.Top,Players);
++  end;
++end;
++
++procedure TReplaysForm.btTSGNoneClick(Sender: TObject);
++var
++  i: integer;
++begin
++  for i:=0 to lstTSGPlayers.Count-1 do
++    lstTSGPlayers.Checked[i] := false;
++  UpdateTeamStatsGraph;
++end;
++
++procedure TReplaysForm.btTSGAllClick(Sender: TObject);
++var
++  i: integer;
++begin
++  for i:=0 to lstTSGPlayers.Count-1 do
++    lstTSGPlayers.Checked[i] := true;
++  UpdateTeamStatsGraph;
++end;
++
++procedure TReplaysForm.lstTSGPlayersClick(Sender: TObject);
++begin
++  UpdateTeamStatsGraph;
++end;
++
++procedure TReplaysForm.btTSGCollapseClick(Sender: TObject);
++begin
++  if btTSGCollapse.ImageIndex = 3 then
++  begin
++    btTSGCollapse.Visible := False;
++    btTSGCollapse.Align := alRight;
++    pnlTSGOptions.Visible := True;
++    btTSGCollapse.Visible := True;
++    sptTSGOptions.Visible := True;
++    btTSGCollapse.Align := alLeft;
++    btTSGCollapse.ImageIndex := 2;
++  end
++  else
++  begin
++    sptTSGOptions.Visible := False;
++    pnlTSGOptions.Visible := False;
++    btTSGCollapse.ImageIndex := 3;
++  end;
++end;
++
+ end.
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2012-09-15 19:56:27 UTC (rev 7640)
++++ Lobby/TASClient/TASClient.dof	2012-09-23 19:41:35 UTC (rev 7641)
+@@ -100,7 +100,7 @@
+ DebugSourceDirs=
+ UsePackages=0
+ [Parameters]
+-RunParams=
++RunParams=-debug
+ HostApplication=C:\Program Files\Spring\TASClient.exe
+ Launcher=
+ UseLauncher=0
+@@ -113,9 +113,9 @@
+ IncludeVerInfo=1
+ AutoIncBuild=1
+ MajorVer=0
+-MinorVer=96
++MinorVer=98
+ Release=0
+-Build=1358
++Build=1362
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TASClient
+-FileVersion=0.96.0.1358
++FileVersion=0.98.0.1362
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002410.html">[Taspring-linux-commit] r7640 - Lobby/TASClient
+</A></li>
+	
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2411">[ date ]</a>
+              <a href="thread.html#2411">[ thread ]</a>
+              <a href="subject.html#2411">[ subject ]</a>
+              <a href="author.html#2411">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

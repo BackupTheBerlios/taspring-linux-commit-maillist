@@ -1,0 +1,923 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6103 - in trunk/rts: Game Sim/Misc	Sim/MoveTypes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6103%20-%20in%20trunk/rts%3A%20Game%20Sim/Misc%0A%09Sim/MoveTypes&In-Reply-To=%3C20080704202837.3FF71487A%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000882.html">
+   <LINK REL="Next"  HREF="000884.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6103 - in trunk/rts: Game Sim/Misc	Sim/MoveTypes</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6103%20-%20in%20trunk/rts%3A%20Game%20Sim/Misc%0A%09Sim/MoveTypes&In-Reply-To=%3C20080704202837.3FF71487A%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6103 - in trunk/rts: Game Sim/Misc	Sim/MoveTypes">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Jul  4 22:28:37 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000882.html">[Taspring-linux-commit] r6102 - in trunk: . Documentation	rts/ExternalAI rts/Game rts/Game/UI rts/Lua rts/Map	rts/System rts/lib/gml tools/DedicatedServer
+</A></li>
+        <LI>Next message: <A HREF="000884.html">[Taspring-linux-commit] r6104 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#883">[ date ]</a>
+              <a href="thread.html#883">[ thread ]</a>
+              <a href="subject.html#883">[ subject ]</a>
+              <a href="author.html#883">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-07-04 22:28:36 +0200 (Fri, 04 Jul 2008)
+New Revision: 6103
+
+Modified:
+   trunk/rts/Game/GameHelper.cpp
+   trunk/rts/Sim/Misc/CollisionHandler.cpp
+   trunk/rts/Sim/Misc/CollisionHandler.h
+   trunk/rts/Sim/Misc/CollisionVolume.h
+   trunk/rts/Sim/Misc/GroundBlockingObjectMap.cpp
+   trunk/rts/Sim/Misc/GroundBlockingObjectMap.h
+   trunk/rts/Sim/MoveTypes/AirMoveType.cpp
+   trunk/rts/Sim/MoveTypes/GroundMoveType.cpp
+Log:
+* make the blocking map N-dimensional (to allow for object stacking, selective blocking, etc)
+* switch GuiTraceTray() to use the custom volume intersection routines (more accurate for long skinny units)
+* fix a bug in the ray-cylinder coldet logic
+
+
+Modified: trunk/rts/Game/GameHelper.cpp
+===================================================================
+--- trunk/rts/Game/GameHelper.cpp	2008-07-04 20:13:30 UTC (rev 6102)
++++ trunk/rts/Game/GameHelper.cpp	2008-07-04 20:28:36 UTC (rev 6103)
+@@ -16,6 +16,8 @@
+ #include &quot;Rendering/Env/BaseWater.h&quot;
+ #include &quot;Rendering/GroundDecalHandler.h&quot;
+ #include &quot;Sim/Features/Feature.h&quot;
++#include &quot;Sim/Misc/CollisionHandler.h&quot;
++#include &quot;Sim/Misc/CollisionVolume.h&quot;
+ #include &quot;Sim/Misc/DamageArray.h&quot;
+ #include &quot;Sim/Misc/GeometricObjects.h&quot;
+ #include &quot;Sim/Misc/LosHandler.h&quot;
+@@ -273,23 +275,22 @@
+ 	return length;
+ }
+ 
+-float CGameHelper::GuiTraceRay(const float3 &amp;start, const float3 &amp;dir, float length, CUnit *&amp;hit,float sizeMod,bool useRadar,CUnit* exclude)
++float CGameHelper::GuiTraceRay(const float3 &amp;start, const float3 &amp;dir, float length, CUnit*&amp; hit, float _, bool useRadar, CUnit* exclude)
+ {
+-	const float groundLength = ground-&gt;LineGroundCol(start, start + dir * length);
++	// distance from start to ground intersection point + fudge
++	float groundLen = ground-&gt;LineGroundCol(start, start + dir * length);
++	float returnLen = (groundLen &gt; 0.0f)? groundLen + 200.0f: length;
+ 
+-	if ((length &gt; (groundLength + 200.0f)) &amp;&amp; (groundLength &gt; 0.0f)) {
+-		//need to add some cause we take the backside of the unit sphere;
+-		length = groundLength + 200.0f;
+-	}
++	hit = 0x0;
++	CollisionQuery cq;
+ 
+-	hit = 0;
+-
+ 	vector&lt;int&gt; quads = qf-&gt;GetQuadsOnRay(start, dir, length);
+ 	vector&lt;int&gt;::iterator qi;
+ 
+ 	for (qi = quads.begin(); qi != quads.end(); ++qi) {
+ 		const CQuadField::Quad&amp; quad = qf-&gt;GetQuad(*qi);
+ 		std::list&lt;CUnit*&gt;::const_iterator ui;
++
+ 		for (ui = quad.units.begin(); ui != quad.units.end(); ++ui) {
+ 			CUnit* unit = *ui;
+ 			if (unit == exclude) {
+@@ -297,52 +298,40 @@
+ 			}
+ 
+ 			if ((unit-&gt;allyteam == gu-&gt;myAllyTeam) || gu-&gt;spectatingFullView ||
+-			   (unit-&gt;losStatus[gu-&gt;myAllyTeam] &amp; (LOS_INLOS | LOS_CONTRADAR)) ||
+-			   (useRadar &amp;&amp; radarhandler-&gt;InRadar(*ui, gu-&gt;myAllyTeam))) {
+-				float3 pos;
++				(unit-&gt;losStatus[gu-&gt;myAllyTeam] &amp; (LOS_INLOS | LOS_CONTRADAR)) ||
++				(useRadar &amp;&amp; radarhandler-&gt;InRadar(unit, gu-&gt;myAllyTeam))) {
+ 
+-				if (gu-&gt;spectatingFullView) {
+-					pos = unit-&gt;midPos;
+-				} else {
+-					pos = GetUnitErrorPos(*ui,gu-&gt;myAllyTeam);
+-				}
++				CollisionVolume* cv = 0x0;
++				float3 error = (!gu-&gt;spectatingFullView)?
++					// relative to relMidPos, since MouseHit() translates by it
++					(unit-&gt;relMidPos - GetUnitErrorPos(unit, gu-&gt;myAllyTeam)):
++					ZeroVector;
+ 
+ 				if (unit-&gt;isIcon) {
+-					const float h = ground-&gt;GetHeight(pos.x, pos.z);
+-					if (pos.y &lt; (h + unit-&gt;iconRadius)) {
+-						pos.y = h + unit-&gt;iconRadius;
+-					}
++					// for iconified units, just pretend the collision
++					// volume is a sphere of radius &lt;unit-&gt;IconRadius&gt;
++					static CollisionVolume sphere;
++					sphere.SetDefaultScale(unit-&gt;iconRadius);
++					cv = &sphere;
++				} else {
++					cv = unit-&gt;collisionVolume;
+ 				}
+-				const float3 dif = pos - start;
+-				float closeLength = dif.dot(dir);
+-				if (closeLength &lt; 0.0f) {
+-					continue;
+-				}
+-				if (closeLength &gt; length) {
+-					closeLength = length;
+-				}
+-				float3 closeVect = dif - dir * closeLength;
+-				const float rad = (unit-&gt;isIcon) ? unit-&gt;iconRadius : unit-&gt;radius;
+ 
+-				// The argument to sqrt became negative (3.5f*10^-7) for some reason...
+-				// so tempstoring the value
+-				const float tmp = rad * rad - closeVect.SqLength();
+-				if (tmp &gt; 0.0f) {
+-					const float sqrttmp = sqrt(tmp);
+-					if (length &gt; (closeLength + sqrttmp)){
+-						//note that we take the length to the backside of the units,
+-						// this is so you can select stuff inside factories
+-						length = closeLength + sqrttmp;
++				if (CCollisionHandler::MouseHit(unit, error, start, start + dir * length, cv, &amp;cq)) {
++					// get the distance to the ray-volume egress point
++					// so we can still select stuff inside factories
++					const float len = (cq.p1 - start).Length();
++
++					if (len &lt; returnLen) {
++						returnLen = len;
+ 						hit = unit;
+ 					}
+ 				}
+ 			}
+ 		}
+ 	}
+-	if (!hit) {
+-		length -= 200.0f; //fix length from the previous fudge
+-	}
+-	return length;
++
++	return returnLen;
+ }
+ 
+ float CGameHelper::TraceRayTeam(const float3&amp; start,const float3&amp; dir,float length, CUnit*&amp; hit,bool useRadar,CUnit* exclude,int allyteam)
+
+Modified: trunk/rts/Sim/Misc/CollisionHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Misc/CollisionHandler.cpp	2008-07-04 20:13:30 UTC (rev 6102)
++++ trunk/rts/Sim/Misc/CollisionHandler.cpp	2008-07-04 20:28:36 UTC (rev 6103)
+@@ -170,12 +170,11 @@
+ 
+ 
+ 
+-bool CCollisionHandler::MouseHit(const CUnit* u, const float3&amp; p0, const float3&amp; p1, const CollisionVolume* v, CollisionQuery* q)
++bool CCollisionHandler::MouseHit(const CUnit* u, const float3&amp; e, const float3&amp; p0, const float3&amp; p1, const CollisionVolume* v, CollisionQuery* q)
+ {
+-	// TODO: use in CGameHelper::GuiTraceRay()
+ 	CMatrix44f m;
+ 	u-&gt;GetTransformMatrix(m, true);
+-	m.Translate(u-&gt;relMidPos.x, u-&gt;relMidPos.y, u-&gt;relMidPos.z);
++	m.Translate(u-&gt;relMidPos.x + e.x, u-&gt;relMidPos.y + e.y, u-&gt;relMidPos.z + e.z);
+ 	m.Translate(v-&gt;axisOffsets.x, v-&gt;axisOffsets.y, v-&gt;axisOffsets.z);
+ 
+ 	return CCollisionHandler::Intersect(v, m, p0, p1, q);
+@@ -358,166 +357,154 @@
+ 
+ bool CCollisionHandler::IntersectCylinder(const CollisionVolume* v, const float3&amp; pi0, const float3&amp; pi1, CollisionQuery* q)
+ {
+-	// get the ray direction in volume space
++	// ray direction in volume-space
+ 	const float3 dir = (pi1 - pi0).Normalize();
+ 
+-	// end-cap plane normals
++	// ray direction in (unit) cylinder-space
++	float3 diir = ZVec;
++
++	// ray terminals in (unit) cylinder-space
++	float3 pii0 = pi0;
++	float3 pii1 = pi1;
++
++	// end-cap plane normals in volume-space
+ 	float3 n0 = ZVec;
+ 	float3 n1 = ZVec;
+ 
+-	// pi0 transformed to unit-cylinder space
+-	float3 pii0;
+-	bool pass = false;
++	// (unit) cylinder-space to volume-space transformation
++	float3 inv(1.0f, 1.0f, 1.0f);
+ 
+-	// pi0.dot(pi0), pi0.dot(dir), dir.dot(dir)
+-	const float pxSq = pi0.x * pi0.x, pxdx = pi0.x * dir.x, dxSq = dir.x * dir.x;
+-	const float pySq = pi0.y * pi0.y, pydy = pi0.y * dir.y, dySq = dir.y * dir.y;
+-	const float pzSq = pi0.z * pi0.z, pzdz = pi0.z * dir.z, dzSq = dir.z * dir.z;
+-	const float saSq = v-&gt;axisHScalesSq.x;
+-	const float sbSq = v-&gt;axisHScalesSq.y;
+-	const float scSq = v-&gt;axisHScalesSq.z;
++	// unit-cylinder surface equation params
++	float a = 0.0f;
++	float b = 0.0f;
++	float c = 0.0f;
+ 
+-	float A = 0.0f, B = 0.0f, C = 0.0f;
+-
+ 	switch (v-&gt;primaryAxis) {
+ 		case COLVOL_AXIS_X: {
+-			// see if start of ray lies between end-caps
+-			pass = (pi0.x &gt; -v-&gt;axisHScales.x  &amp;&amp;  pi0.x &lt; v-&gt;axisHScales.x);
+-			pii0 = float3(pi0.x, pi0.y * v-&gt;axisHIScales.y, pi0.z * v-&gt;axisHIScales.z);
++			pii0.y = pi0.y * v-&gt;axisHIScales.y;
++			pii0.z = pi0.z * v-&gt;axisHIScales.z;
++			pii1.y = pi1.y * v-&gt;axisHIScales.y;
++			pii1.z = pi1.z * v-&gt;axisHIScales.z;
+ 
++			inv.y = v-&gt;axisHScales.y;
++			inv.z = v-&gt;axisHScales.z;
++			diir = (pii1 - pii0).Normalize();
++
+ 			n0.x =  1.0f;
+ 			n1.x = -1.0f;
+ 
+-			// get the parameters for the (2D)
+-			// yz-plane ellipse surface equation
+-			A = (dySq / sbSq) + (dzSq / scSq);
+-			B = ((2.0f * pydy) / sbSq) + ((2.0f * pzdz) / scSq);
+-			C = (pySq / sbSq) + (pzSq / scSq) - 1.0f;
++			// yz-surface equation params
++			a =  (diir.y * diir.y) + (diir.z * diir.z);
++			b = ((pii0.y * diir.y) + (pii0.z * diir.z)) * 2.0f;
++			c =  (pii0.y * pii0.y) + (pii0.z * pii0.z)  - 1.0f;
+ 		} break;
+ 		case COLVOL_AXIS_Y: {
+-			// see if start of ray lies between end-caps
+-			pass = (pi0.y &gt; -v-&gt;axisHScales.y  &amp;&amp;  pi0.y &lt; v-&gt;axisHScales.y);
+-			pii0 = float3(pi0.x * v-&gt;axisHIScales.x, pi0.y, pi0.z * v-&gt;axisHIScales.z);
++			pii0.x = pi0.x * v-&gt;axisHIScales.x;
++			pii0.z = pi0.z * v-&gt;axisHIScales.z;
++			pii1.x = pi1.x * v-&gt;axisHIScales.x;
++			pii1.z = pi1.z * v-&gt;axisHIScales.z;
+ 
++			inv.x = v-&gt;axisHScales.x;
++			inv.z = v-&gt;axisHScales.z;
++			diir = (pii1 - pii0).Normalize();
++
+ 			n0.y =  1.0f;
+ 			n1.y = -1.0f;
+ 
+-			// get the parameters for the (2D)
+-			// xz-plane ellipse surface equation
+-			A = (dxSq / saSq) + (dzSq / scSq);
+-			B = ((2.0f * pxdx) / saSq) + ((2.0f * pzdz) / scSq);
+-			C = (pxSq / saSq) + (pzSq / scSq) - 1.0f;
++			// xz-surface equation params
++			a =  (diir.x * diir.x) + (diir.z * diir.z);
++			b = ((pii0.x * diir.x) + (pii0.z * diir.z)) * 2.0f;
++			c =  (pii0.x * pii0.x) + (pii0.z * pii0.z)  - 1.0f;
+ 		} break;
+ 		case COLVOL_AXIS_Z: {
+-			// see if start of ray lies between end-caps
+-			pass = (pi0.z &gt; -v-&gt;axisHScales.z  &amp;&amp;  pi0.z &lt; v-&gt;axisHScales.z);
+-			pii0 = float3(pi0.x * v-&gt;axisHIScales.x, pi0.y * v-&gt;axisHIScales.y, pi0.z);
++			pii0.x = pi0.x * v-&gt;axisHIScales.x;
++			pii0.y = pi0.y * v-&gt;axisHIScales.y;
++			pii1.x = pi1.x * v-&gt;axisHIScales.x;
++			pii1.y = pi1.y * v-&gt;axisHIScales.y;
+ 
++			inv.x = v-&gt;axisHScales.x;
++			inv.y = v-&gt;axisHScales.y;
++			diir = (pii1 - pii0).Normalize();
++
+ 			n0.z =  1.0f;
+ 			n1.z = -1.0f;
+ 
+-			// get the parameters for the (2D)
+-			// xy-plane ellipse surface equation
+-			A = (dxSq / saSq) + (dySq / sbSq);
+-			B = ((2.0f * pxdx) / saSq) + ((2.0f * pydy) / sbSq);
+-			C = (pxSq / saSq) + (pySq / sbSq) - 1.0f;
++			// xy-surface equation params
++			a =  (diir.x * diir.x) + (diir.y * diir.y);
++			b = ((pii0.x * diir.x) + (pii0.y * diir.y)) * 2.0f;
++			c =  (pii0.x * pii0.x) + (pii0.y * pii0.y)  - 1.0f;
+ 		} break;
+ 	}
+ 
+-	if (pass &amp;&amp; pii0.dot(pii0) &lt;= 1.0f) {
+-		// terminate early in the special case
+-		// that shot originated within volume
+-		if (q) {
+-			q-&gt;b0 = true; q-&gt;b1 = true;
+-			q-&gt;t0 = 0.0f; q-&gt;t1 = 0.0f;
+-			q-&gt;p0 = ZVec; q-&gt;p1 = ZVec;
+-		}
+-		return true;
+-	}
++	float d = (b * b) - (4.0f * a * c);
++	float rd = 0.0f;
+ 
+-	const int pAx  = v-&gt;primaryAxis;
++	// volume-space intersection points
++	float3 p0 = ZVec;
++	float3 p1 = ZVec;
++
++	bool b0 = false;
++	bool b1 = false;
++	float r0 = 0.0f, s0 = 0.0f, t0 = 0.0f;
++	float r1 = 0.0f, s1 = 0.0f, t1 = 0.0f;
++	const int pAx = v-&gt;primaryAxis;
+ 	const int sAx0 = v-&gt;secondaryAxes[0];
+ 	const int sAx1 = v-&gt;secondaryAxes[1];
+-	const float D  = (B * B) - (4.0f * A * C);
++	const float3&amp; ahs = v-&gt;axisHScales;
++	const float3&amp; ahsq = v-&gt;axisHScalesSq;
++	// get the length of the ray segment in volume-space
++	const float segLenSq = (pi1 - pi0).SqLength();
+ 
+-	if (D &lt; -EPS) {
+-		return false;
+-	} else {
+-		// get the length of the ray segment in volume-space
+-		const float segLenSq = (pi1 - pi0).SqLength();
+-
+-		float3 p0; float t0 = 0.0f, r0 = 0.0f, dSq0 = 0.0f; bool b0 = false;
+-		float3 p1; float t1 = 0.0f, r1 = 0.0f, dSq1 = 0.0f; bool b1 = false;
+-
+-		if (D &lt; EPS) {
+-			// one solution for t
+-			t0 = -B / (2.0f * A); p0 = pi0 + (dir * t0);
+-
+-			if (p0[pAx] &gt; -v-&gt;axisHScales[pAx]  &amp;&amp;  p0[pAx] &lt; v-&gt;axisHScales[pAx]) {
+-				// intersection point &lt;p0&gt; falls between cylinder
+-				// caps, check if it also lies on our ray segment
+-				dSq0 = (p0 - pi0).SqLength();
+-				b0 = (/* t0 &gt; 0.0f &amp;&amp; */ dSq0 &lt;= segLenSq);
+-			} else {
+-				// &lt;p&gt; does not fall between end-caps but ray
+-				// segment might still intersect one, so test
+-				// for intersection against the cap planes
+-				t0 = -(n0.dot(pi0) + v-&gt;axisHScales[pAx]) / n0.dot(dir); p0 = pi0 + (dir * t0);
+-				t1 = -(n1.dot(pi0) - v-&gt;axisHScales[pAx]) / n1.dot(dir); p1 = pi0 + (dir * t1);
+-				r0 = (((p0[sAx0] * p0[sAx0]) / v-&gt;axisHScalesSq[sAx0]) + ((p0[sAx1] * p0[sAx1]) / v-&gt;axisHScalesSq[sAx1]));
+-				r1 = (((p1[sAx0] * p1[sAx0]) / v-&gt;axisHScalesSq[sAx0]) + ((p1[sAx1] * p1[sAx1]) / v-&gt;axisHScalesSq[sAx1]));
+-				b0 = (t0 &gt; 0.0f &amp;&amp; r0 &lt;= 1.0f);
+-				b1 = (t1 &gt; 0.0f &amp;&amp; r1 &lt;= 1.0f);
+-			}
++	if (d &gt;= -EPS) {
++		// one or two surface intersections
++		if (d &lt; EPS) {
++			t0 = -b / (2.0f * a);
++			p0 = (pii0 + (diir * t0)) * inv;
++			s0 = (p0 - pi0).SqLength();
++			b0 = (s0 &lt; segLenSq &amp;&amp; (p0[pAx] &gt; -ahs[pAx] &amp;&amp; p0[pAx] &lt; ahs[pAx]));
+ 		} else {
+-			// two solutions for t
+-			const float rD = fastmath::sqrt(D);
+-			t0 = (-B - rD) / (2.0f * A); p0 = pi0 + (dir * t0);
+-			t1 = (-B + rD) / (2.0f * A); p1 = pi0 + (dir * t1);
+-
+-			// test the 1st intersection point
+-			// along the cylinder's major axis
+-			if (p0[pAx] &gt; -v-&gt;axisHScales[pAx]  &amp;&amp;  p0[pAx] &lt; v-&gt;axisHScales[pAx]) {
+-				// intersection point &lt;p0&gt; falls between cylinder
+-				// caps, check if it also lies on our ray segment
+-				dSq0 = (p0 - pi0).SqLength();
+-				b0 = (/* t0 &gt; 0.0f &amp;&amp; */ dSq0 &lt;= segLenSq);
+-			}
+-
+-			// test the 2nd intersection point
+-			// along the cylinder's major axis
+-			if (p1[pAx] &gt; -v-&gt;axisHScales[pAx]  &amp;&amp;  p1[pAx] &lt; v-&gt;axisHScales[pAx]) {
+-				// intersection point &lt;p1&gt; falls between cylinder
+-				// caps, check if it also lies on our ray segment
+-				dSq1 = (p1 - pi0).SqLength();
+-				b1 = (/* t1 &gt; 0.0f &amp;&amp; */ dSq1 &lt;= segLenSq);
+-			}
++			rd = fastmath::sqrt(d);
++			t0 = (-b - rd) / (2.0f * a);
++			t1 = (-b + rd) / (2.0f * a);
++			p0 = (pii0 + (diir * t0)) * inv;
++			p1 = (pii0 + (diir * t1)) * inv;
++			s0 = (p0 - pi0).SqLength();
++			s1 = (p1 - pi0).SqLength();
++			b0 = (s0 &lt; segLenSq &amp;&amp; (p0[pAx] &gt; -ahs[pAx] &amp;&amp; p0[pAx] &lt; ahs[pAx]));
++			b1 = (s1 &lt; segLenSq &amp;&amp; (p1[pAx] &gt; -ahs[pAx] &amp;&amp; p1[pAx] &lt; ahs[pAx]));
+ 		}
++	}
+ 
+-		if (!b0 &amp;&amp; !b1) {
+-			// neither p0 nor p1 lies on ray segment (or falls between
+-			// the cylinder end-caps) but segment might still intersect
+-			// a cap, so do extra test for intersection against the cap
+-			// planes
+-			// NOTE: DIV0 if normal and dir are orthogonal?
+-			t0 = -(n0.dot(pi0) + v-&gt;axisHScales[pAx]) / n0.dot(dir);
+-			t1 = -(n1.dot(pi0) - v-&gt;axisHScales[pAx]) / n1.dot(dir);
+-			p0 = pi0 + (dir * t0); dSq0 = (p0 - pi0).SqLength();
+-			p1 = pi0 + (dir * t1); dSq1 = (p1 - pi0).SqLength();
+-			r0 = (((p0[sAx0] * p0[sAx0]) / v-&gt;axisHScalesSq[sAx0]) + ((p0[sAx1] * p0[sAx1]) / v-&gt;axisHScalesSq[sAx1]));
+-			r1 = (((p1[sAx0] * p1[sAx0]) / v-&gt;axisHScalesSq[sAx0]) + ((p1[sAx1] * p1[sAx1]) / v-&gt;axisHScalesSq[sAx1]));
+-			b0 = (t0 &gt; 0.0f &amp;&amp; r0 &lt;= 1.0f &amp;&amp; dSq0 &lt;= segLenSq);
+-			b1 = (t1 &gt; 0.0f &amp;&amp; r1 &lt;= 1.0f &amp;&amp; dSq1 &lt;= segLenSq);
+-		}
++	if (!b0) {
++		// p0 does not lie on ray segment, or does not fall
++		// between cylinder end-caps: check if segment goes
++		// through front cap (plane)
++		// NOTE: DIV0 if normal and dir are orthogonal?
++		t0 = -(n0.dot(pi0) + ahs[pAx]) / n0.dot(dir);
++		p0 = pi0 + (dir * t0);
++		s0 = (p0 - pi0).SqLength();
++		r0 = (((p0[sAx0] * p0[sAx0]) / ahsq[sAx0]) + ((p0[sAx1] * p0[sAx1]) / ahsq[sAx1]));
++		b0 = (t0 &gt;= 0.0f &amp;&amp; r0 &lt;= 1.0f &amp;&amp; s0 &lt;= segLenSq);
++	}
++	if (!b1) {
++		// p1 does not lie on ray segment, or does not fall
++		// between cylinder end-caps: check if segment goes
++		// through rear cap (plane)
++		// NOTE: DIV0 if normal and dir are orthogonal?
++		t1 = -(n1.dot(pi0) - ahs[pAx]) / n1.dot(dir);
++		p1 = pi0 + (dir * t1);
++		s1 = (p1 - pi0).SqLength();
++		r1 = (((p1[sAx0] * p1[sAx0]) / ahsq[sAx0]) + ((p1[sAx1] * p1[sAx1]) / ahsq[sAx1]));
++		b1 = (t1 &gt;= 0.0f &amp;&amp; r1 &lt;= 1.0f &amp;&amp; s1 &lt;= segLenSq);
++	}
+ 
+-		if (q) {
+-			q-&gt;b0 = b0; q-&gt;b1 = b1;
+-			q-&gt;t0 = t0; q-&gt;t1 = t1;
+-			q-&gt;p0 = p0; q-&gt;p1 = p1;
+-		}
+-
+-		return (b0 || b1);
++	if (q) {
++		q-&gt;b0 = b0; q-&gt;b1 = b1;
++		q-&gt;t0 = t0; q-&gt;t1 = t1;
++		q-&gt;p0 = p0; q-&gt;p1 = p1;
+ 	}
++
++	return (b0 || b1);
+ }
+ 
+ bool CCollisionHandler::IntersectBox(const CollisionVolume* v, const float3&amp; pi0, const float3&amp; pi1, CollisionQuery* q)
+
+Modified: trunk/rts/Sim/Misc/CollisionHandler.h
+===================================================================
+--- trunk/rts/Sim/Misc/CollisionHandler.h	2008-07-04 20:13:30 UTC (rev 6102)
++++ trunk/rts/Sim/Misc/CollisionHandler.h	2008-07-04 20:28:36 UTC (rev 6103)
+@@ -34,7 +34,7 @@
+ 
+ 		static bool DetectHit(const CUnit*, const float3&amp;, const float3&amp;, CollisionQuery* q = 0x0);
+ 		static bool DetectHit(const CFeature*, const float3&amp;, const float3&amp;, CollisionQuery* q = 0x0);
+-		static bool MouseHit(const CUnit*, const float3&amp; p0, const float3&amp; p1, const CollisionVolume*, CollisionQuery* q);
++		static bool MouseHit(const CUnit*, const float3&amp; e, const float3&amp; p0, const float3&amp; p1, const CollisionVolume*, CollisionQuery* q);
+ 
+ 	private:
+ 		static bool Collision(const CUnit*, const float3&amp;);
+
+Modified: trunk/rts/Sim/Misc/CollisionVolume.h
+===================================================================
+--- trunk/rts/Sim/Misc/CollisionVolume.h	2008-07-04 20:13:30 UTC (rev 6102)
++++ trunk/rts/Sim/Misc/CollisionVolume.h	2008-07-04 20:28:36 UTC (rev 6103)
+@@ -4,7 +4,7 @@
+ #include &quot;StdAfx.h&quot;
+ #include &quot;creg/creg.h&quot;
+ 
+-#define EPS 0.001f
++#define EPS 0.000001f
+ #define MIN(a, b) std::min((a), (b))
+ #define MAX(a, b) std::max((a), (b))
+ 
+
+Modified: trunk/rts/Sim/Misc/GroundBlockingObjectMap.cpp
+===================================================================
+--- trunk/rts/Sim/Misc/GroundBlockingObjectMap.cpp	2008-07-04 20:13:30 UTC (rev 6102)
++++ trunk/rts/Sim/Misc/GroundBlockingObjectMap.cpp	2008-07-04 20:28:36 UTC (rev 6103)
+@@ -1,131 +1,171 @@
++#include &quot;StdAfx.h&quot;
+ #include &quot;GroundBlockingObjectMap.h&quot;
+-
+ #include &quot;Sim/Objects/SolidObject.h&quot;
+ #include &quot;Sim/Path/PathManager.h&quot;
+ 
++CGroundBlockingObjectMap* groundBlockingObjectMap;
+ 
+ CR_BIND(CGroundBlockingObjectMap, (1))
+ CR_REG_METADATA(CGroundBlockingObjectMap, (
+-				CR_MEMBER(groundBlockingObjectMap)
+-				));
++	CR_MEMBER(groundBlockingMap)
++));
+ 
+ 
+-CGroundBlockingObjectMap* groundBlockingObjectMap;
+ 
+-
+ CGroundBlockingObjectMap::CGroundBlockingObjectMap(int numSquares)
+ {
+-	groundBlockingObjectMap.resize(numSquares, NULL);
++	groundBlockingMap.resize(numSquares);
+ }
+ 
++void CGroundBlockingObjectMap::AddGroundBlockingObject(CSolidObject* object)
++{
++	object-&gt;isMarkedOnBlockingMap = true;
++	object-&gt;mapPos = object-&gt;GetMapPos();
+ 
+-void CGroundBlockingObjectMap::AddGroundBlockingObject(CSolidObject *object)
+-{
+-	object-&gt;isMarkedOnBlockingMap=true;
+-	object-&gt;mapPos=object-&gt;GetMapPos();
+-	if(object-&gt;immobile){
+-		object-&gt;mapPos.x&amp;=0xfffffe;
+-		object-&gt;mapPos.y&amp;=0xfffffe;
++	if (object-&gt;immobile) {
++		object-&gt;mapPos.x &amp;= 0xfffffe;
++		object-&gt;mapPos.y &amp;= 0xfffffe;
+ 	}
+-	int bx=object-&gt;mapPos.x;
+-	int bz=object-&gt;mapPos.y;
+ 
++	int bx = object-&gt;mapPos.x;
++	int bz = object-&gt;mapPos.y;
+ 	int minXSqr = bx;
+ 	int minZSqr = bz;
+ 	int maxXSqr = bx + object-&gt;xsize;
+ 	int maxZSqr = bz + object-&gt;ysize;
+ 
+-	for(int zSqr = minZSqr; zSqr &lt; maxZSqr; zSqr++)
+-		for(int xSqr = minXSqr; xSqr &lt; maxXSqr; xSqr++)
+-			if(!groundBlockingObjectMap[xSqr + zSqr*gs-&gt;mapx])
+-				groundBlockingObjectMap[xSqr + zSqr*gs-&gt;mapx] = object;
++	for (int zSqr = minZSqr; zSqr &lt; maxZSqr; zSqr++) {
++		for (int xSqr = minXSqr; xSqr &lt; maxXSqr; xSqr++) {
++			const int idx = xSqr + zSqr * gs-&gt;mapx;
++			BlockingMapCell&amp; cell = groundBlockingMap[idx];
++			BlockingMapCellIt it = cell.find(object);
+ 
++			if (it == cell.end()) {
++				cell.insert(object);
++			}
++		}
++	}
++
+ 	// FIXME: needs dependency injection (observer pattern?)
+-	if(!object-&gt;mobility &amp;&amp; pathManager)
++	if (!object-&gt;mobility &amp;&amp; pathManager) {
+ 		pathManager-&gt;TerrainChange(minXSqr, minZSqr, maxXSqr, maxZSqr);
++	}
+ }
+ 
+ 
+-void CGroundBlockingObjectMap::AddGroundBlockingObject(CSolidObject *object, unsigned char *yardMap, unsigned char mask)
++void CGroundBlockingObjectMap::AddGroundBlockingObject(CSolidObject* object, unsigned char* yardMap, unsigned char mask)
+ {
+-	object-&gt;isMarkedOnBlockingMap=true;
+-	object-&gt;mapPos=object-&gt;GetMapPos();
+-	if(object-&gt;immobile){
+-		object-&gt;mapPos.x&amp;=0xfffffe;
+-		object-&gt;mapPos.y&amp;=0xfffffe;
++	object-&gt;isMarkedOnBlockingMap = true;
++	object-&gt;mapPos = object-&gt;GetMapPos();
++
++	if (object-&gt;immobile) {
++		object-&gt;mapPos.x &amp;= 0xfffffe;
++		object-&gt;mapPos.y &amp;= 0xfffffe;
+ 	}
+-	int bx=object-&gt;mapPos.x;
+-	int bz=object-&gt;mapPos.y;
+ 
++	int bx = object-&gt;mapPos.x;
++	int bz = object-&gt;mapPos.y;
+ 	int minXSqr = bx;
+ 	int minZSqr = bz;
+ 	int maxXSqr = bx + object-&gt;xsize;
+ 	int maxZSqr = bz + object-&gt;ysize;
+ 
+-	for(int z = 0; minZSqr + z &lt; maxZSqr; z++) {
+-		for(int x = 0; minXSqr + x &lt; maxXSqr; x++) {
+-			if(!groundBlockingObjectMap[minXSqr + x + (minZSqr + z)*gs-&gt;mapx]){
+-				if(yardMap[x + z*object-&gt;xsize] &amp; mask) {
+-					groundBlockingObjectMap[minXSqr + x + (minZSqr + z)*gs-&gt;mapx] = object;
+-				}
++	for (int z = 0; minZSqr + z &lt; maxZSqr; z++) {
++		for (int x = 0; minXSqr + x &lt; maxXSqr; x++) {
++			const int idx = minXSqr + x + (minZSqr + z) * gs-&gt;mapx;
++			const int off = x + z * object-&gt;xsize;
++			BlockingMapCell&amp; cell = groundBlockingMap[idx];
++			BlockingMapCellIt it = cell.find(object);
++
++			if (it == cell.end() &amp;&amp; (yardMap[off] &amp; mask)) {
++				cell.insert(object);
+ 			}
+ 		}
+ 	}
+ 
+ 	// FIXME: needs dependency injection (observer pattern?)
+-	if(!object-&gt;mobility &amp;&amp; pathManager)
++	if (!object-&gt;mobility &amp;&amp; pathManager) {
+ 		pathManager-&gt;TerrainChange(minXSqr, minZSqr, maxXSqr, maxZSqr);
++	}
+ }
+ 
+ 
+-void CGroundBlockingObjectMap::RemoveGroundBlockingObject(CSolidObject *object)
++void CGroundBlockingObjectMap::RemoveGroundBlockingObject(CSolidObject* object)
+ {
+-	object-&gt;isMarkedOnBlockingMap=false;
+-	int bx=object-&gt;mapPos.x;
+-	int bz=object-&gt;mapPos.y;
+-	int sx=object-&gt;xsize;
+-	int sz=object-&gt;ysize;
+-	for(int z = bz; z &lt; bz+sz; ++z)
+-		for(int x = bx; x &lt; bx+sx; ++x)
+-			if(groundBlockingObjectMap[x + z*gs-&gt;mapx]==object)
+-				groundBlockingObjectMap[x + z*gs-&gt;mapx] = 0;
++	object-&gt;isMarkedOnBlockingMap = false;
++	int bx = object-&gt;mapPos.x;
++	int bz = object-&gt;mapPos.y;
++	int sx = object-&gt;xsize;
++	int sz = object-&gt;ysize;
+ 
++	for (int z = bz; z &lt; bz + sz; ++z) {
++		for (int x = bx; x &lt; bx + sx; ++x) {
++			int idx = x + z * gs-&gt;mapx;
++			BlockingMapCell&amp; cell = groundBlockingMap[idx];
++			BlockingMapCellIt it = cell.find(object);
++
++			if (it != cell.end()) {
++				cell.erase(it);
++			}
++		}
++	}
++
+ 	// FIXME: needs dependency injection (observer pattern?)
+-	if(!object-&gt;mobility)
+-		pathManager-&gt;TerrainChange(bx, bz, bx+sx, bz+sz);
++	if (!object-&gt;mobility) {
++		pathManager-&gt;TerrainChange(bx, bz, bx + sx, bz + sz);
++	}
+ }
+ 
+ 
+ /**
+ Moves a ground blocking object from old position to the current on map.
+ */
+-void CGroundBlockingObjectMap::MoveGroundBlockingObject(CSolidObject *object, float3 oldPos) {
++void CGroundBlockingObjectMap::MoveGroundBlockingObject(CSolidObject* object, float3 oldPos) {
+ 	RemoveGroundBlockingObject(object);
+ 	AddGroundBlockingObject(object);
+ }
+ 
+ 
++
+ /**
+ Checks if a ground-square is blocked.
+ If it's not blocked, then NULL is returned.
+ If it's blocked, then a pointer to the blocking object is returned.
+ */
++CSolidObject* CGroundBlockingObjectMap::GroundBlockedUnsafe(int mapSquare) {
++	if (groundBlockingMap[mapSquare].empty()) {
++		return 0x0;
++	}
++
++	BlockingMapCellIt it = groundBlockingMap[mapSquare].begin();
++	CSolidObject* p = *it;
++	CSolidObject* q = *it;
++	it++;
++
++	// todo: accessors to get the block count, etc
++	for (; it != groundBlockingMap[mapSquare].end(); it++) {
++		if ((*it)-&gt;pos.y &gt; p-&gt;pos.y) { p = *it; }
++		if ((*it)-&gt;pos.y &lt; q-&gt;pos.y) { q = *it; }
++	}
++
++	// return the top-most blocking object
++	// (rather than objects.begin(), since
++	// we cannot rely on pointer order)
++	return p;
++}
++
+ CSolidObject* CGroundBlockingObjectMap::GroundBlocked(int mapSquare) {
+-	if(mapSquare &lt; 0 || mapSquare &gt;= gs-&gt;mapSquares)
++	if (mapSquare &lt; 0 || mapSquare &gt;= gs-&gt;mapSquares) {
+ 		return NULL;
+-	return groundBlockingObjectMap[mapSquare];
++	}
++
++	return GroundBlockedUnsafe(mapSquare);
+ }
+ 
+-
+-/**
+-Checks if a ground-square is blocked.
+-If it's not blocked, then NULL is returned.
+-If it's blocked, then a pointer to the blocking object is returned.
+-*/
+ CSolidObject* CGroundBlockingObjectMap::GroundBlocked(float3 pos) {
+ 	int xSqr = int(pos.x / SQUARE_SIZE) % gs-&gt;mapx;
+ 	int zSqr = int(pos.z / SQUARE_SIZE) / gs-&gt;mapx;
+-	return GroundBlocked(xSqr + zSqr*gs-&gt;mapx);
++	return GroundBlocked(xSqr + zSqr * gs-&gt;mapx);
+ }
+ 
+ 
+@@ -133,29 +173,33 @@
+ Opens up a yard in a blocked area.
+ When a factory opens up, for example.
+ */
+-void CGroundBlockingObjectMap::OpenBlockingYard(CSolidObject *yard, unsigned char *blockingMap) {
++void CGroundBlockingObjectMap::OpenBlockingYard(CSolidObject* yard, unsigned char* yardMap) {
+ 	RemoveGroundBlockingObject(yard);
+-	AddGroundBlockingObject(yard, blockingMap, 2);
++	AddGroundBlockingObject(yard, yardMap, 2);
+ }
+ 
+-
+ /**
+ Closes a yard, blocking the area.
+ When a factory closes, for example.
+ */
+-void CGroundBlockingObjectMap::CloseBlockingYard(CSolidObject *yard, unsigned char *blockingMap) {
++void CGroundBlockingObjectMap::CloseBlockingYard(CSolidObject* yard, unsigned char* yardMap) {
+ 	RemoveGroundBlockingObject(yard);
+-	AddGroundBlockingObject(yard, blockingMap, 1);
++	AddGroundBlockingObject(yard, yardMap, 1);
+ }
+ 
+-
+ bool CGroundBlockingObjectMap::CanCloseYard(CSolidObject* yard)
+ {
+-	for(int z = yard-&gt;mapPos.y; z &lt; yard-&gt;mapPos.y + yard-&gt;ysize; ++z) {
+-		for(int x = yard-&gt;mapPos.x; x &lt; yard-&gt;mapPos.x + yard-&gt;xsize; ++x) {
+-			CSolidObject* c = groundBlockingObjectMap[z * gs-&gt;mapx + x];
+-			if (c != NULL &amp;&amp; c != yard)
++	for (int z = yard-&gt;mapPos.y; z &lt; yard-&gt;mapPos.y + yard-&gt;ysize; ++z) {
++		for (int x = yard-&gt;mapPos.x; x &lt; yard-&gt;mapPos.x + yard-&gt;xsize; ++x) {
++			const int idx = z * gs-&gt;mapx + x;
++			BlockingMapCell&amp; cell = groundBlockingMap[idx];
++			BlockingMapCellIt it = cell.find(yard);
++
++			if (it != cell.end() &amp;&amp; cell.size() &gt;= 2) {
++				// something else besides us present
++				// at this position, cannot close yet
+ 				return false;
++			}
+ 		}
+ 	}
+ 	return true;
+
+Modified: trunk/rts/Sim/Misc/GroundBlockingObjectMap.h
+===================================================================
+--- trunk/rts/Sim/Misc/GroundBlockingObjectMap.h	2008-07-04 20:13:30 UTC (rev 6102)
++++ trunk/rts/Sim/Misc/GroundBlockingObjectMap.h	2008-07-04 20:28:36 UTC (rev 6103)
+@@ -2,6 +2,7 @@
+ #define GROUNDBLOCKINGOBJECTMAP_H
+ 
+ #include &quot;creg/creg.h&quot;
++#include &quot;creg/STL_Set.h&quot;
+ #include &quot;float3.h&quot;
+ 
+ class CSolidObject;
+@@ -12,20 +13,26 @@
+ 
+ public:
+ 	CGroundBlockingObjectMap(int numSquares);
+-	void AddGroundBlockingObject(CSolidObject *object);
+-	void AddGroundBlockingObject(CSolidObject *object, unsigned char *blockingMap, unsigned char mask = 255);
+-	void RemoveGroundBlockingObject(CSolidObject *object);
+-	void MoveGroundBlockingObject(CSolidObject *object, float3 oldPos);
+-	void OpenBlockingYard(CSolidObject *yard, unsigned char *blockingMap);
+-	void CloseBlockingYard(CSolidObject *yard, unsigned char *blockingMap);
++
++	void AddGroundBlockingObject(CSolidObject* object);
++	void AddGroundBlockingObject(CSolidObject* object, unsigned char* yardMap, unsigned char mask = 255);
++	void RemoveGroundBlockingObject(CSolidObject* object);
++	void MoveGroundBlockingObject(CSolidObject* object, float3 oldPos);
++
++	void OpenBlockingYard(CSolidObject* yard, unsigned char* yardMap);
++	void CloseBlockingYard(CSolidObject* yard, unsigned char* yardMap);
+ 	bool CanCloseYard(CSolidObject* object);
++
++	CSolidObject* GroundBlocked(int mapSquare);
+ 	CSolidObject* GroundBlocked(float3 pos);
+-	CSolidObject* GroundBlocked(int mapSquare);
+-	///simple version of GroundBlocked without error checking
+-	CSolidObject* GroundBlockedUnsafe(int mapSquare){return groundBlockingObjectMap[mapSquare];}
++	// same as GroundBlocked(), but does not bounds-check mapSquare
++	CSolidObject* GroundBlockedUnsafe(int mapSquare);
+ 
+ private:
+-	std::vector&lt;CSolidObject*&gt; groundBlockingObjectMap;
++	typedef std::set&lt;CSolidObject*&gt; BlockingMapCell;
++	typedef BlockingMapCell::iterator BlockingMapCellIt;
++	typedef std::vector&lt;BlockingMapCell&gt; BlockingMap;
++	BlockingMap groundBlockingMap;
+ };
+ 
+ extern CGroundBlockingObjectMap* groundBlockingObjectMap;
+
+Modified: trunk/rts/Sim/MoveTypes/AirMoveType.cpp
+===================================================================
+--- trunk/rts/Sim/MoveTypes/AirMoveType.cpp	2008-07-04 20:13:30 UTC (rev 6102)
++++ trunk/rts/Sim/MoveTypes/AirMoveType.cpp	2008-07-04 20:28:36 UTC (rev 6103)
+@@ -774,7 +774,7 @@
+ 	SyncedFloat3 &amp;rightdir = owner-&gt;rightdir;
+ 	SyncedFloat3 &amp;frontdir = owner-&gt;frontdir;
+ 	SyncedFloat3 &amp;updir = owner-&gt;updir;
+-	float3 &amp;speed = owner -&gt; speed;
++	float3 &amp;speed = owner-&gt;speed;
+ 
+ 	speed = ZeroVector;
+ 
+@@ -858,10 +858,10 @@
+ 		int2 mp = owner-&gt;GetMapPos();
+ 		owner-&gt;pos = tpos;
+ 
+-		for (int z = mp.y; z &lt; mp.y + owner -&gt; ysize; z++) {
+-			for (int x = mp.x; x &lt; mp.x + owner -&gt; xsize; x++) {
+-				if (readmap -&gt; groundBlockingObjectMap[z * gs -&gt; mapx + x] != owner){
+-					owner -&gt; UnBlock();
++		for (int z = mp.y; z &lt; mp.y + owner-&gt;ysize; z++) {
++			for (int x = mp.x; x &lt; mp.x + owner-&gt;xsize; x++) {
++				if (readmap-&gt;groundBlockingObjectMap[z * gs-&gt;mapx + x] != owner) {
++					owner-&gt;UnBlock();
+ 					reservedLandingPos.x = -1;
+ 					UpdateFlying(wantedHeight, 1);
+ 					return;
+@@ -914,12 +914,12 @@
+ 
+ 	// see if we are at the reserved (not user-clicked) landing spot
+ 	if (dist &lt; 1) {
+-		float gh = ground -&gt; GetHeight(pos.x, pos.z);
+-		float gah = ground -&gt; GetApproximateHeight(pos.x, pos.z);
++		float gh = ground-&gt;GetHeight(pos.x, pos.z);
++		float gah = ground-&gt;GetApproximateHeight(pos.x, pos.z);
+ 		float alt = 0.0f;
+ 
+ 		// can we submerge and are we still above water?
+-		if ((owner -&gt; unitDef -&gt; canSubmerge) &amp;&amp; (gah &lt; 0)) {
++		if ((owner-&gt;unitDef-&gt;canSubmerge) &amp;&amp; (gah &lt; 0)) {
+ 			alt = pos.y - gah;
+ 			reservedLandingPos.y = gah;
+ 		}
+@@ -1081,7 +1081,7 @@
+ {
+ 	float3 ret(-1, -1, -1);
+ 	float3 tryPos = owner-&gt;pos + owner-&gt;speed * owner-&gt;speed.Length() / (maxAcc * 3);
+-	tryPos.y = ground -&gt; GetHeight2(tryPos.x, tryPos.z);
++	tryPos.y = ground-&gt;GetHeight2(tryPos.x, tryPos.z);
+ 
+ 	if ((tryPos.y &lt; 0) &amp;&amp; !(owner-&gt;unitDef-&gt;floater || owner-&gt;unitDef-&gt;canSubmerge)) {
+ 		return ret;
+
+Modified: trunk/rts/Sim/MoveTypes/GroundMoveType.cpp
+===================================================================
+--- trunk/rts/Sim/MoveTypes/GroundMoveType.cpp	2008-07-04 20:13:30 UTC (rev 6102)
++++ trunk/rts/Sim/MoveTypes/GroundMoveType.cpp	2008-07-04 20:28:36 UTC (rev 6103)
+@@ -1017,7 +1017,7 @@
+ 				CMoveMath* moveMath = moveData-&gt;moveMath;
+ 
+ 				// basic blocking-check
+-				if (object != owner &amp;&amp; moveData-&gt;moveMath-&gt;IsBlocking(*moveData, object) &amp;&amp; desiredDir.dot(object-&gt;pos - owner-&gt;pos) &gt; 0) {
++				if (object != owner &amp;&amp; moveMath-&gt;IsBlocking(*moveData, object) &amp;&amp; desiredDir.dot(object-&gt;pos - owner-&gt;pos) &gt; 0) {
+ 					float3 objectToUnit = (owner-&gt;pos - object-&gt;pos - object-&gt;speed * 30);
+ 					float distanceToObject = objectToUnit.Length();
+ 					float radiusSum = (owner-&gt;xsize + object-&gt;xsize) * SQUARE_SIZE / 2;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000882.html">[Taspring-linux-commit] r6102 - in trunk: . Documentation	rts/ExternalAI rts/Game rts/Game/UI rts/Lua rts/Map	rts/System rts/lib/gml tools/DedicatedServer
+</A></li>
+	<LI>Next message: <A HREF="000884.html">[Taspring-linux-commit] r6104 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#883">[ date ]</a>
+              <a href="thread.html#883">[ thread ]</a>
+              <a href="subject.html#883">[ subject ]</a>
+              <a href="author.html#883">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

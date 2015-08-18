@@ -1,0 +1,187 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6169 - trunk/rts/System/FileSystem
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6169%20-%20trunk/rts/System/FileSystem&In-Reply-To=%3C20080713173525.F370E4951%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000948.html">
+   <LINK REL="Next"  HREF="000950.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6169 - trunk/rts/System/FileSystem</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6169%20-%20trunk/rts/System/FileSystem&In-Reply-To=%3C20080713173525.F370E4951%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6169 - trunk/rts/System/FileSystem">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Jul 13 19:35:25 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000948.html">[Taspring-linux-commit] r6168 -	trunk/installer/builddata/springcontent/LuaGadgets
+</A></li>
+        <LI>Next message: <A HREF="000950.html">[Taspring-linux-commit] r6170 - in trunk:	installer/builddata/springcontent/shaders rts/Game	rts/Game/UI rts/Lua rts/Map/SMF rts/Rendering/UnitModels	rts/Sim/Features rts/Sim/Projectiles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#949">[ date ]</a>
+              <a href="thread.html#949">[ thread ]</a>
+              <a href="subject.html#949">[ subject ]</a>
+              <a href="author.html#949">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: trepan
+Date: 2008-07-13 19:35:25 +0200 (Sun, 13 Jul 2008)
+New Revision: 6169
+
+Modified:
+   trunk/rts/System/FileSystem/ArchiveScanner.cpp
+Log:
+
+- fixed filename case problem with SDD modInfo.lua detection
+
+- append &quot;springcontent.sdz&quot; directly to primary mod dependencies
+  rather than doing it when retrieving the deps lists, such that
+  springcontent.sdz's dependencies are used (ex: bitmaps.sdz)
+
+
+
+Modified: trunk/rts/System/FileSystem/ArchiveScanner.cpp
+===================================================================
+--- trunk/rts/System/FileSystem/ArchiveScanner.cpp	2008-07-13 16:30:34 UTC (rev 6168)
++++ trunk/rts/System/FileSystem/ArchiveScanner.cpp	2008-07-13 17:35:25 UTC (rev 6169)
+@@ -85,12 +85,25 @@
+ 	for (int dep = 1; dependencies.KeyExists(dep); ++dep) {
+ 		md.dependencies.push_back(dependencies.GetString(dep, &quot;&quot;));
+ 	}
+-
+ 	const LuaTable replaces = modTable.SubTable(&quot;replace&quot;);
+ 	for (int rep = 1; replaces.KeyExists(rep); ++rep) {
+ 		md.replaces.push_back(replaces.GetString(rep, &quot;&quot;));
+ 	}
+ 
++	// append &quot;springcontent.sdz&quot; for primary mods that haven't already added it
++	if (md.modType == 1) {
++		bool found = false;
++		for (int dep = 0; dep &lt; md.dependencies.size(); dep++) {
++			if (StringToLower(md.dependencies[dep]) == &quot;springcontent.sdz&quot;) {
++				found = true;
++				break;
++			}
++		}
++		if (!found) {
++			md.dependencies.push_back(&quot;springcontent.sdz&quot;);
++		}
++	}
++
+ 	// HACK needed until lobbies, lobbyserver and unitsync are sorted out
+ 	// so they can uniquely identify different versions of the same mod.
+ 	// (at time of this writing they use name only)
+@@ -337,16 +350,17 @@
+ 			string name;
+ 			int size;
+ 			for (int cur = 0; cur = ar-&gt;FindFiles(cur, &amp;name, &amp;size); /* no-op */) {
+-				string ext = StringToLower(name.substr(name.find_last_of('.') + 1));
++				const string lowerName = StringToLower(name);
++				const string ext = lowerName.substr(lowerName.find_last_of('.') + 1);
+ 
+ 				// only accept new format maps
+ 				if ((ext == &quot;smf&quot;) || (ext == &quot;sm3&quot;)) {
+ 					ScanMap(ar, name, ai);
+ 				}
+-				else if (name == &quot;modinfo.lua&quot;) {
++				else if (lowerName == &quot;modinfo.lua&quot;) {
+ 					ScanModLua(ar, name, ai);
+ 				}
+-				else if (name == &quot;modinfo.tdf&quot;) {
++				else if (lowerName == &quot;modinfo.tdf&quot;) {
+ 					ScanModTdf(ar, name, ai);
+ 				}
+ 			}
+@@ -667,21 +681,30 @@
+ 			fprintf(out, &quot;\t\t\t\tmodtype = %d,\n&quot;, modData.modType);
+ 
+ 			const vector&lt;string&gt;&amp; modDeps = modData.dependencies;
+-			if (!modDeps.empty()) {
++			const int depCount = (int)modDeps.size();
++			bool foundCustomDep = false;
++			for (int d = 0; d &lt; depCount; d++) {
++				if (modDeps[d] != &quot;springcontent.sdz&quot;) {
++					foundCustomDep = true;
++					break;
++				}
++			}
++			if (foundCustomDep) {
+ 				fprintf(out, &quot;\t\t\t\tdepend = {\n&quot;);
+-				vector&lt;string&gt;::const_iterator depIt;
+-				for (depIt = modDeps.begin(); depIt != modDeps.end(); ++depIt) {
+-					SafeStr(out, &quot;\t\t\t\t\t&quot;, *depIt);
++				for (int d = 0; d &lt; depCount; d++) {
++					if ((d != (depCount - 1)) || (modDeps[d] != &quot;springcontent.sdz&quot;)) {
++						SafeStr(out, &quot;\t\t\t\t\t&quot;, modDeps[d]);
++					}
+ 				}
+ 				fprintf(out, &quot;\t\t\t\t},\n&quot;);
+ 			}
+ 			
+ 			const vector&lt;string&gt;&amp; modReps = modData.replaces;
+-			if (!modReps.empty())  {
++			const int repCount = (int)modReps.size();
++			if (repCount &gt; 0)  {
+ 				fprintf(out, &quot;\t\t\t\treplace = {\n&quot;);
+-				vector&lt;string&gt;::const_iterator repIt;
+-				for (repIt = modReps.begin(); repIt != modReps.end(); ++repIt) {
+-					SafeStr(out, &quot;\t\t\t\t\t&quot;, *repIt);
++				for (int r = 0; r &lt; repCount; r++) {
++					SafeStr(out, &quot;\t\t\t\t\t&quot;, modReps[r]);
+ 				}
+ 				fprintf(out, &quot;\t\t\t\t},\n&quot;);
+ 			}
+@@ -778,17 +801,6 @@
+ 		}
+ 	}
+ 
+-	// add springcontent.sdz for primary mod archives
+-	if ((depth == 0) &amp;&amp; (aii-&gt;second.modData.modType == 1)) {
+-		const string springContentPath = GetArchivePath(&quot;springcontent.sdz&quot;);
+-		if (springContentPath.empty()) {
+-			throw content_error(&quot;missing springcontent.sdz&quot;);
+-		} else {
+-			printf(&quot;Added springcontent.sdz for %s\n&quot;, root.c_str());
+-			ret.push_back(springContentPath + &quot;springcontent.sdz&quot;);
+-		}
+-	}
+-
+ 	return ret;
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000948.html">[Taspring-linux-commit] r6168 -	trunk/installer/builddata/springcontent/LuaGadgets
+</A></li>
+	<LI>Next message: <A HREF="000950.html">[Taspring-linux-commit] r6170 - in trunk:	installer/builddata/springcontent/shaders rts/Game	rts/Game/UI rts/Lua rts/Map/SMF rts/Rendering/UnitModels	rts/Sim/Features rts/Sim/Projectiles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#949">[ date ]</a>
+              <a href="thread.html#949">[ thread ]</a>
+              <a href="subject.html#949">[ subject ]</a>
+              <a href="author.html#949">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

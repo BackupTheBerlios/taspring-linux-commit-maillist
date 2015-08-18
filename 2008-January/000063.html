@@ -1,0 +1,325 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5255 - in trunk/rts: Game System	System/Net System/Net/Test
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5255%20-%20in%20trunk/rts%3A%20Game%20System%0A%09System/Net%20System/Net/Test&In-Reply-To=%3CE1JAnkT-0000lh-JQ%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000062.html">
+   <LINK REL="Next"  HREF="000066.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5255 - in trunk/rts: Game System	System/Net System/Net/Test</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5255%20-%20in%20trunk/rts%3A%20Game%20System%0A%09System/Net%20System/Net/Test&In-Reply-To=%3CE1JAnkT-0000lh-JQ%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5255 - in trunk/rts: Game System	System/Net System/Net/Test">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Jan  4 15:42:13 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000062.html">[Taspring-linux-commit] r5254 - trunk/rts/Rendering
+</A></li>
+        <LI>Next message: <A HREF="000066.html">[Taspring-linux-commit] r5256 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#63">[ date ]</a>
+              <a href="thread.html#63">[ thread ]</a>
+              <a href="subject.html#63">[ subject ]</a>
+              <a href="author.html#63">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-01-04 15:42:13 +0100 (Fri, 04 Jan 2008)
+New Revision: 5255
+
+Modified:
+   trunk/rts/Game/GameSetup.cpp
+   trunk/rts/System/Net/Connection.h
+   trunk/rts/System/Net/LocalConnection.cpp
+   trunk/rts/System/Net/LocalConnection.h
+   trunk/rts/System/Net/Net.cpp
+   trunk/rts/System/Net/Net.h
+   trunk/rts/System/Net/Test/main.cpp
+   trunk/rts/System/Net/UDPConnection.cpp
+   trunk/rts/System/Net/UDPConnection.h
+   trunk/rts/System/NetProtocol.cpp
+Log:
+* another attemp to fix #739
+* (re)enabled some nice network statistics
+
+
+Modified: trunk/rts/Game/GameSetup.cpp
+===================================================================
+--- trunk/rts/Game/GameSetup.cpp	2008-01-04 14:23:42 UTC (rev 5254)
++++ trunk/rts/Game/GameSetup.cpp	2008-01-04 14:42:13 UTC (rev 5255)
+@@ -492,7 +492,7 @@
+ 		if (!gs-&gt;players[a]-&gt;readyToStart) {
+ 			allReady = false;
+ 			break;
+-		} else if (!readyTeams[gs-&gt;players[a]-&gt;team] &amp;&amp; numDemoPlayers == 0) // no need to ready up when hosting demo
++		} else if (!readyTeams[gs-&gt;players[a]-&gt;team])
+ 		{
+ 			allReady = false;
+ 			break;
+
+Modified: trunk/rts/System/Net/Connection.h
+===================================================================
+--- trunk/rts/System/Net/Connection.h	2008-01-04 14:23:42 UTC (rev 5254)
++++ trunk/rts/System/Net/Connection.h	2008-01-04 14:42:13 UTC (rev 5255)
+@@ -1,6 +1,7 @@
+ #ifndef CONNECTION_H
+ #define CONNECTION_H
+ 
++#include &lt;string&gt;
+ 
+ namespace netcode
+ {
+@@ -35,6 +36,8 @@
+ 	virtual bool CheckTimeout() const = 0;
+ 	
+ 	unsigned GetDataRecieved() const;
++	
++	virtual std::string Statistics() const = 0;
+ 
+ protected:
+ 	unsigned dataSent;
+
+Modified: trunk/rts/System/Net/LocalConnection.cpp
+===================================================================
+--- trunk/rts/System/Net/LocalConnection.cpp	2008-01-04 14:23:42 UTC (rev 5254)
++++ trunk/rts/System/Net/LocalConnection.cpp	2008-01-04 14:42:13 UTC (rev 5255)
+@@ -1,6 +1,7 @@
+ #include &quot;LocalConnection.h&quot;
+ 
+ #include &lt;string.h&gt;
++#include &lt;boost/format.hpp&gt;
+ 
+ #include &quot;Exception.h&quot;
+ 
+@@ -74,6 +75,14 @@
+ 	return false;
+ }
+ 
++std::string CLocalConnection::Statistics() const
++{
++	std::string msg = &quot;Statistics for local connection:\n&quot;;
++	msg += str( boost::format(&quot;Recieved: %1% bytes\n&quot;) %dataRecv );
++	msg += str( boost::format(&quot;Sent: %1% bytes\n&quot;) %dataSent );
++	return msg;
++}
++
+ unsigned CLocalConnection::OtherInstance() const
+ {
+ 	if (instance == 0)
+
+Modified: trunk/rts/System/Net/LocalConnection.h
+===================================================================
+--- trunk/rts/System/Net/LocalConnection.h	2008-01-04 14:23:42 UTC (rev 5254)
++++ trunk/rts/System/Net/LocalConnection.h	2008-01-04 14:42:13 UTC (rev 5255)
+@@ -41,6 +41,8 @@
+ 	
+ 	/// is always false
+ 	virtual bool CheckTimeout() const;
++	
++	virtual std::string Statistics() const;
+ 
+ private:
+ 	typedef std::deque&lt;RawPacket*&gt; MsgQueue;
+
+Modified: trunk/rts/System/Net/Net.cpp
+===================================================================
+--- trunk/rts/System/Net/Net.cpp	2008-01-04 14:23:42 UTC (rev 5254)
++++ trunk/rts/System/Net/Net.cpp	2008-01-04 14:42:13 UTC (rev 5255)
+@@ -125,6 +125,11 @@
+ 	return connections[number];
+ }
+ 
++std::string CNet::GetConnectionStatistics(const unsigned number) const
++{
++	return connections[number]-&gt;Statistics();
++}
++
+ const RawPacket* CNet::Peek(const unsigned conNum, unsigned ahead) const
+ {
+ 	if (int(conNum) &lt;= MaxConnectionID() &amp;&amp; (bool)connections[conNum])
+
+Modified: trunk/rts/System/Net/Net.h
+===================================================================
+--- trunk/rts/System/Net/Net.h	2008-01-04 14:23:42 UTC (rev 5254)
++++ trunk/rts/System/Net/Net.h	2008-01-04 14:42:13 UTC (rev 5255)
+@@ -138,6 +138,12 @@
+ 	@throw network_error When number is bigger then MaxConenctionID
+ 	*/
+ 	bool IsActiveConnection(const unsigned number) const;
++	
++	/**
++	@brief Gives some usefull statistics
++	@return string with statistics
++	 */
++	std::string GetConnectionStatistics(const unsigned number) const;
+ 
+ 	/**
+ 	@brief Take a look at the messages that will be returned by GetData().
+
+Modified: trunk/rts/System/Net/Test/main.cpp
+===================================================================
+--- trunk/rts/System/Net/Test/main.cpp	2008-01-04 14:23:42 UTC (rev 5254)
++++ trunk/rts/System/Net/Test/main.cpp	2008-01-04 14:42:13 UTC (rev 5255)
+@@ -43,6 +43,7 @@
+ 	}
+ 	delete ret; ret = 0;
+ 	
++	std::cout &lt;&lt; localclient-&gt;GetConnectionStatistics(0);
+ 	delete localclient;
+ 	server-&gt;Kill(freeNumber);
+ 	
+@@ -137,6 +138,7 @@
+ 	
+ 	std::cout &lt;&lt; &quot;Deleting server and client...&quot; &lt;&lt; std::endl;
+ 	delete server;
++	std::cout &lt;&lt; client-&gt;GetConnectionStatistics(1);
+ 	delete client;
+ 	
+ 	delete data1; delete data2; // so valgrind doesn't complain
+
+Modified: trunk/rts/System/Net/UDPConnection.cpp
+===================================================================
+--- trunk/rts/System/Net/UDPConnection.cpp	2008-01-04 14:23:42 UTC (rev 5254)
++++ trunk/rts/System/Net/UDPConnection.cpp	2008-01-04 14:42:13 UTC (rev 5255)
+@@ -2,6 +2,7 @@
+ 
+ #include &lt;SDL_timer.h&gt;
+ #include &lt;boost/version.hpp&gt;
++#include &lt;boost/format.hpp&gt;
+ 
+ #ifdef _WIN32
+  #include &quot;Platform/Win/win32.h&quot;
+@@ -125,6 +126,7 @@
+ 	lastReceiveTime=SDL_GetTicks();
+ 	dataRecv += packet-&gt;length;
+ 	recvOverhead += hsize;
++	++recvPackets;
+ 
+ 	int packetNum = *(int*)packet-&gt;data;
+ 	int ack = *(int*)(packet-&gt;data+4);
+@@ -149,6 +151,7 @@
+ 
+ 	if(lastInOrder&gt;=packetNum || waitingPackets.find(packetNum)!=waitingPackets.end())
+ 	{
++		++droppedPackets;
+ 		delete packet;
+ 		return;
+ 	}
+@@ -284,6 +287,17 @@
+ 		return false;
+ }
+ 
++std::string UDPConnection::Statistics() const
++{
++	std::string msg = &quot;Statistics for UDP connection:\n&quot;;
++	msg += str( boost::format(&quot;Recieved: %1% bytes in %2% packets (%3% bytes/package)\n&quot;) %dataRecv %recvPackets %((float)dataRecv / (float)recvPackets));
++	msg += str( boost::format(&quot;Sent: %1% bytes in %2% packets (%3% bytes/package)\n&quot;) %dataSent %sentPackets %((float)dataSent / (float)sentPackets));
++	msg += str( boost::format(&quot;Relative protocol overhead: %1% up, %2% down\n&quot;) %((float)sentOverhead / (float)dataSent) %((float)recvOverhead / (float)dataRecv) );
++	msg += str( boost::format(&quot;%1% incoming packets had been dropped, %2% outgoing packets had to be resent\n&quot;) %droppedPackets %resentPackets);
++	msg += str( boost::format(&quot;%1% packets were splitted due to MTU\n&quot;) %fragmentedFlushes);
++	return msg;
++}
++
+ bool UDPConnection::CheckAddress(const sockaddr_in&amp; from) const
+ {
+ 	if(
+@@ -315,6 +329,8 @@
+ 	fragmentedFlushes = 0;
+ 	fragmentBuffer = 0;
+ 	resentPackets = 0;
++	sentPackets = recvPackets = 0;
++	droppedPackets = 0;
+ }
+ 
+ void UDPConnection::AckPackets(const int nextAck)
+@@ -352,6 +368,7 @@
+ 
+ 	dataSent += length;
+ 	sentOverhead += hsize;
++	++sentPackets;
+ }
+ 
+ 
+
+Modified: trunk/rts/System/Net/UDPConnection.h
+===================================================================
+--- trunk/rts/System/Net/UDPConnection.h	2008-01-04 14:23:42 UTC (rev 5254)
++++ trunk/rts/System/Net/UDPConnection.h	2008-01-04 14:42:13 UTC (rev 5255)
+@@ -59,6 +59,8 @@
+ 	virtual void Flush(const bool forced = false);
+ 	
+ 	virtual bool CheckTimeout() const;
++	
++	virtual std::string Statistics() const;
+ 
+ 	/// do we have these address?
+ 	bool CheckAddress(const sockaddr_in&amp;) const;
+@@ -106,12 +108,15 @@
+ 
+ 	// Traffic statistics and stuff //
+ 	/// number of calls to Flush() that needed to sent multiple packets because of mtu
+-	int fragmentedFlushes;
++	unsigned fragmentedFlushes;
+ 	
+ 	/// packets that are resent
+-	int resentPackets;
++	unsigned resentPackets;
+ 	
++	unsigned droppedPackets;
++	
+ 	unsigned sentOverhead, recvOverhead;
++	unsigned sentPackets, recvPackets;
+ };
+ 
+ } //namespace netcode
+
+Modified: trunk/rts/System/NetProtocol.cpp
+===================================================================
+--- trunk/rts/System/NetProtocol.cpp	2008-01-04 14:23:42 UTC (rev 5254)
++++ trunk/rts/System/NetProtocol.cpp	2008-01-04 14:42:13 UTC (rev 5255)
+@@ -18,6 +18,8 @@
+ {
+ 	if (record != 0)
+ 		delete record;
++	
++	logOutput.Print(GetConnectionStatistics(serverSlot));
+ }
+ 
+ void CNetProtocol::InitClient(const char *server, unsigned portnum,unsigned sourceport, const unsigned wantedNumber)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000062.html">[Taspring-linux-commit] r5254 - trunk/rts/Rendering
+</A></li>
+	<LI>Next message: <A HREF="000066.html">[Taspring-linux-commit] r5256 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#63">[ date ]</a>
+              <a href="thread.html#63">[ thread ]</a>
+              <a href="subject.html#63">[ subject ]</a>
+              <a href="author.html#63">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,982 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6825 - trunk/rts/Lua
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6825%20-%20trunk/rts/Lua&In-Reply-To=%3C20081020142241.6970B473D%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001593.html">
+   <LINK REL="Next"  HREF="001595.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6825 - trunk/rts/Lua</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6825%20-%20trunk/rts/Lua&In-Reply-To=%3C20081020142241.6970B473D%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6825 - trunk/rts/Lua">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon Oct 20 16:22:41 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001593.html">[Taspring-linux-commit] r6824 - in trunk: Documentation installer	installer/builddata/springcontent rts/Game tools/unitsync	tools/unitsync/test
+</A></li>
+        <LI>Next message: <A HREF="001595.html">[Taspring-linux-commit] r6826 - in trunk: installer rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1594">[ date ]</a>
+              <a href="thread.html#1594">[ thread ]</a>
+              <a href="subject.html#1594">[ subject ]</a>
+              <a href="author.html#1594">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: imbaczek
+Date: 2008-10-20 16:22:40 +0200 (Mon, 20 Oct 2008)
+New Revision: 6825
+
+Modified:
+   trunk/rts/Lua/LuaHandle.cpp
+   trunk/rts/Lua/LuaHandle.h
+   trunk/rts/Lua/LuaHandleSynced.cpp
+   trunk/rts/Lua/LuaUtils.cpp
+   trunk/rts/Lua/LuaUtils.h
+Log:
+add tracebacks to LuaHandleSynced.
+
+traceback printing is available in LuaHandle in -DDEBUG builds.
+
+Modified: trunk/rts/Lua/LuaHandle.cpp
+===================================================================
+--- trunk/rts/Lua/LuaHandle.cpp	2008-10-19 23:15:22 UTC (rev 6824)
++++ trunk/rts/Lua/LuaHandle.cpp	2008-10-20 14:22:40 UTC (rev 6825)
+@@ -61,9 +61,15 @@
+   cobCallback(callback),
+   killMe     (false),
+   synced     (false),
++#ifdef DEBUG
++  printTracebacks(true),
++#else
++  printTracebacks(false),
++#endif
+   callinErrors(0)
+ {
+ 	L = lua_open();
++	luaopen_debug(L);
+ }
+ 
+ 
+@@ -184,17 +190,33 @@
+ /******************************************************************************/
+ /******************************************************************************/
+ 
+-bool CLuaHandle::RunCallIn(const LuaHashString&amp; hs, int inArgs, int outArgs)
++int CLuaHandle::SetupTraceback()
+ {
++	if (!printTracebacks)
++		return 0;
++
++	return LuaUtils::PushDebugTraceback(L);
++}
++
++
++bool CLuaHandle::RunCallInTraceback(const LuaHashString&amp; hs, int inArgs, int outArgs, int errfuncIndex)
++{
+ 	CLuaHandle* orig = activeHandle;
+ 	SetActiveHandle();
+-	const int error = lua_pcall(L, inArgs, outArgs, 0);
++	const int error = lua_pcall(L, inArgs, outArgs, errfuncIndex);
+ 	SetActiveHandle(orig);
+ 
+-	if (error != 0) {
++	if (error == 0) {
++		// pop the error handler
++		if (errfuncIndex != 0) {
++			lua_remove(L, errfuncIndex);
++		}
++	} else {
+ 		logOutput.Print(&quot;%s::RunCallIn: error = %i, %s, %s\n&quot;, GetName().c_str(), error,
+ 		                hs.GetString().c_str(), lua_tostring(L, -1));
+ 		lua_pop(L, 1);
++		if (errfuncIndex != 0)
++			lua_remove(L, errfuncIndex);
+ 		// log only errors that lead to a crash
+ 		callinErrors += (error == 2);
+ 		return false;
+@@ -203,6 +225,13 @@
+ }
+ 
+ 
++bool CLuaHandle::RunCallIn(const LuaHashString&amp; hs, int inArgs, int outArgs)
++{
++	return RunCallInTraceback(hs, inArgs, outArgs, 0);
++}
++
++
++
+ inline bool CLuaHandle::RunCallInUnsynced(const LuaHashString&amp; hs,
+                                           int inArgs, int outArgs)
+ {
+@@ -218,20 +247,25 @@
+ void CLuaHandle::Shutdown()
+ {
+ 	LUA_CALL_IN_CHECK(L);
+-	lua_checkstack(L, 2);
++	lua_checkstack(L, 3);
++
++	int errfunc = SetupTraceback();
++
+ 	static const LuaHashString cmdStr(&quot;Shutdown&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
++		// remove error handler
++		if (errfunc) lua_pop(L, 1);
+ 		return; // the call is not defined
+ 	}
+ 
+ 	// call the routine
+-	RunCallIn(cmdStr, 0, 0);
++	RunCallInTraceback(cmdStr, 0, 0, errfunc);
+ 	return;
+ }
+ 
+ void CLuaHandle::GamePreload()
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 2);
+ 	static const LuaHashString cmdStr(&quot;GamePreload&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
+@@ -245,7 +279,7 @@
+ 
+ void CLuaHandle::GameStart()
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 2);
+ 	static const LuaHashString cmdStr(&quot;GameStart&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
+@@ -259,7 +293,7 @@
+ 
+ void CLuaHandle::GameOver()
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 2);
+ 	static const LuaHashString cmdStr(&quot;GameOver&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
+@@ -274,7 +308,7 @@
+ 
+ void CLuaHandle::TeamDied(int teamID)
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 3);
+ 	static const LuaHashString cmdStr(&quot;TeamDied&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
+@@ -291,7 +325,7 @@
+ 
+ void CLuaHandle::TeamChanged(int teamID)
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 3);
+ 	static const LuaHashString cmdStr(&quot;TeamChanged&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
+@@ -308,7 +342,7 @@
+ 
+ void CLuaHandle::PlayerChanged(int playerID)
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 3);
+ 	static const LuaHashString cmdStr(&quot;PlayerChanged&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
+@@ -327,9 +361,13 @@
+ 
+ inline void CLuaHandle::UnitCallIn(const LuaHashString&amp; hs, const CUnit* unit)
+ {
+-	LUA_CALL_IN_CHECK(L);	
+-	lua_checkstack(L, 5);
++	LUA_CALL_IN_CHECK(L);
++	lua_checkstack(L, 6);
++	int errfunc = SetupTraceback();
++
+ 	if (!hs.GetGlobalFunc(L)) {
++		// remove error handler
++		if (errfunc) lua_pop(L, 1);
+ 		return; // the call is not defined
+ 	}
+ 
+@@ -338,7 +376,7 @@
+ 	lua_pushnumber(L, unit-&gt;team);
+ 
+ 	// call the routine
+-	RunCallIn(hs, 3, 0);
++	RunCallInTraceback(hs, 3, 0, errfunc);
+ 
+ 	return;
+ }
+@@ -346,10 +384,15 @@
+ 
+ void CLuaHandle::UnitCreated(const CUnit* unit, const CUnit* builder)
+ {
+-	LUA_CALL_IN_CHECK(L);	
+-	lua_checkstack(L, 6);
++	LUA_CALL_IN_CHECK(L);
++	lua_checkstack(L, 7);
++
++	int errfunc = SetupTraceback();
++
+ 	static const LuaHashString cmdStr(&quot;UnitCreated&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
++		// remove error handler
++		if (errfunc) lua_pop(L, 1);
+ 		return; // the call is not defined
+ 	}
+ 
+@@ -360,8 +403,9 @@
+ 		lua_pushnumber(L, builder-&gt;id);
+ 	}
+ 
++	int args = (builder != NULL) ? 4 : 3;
+ 	// call the routine
+-	RunCallIn(cmdStr, (builder != NULL) ? 4 : 3, 0);
++	RunCallInTraceback(cmdStr, args, 0, errfunc);
+ 	return;
+ }
+ 
+@@ -377,10 +421,15 @@
+ void CLuaHandle::UnitFromFactory(const CUnit* unit,
+                                  const CUnit* factory, bool userOrders)
+ {
+-	LUA_CALL_IN_CHECK(L);	
+-	lua_checkstack(L, 8);
++	LUA_CALL_IN_CHECK(L);
++	lua_checkstack(L, 9);
++
++	int errfunc = SetupTraceback();
++
+ 	static const LuaHashString cmdStr(&quot;UnitFromFactory&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
++		// remove error handler
++		if (errfunc) lua_pop(L, 1);
+ 		return; // the call is not defined
+ 	}
+ 
+@@ -392,17 +441,22 @@
+ 	lua_pushboolean(L, userOrders);
+ 
+ 	// call the routine
+-	RunCallIn(cmdStr, 6, 0);
++	RunCallInTraceback(cmdStr, 6, 0, errfunc);
+ 	return;
+ }
+ 
+ 
+ void CLuaHandle::UnitDestroyed(const CUnit* unit, const CUnit* attacker)
+ {
+-	LUA_CALL_IN_CHECK(L);	
+-	lua_checkstack(L, 8);
++	LUA_CALL_IN_CHECK(L);
++	lua_checkstack(L, 9);
++
++	int errfunc = SetupTraceback();
++
+ 	static const LuaHashString cmdStr(&quot;UnitDestroyed&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
++		// remove error handler
++		if (errfunc) lua_pop(L, 1);
+ 		return; // the call is not defined
+ 	}
+ 
+@@ -418,17 +472,21 @@
+ 	}
+ 
+ 	// call the routine
+-	RunCallIn(cmdStr, argCount, 0);
++	RunCallInTraceback(cmdStr, argCount, 0, errfunc);
+ 	return;
+ }
+ 
+ 
+ void CLuaHandle::UnitTaken(const CUnit* unit, int newTeam)
+ {
+-	LUA_CALL_IN_CHECK(L);	
+-	lua_checkstack(L, 6);
++	LUA_CALL_IN_CHECK(L);
++	lua_checkstack(L, 7);
++	int errfunc = SetupTraceback();
++
+ 	static const LuaHashString cmdStr(&quot;UnitTaken&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
++		// remove error handler
++		if (errfunc) lua_pop(L, 1);
+ 		return; // the call is not defined
+ 	}
+ 
+@@ -438,17 +496,21 @@
+ 	lua_pushnumber(L, newTeam);
+ 
+ 	// call the routine
+-	RunCallIn(cmdStr, 4, 0);
++	RunCallInTraceback(cmdStr, 4, 0, errfunc);
+ 	return;
+ }
+ 
+ 
+ void CLuaHandle::UnitGiven(const CUnit* unit, int oldTeam)
+ {
+-	LUA_CALL_IN_CHECK(L);	
+-	lua_checkstack(L, 6);
++	LUA_CALL_IN_CHECK(L);
++	lua_checkstack(L, 7);
++	int errfunc = SetupTraceback();
++
+ 	static const LuaHashString cmdStr(&quot;UnitGiven&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
++		// remove error handler
++		if (errfunc) lua_pop(L, 1);
+ 		return; // the call is not defined
+ 	}
+ 
+@@ -458,7 +520,7 @@
+ 	lua_pushnumber(L, oldTeam);
+ 
+ 	// call the routine
+-	RunCallIn(cmdStr, 4, 0);
++	RunCallInTraceback(cmdStr, 4, 0, errfunc);
+ 	return;
+ }
+ 
+@@ -473,10 +535,15 @@
+ 
+ void CLuaHandle::UnitCommand(const CUnit* unit, const Command&amp; command)
+ {
+-	LUA_CALL_IN_CHECK(L);	
+-	lua_checkstack(L, 10);
++	LUA_CALL_IN_CHECK(L);
++	lua_checkstack(L, 11);
++
++	int errfunc = SetupTraceback();
++
+ 	static const LuaHashString cmdStr(&quot;UnitCommand&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
++		// remove error handler
++		if (errfunc) lua_pop(L, 1);
+ 		return; // the call is not defined
+ 	}
+ 
+@@ -496,17 +563,22 @@
+ 	}
+ 
+ 	// call the routine
+-	RunCallIn(cmdStr, 6, 0);
++	RunCallInTraceback(cmdStr, 6, 0, errfunc);
+ 	return;
+ }
+ 
+ 
+ void CLuaHandle::UnitCmdDone(const CUnit* unit, int cmdID, int cmdTag)
+ {
+-	LUA_CALL_IN_CHECK(L);	
+-	lua_checkstack(L, 7);
++	LUA_CALL_IN_CHECK(L);
++	lua_checkstack(L, 8);
++
++	int errfunc = SetupTraceback();
++
+ 	static const LuaHashString cmdStr(&quot;UnitCmdDone&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
++		// remove error handler
++		if (errfunc) lua_pop(L, 1);
+ 		return; // the call is not defined
+ 	}
+ 
+@@ -517,7 +589,7 @@
+ 	lua_pushnumber(L, cmdTag);
+ 
+ 	// call the routine
+-	RunCallIn(cmdStr, 5, 0);
++	RunCallInTraceback(cmdStr, 5, 0, errfunc);
+ 	return;
+ }
+ 
+@@ -525,10 +597,15 @@
+ void CLuaHandle::UnitDamaged(const CUnit* unit, const CUnit* attacker,
+                              float damage, int weaponID, bool paralyzer)
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 11);
++
++	int errfunc = SetupTraceback();
++
+ 	static const LuaHashString cmdStr(&quot;UnitDamaged&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
++		// remove error handler
++		if (errfunc) lua_pop(L, 1);
+ 		return; // the call is not defined
+ 	}
+ 
+@@ -550,17 +627,22 @@
+ 	}
+ 
+ 	// call the routine
+-	RunCallIn(cmdStr, argCount, 0);
++	RunCallInTraceback(cmdStr, argCount, 0, errfunc);
+ 	return;
+ }
+ 
+ 
+ void CLuaHandle::UnitExperience(const CUnit* unit, float oldExperience)
+ {
+-	LUA_CALL_IN_CHECK(L);	
+-	lua_checkstack(L, 7);
++	LUA_CALL_IN_CHECK(L);
++	lua_checkstack(L, 8);
++
++	int errfunc = SetupTraceback();
++
+ 	static const LuaHashString cmdStr(&quot;UnitExperience&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
++		// remove error handler
++		if (errfunc) lua_pop(L, 1);
+ 		return; // the call is not defined
+ 	}
+ 
+@@ -571,7 +653,7 @@
+ 	lua_pushnumber(L, oldExperience);
+ 
+ 	// call the routine
+-	RunCallIn(cmdStr, 5, 0);
++	RunCallInTraceback(cmdStr, 5, 0, errfunc);
+ 	return;
+ }
+ 
+@@ -581,7 +663,7 @@
+ void CLuaHandle::UnitSeismicPing(const CUnit* unit, int allyTeam,
+                                  const float3&amp; pos, float strength)
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 9);
+ 	if ((readAllyTeam &gt;= 0) &amp;&amp; (unit-&gt;losStatus[readAllyTeam] &amp; LOS_INLOS)) {
+ 		return; // don't need to see this ping
+@@ -613,7 +695,7 @@
+ void CLuaHandle::LosCallIn(const LuaHashString&amp; hs,
+                            const CUnit* unit, int allyTeam)
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 6);
+ 	if (!hs.GetGlobalFunc(L)) {
+ 		return; // the call is not defined
+@@ -664,7 +746,7 @@
+ 
+ void CLuaHandle::UnitLoaded(const CUnit* unit, const CUnit* transport)
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 7);
+ 	static const LuaHashString cmdStr(&quot;UnitLoaded&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
+@@ -685,7 +767,7 @@
+ 
+ void CLuaHandle::UnitUnloaded(const CUnit* unit, const CUnit* transport)
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 7);
+ 	static const LuaHashString cmdStr(&quot;UnitUnloaded&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
+@@ -851,7 +933,7 @@
+ 		return false;
+ 	}
+ 
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 7);
+ 	static const LuaHashString cmdStr(&quot;Explosion&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
+@@ -885,7 +967,7 @@
+ void CLuaHandle::StockpileChanged(const CUnit* unit,
+                                   const CWeapon* weapon, int oldCount)
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 8);
+ 	static const LuaHashString cmdStr(&quot;StockpileChanged&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
+@@ -908,7 +990,7 @@
+ 
+ bool CLuaHandle::RecvLuaMsg(const string&amp; msg, int playerID)
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	//lua_checkstack(L, 8);
+ 	static const LuaHashString cmdStr(&quot;RecvLuaMsg&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
+@@ -995,7 +1077,7 @@
+ 
+ void CLuaHandle::Update()
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 2);
+ 	static const LuaHashString cmdStr(&quot;Update&quot;);
+ 	if (!PushUnsyncedCallIn(cmdStr)) {
+@@ -1011,7 +1093,7 @@
+ 
+ void CLuaHandle::ViewResize()
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 5);
+ 	static const LuaHashString cmdStr(&quot;ViewResize&quot;);
+ 	if (!PushUnsyncedCallIn(cmdStr)) {
+@@ -1042,7 +1124,7 @@
+ bool CLuaHandle::DefaultCommand(const CUnit* unit,
+                                 const CFeature* feature, int&amp; cmd)
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 4);
+ 	static const LuaHashString cmdStr(&quot;DefaultCommand&quot;);
+ 	if (!PushUnsyncedCallIn(cmdStr)) {
+@@ -1092,7 +1174,7 @@
+ 
+ void CLuaHandle::DrawGenesis()
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 2);
+ 	static const LuaHashString cmdStr(&quot;DrawGenesis&quot;);
+ 	if (!PushUnsyncedCallIn(cmdStr)) {
+@@ -1108,7 +1190,7 @@
+ 
+ void CLuaHandle::DrawWorld()
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 2);
+ 	static const LuaHashString cmdStr(&quot;DrawWorld&quot;);
+ 	if (!PushUnsyncedCallIn(cmdStr)) {
+@@ -1124,7 +1206,7 @@
+ 
+ void CLuaHandle::DrawWorldPreUnit()
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 2);
+ 	static const LuaHashString cmdStr(&quot;DrawWorldPreUnit&quot;);
+ 	if (!PushUnsyncedCallIn(cmdStr)) {
+@@ -1140,7 +1222,7 @@
+ 
+ void CLuaHandle::DrawWorldShadow()
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 2);
+ 	static const LuaHashString cmdStr(&quot;DrawWorldShadow&quot;);
+ 	if (!PushUnsyncedCallIn(cmdStr)) {
+@@ -1156,7 +1238,7 @@
+ 
+ void CLuaHandle::DrawWorldReflection()
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 2);
+ 	static const LuaHashString cmdStr(&quot;DrawWorldReflection&quot;);
+ 	if (!PushUnsyncedCallIn(cmdStr)) {
+@@ -1172,7 +1254,7 @@
+ 
+ void CLuaHandle::DrawWorldRefraction()
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 2);
+ 	static const LuaHashString cmdStr(&quot;DrawWorldRefraction&quot;);
+ 	if (!PushUnsyncedCallIn(cmdStr)) {
+@@ -1188,7 +1270,7 @@
+ 
+ void CLuaHandle::DrawScreen()
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 4);
+ 	static const LuaHashString cmdStr(&quot;DrawScreen&quot;);
+ 	if (!PushUnsyncedCallIn(cmdStr)) {
+@@ -1207,7 +1289,7 @@
+ 
+ void CLuaHandle::DrawScreenEffects()
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 4);
+ 	static const LuaHashString cmdStr(&quot;DrawScreenEffects&quot;);
+ 	if (!PushUnsyncedCallIn(cmdStr)) {
+@@ -1226,7 +1308,7 @@
+ 
+ void CLuaHandle::DrawInMiniMap()
+ {
+-	LUA_CALL_IN_CHECK(L);	
++	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 4);
+ 	static const LuaHashString cmdStr(&quot;DrawInMiniMap&quot;);
+ 	if (!PushUnsyncedCallIn(cmdStr)) {
+@@ -1255,7 +1337,7 @@
+ 
+ static inline bool CheckModUICtrl()
+ {
+-	return CLuaHandle::GetModUICtrl() || 
++	return CLuaHandle::GetModUICtrl() ||
+ 	       CLuaHandle::GetActiveHandle()-&gt;GetUserMode();
+ }
+ 
+
+Modified: trunk/rts/Lua/LuaHandle.h
+===================================================================
+--- trunk/rts/Lua/LuaHandle.h	2008-10-19 23:15:22 UTC (rev 6824)
++++ trunk/rts/Lua/LuaHandle.h	2008-10-20 14:22:40 UTC (rev 6825)
+@@ -48,7 +48,7 @@
+ 		void CheckStack();
+ 		int GetCallInErrors() const { return callinErrors; }
+ 		void ResetCallinErrors() { callinErrors = 0; }
+-		
++
+ 	public:
+ 		inline bool CanCtrlTeam(int team) {
+ 			if (ctrlTeam &lt; 0) {
+@@ -223,8 +223,12 @@
+ 		bool AddEntriesToTable(lua_State* L, const char* name,
+ 		                       bool (*entriesFunc)(lua_State*));
+ 
++		/// returns stack index of traceback function
++		int SetupTraceback();
++		bool RunCallInTraceback(const LuaHashString&amp; hs, int inArgs, int outArgs, int errfuncIndex);
+ 		bool RunCallIn(const LuaHashString&amp; hs, int inArgs, int outArgs);
+ 		bool RunCallInUnsynced(const LuaHashString&amp; hs, int inArgs, int outArgs);
++
+ 		void LosCallIn(const LuaHashString&amp; hs, const CUnit* unit, int allyTeam);
+ 		void UnitCallIn(const LuaHashString&amp; hs, const CUnit* unit);
+ 		bool PushUnsyncedCallIn(const LuaHashString&amp; hs);
+@@ -242,6 +246,8 @@
+ 
+ 		bool fullCtrl;
+ 		bool fullRead;
++		bool printTracebacks;
++
+ 		int  ctrlTeam;
+ 		int  readTeam;
+ 		int  readAllyTeam;
+
+Modified: trunk/rts/Lua/LuaHandleSynced.cpp
+===================================================================
+--- trunk/rts/Lua/LuaHandleSynced.cpp	2008-10-19 23:15:22 UTC (rev 6824)
++++ trunk/rts/Lua/LuaHandleSynced.cpp	2008-10-20 14:22:40 UTC (rev 6825)
+@@ -54,7 +54,7 @@
+ #else
+ #  define LUA_OPEN_LIB(L, lib) \
+      lua_pushcfunction((L), lib); \
+-     lua_pcall((L), 0, 0, 0); 
++     lua_pcall((L), 0, 0, 0);
+ #endif
+ 
+ 
+@@ -70,6 +70,7 @@
+   allowUnsafeChanges(false),
+   teamsLocked(false)
+ {
++	printTracebacks = true;
+ }
+ 
+ 
+@@ -94,14 +95,14 @@
+ 			watchWeapons.push_back(false);
+ 		}
+ 	}
+-	
++
+ 	const string syncedCode   = LoadFile(syncedFile, modes);
+ 	const string unsyncedCode = LoadFile(unsyncedFile, modes);
+ 	if (syncedCode.empty() &amp;&amp; unsyncedCode.empty()) {
+ 		KillLua();
+ 		return;
+ 	}
+-	
++
+ 	// load the standard libraries
+ 	LUA_OPEN_LIB(L, luaopen_base);
+ 	LUA_OPEN_LIB(L, luaopen_math);
+@@ -126,7 +127,7 @@
+ 	lua_pushnil(L); lua_setglobal(L, &quot;newproxy&quot;);
+ 	lua_pushnil(L); lua_setglobal(L, &quot;gcinfo&quot;);
+ 	lua_pushnil(L); lua_setglobal(L, &quot;collectgarbage&quot;);
+-	
++
+ 	// use gs-&gt;randFloat() for the synchronized code, and disable randomseed()
+ 	// (this first copies the original functions to the registry for unsynced)
+ 	if (!SyncifyRandomFuncs()) {
+@@ -196,7 +197,7 @@
+ 	LuaPushNamedCFunc(L, &quot;AllowUnsafeChanges&quot;, AllowUnsafeChanges);
+ 
+ 	LuaPushNamedNumber(L, &quot;COBSCALE&quot;, COBSCALE);
+-	
++
+ 	// load our libraries  (LuaSyncedCtrl overrides some LuaUnsyncedCtrl entries)
+ 	if (!AddEntriesToTable(L, &quot;VFS&quot;,         LuaVFS::PushSynced)           ||
+ 	    !AddEntriesToTable(L, &quot;UnitDefs&quot;,    LuaUnitDefs::PushEntries)     ||
+@@ -297,7 +298,7 @@
+ 		KillLua();
+ 		return false;
+ 	}
+-	
++
+ 	lua_settop(L, 0);
+ 
+ 	// note the absence of loadstring() -- global access
+@@ -364,13 +365,13 @@
+ 	lua_pushstring(L, &quot;random&quot;);
+ 	lua_rawget(L, -3); // math table
+ 	lua_rawset(L, LUA_REGISTRYINDEX);
+-	
++
+ 	// copy the original randomseed() into the registry
+ 	lua_pushstring(L, &quot;randomseed&quot;);
+ 	lua_pushstring(L, &quot;randomseed&quot;);
+ 	lua_rawget(L, -3); // math table
+ 	lua_rawset(L, LUA_REGISTRYINDEX);
+-	
++
+ 	// install our custom random()
+ 	lua_pushstring(L, &quot;random&quot;);
+ 	lua_pushcfunction(L, SyncedRandom);
+@@ -404,7 +405,7 @@
+ 
+ 	lua_pop(L, 1); // remove 'math'
+ 
+-	return true;	
++	return true;
+ }
+ 
+ 
+@@ -450,11 +451,11 @@
+ 	lua_settop(L, 0);
+ 	unsyncedStr.GetRegistry(L);
+ 	const int unsynced = lua_gettop(L);
+-	
++
+ 	lua_pushstring(L, name);
+ 	lua_getglobal(L, name);
+ 	lua_rawset(L, unsynced);
+-	
++
+ 	lua_settop(L, 0);
+ 	return true;
+ }
+@@ -507,7 +508,7 @@
+ 		return false;
+ 	}
+ 	lua_setfenv(L, -2);
+-	
++
+ 	CLuaHandle* orig = activeHandle;
+ 	SetActiveHandle();
+ 	error = lua_pcall(L, 0, 0, 0);
+@@ -584,7 +585,7 @@
+ 		eventHandler.RemoveEvent(this, name);
+ 	}
+ 	return true;
+-}	
++}
+ 
+ 
+ bool CLuaHandleSynced::UnsyncedUpdateCallIn(const string&amp; name)
+@@ -602,7 +603,7 @@
+ 	}
+ 	SetupUnsyncedFunction(name.c_str());
+ 	return true;
+-}	
++}
+ 
+ 
+ /******************************************************************************/
+@@ -620,10 +621,13 @@
+ 		return true;
+ 	}
+ 
++	int errfunc = SetupTraceback() ? -2 : 0;
++	logOutput.Print(&quot;Initialize errfunc=%d\n&quot;, errfunc);
++
+ 	lua_pushlstring(L, syncData.c_str(), syncData.size());
+-	
++
+ 	// call the routine
+-	if (!RunCallIn(cmdStr, 1, 1)) {
++	if (!RunCallInTraceback(cmdStr, 1, 1, errfunc)) {
+ 		return false;
+ 	}
+ 
+@@ -641,7 +645,7 @@
+ string CLuaHandleSynced::GetSyncData()
+ {
+ 	string syncData;
+-	
++
+ 	LUA_CALL_IN_CHECK(L);
+ 	lua_checkstack(L, 2);
+ 	static const LuaHashString cmdStr(&quot;GetSyncData&quot;);
+@@ -705,17 +709,21 @@
+ 	}
+ 
+ 	LUA_CALL_IN_CHECK(L);
+-	lua_checkstack(L, 3);
++	lua_checkstack(L, 4);
++
++	int errfunc = SetupTraceback();
++
+ 	static const LuaHashString cmdStr(&quot;GameFrame&quot;);
+ 	if (!cmdStr.GetGlobalFunc(L)) {
++		if (errfunc) lua_pop(L, 1);
+ 		return;
+ 	}
+ 
+ 	lua_pushnumber(L, frameNumber); // 6 day roll-over
+-	
++
+ 	// call the routine
+ 	allowChanges = true;
+-	RunCallIn(cmdStr, 1, 0);
++	RunCallInTraceback(cmdStr, 1, 0, errfunc);
+ 	allowChanges = allowUnsafeChanges;
+ 
+ 	return;
+@@ -1086,7 +1094,7 @@
+ 		luaL_error(L, &quot;Incorrect arguments to AllowUnsafeChanges()&quot;);
+ 	}
+ 	const string magic = lua_tostring(L, 1);
+-	const bool value = (magic == &quot;USE AT YOUR OWN PERIL&quot;);	
++	const bool value = (magic == &quot;USE AT YOUR OWN PERIL&quot;);
+ 	CLuaHandleSynced* lhs = GetActiveHandle();
+ 	lhs-&gt;allowChanges = value;
+ 	lhs-&gt;allowUnsafeChanges = value;
+@@ -1143,7 +1151,7 @@
+ 	}
+ 
+ 	CLuaHandleSynced* lhs = GetActiveHandle();
+-	
++
+ 	map&lt;string, string&gt;::iterator it = lhs-&gt;textCommands.find(cmd);
+ 	if (it != lhs-&gt;textCommands.end()) {
+ 		lhs-&gt;textCommands.erase(it);
+
+Modified: trunk/rts/Lua/LuaUtils.cpp
+===================================================================
+--- trunk/rts/Lua/LuaUtils.cpp	2008-10-19 23:15:22 UTC (rev 6824)
++++ trunk/rts/Lua/LuaUtils.cpp	2008-10-20 14:22:40 UTC (rev 6825)
+@@ -219,7 +219,7 @@
+ 	for (lua_pushnil(L); lua_next(L, changed) != 0; lua_pop(L, 1)) {
+ 		lua_pushvalue(L, -2); // copy the key to the top
+ 		lua_pushvalue(L, -2); // copy the value to the top
+-		lua_rawset(L, table);		
++		lua_rawset(L, table);
+ 	}
+ 
+ 	lua_pop(L, 1); // pop the changed table
+@@ -477,6 +477,8 @@
+ 	string msg = &quot;&quot;;
+ 	const int args = lua_gettop(L); // number of arguments
+ 
++	logOutput.Print(&quot;echo called with %d args&quot;, args);
++
+ 	lua_getglobal(L, &quot;tostring&quot;);
+ 
+ 	for (int i = 1; i &lt;= args; i++) {
+@@ -486,6 +488,7 @@
+ 		lua_call(L, 1, 1);
+ 		s = lua_tostring(L, -1);  // get result
+ 		if (s == NULL) {
++			logOutput.Print(&quot;Echo: tostring returned NULL&quot;);
+ 			return luaL_error(L, &quot;`tostring' must return a string to `print'&quot;);
+ 		}
+ 		if (i &gt; 1) {
+@@ -597,3 +600,27 @@
+ 
+ /******************************************************************************/
+ /******************************************************************************/
++
++#define DEBUG_TABLE &quot;debug&quot;
++#define DEBUG_FUNC &quot;traceback&quot;
++
++int LuaUtils::PushDebugTraceback(lua_State *L)
++{
++	lua_getglobal(L, DEBUG_TABLE);
++	if (!lua_istable(L, -1)) {
++		logOutput &lt;&lt; &quot;'&quot; DEBUG_TABLE &quot;' is not a global table&quot;;
++		return 0;
++	}
++	lua_getfield(L, -1, DEBUG_FUNC);
++	if (!lua_isfunction(L, -1)) {
++		logOutput &lt;&lt; &quot;'&quot; DEBUG_FUNC &quot;' is not a function in '&quot; DEBUG_TABLE &quot;'&quot;;
++		return 0;
++	}
++	lua_remove(L, -2);
++
++	return lua_gettop(L);
++}
++
++
++/******************************************************************************/
++/******************************************************************************/
+
+Modified: trunk/rts/Lua/LuaUtils.h
+===================================================================
+--- trunk/rts/Lua/LuaUtils.h	2008-10-19 23:15:22 UTC (rev 6824)
++++ trunk/rts/Lua/LuaUtils.h	2008-10-20 14:22:40 UTC (rev 6825)
+@@ -25,6 +25,8 @@
+ 
+ 		static void PushCurrentFuncEnv(lua_State* L, const char* caller);
+ 
++		static int PushDebugTraceback(lua_State *L);
++
+ 		// lower case all keys in the table, with recursion
+ 		static bool LowerKeys(lua_State* L, int tableIndex);
+ 
+@@ -61,7 +63,7 @@
+ 		static int isfunction(lua_State* L);
+ 		static int isuserdata(lua_State* L);
+ 
+-		// not implemented...		
++		// not implemented...
+ 		static int ParseIntArray(lua_State* L, int tableIndex,
+ 		                         int* array, int arraySize);
+ 		static int ParseFloatArray(lua_State* L, int tableIndex,
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001593.html">[Taspring-linux-commit] r6824 - in trunk: Documentation installer	installer/builddata/springcontent rts/Game tools/unitsync	tools/unitsync/test
+</A></li>
+	<LI>Next message: <A HREF="001595.html">[Taspring-linux-commit] r6826 - in trunk: installer rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1594">[ date ]</a>
+              <a href="thread.html#1594">[ thread ]</a>
+              <a href="subject.html#1594">[ subject ]</a>
+              <a href="author.html#1594">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,2705 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5640 - in trunk/rts: Game Game/UI Lua	Rendering Rendering/GL Rendering/UnitModels Sim/Units System
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5640%20-%20in%20trunk/rts%3A%20Game%20Game/UI%20Lua%0A%09Rendering%20Rendering/GL%20Rendering/UnitModels%20Sim/Units%20System&In-Reply-To=%3C20080401140708.DEC5D46AE%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000420.html">
+   <LINK REL="Next"  HREF="000422.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5640 - in trunk/rts: Game Game/UI Lua	Rendering Rendering/GL Rendering/UnitModels Sim/Units System</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5640%20-%20in%20trunk/rts%3A%20Game%20Game/UI%20Lua%0A%09Rendering%20Rendering/GL%20Rendering/UnitModels%20Sim/Units%20System&In-Reply-To=%3C20080401140708.DEC5D46AE%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5640 - in trunk/rts: Game Game/UI Lua	Rendering Rendering/GL Rendering/UnitModels Sim/Units System">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Apr  1 16:07:08 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000420.html">[Taspring-linux-commit] r5639 - trunk/Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="000422.html">[Taspring-linux-commit] r5641 - in trunk: rts/Game rts/Game/Server	rts/Game/UI rts/System rts/System/Net tools/DedicatedServer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#421">[ date ]</a>
+              <a href="thread.html#421">[ thread ]</a>
+              <a href="subject.html#421">[ subject ]</a>
+              <a href="author.html#421">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-04-01 16:07:07 +0200 (Tue, 01 Apr 2008)
+New Revision: 5640
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/PreGame.cpp
+   trunk/rts/Game/UI/CursorIcons.cpp
+   trunk/rts/Game/UI/EndGameBox.cpp
+   trunk/rts/Game/UI/GameInfo.cpp
+   trunk/rts/Game/UI/GameSetupDrawer.cpp
+   trunk/rts/Game/UI/GuiHandler.cpp
+   trunk/rts/Game/UI/InfoConsole.cpp
+   trunk/rts/Game/UI/LuaUI.cpp
+   trunk/rts/Game/UI/OutlineFont.cpp
+   trunk/rts/Game/UI/OutlineFont.h
+   trunk/rts/Game/UI/ProfileDrawer.cpp
+   trunk/rts/Game/UI/QuitBox.cpp
+   trunk/rts/Game/UI/ResourceBar.cpp
+   trunk/rts/Game/UI/ShareBox.cpp
+   trunk/rts/Game/UI/StartPosSelecter.cpp
+   trunk/rts/Game/UI/TooltipConsole.cpp
+   trunk/rts/Lua/LuaOpenGL.cpp
+   trunk/rts/Rendering/GL/glList.cpp
+   trunk/rts/Rendering/InMapDraw.cpp
+   trunk/rts/Rendering/UnitModels/UnitDrawer.cpp
+   trunk/rts/Rendering/glFont.cpp
+   trunk/rts/Rendering/glFont.h
+   trunk/rts/Sim/Units/Unit.cpp
+   trunk/rts/System/GlobalStuff.cpp
+   trunk/rts/System/GlobalStuff.h
+   trunk/rts/System/Main.cpp
+   trunk/rts/System/SpringApp.cpp
+   trunk/rts/System/UnsyncedRNG.cpp
+Log:
+* Font rendering system overhaul, patch by eriatarka.
+  <A HREF="http://spring.clan-sy.com/phpbb/viewtopic.php?t=13808">http://spring.clan-sy.com/phpbb/viewtopic.php?t=13808</A>
+
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Game/Game.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -159,7 +159,6 @@
+ 
+ CGame* game = NULL;
+ 
+-
+ CR_BIND(CGame, (std::string(&quot;&quot;), std::string(&quot;&quot;), NULL));
+ 
+ CR_REG_METADATA(CGame,(
+@@ -1577,18 +1576,21 @@
+ 		logOutput.Print(&quot;Reloaded ctrlpanel with: &quot; + name);
+ 	}
+ 	else if (cmd == &quot;font&quot;) {
+-		CglFont* newFont = NULL;
++		CglFont *newFont = NULL, *newSmallFont = NULL;
+ 		try {
+-			newFont = SAFE_NEW CglFont(font-&gt;GetCharStart(), font-&gt;GetCharEnd(),
+-			                      action.extra.c_str());
++			newFont = CglFont::TryConstructFont(action.extra, font-&gt;GetCharStart(), font-&gt;GetCharEnd(), 0.027f);
++			newSmallFont = CglFont::TryConstructFont(action.extra, smallFont-&gt;GetCharStart(), smallFont-&gt;GetCharEnd(), 0.016f);
+ 		} catch (std::exception e) {
+-			delete newFont;
+-			newFont = NULL;
++			if (newFont) delete newFont;
++			if (newSmallFont) delete newSmallFont;
++			newFont = newSmallFont = NULL;
+ 			logOutput.Print(string(&quot;font error: &quot;) + e.what());
+ 		}
+-		if (newFont != NULL) {
++		if (newFont != NULL &amp;&amp; newSmallFont != NULL) {
+ 			delete font;
++			delete smallFont;
+ 			font = newFont;
++			smallFont = newSmallFont;
+ 			logOutput.Print(&quot;Loaded font: %s\n&quot;, action.extra.c_str());
+ 			configHandler.SetString(&quot;FontFile&quot;, action.extra);
+ 			LuaOpenGL::CalcFontHeight();
+@@ -2257,22 +2259,12 @@
+ 	glEnable(GL_TEXTURE_2D);
+ 
+ 	if(gu-&gt;drawdebug){
+-		glPushMatrix();
++		//skriv ut fps etc
+ 		glColor4f(1,1,0.5f,0.8f);
+-		glTranslatef(0.03f,0.02f,0.0f);
+-		glScalef(0.03f,0.04f,0.1f);
++		font-&gt;glFormatAt(0.03f, 0.02f, 1.0f, &quot;FPS %d Frame %d Part %d(%d)&quot;,fps,gs-&gt;frameNum,ph-&gt;ps.size(),ph-&gt;currentParticles);
+ 
+-		//skriv ut fps etc
+-		font-&gt;glPrint(&quot;FPS %d Frame %d Part %d(%d)&quot;,fps,gs-&gt;frameNum,ph-&gt;ps.size(),ph-&gt;currentParticles);
+-		glPopMatrix();
+-
+-		if(playing){
+-			glPushMatrix();
+-			glTranslatef(0.03f,0.08f,0.0f);
+-			glScalef(0.02f,0.025f,0.1f);
+-			font-&gt;glPrint(&quot;xpos: %5.0f ypos: %5.0f zpos: %5.0f speed %2.2f&quot;,camera-&gt;pos.x,camera-&gt;pos.y,camera-&gt;pos.z,gs-&gt;speedFactor);
+-			glPopMatrix();
+-		}
++		if(playing)
++			font-&gt;glFormatAt(0.03f, 0.07f, 0.7f, &quot;xpos: %5.0f ypos: %5.0f zpos: %5.0f speed %2.2f&quot;,camera-&gt;pos.x,camera-&gt;pos.y,camera-&gt;pos.z,gs-&gt;speedFactor);
+ 	}
+ 
+ 	if( gameServer &amp;&amp; gameServer-&gt;WaitsOnCon() &amp;&amp;!gameSetup){
+@@ -2302,51 +2294,39 @@
+ 			SNPRINTF(buf, sizeof(buf), &quot;%02i:%02i:%02i&quot;, seconds / 3600,
+ 			                                 (seconds / 60) % 60, seconds % 60);
+ 		}
+-		const float xScale = 0.015f;
+-		const float yScale = 0.020f;
+-		const float tWidth = font-&gt;CalcTextWidth(buf) * xScale;
+-		glTranslatef(0.99f - tWidth, 0.94f, 1.0f);
+-		glScalef(xScale, yScale, 1.0f);
++
++		const float fontScale = 1.0f;
++
+ 		glColor4f(1,1,1,1);
+ 		if (!outlineFont.IsEnabled()) {
+-			font-&gt;glPrintRaw(buf);
++			smallFont-&gt;glPrintRight(0.99f, 0.94f, fontScale, buf);
+ 		} else {
+-			const float xPixel  = 1.0f / (xScale * (float)gu-&gt;viewSizeX);
+-			const float yPixel  = 1.0f / (yScale * (float)gu-&gt;viewSizeY);
+ 			const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+-			outlineFont.print(xPixel, yPixel, white, buf);
++			smallFont-&gt;glPrintOutlinedRight(0.99f, 0.94f, fontScale, buf, white);
+ 		}
+-		glLoadIdentity();
+ 	}
+ 
+ 	if (showFPS) {
+ 		char buf[32];
+ 		SNPRINTF(buf, sizeof(buf), &quot;%i&quot;, fps);
+-		const float xScale = 0.015f;
+-		const float yScale = 0.020f;
+-		const float tWidth = font-&gt;CalcTextWidth(buf) * xScale;
+-		glTranslatef(0.99f - tWidth, 0.92f, 1.0f);
+-		glScalef(xScale, yScale, 1.0f);
+-		glColor4f(1.0f, 1.0f, 0.25f, 1.0f);
++
++		const float fontScale = 1.0f;
++
+ 		if (!outlineFont.IsEnabled()) {
+-			font-&gt;glPrintRaw(buf);
++			glColor4f(1.0f, 1.0f, 0.25f, 1.0f);
++			smallFont-&gt;glPrintRight(0.99f, 0.92f, fontScale, buf);
+ 		} else {
+-			const float xPixel  = 1.0f / (xScale * (float)gu-&gt;viewSizeX);
+-			const float yPixel  = 1.0f / (yScale * (float)gu-&gt;viewSizeY);
+ 			const float yellow[4] = { 1.0f, 1.0f, 0.25f, 1.0f };
+-			outlineFont.print(xPixel, yPixel, yellow, buf);
++			smallFont-&gt;glPrintOutlinedRight(0.99f, 0.92f, fontScale, buf, yellow);
+ 		}
+-		glLoadIdentity();
+ 	}
+ 
+ 	if (playerRoster.GetSortType() != PlayerRoster::Disabled){
+ 		char buf[128];
+-		const float xScale = 0.015f;
+-		const float yScale = 0.020f;
+-		const float xPixel  = 1.0f / (xScale * (float)gu-&gt;viewSizeX);
+-		const float yPixel  = 1.0f / (yScale * (float)gu-&gt;viewSizeY);
++		const float fontScale = 1.0f;
+ 		int count;
+ 		const int* indices = playerRoster.GetIndices(&amp;count);
++
+ 		for (int a = 0; a &lt; count; ++a) {
+ 			const CPlayer* p = gs-&gt;players[indices[a]];
+ 			float color[4];
+@@ -2374,15 +2354,13 @@
+ 						(gu-&gt;spectating &amp;&amp; !p-&gt;spectator &amp;&amp; (gu-&gt;myTeam == p-&gt;team)) ? '-' : ' ',
+ 						p-&gt;team, prefix, p-&gt;playerName.c_str(), p-&gt;cpuUsage * 100.0f,
+ 						(int)(((p-&gt;ping) * 1000) / (GAME_SPEED * gs-&gt;speedFactor)));
+-			glTranslatef(0.76f, 0.01f + (0.02f * (count - a - 1)), 1.0f);
+-			glScalef(xScale, yScale, 1.0f);
+-			glColor4fv(color);
++
+ 			if (!outlineFont.IsEnabled()) {
+-				font-&gt;glPrintRaw(buf);
++				glColor4fv(color);
++				smallFont-&gt;glPrintAt(0.76f, 0.01f + (0.02f * (count - a - 1)), fontScale, buf);
+ 			} else {
+-				outlineFont.print(xPixel, yPixel, color, buf);
++				smallFont-&gt;glPrintOutlinedAt(0.76f, 0.01f + (0.02f * (count - a - 1)), fontScale, buf, color);
+ 			}
+-			glLoadIdentity();
+ 		}
+ 	}
+ 
+@@ -2442,14 +2420,18 @@
+ 	const int caretPos = userPrompt.length() + writingPos;
+ 	const string caretStr = tempstring.substr(0, caretPos);
+ 	const float caretWidth = font-&gt;CalcTextWidth(caretStr.c_str());
++
+ 	char c = userInput[writingPos];
+ 	if (c == 0) { c = ' '; }
+-	const float cw = inputTextSizeX * font-&gt;CalcCharWidth(c);
+-	const float csx = inputTextPosX + (inputTextSizeX * caretWidth);
++
++	const float fontScale = 1.0f;		// TODO: make configurable again
++
++	const float cw = fontScale * font-&gt;CalcCharWidth(c);
++	const float csx = inputTextPosX + (fontScale * caretWidth);
+ 	glDisable(GL_TEXTURE_2D);
+ 	const float f = 0.5f * (1.0f + sin((float)SDL_GetTicks() * 0.015f));
+ 	glColor4f(f, f, f, 0.75f);
+-	glRectf(csx, inputTextPosY, csx + cw, inputTextPosY + inputTextSizeY);
++	glRectf(csx, inputTextPosY, csx + cw, inputTextPosY + font-&gt;GetHeight() * fontScale);
+ 	glEnable(GL_TEXTURE_2D);
+ 
+ 	// setup the color
+@@ -2468,15 +2450,11 @@
+ 	}
+ 
+ 	// draw the text
+-	glTranslatef(inputTextPosX, inputTextPosY, 0.0f);
+-	glScalef(inputTextSizeX, inputTextSizeY, 1.0f);
+ 	if (!outlineFont.IsEnabled()) {
+ 		glColor4fv(textColor);
+-		font-&gt;glPrintRaw(tempstring.c_str());
++		font-&gt;glPrintAt(inputTextPosX, inputTextPosY, fontScale, tempstring.c_str());
+ 	} else {
+-		const float xPixel  = 1.0f / (inputTextSizeX * (float)gu-&gt;viewSizeX);
+-		const float yPixel  = 1.0f / (inputTextSizeY * (float)gu-&gt;viewSizeY);
+-		outlineFont.print(xPixel, yPixel, textColor, tempstring.c_str());
++		font-&gt;glPrintOutlinedAt(inputTextPosX, inputTextPosY, fontScale, tempstring.c_str(), textColor);
+ 	}
+ 	glLoadIdentity();
+ }
+@@ -3581,40 +3559,27 @@
+ 
+ 		glEnable(GL_TEXTURE_2D);
+ 
+-		glPushMatrix();
+-		glTranslatef(0.02f, 0.65f, 0);
+-		glScalef(0.03f,0.03f,0.03f);
+ 		glColor4d(0.2f,0.8f,0.2f,0.8f);
+-		font-&gt;glPrint(&quot;Health %.0f&quot;,unit-&gt;health);
+-		glPopMatrix();
++		font-&gt;glFormatAt(0.02f, 0.65f, 1.0f, &quot;Health %.0f&quot;,unit-&gt;health);
+ 
+ 		if(gs-&gt;players[gu-&gt;myPlayerNum]-&gt;myControl.mouse2){
+-			glPushMatrix();
+-			glTranslatef(0.02f,0.7f,0);
+-			glScalef(0.03f,0.03f,0.03f);
+-			glColor4d(0.2f,0.8f,0.2f,0.8f);
+-			font-&gt;glPrint(&quot;Free fire mode&quot;);
+-			glPopMatrix();
++			font-&gt;glPrintAt(0.02f, 0.7f, 1.0f, &quot;Free fire mode&quot;);
+ 		}
+ 		for(int a=0;a&lt;unit-&gt;weapons.size();++a){
+-			glPushMatrix();
+-			glTranslatef(0.02f,0.32f-a*0.04f,0);
+-			glScalef(0.0225f,0.03f,0.03f);
+ 			CWeapon* w=unit-&gt;weapons[a];
+ 			const WeaponDef* wd = w-&gt;weaponDef;
+ 			if(!wd-&gt;isShield){
+ 				if(w-&gt;reloadStatus&gt;gs-&gt;frameNum){
+ 					glColor4d(0.8f,0.2f,0.2f,0.8f);
+-					font-&gt;glPrint(&quot;%s: Reloading&quot;,wd-&gt;description.c_str());
++					font-&gt;glFormatAt(0.02f, 0.32f - a * 0.04f, 0.8f, &quot;%s: Reloading&quot;, wd-&gt;description.c_str());
+ 				} else if(!w-&gt;angleGood){
+ 					glColor4d(0.6f,0.6f,0.2f,0.8f);
+-					font-&gt;glPrint(&quot;%s: Aiming&quot;,wd-&gt;description.c_str());
++					font-&gt;glFormatAt(0.02f, 0.32f - a * 0.04f, 0.8f, &quot;%s: Aiming&quot;,wd-&gt;description.c_str());
+ 				} else {
+ 					glColor4d(0.2f,0.8f,0.2f,0.8f);
+-					font-&gt;glPrint(&quot;%s: Ready&quot;,wd-&gt;description.c_str());
++					font-&gt;glFormatAt(0.02f, 0.32f - a * 0.04f, 0.8f, &quot;%s: Ready&quot;,wd-&gt;description.c_str());
+ 				}
+ 			}
+-			glPopMatrix();
+ 		}
+ 	} // end IF drawFpsHUD
+ 
+
+Modified: trunk/rts/Game/PreGame.cpp
+===================================================================
+--- trunk/rts/Game/PreGame.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Game/PreGame.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -247,8 +247,7 @@
+ 		const float xStart = 0.10f;
+ 		const float yStart = 0.75f;
+ 
+-		const float xScale = 0.03f;
+-		const float yScale = 0.04f;
++		const float fontScale = 1.0f;
+ 
+ 		// draw the caret
+ 		const int caretPos = userPrompt.length() + writingPos;
+@@ -256,19 +255,16 @@
+ 		const float caretWidth = font-&gt;CalcTextWidth(caretStr.c_str());
+ 		char c = userInput[writingPos];
+ 		if (c == 0) { c = ' '; }
+-		const float cw = xScale * font-&gt;CalcCharWidth(c);
+-		const float csx = xStart + (xScale * caretWidth);
++		const float cw = fontScale * font-&gt;CalcCharWidth(c);
++		const float csx = xStart + (fontScale * caretWidth);
+ 		glDisable(GL_TEXTURE_2D);
+ 		const float f = 0.5f * (1.0f + sin((float)SDL_GetTicks() * 0.015f));
+ 		glColor4f(f, f, f, 0.75f);
+-		glRectf(csx, yStart, csx + cw, yStart + yScale);
++		glRectf(csx, yStart, csx + cw, yStart + fontScale * font-&gt;GetHeight());
+ 		glEnable(GL_TEXTURE_2D);
+ 
+ 		glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+-		glTranslatef(xStart, yStart, 0.0f);
+-		glScalef(xScale, yScale, 1.0f);
+-		font-&gt;glPrintRaw(tempstring.c_str());
+-		glLoadIdentity();
++		font-&gt;glPrintAt(xStart, yStart, fontScale, tempstring.c_str());
+ 	}
+ 
+ 	if (showList) {
+
+Modified: trunk/rts/Game/UI/CursorIcons.cpp
+===================================================================
+--- trunk/rts/Game/UI/CursorIcons.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Game/UI/CursorIcons.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -122,33 +122,26 @@
+ 	glViewport(gu-&gt;viewPosX, 0, gu-&gt;viewSizeX, gu-&gt;viewSizeY);
+ 	glColor4f(1.0f,  1.0f, 1.0f, 1.0f);
+ 
+-	const float yScale = 20.0f / (float)gu-&gt;viewSizeX;
+-	const float xScale = yScale / gu-&gt;aspectRatio;
+-	const float xPixel  = 1.0f / (xScale * (float)gu-&gt;viewSizeX);
+-	const float yPixel  = 1.0f / (yScale * (float)gu-&gt;viewSizeY);
+-	const float yOffset = -50.0f / (float)gu-&gt;viewSizeX;
++	const float fontScale = 1.0f;
++	const float yOffset = 50.0f * gu-&gt;pixelY;
+ 	
+ 	std::set&lt;IconText&gt;::iterator it;
+ 	for (it = texts.begin(); it != texts.end(); ++it) {
+ 		const float3 winPos = camera-&gt;CalcWindowCoordinates(it-&gt;pos);
+ 		if (winPos.z &lt;= 1.0f) {
+ 			const char* text = it-&gt;text.c_str();
+-			const float tWidth  = xScale * font-&gt;CalcTextWidth(text);
+-			const float tHeight = yScale * font-&gt;CalcTextHeight(text);
+-			const float x = (winPos.x / (float)gu-&gt;viewSizeX) - (0.5f * tWidth);
+-			const float y = (winPos.y / (float)gu-&gt;viewSizeY) + tHeight + yOffset;
++			const float tWidth  = fontScale * font-&gt;CalcTextWidth(text);
++			const float tHeight = fontScale * font-&gt;CalcTextHeight(text);
++			const float x = (winPos.x * gu-&gt;pixelX) - (0.5f * tWidth);
++			const float y = (winPos.y * gu-&gt;pixelY) + tHeight + yOffset;
+ 
+-			glPushMatrix();
+-			glTranslatef(x, y, 0.0f);
+-			glScalef(xScale, yScale, 1.0f);
+ 			if (outlineFont.IsEnabled()) {
+ 				const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+-				const float black[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+-				font-&gt;glPrintOutlined(text, xPixel, yPixel, white, black);
++				//const float black[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
++				font-&gt;glPrintOutlinedAt(x, y, fontScale, text, white);
+ 			} else {
+-				font-&gt;glPrintRaw(text);
++				font-&gt;glPrintAt(x, y, fontScale, text);
+ 			}
+-			glPopMatrix();
+ 		}
+ 	}
+ }
+@@ -237,3 +230,6 @@
+ }
+ 
+ 
++
++
++
+
+Modified: trunk/rts/Game/UI/EndGameBox.cpp
+===================================================================
+--- trunk/rts/Game/UI/EndGameBox.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Game/UI/EndGameBox.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -310,15 +310,15 @@
+ 		float scaley=0.54f/maxy;
+ 
+ 		for (int a = 0; a &lt; 5; ++a) {
+-			font-&gt;glPrintAt(box.x1 + 0.12f, box.y1 + 0.07f + (a * 0.135f), 0.8f, &quot;%s&quot;,
++			font-&gt;glPrintAt(box.x1 + 0.12f, box.y1 + 0.07f + (a * 0.135f), 0.8f,
+ 			                FloatToSmallString(maxy * 0.25f * a).c_str());
+-			font-&gt;glPrintAt(box.x1 + 0.135f + (a * 0.135f), box.y1 + 0.057f, 0.8f, &quot;%02i:%02i&quot;,
++			font-&gt;glFormatAt(box.x1 + 0.135f + (a * 0.135f), box.y1 + 0.057f, 0.8f, &quot;%02i:%02i&quot;,
+ 			                int(a * 0.25f * numPoints * CTeam::statsPeriod / 60),
+ 			                int(a * 0.25f * (numPoints - 1) * CTeam::statsPeriod) % 60);
+ 		}
+ 
+-		font-&gt;glPrintAt(box.x1+0.55f,box.y1+0.65f,0.8f,&quot;%s&quot;,stats[stat1].name.c_str());
+-		font-&gt;glPrintAt(box.x1+0.55f,box.y1+0.63f,0.8f,&quot;%s&quot;,stat2!=-1?stats[stat2].name.c_str():&quot;&quot;);
++		font-&gt;glPrintAt(box.x1+0.55f,box.y1+0.65f,0.8f, stats[stat1].name.c_str());
++		font-&gt;glPrintAt(box.x1+0.55f,box.y1+0.63f,0.8f, stat2!=-1?stats[stat2].name.c_str():&quot;&quot;);
+ 
+ 		glDisable(GL_TEXTURE_2D);
+ 		glBegin(GL_LINES);
+
+Modified: trunk/rts/Game/UI/GameInfo.cpp
+===================================================================
+--- trunk/rts/Game/UI/GameInfo.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Game/UI/GameInfo.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -79,7 +79,7 @@
+ 	FontString(float f)	: msg(floatString(f)) { CalcDimensions(); }
+ 	void CalcDimensions() {
+ 		width = font-&gt;CalcTextWidth(msg.c_str());
+-		height = font-&gt;CalcTextHeight(msg.c_str());
++		height = font-&gt;GetHeight();
+ 	}
+ 	string msg;
+ 	float width;
+@@ -204,30 +204,26 @@
+ 		values.push_back(&quot;ENABLED&quot;);
+ 	}
+ 
+-	// in pixels	
+-	const float split = 10.0f;
+-	const float border = 5.0f;
+-	const float xFontScale = 32.0f; // should not have to have these...
+-	const float yFontScale = 32.0f;
++	// in screen fractions
++	const float split = 10.0f / (float)gu-&gt;viewSizeX;
++	const float xBorder = 5.0f / (float)gu-&gt;viewSizeX;
++	const float yBorder = 5.0f / (float)gu-&gt;viewSizeY;
++
+ 	float labelsWidth, labelsHeight;
+ 	float valuesWidth, valuesHeight;
+ 	StringListStats(labels, labelsWidth, labelsHeight);
+ 	StringListStats(values, valuesWidth, valuesHeight);
+-	const float width = ((xFontScale * (labelsWidth + valuesWidth)) + split + (2.0f * border));
+-	const float rowHeight = (yFontScale * std::max(labelsHeight, valuesHeight)) + (2.0f * border);
++
++	const float width = labelsWidth + valuesWidth + split + 2.0f * xBorder;
++	const float rowHeight = std::max(labelsHeight, valuesHeight) + 2.0f * yBorder;
+ 	const float height = rowHeight * (float)(labels.size());
+ 
+-	// in screen fractions
+-	const float sx = (float)gu-&gt;viewSizeX;
+-	const float sy = (float)gu-&gt;viewSizeY;
+-	const float dy = (height / sy) / (float)labels.size();
+-	const float xBorder = border / sx;
+-	const float yBorder = border / sy;
++	const float dy = height / (float)labels.size();
+ 	
+-	box.x1 = 0.5f - (width / (2.0f * sx)); 
+-	box.x2 = 0.5f + (width / (2.0f * sx)); 
+-	box.y1 = 0.5f - (height / (2.0f * sy)); 
+-	box.y2 = 0.5f + (height / (2.0f * sy)); 
++	box.x1 = 0.5f - (width * 0.5f); 
++	box.x2 = 0.5f + (width * 0.5f);
++	box.y1 = 0.5f - (height * 0.5f);
++	box.y2 = 0.5f + (height * 0.5f);
+ 
+ 	glDisable(GL_TEXTURE_2D);
+ 	glEnable(GL_BLEND);
+
+Modified: trunk/rts/Game/UI/GameSetupDrawer.cpp
+===================================================================
+--- trunk/rts/Game/UI/GameSetupDrawer.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Game/UI/GameSetupDrawer.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -120,12 +120,7 @@
+ 	}
+ 
+ 	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+-	glPushMatrix();
+-	glTranslatef(0.3f, 0.7f, 0.0f);
+-	glScalef(0.03f, 0.04f, 0.1f);
+-	glTranslatef(xshift, 0.0f, 0.0f);
+-	font-&gt;glPrint(state.c_str());
+-	glPopMatrix();
++	font-&gt;glPrintAt(0.3f, 0.7f, 1.0f, state.c_str());
+ 
+ 	for (int a = 0; a &lt;= gameSetup-&gt;numPlayers; a++) {
+ 		const float* color;
+@@ -133,7 +128,6 @@
+ 		const float  green[4] = { 0.2f, 1.0f, 0.2f, 1.0f };
+ 		const float yellow[4] = { 0.8f, 0.8f, 0.2f, 1.0f };
+ 		const float  white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+-		const float   dark[4] = { 0.2f, 0.2f, 0.2f, 0.8f };
+ 		if (a == gameSetup-&gt;numPlayers) {
+ 			color = white; //blue;
+ 		} else if (!gs-&gt;players[a]-&gt;readyToStart) {
+@@ -150,17 +144,11 @@
+ 		} else {
+ 			name = gs-&gt;players[a]-&gt;playerName.c_str();
+ 		}
+-		const float yScale = 0.028f;
+-		const float xScale = yScale / gu-&gt;aspectRatio;
+-		const float xPixel = 1.0f / (xScale * (float)gu-&gt;viewSizeX);
+-		const float yPixel = 1.0f / (yScale * (float)gu-&gt;viewSizeY);
++		const float fontScale = 1.0f;
++		const float yScale = fontScale * font-&gt;GetHeight();
+ 		const float yPos = 0.5f - (0.5f * yScale * gameSetup-&gt;numPlayers) + (yScale * (float)a);
+-		const float xPos = xScale;
+-		glPushMatrix();
+-		glTranslatef(xPos, yPos, 0.0f);
+-		glScalef(xScale, yScale, 1.0f);
+-		font-&gt;glPrintOutlined(name, xPixel, yPixel, color, dark);
+-		glPopMatrix();
++		const float xPos = 10.0f * gu-&gt;pixelX;
++		font-&gt;glPrintOutlinedAt(xPos, yPos, fontScale, name, color);
+ 	}
+ }
+ 
+@@ -176,3 +164,6 @@
+ }
+ 
+ 
++
++
++
+
+Modified: trunk/rts/Game/UI/GuiHandler.cpp
+===================================================================
+--- trunk/rts/Game/UI/GuiHandler.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Game/UI/GuiHandler.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -2838,37 +2838,20 @@
+ 	const float textBorder2 = (2.0f * textBorder);
+ 	float xScale = (xIconSize - textBorder2) / tWidth;
+ 	float yScale = (yIconSize - textBorder2 - yShrink) / tHeight;
++	const float fontScale = min(xScale, yScale);
+ 
+-	const float yRatio = xScale * gu-&gt;aspectRatio;
+-	if (yRatio &lt; yScale) {
+-		yScale = yRatio;
+-	} else {
+-		const float xRatio = yScale / gu-&gt;aspectRatio;
+-		if (xRatio &lt; xScale) {
+-			xScale = xRatio;
+-		}
+-	}
+-
+ 	const float xCenter = 0.5f * (b.x1 + b.x2);
+ 	const float yCenter = 0.5f * (b.y1 + (b.y2 + yShrink));
+-	const float xStart  = xCenter - (0.5f * xScale * tWidth);
+-	const float yStart  = yCenter - (0.5f * yScale * (1.25f * tHeight));
++	const float xStart = xCenter - 0.5f * fontScale * tWidth;
++	const float yStart  = yCenter - (0.5f * fontScale * (1.25f * tHeight));
+ 	const float dShadow = 0.002f;
+ 
+ 	if (dropShadows) {
+-		glPushMatrix();
+ 		glColor4f(0.0f, 0.0f, 0.0f, 0.8f);
+-		glTranslatef(xStart + dShadow, yStart - dShadow, 0.0f);
+-		glScalef(xScale, yScale, 1.0f);
+-		font-&gt;glPrintRaw(StripColorCodes(text).c_str());
+-		glPopMatrix();
++		font-&gt;glPrintAt(xStart + dShadow, yStart - dShadow, fontScale, StripColorCodes(text).c_str());
+ 	}
+ 	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+-	glTranslatef(xStart, yStart, 0.0f);
+-	glScalef(xScale, yScale, 1.0f);
+-	font-&gt;glPrintColor(&quot;%s&quot;,text.c_str());
+-
+-	glLoadIdentity();
++	font-&gt;glPrintAt(xStart, yStart, fontScale, text.c_str());
+ }
+ 
+ 
+@@ -2879,14 +2862,11 @@
+ 	}
+ 	const Box&amp; b = icon.visual;
+ 	const float tHeight = font-&gt;CalcTextHeight(text.c_str());
+-	const float yScale = (yIconSize * 0.2f) / tHeight;
+-	const float xScale = yScale / gu-&gt;aspectRatio;
++	const float fontScale = (yIconSize * 0.2f) / tHeight;
+ 	const float xPos = b.x1 + textBorder + 0.002f;
+-	const float yPos = b.y1 - textBorder - (yScale * tHeight) - 0.006f;
+-	glTranslatef(xPos, yPos, 0.0f);
+-	glScalef(xScale, yScale, 1.0f);
+-	font-&gt;glPrintColor(&quot;%s&quot;, text.c_str());
+-	glLoadIdentity();
++	const float yPos = b.y1 - textBorder - (fontScale * tHeight) - 0.006f;
++
++	font-&gt;glPrintColorAt(xPos, yPos, fontScale, text.c_str());
+ }
+ 
+ 
+@@ -2897,14 +2877,11 @@
+ 	}
+ 	const Box&amp; b = icon.visual;
+ 	const float tHeight = font-&gt;CalcTextHeight(text.c_str());
+-	const float yScale = (yIconSize * 0.2f) / tHeight;
+-	const float xScale = yScale / gu-&gt;aspectRatio;
++	const float fontScale = (yIconSize * 0.2f) / tHeight;
+ 	const float xPos = b.x1 + textBorder + 0.002f;
+ 	const float yPos = b.y2 + textBorder + 0.002f;
+-	glTranslatef(xPos, yPos, 0.0f);
+-	glScalef(xScale, yScale, 1.0f);
+-	font-&gt;glPrintColor(&quot;%s&quot;, text.c_str());
+-	glLoadIdentity();
++
++	font-&gt;glPrintColorAt(xPos, yPos, fontScale, text.c_str());
+ }
+ 
+ 
+@@ -2916,14 +2893,11 @@
+ 	const Box&amp; b = icon.visual;
+ 	const float tWidth = font-&gt;CalcTextWidth(text.c_str());
+ 	const float tHeight = font-&gt;CalcTextHeight(text.c_str());
+-	const float yScale = (yIconSize * 0.2f) / tHeight;
+-	const float xScale = yScale / gu-&gt;aspectRatio;
+-	const float xPos = b.x2 - textBorder - (xScale * tWidth) - 0.002f;
+-	const float yPos = b.y1 - textBorder - (yScale * tHeight) - 0.006f;
+-	glTranslatef(xPos, yPos, 0.0f);
+-	glScalef(xScale, yScale, 1.0f);
+-	font-&gt;glPrintColor(&quot;%s&quot;, text.c_str());
+-	glLoadIdentity();
++	const float fontScale = (yIconSize * 0.2f) / tHeight;
++	const float xPos = b.x2 - textBorder - (fontScale * tWidth) - 0.002f;
++	const float yPos = b.y1 - textBorder - (fontScale * tHeight) - 0.006f;
++	
++	font-&gt;glPrintColorAt(xPos, yPos, fontScale, text.c_str());
+ }
+ 
+ 
+@@ -2935,14 +2909,11 @@
+ 	const Box&amp; b = icon.visual;
+ 	const float tWidth = font-&gt;CalcTextWidth(text.c_str());
+ 	const float tHeight = font-&gt;CalcTextHeight(text.c_str());
+-	const float yScale = (yIconSize * 0.2f) / tHeight;
+-	const float xScale = yScale / gu-&gt;aspectRatio;
+-	const float xPos = b.x2 - textBorder - (xScale * tWidth) - 0.002f;
++	const float fontScale = (yIconSize * 0.2f) / tHeight;
++	const float xPos = b.x2 - textBorder - (fontScale * tWidth) - 0.002f;
+ 	const float yPos = b.y2 + textBorder + 0.002f;
+-	glTranslatef(xPos, yPos, 0.0f);
+-	glScalef(xScale, yScale, 1.0f);
+-	font-&gt;glPrintColor(&quot;%s&quot;, text.c_str());
+-	glLoadIdentity();
++
++	font-&gt;glPrintColorAt(xPos, yPos, fontScale, text.c_str());
+ }
+ 
+ 
+@@ -2963,7 +2934,6 @@
+ 	glVertex2f(b.x2, b.y1);
+ 	glVertex2f(b.x2, b.y2);
+ 	glVertex2f(b.x1, b.y2);
+-	glVertex2f(b.x1, b.y1);
+ 	glEnd();
+ 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+ }
+@@ -2984,7 +2954,6 @@
+ 		glVertex2f(buttonBox.x1 - fx, buttonBox.y2);
+ 		glVertex2f(buttonBox.x2 - fx, buttonBox.y2);
+ 		glVertex2f(buttonBox.x2 - fx, buttonBox.y1);
+-		glVertex2f(buttonBox.x1 - fx, buttonBox.y1);
+ 		glEnd();
+ 	}
+ 
+@@ -3123,7 +3092,7 @@
+ 		}
+ 		const float textSize = 1.2f;
+ 		const float yBbot =
+-			yBpos - (textSize * 0.5f * (font-&gt;CalcTextHeight(buf) / 32.0f));
++			yBpos - (textSize * 0.5f * font-&gt;CalcTextHeight(buf));
+ 		font-&gt;glPrintCentered(xBpos, yBbot, textSize, buf);
+ 	}
+ 
+@@ -3140,10 +3109,9 @@
+ 	if (!menuName.empty() &amp;&amp; (iconsCount &gt; 0)) {
+ 		const char* text = menuName.c_str();
+ 
+-		const float xScale = 0.0225f;
+-		const float yScale = xScale * gu-&gt;aspectRatio;
+-		const float textWidth  = xScale * font-&gt;CalcTextWidth(text);
+-		const float textHeight = yScale * font-&gt;CalcTextHeight(text);
++		const float fontScale = 1.0f;
++		const float textWidth  = fontScale * font-&gt;CalcTextWidth(text);
++		const float textHeight = fontScale * font-&gt;CalcTextHeight(text);
+ 		const float xp = 0.5f * (buttonBox.x1 + buttonBox.x2 - textWidth);
+ 		const float yp = buttonBox.y2 + (yIconSize * 0.125f);
+ 
+@@ -3154,21 +3122,14 @@
+ 							buttonBox.y2,
+ 							buttonBox.x2,
+ 							buttonBox.y2 + (textHeight * 1.25f) + (yIconSize * 0.250f));
+-			glTranslatef(xp, yp, 0.0f);
+-			glScalef(xScale, yScale, 1.0f);
+-			font-&gt;glPrintColor(&quot;%s&quot;, text);
++			font-&gt;glPrintColorAt(xp, yp, fontScale, text);
+ 		}
+ 		else {
+-			glTranslatef(xp, yp, 0.0f);
+-			glScalef(xScale, yScale, 1.0f);
+-			const float xPixel  = 1.0f / (xScale * (float)gu-&gt;viewSizeX);
+-			const float yPixel  = 1.0f / (yScale * (float)gu-&gt;viewSizeY);
+ 			// use (alpha == 0.0) so that we only get the outline
+ 			const float white[4] = { 1.0f, 1.0f, 1.0f, 0.0f };
+-			outlineFont.print(xPixel, yPixel, white, StripColorCodes(text).c_str());
+-			font-&gt;glPrintColor(&quot;%s&quot;, text); // draw with color
++			font-&gt;glPrintOutlinedAt(xp, yp, fontScale, text, white);
++			font-&gt;glPrintColorAt(xp, yp, fontScale, text);
+ 		}
+-		glLoadIdentity();
+ 	}
+ 
+ }
+@@ -3188,12 +3149,12 @@
+ 			         selectedUnits.selectedUnits.size());
+ 		}
+ 
+-		const float xScale = 0.015f;
+-		const float yScale = xScale * gu-&gt;aspectRatio;
+-		const float textWidth  = xScale * font-&gt;CalcTextWidth(buf);
+-		const float textHeight = yScale * font-&gt;CalcTextHeight(buf);
++		const float fontScale = 1.0f;
+ 
+ 		if (!outlineFont.IsEnabled()) {
++			const float textWidth  = fontScale * smallFont-&gt;CalcTextWidth(buf);
++			const float textHeight = fontScale * smallFont-&gt;CalcTextHeight(buf);
++
+ 			glDisable(GL_TEXTURE_2D);
+ 			glColor4f(0.2f, 0.2f, 0.2f, guiAlpha);
+ 			glRectf(xSelectionPos - frameBorder,
+@@ -3201,19 +3162,11 @@
+ 							xSelectionPos + frameBorder + textWidth,
+ 							ySelectionPos + frameBorder + (textHeight * 1.2f));
+ 			glColor4f(1.0f, 1.0f, 1.0f, 0.8f);
+-			glTranslatef(xSelectionPos, ySelectionPos, 0.0f);
+-			glScalef(xScale, yScale, 1.0f);
+-			font-&gt;glPrintRaw(buf);
++			smallFont-&gt;glPrintAt(xSelectionPos, ySelectionPos, fontScale, buf);
+ 		}
+ 		else {
+-			glTranslatef(xSelectionPos, ySelectionPos, 0.0f);
+-			glScalef(xScale, yScale, 1.0f);
+-
+-			const float xPixel  = 1.0f / (xScale * (float)gu-&gt;viewSizeX);
+-			const float yPixel  = 1.0f / (yScale * (float)gu-&gt;viewSizeY);
+-
+ 			const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+-			outlineFont.print(xPixel, yPixel, white, buf);
++			smallFont-&gt;glPrintOutlinedAt(xSelectionPos, ySelectionPos, fontScale, buf, white);
+ 		}
+ 		glLoadIdentity();
+ 	}
+
+Modified: trunk/rts/Game/UI/InfoConsole.cpp
+===================================================================
+--- trunk/rts/Game/UI/InfoConsole.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Game/UI/InfoConsole.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -64,11 +64,12 @@
+ 
+ 	boost::recursive_mutex::scoped_lock scoped_lock(infoConsoleMutex);
+ 
+-	glPushMatrix();
+-	glDisable(GL_TEXTURE_2D);
+-	glColor4f(0.2f, 0.2f, 0.2f, CInputReceiver::guiAlpha);
+-
+ 	if(!data.empty() &amp;&amp; !outlineFont.IsEnabled()){
++		glDisable(GL_TEXTURE_2D);
++		glEnable(GL_BLEND);
++		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++		glColor4f(0.2f, 0.2f, 0.2f, CInputReceiver::guiAlpha);
++
+ 		glBegin(GL_TRIANGLE_STRIP);
+ 			glVertex3f(xpos,ypos,0);
+ 			glVertex3f(xpos+width,ypos,0);
+@@ -77,38 +78,30 @@
+ 		glEnd();
+ 	}
+ 
+-	const float xScale = 0.015f;
+-	const float yScale = 0.020f;
++	const float fontScale = 0.6f;
++	const float fontHeight = fontScale * font-&gt;GetHeight();
+ 
+-	glTranslatef(xpos + 0.01f, ypos - 0.026f, 0.0f);
+-	glScalef(xScale, yScale, 1.0f);
++	float curX = xpos + 0.01f;
++	float curY = ypos - 0.026f;
+ 
+-	glEnable(GL_TEXTURE_2D);
+-
+ 	if (!outlineFont.IsEnabled()) {
+ 		glColor4f(1,1,1,1);
+ 
+ 		std::deque&lt;InfoLine&gt;::iterator ili;
+ 		for (ili = data.begin(); ili != data.end(); ili++) {
+-			glPushMatrix();
+-			font-&gt;glPrintRaw(ili-&gt;text.c_str());
+-			glPopMatrix();
+-			glTranslatef(0.0f, -1.2f, 0.0f);
++			font-&gt;glPrintAt(curX, curY, fontScale, ili-&gt;text.c_str());
++			curY -= fontHeight;
+ 		}
+ 	}
+ 	else {
+-		const float xPixel = 1.0f / (xScale * (float)gu-&gt;viewSizeX);
+-		const float yPixel = 1.0f / (yScale * (float)gu-&gt;viewSizeY);
+ 		const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+ 
+ 		std::deque&lt;InfoLine&gt;::iterator ili;
+ 		for (ili = data.begin(); ili != data.end(); ili++) {
+-			outlineFont.print(xPixel, yPixel, white, ili-&gt;text.c_str());
+-			glTranslatef(0.0f, -1.2f, 0.0f);
++			font-&gt;glPrintOutlinedAt(curX, curY, fontScale, ili-&gt;text.c_str(), white);
++			curY -= fontHeight;
+ 		}
+ 	}
+-
+-	glPopMatrix();
+ }
+ 
+ 
+@@ -178,7 +171,7 @@
+ 		char temp[120];
+ 		float w = 0.0f;
+ 		for (;text[pos] &amp;&amp; pos-line_start &lt; sizeof(temp) - 1 &amp;&amp; w &lt;= maxWidth;pos++) {
+-			w += font-&gt;CalcCharWidth (text[pos]);
++			w += font-&gt;CalcCharWidth(text[pos]);
+ 			temp[pos-line_start] = text[pos];
+ 		}
+ 		temp[pos-line_start] = 0;
+
+Modified: trunk/rts/Game/UI/LuaUI.cpp
+===================================================================
+--- trunk/rts/Game/UI/LuaUI.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Game/UI/LuaUI.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -1095,7 +1095,7 @@
+ 	}
+ 
+ 	if (!lua_isstring(L, 1)) {
+-		logOutput.Print(&quot;LayoutButtons() bad xButtons or yButtons values\n&quot;);
++		logOutput.Print(&quot;LayoutButtons() bad menuName value\n&quot;);
+ 		lua_settop(L, top);
+ 		return false;
+ 	}
+
+Modified: trunk/rts/Game/UI/OutlineFont.cpp
+===================================================================
+--- trunk/rts/Game/UI/OutlineFont.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Game/UI/OutlineFont.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -21,23 +21,3 @@
+ COutlineFont::~COutlineFont()
+ {
+ }
+-
+-
+-void COutlineFont::print(float xps, float yps,
+-                         const float color[4], const char* text) const
+-{
+-	const float luminance = (color[0] * 0.299f) +
+-	                        (color[1] * 0.587f) +
+-	                        (color[2] * 0.114f);
+-	                        
+-	const float darkOutline[4]  = { 0.25f, 0.25f, 0.25f, 0.8f };
+-	const float lightOutline[4] = { 0.85f, 0.85f, 0.85f, 0.8f };
+-
+-	const float* outlineColor;
+-	if (luminance &gt; 0.25f) {
+-		outlineColor = darkOutline;
+-	} else {
+-		outlineColor = lightOutline;
+-	}
+-	font-&gt;glPrintOutlined(text, xps, yps, color, outlineColor);
+-}
+
+Modified: trunk/rts/Game/UI/OutlineFont.h
+===================================================================
+--- trunk/rts/Game/UI/OutlineFont.h	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Game/UI/OutlineFont.h	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -1,5 +1,8 @@
+ #ifndef __OUTLINE_FONT_H__
+ #define __OUTLINE_FONT_H__
++
++#include &quot;Rendering/glFont.h&quot;
++
+ // OutlineFont.h: interface for the COutlineFont class.
+ //
+ //////////////////////////////////////////////////////////////////////
+@@ -9,9 +12,6 @@
+ 		COutlineFont();
+ 		~COutlineFont();
+ 
+-		void print(float xPixelSize, float yPixelSize,
+-		           const float color[4], const char* text) const;
+-
+ 		void Enable(bool value) { enabled = value; }
+ 		bool IsEnabled() const { return enabled; }
+ 
+
+Modified: trunk/rts/Game/UI/ProfileDrawer.cpp
+===================================================================
+--- trunk/rts/Game/UI/ProfileDrawer.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Game/UI/ProfileDrawer.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -39,14 +39,13 @@
+ 		glEnd();
+ 	}
+ 
+-	glEnable(GL_TEXTURE_2D);
+ 	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+ 
+ 	std::map&lt;std::string, CTimeProfiler::TimeRecord&gt;::iterator pi;
+ 
+-	int y=0;
+-	for (pi = profiler.profile.begin(); pi != profiler.profile.end(); ++pi, y++)
+-		font-&gt;glPrintAt(0.655f, 0.960f-y*0.024f, 1.0f, &quot;%20s %6.2fs %5.2f%%&quot;,pi-&gt;first.c_str(),((float)pi-&gt;second.total)/1000.f,pi-&gt;second.percent*100);
++	int y = 0;
++	for (pi = profiler.profile.begin(); pi != profiler.profile.end(); ++pi, ++y)
++		font-&gt;glFormatAt(0.655f, 0.960f - y * 0.024f, 1.0f, &quot;%20s %6.2fs %5.2f%%&quot;, pi-&gt;first.c_str(), ((float)pi-&gt;second.total) / 1000.f, pi-&gt;second.percent * 100);
+ 
+ 	glTranslatef(0.655f,0.965f,0);
+ 	glScalef(0.015f,0.02f,0.02f);
+@@ -129,3 +128,4 @@
+ 
+ 
+ 
++
+
+Modified: trunk/rts/Game/UI/QuitBox.cpp
+===================================================================
+--- trunk/rts/Game/UI/QuitBox.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Game/UI/QuitBox.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -151,7 +151,7 @@
+ 			teamName = &quot;Gaia&quot;;
+ 			ally   = &quot; &lt;Gaia&gt;&quot;;
+ 		}
+-		font-&gt;glPrintAt(box.x1 + teamBox.x1 + 0.002f,
++		font-&gt;glFormatAt(box.x1 + teamBox.x1 + 0.002f,
+ 		                box.y1 + teamBox.y2 - 0.025f - team * 0.025f, 0.7f,
+ 		                &quot;Team%i (%s)%s%s&quot;, actualTeam,
+ 		                teamName.c_str(), ally.c_str(), dead.c_str());
+
+Modified: trunk/rts/Game/UI/ResourceBar.cpp
+===================================================================
+--- trunk/rts/Game/UI/ResourceBar.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Game/UI/ResourceBar.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -7,6 +7,8 @@
+ #include &quot;NetProtocol.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
++#include &quot;TimeProfiler.h&quot;
++
+ CResourceBar* resourceBar=0;
+ 
+ 
+@@ -20,12 +22,12 @@
+ 	metalBox.x1 = 0.09f;
+ 	metalBox.y1 = 0.01f;
+ 	metalBox.x2 = (box.x2 - box.x1) / 2.0f - 0.03f;
+-	metalBox.y2 = 0.024f;
++	metalBox.y2 = metalBox.y1 + (box.y2 - box.y1);		// extend to the very top of the screen
+ 
+ 	energyBox.x1 = 0.48f;
+ 	energyBox.y1 = 0.01f;
+ 	energyBox.x2 = box.x2 - 0.03f - box.x1;
+-	energyBox.y2 = 0.024f;
++	energyBox.y2 = energyBox.y1 + (box.y2 - box.y1);		// extend to the very top of the screen
+ }
+ 
+ 
+@@ -62,23 +64,22 @@
+ 
+ 	GLfloat x1,y1,x2,y2,x;
+ 
+-	// Box
+ 	glDisable(GL_TEXTURE_2D);
+ 	glEnable(GL_BLEND);
+ 	glDisable(GL_ALPHA_TEST);
+-	glColor4f(0.2f,0.2f,0.2f,guiAlpha);
+ 
+ 	glBegin(GL_QUADS);
++
++	// Box
++	glColor4f(0.2f,0.2f,0.2f,guiAlpha);
+ 	glVertex2f(box.x1, box.y1);
+ 	glVertex2f(box.x1, box.y2);
+ 	glVertex2f(box.x2, box.y2);
+ 	glVertex2f(box.x2, box.y1);
+-	glVertex2f(box.x1, box.y1);
+-	glEnd();
+ 
+ 	//layout metal in box
+ 	GLfloat metalx = box.x1+.01f;
+-	GLfloat metaly = box.y1+.002f;
++	GLfloat metaly = box.y1+.004f;
+ 
+ 	GLfloat metalbarx1 = metalx+.08f;
+ 	GLfloat metalbarx2 = box.x1+(box.x2-box.x1)/2.0f-.03f;
+@@ -91,63 +92,31 @@
+ 	y2 = metaly+.020f;
+ 	x = (1.0f * myTeam-&gt;metal / myTeam-&gt;metalStorage) * metalbarlen;
+ 
+-	glEnable(GL_TEXTURE_2D);
+-	glColor4f(1,1,1,0.8f);
+-	font-&gt;glPrintAt(metalx, metaly + 0.005f, 0.7f, &quot;&quot;);
+-	glDisable(GL_TEXTURE_2D);
+-
+ 	//metal draw
+ 	glColor4f(0.8f,0.8f,0.8f,0.2f);
+-	glBegin(GL_QUADS);
+ 	glVertex2f(x1, y1);
+ 	glVertex2f(x1, y2);
+ 	glVertex2f(x2, y2);
+ 	glVertex2f(x2, y1);
+-	glEnd();
+ 
+ 	glColor4f(1.0f,1.0f,1.0f,1.0f);
+-	glBegin(GL_QUADS);
+ 	glVertex2f(x1, y1);
+ 	glVertex2f(x1, y2);
+ 	glVertex2f(x1+x, y2);
+ 	glVertex2f(x1+x, y1);
+-	glEnd();
+ 
+ 	x = myTeam-&gt;metalShare*metalbarlen;
+ 	glColor4f(0.9f,0.2f,0.2f,0.7f);
+-	glBegin(GL_QUADS);
+ 	glVertex2f(x1+x+0.003f, y1-0.003f);
+ 	glVertex2f(x1+x+0.003f, y2+0.003f);
+ 	glVertex2f(x1+x-0.003f, y2+0.003f);
+ 	glVertex2f(x1+x-0.003f, y1-0.003f);
+-	glEnd();
+ 
+-	glEnable(GL_TEXTURE_2D);
+-	glColor4f(1,1,1,0.8f);
+-
+-	font-&gt;glPrintAt(metalx - 0.004f, metaly + 0.005f, 0.7f, &quot;Metal&quot;);
+-
+-	font-&gt;glPrintAt(metalbarx2 - 0.01f, metaly, 0.5f, &quot;%s&quot;,
+-	                FloatToSmallString(myTeam-&gt;metalStorage).c_str());
+-	font-&gt;glPrintAt(metalbarx1 + metalbarlen / 2.0f, metaly /*+.02f*/, 0.5f, &quot;%s&quot;,
+-	                FloatToSmallString(myTeam-&gt;metal).c_str());
+-
+-	glColor4f(1.0f, 0.4f, 0.4f, 1.0f); // Expenses
+-	font-&gt;glPrintAt(metalx + 0.044f, metaly - 0.002f, 0.5f, &quot;-%s(-%s)&quot;,
+-	                FloatToSmallString(fabs(myTeam-&gt;prevMetalPull)).c_str(),
+-	                FloatToSmallString(fabs(myTeam-&gt;metalSent)).c_str());
+-
+-	glColor4f(0.6f, 1.0f, 0.6f, 0.95f); // Income
+-	font-&gt;glPrintAt(metalx + 0.044f, metaly + 0.01f, 0.5f, &quot;+%s&quot;,
+-	                FloatToSmallString(myTeam-&gt;prevMetalIncome).c_str());
+-	                // FloatToSmallString(myTeam-&gt;metalReceived).c_str());
+-
+ 	// Energy
+-	glDisable(GL_TEXTURE_2D);
+ 
+ 	//layout energy in box
+ 	GLfloat energyx = box.x1 + 0.4f;
+-	GLfloat energyy = box.y1 + 0.002f;
++	GLfloat energyy = box.y1 + 0.004f;
+ 
+ 	GLfloat energybarx1 = energyx + 0.08f;
+ 	GLfloat energybarx2 = box.x2 - 0.03f;
+@@ -160,55 +129,67 @@
+ 	y2 = energyy + 0.020f;
+ 	x = (1.0f * myTeam-&gt;energy / myTeam-&gt;energyStorage) * energybarlen;
+ 
+-	glEnable(GL_TEXTURE_2D);
+-	glColor4f(1,1,1,0.8f);
+-	font-&gt;glPrintAt(energyx, energyy + 0.005f, 0.7f, &quot;&quot;);
+-	glDisable(GL_TEXTURE_2D);
+-
+ 	//energy draw
+ 	glColor4f(0.8f,0.8f,0.2f,0.2f);
+-	glBegin(GL_QUADS);
+ 	glVertex2f(x1, y1);
+ 	glVertex2f(x1, y2);
+ 	glVertex2f(x2, y2);
+ 	glVertex2f(x2, y1);
+-	glEnd();
+ 
+ 	glColor4f(1.0f,1.0f,0.2f,1.0f);
+-	glBegin(GL_QUADS);
+ 	glVertex2f(x1, y1);
+ 	glVertex2f(x1, y2);
+ 	glVertex2f(x1+x, y2);
+ 	glVertex2f(x1+x, y1);
+-	glEnd();
+ 
+ 	x=myTeam-&gt;energyShare*energybarlen;
+ 	glColor4f(0.9f,0.2f,0.2f,0.7f);
+-	glBegin(GL_QUADS);
+ 	glVertex2f(x1+x+0.003f, y1-0.003f);
+ 	glVertex2f(x1+x+0.003f, y2+0.003f);
+ 	glVertex2f(x1+x-0.003f, y2+0.003f);
+ 	glVertex2f(x1+x-0.003f, y1-0.003f);
+ 	glEnd();
+ 
++	// draw labels
++
+ 	glEnable(GL_TEXTURE_2D);
+-	glColor4f(1,1,0.4f,0.8f);
++	glColor4f(1,1,1,0.8f);
+ 
+-	font-&gt;glPrintAt(energyx - 0.018f, energyy + 0.005f, 0.7f, &quot;Energy&quot;);
++	const float headerFontScale = 1.2f, labelsFontScale = 1.0f;
+ 
++	smallFont-&gt;glPrintAt(metalx - 0.004f, metaly, headerFontScale, &quot;Metal&quot;);
++
++	smallFont-&gt;glPrintAt(metalbarx2 - 0.01f, metaly - 0.005f, labelsFontScale,
++	                FloatToSmallString(myTeam-&gt;metalStorage).c_str());
++	smallFont-&gt;glPrintAt(metalbarx1 + metalbarlen / 2.0f, metaly - 0.005f, labelsFontScale,
++	                FloatToSmallString(myTeam-&gt;metal).c_str());
++
++	glColor4f(1.0f, 0.4f, 0.4f, 1.0f); // Expenses
++	smallFont-&gt;glFormatAt(metalx + 0.044f, metaly - 0.005f, labelsFontScale, &quot;-%s(-%s)&quot;,
++	                FloatToSmallString(fabs(myTeam-&gt;prevMetalPull)).c_str(),
++	                FloatToSmallString(fabs(myTeam-&gt;metalSent)).c_str());
++
++	glColor4f(0.6f, 1.0f, 0.6f, 0.95f); // Income
++	smallFont-&gt;glFormatAt(metalx + 0.044f, metaly + 0.008f, labelsFontScale, &quot;+%s&quot;,
++	                FloatToSmallString(myTeam-&gt;prevMetalIncome).c_str());
++	                // FloatToSmallString(myTeam-&gt;metalReceived).c_str());
++
++	glColor4f(1,1,0.4f,0.8f);
++	smallFont-&gt;glPrintAt(energyx - 0.018f, energyy, headerFontScale, &quot;Energy&quot;);
++
+ 	glColor4f(1,1,1,0.8f);
+-	font-&gt;glPrintAt(energybarx2 - .001f, energyy, 0.5f, &quot;%s&quot;,
++	smallFont-&gt;glPrintAt(energybarx2 - 0.01f, energyy - 0.005f, labelsFontScale,
+ 	                FloatToSmallString(myTeam-&gt;energyStorage).c_str());
+-	font-&gt;glPrintAt(energybarx1 + energybarlen / 2.0f, energyy /*+.02f*/, 0.5f, &quot;%s&quot;,
++	smallFont-&gt;glPrintAt(energybarx1 + energybarlen / 2.0f, energyy - 0.005f, labelsFontScale,
+ 	                FloatToSmallString(myTeam-&gt;energy).c_str());
+ 
+ 	glColor4f(1.0f,.4f,.4f,1.0f); // Expenses
+-	font-&gt;glPrintAt(energyx + 0.044f, energyy - 0.002f, 0.5f, &quot;-%s(-%s)&quot;,
++	smallFont-&gt;glFormatAt(energyx + 0.044f, energyy - 0.005f, labelsFontScale, &quot;-%s(-%s)&quot;,
+ 	                FloatToSmallString(fabs(myTeam-&gt;prevEnergyPull)).c_str(),
+ 	                FloatToSmallString(fabs(myTeam-&gt;energySent)).c_str());
+ 
+ 	glColor4f(.6f,1.0f,.6f,.95f); // Income
+-	font-&gt;glPrintAt(energyx + 0.044f, energyy + 0.01f, 0.5f, &quot;+%s&quot;,
++	smallFont-&gt;glFormatAt(energyx + 0.044f, energyy + 0.008f, labelsFontScale, &quot;+%s&quot;,
+ 	                FloatToSmallString(myTeam-&gt;prevEnergyIncome).c_str());
+ 	                // FloatToSmallString(myTeam-&gt;energyReceived).c_str());
+ 
+
+Modified: trunk/rts/Game/UI/ShareBox.cpp
+===================================================================
+--- trunk/rts/Game/UI/ShareBox.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Game/UI/ShareBox.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -166,15 +166,15 @@
+ 	font-&gt;glPrintAt(box.x1+0.01f,box.y1+0.16f,0.7f,&quot;Share Energy&quot;);
+ 
+ 	glColor4f(1,1,1,0.8f);
+-	font-&gt;glPrintAt(box.x1+0.25f,box.y1+0.12f,0.7f,&quot;%.0f&quot;,float(gs-&gt;Team(gu-&gt;myTeam)-&gt;energy));
+-	font-&gt;glPrintAt(box.x1+0.14f,box.y1+0.12f,0.7f,&quot;%.0f&quot;,gs-&gt;Team(gu-&gt;myTeam)-&gt;energy*energyShare);
++	font-&gt;glFormatAt(box.x1+0.25f,box.y1+0.12f,0.7f,&quot;%.0f&quot;,float(gs-&gt;Team(gu-&gt;myTeam)-&gt;energy));
++	font-&gt;glFormatAt(box.x1+0.14f,box.y1+0.12f,0.7f,&quot;%.0f&quot;,gs-&gt;Team(gu-&gt;myTeam)-&gt;energy*energyShare);
+ 
+ 	glColor4f(0.8f,0.8f,0.9f,0.8f);
+ 	font-&gt;glPrintAt(box.x1+0.01f,box.y1+0.22f,0.7f,&quot;Share Metal&quot;);
+ 
+ 	glColor4f(1,1,1,0.8f);
+-	font-&gt;glPrintAt(box.x1+0.25f,box.y1+0.18f,0.7f,&quot;%.0f&quot;,float(gs-&gt;Team(gu-&gt;myTeam)-&gt;metal));
+-	font-&gt;glPrintAt(box.x1+0.14f,box.y1+0.18f,0.7f,&quot;%.0f&quot;,gs-&gt;Team(gu-&gt;myTeam)-&gt;metal*metalShare);
++	font-&gt;glFormatAt(box.x1+0.25f,box.y1+0.18f,0.7f,&quot;%.0f&quot;,float(gs-&gt;Team(gu-&gt;myTeam)-&gt;metal));
++	font-&gt;glFormatAt(box.x1+0.14f,box.y1+0.18f,0.7f,&quot;%.0f&quot;,gs-&gt;Team(gu-&gt;myTeam)-&gt;metal*metalShare);
+ 
+ 	for(int team=0;team&lt;gs-&gt;activeTeams-1;++team){
+ 		int actualTeam=team;
+@@ -209,7 +209,7 @@
+ 			teamName = &quot;Gaia&quot;;
+ 			ally   = &quot; &lt;Gaia&gt;&quot;;
+ 		}
+-		font-&gt;glPrintAt(box.x1 + teamBox.x1 + 0.002f,
++		font-&gt;glFormatAt(box.x1 + teamBox.x1 + 0.002f,
+ 		                box.y1 + teamBox.y2 - 0.025f - team * 0.025f,
+ 		                0.7f, &quot;Team%i (%s)%s%s&quot;, actualTeam,
+ 		                teamName.c_str(), ally.c_str(), dead.c_str());
+@@ -343,3 +343,6 @@
+ 	return false;
+ }
+ 
++
++
++
+
+Modified: trunk/rts/Game/UI/StartPosSelecter.cpp
+===================================================================
+--- trunk/rts/Game/UI/StartPosSelecter.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Game/UI/StartPosSelecter.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -181,21 +181,17 @@
+ 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+ 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+ 
+-	const float width = font-&gt;CalcTextWidth(&quot;Ready&quot;);
+-	const float yDiff = (readyBox.y2 - readyBox.y1);
+-	const float xDiff = (readyBox.x2 - readyBox.x1);
+-	const float yScale = 0.8f * yDiff;
+-	const float xScale = 0.8f * (xDiff / width);
+-	const float xPixel  = 1.0f / (xScale * (float)gu-&gt;viewSizeX);
+-	const float yPixel  = 1.0f / (yScale * (float)gu-&gt;viewSizeY);
+-	const float yPos = readyBox.y1 + (0.1f * yDiff);
+-	const float xPos = readyBox.x1 + (0.1f * xDiff);
++	// fit text into box
++	const float unitWidth = font-&gt;CalcTextWidth(&quot;Ready&quot;);
++	const float unitHeight = font-&gt;GetHeight();
+ 
+-	glPushMatrix();
+-	glTranslatef(xPos, yPos, 0.0f);
+-	glScalef(xScale, yScale, 1.0f);
+-	const float dark[4]   = { 0.2f, 0.2f, 0.2f, 0.8f };
++	const float ySize = (readyBox.y2 - readyBox.y1);
++	const float xSize = (readyBox.x2 - readyBox.x1);
++
++	const float fontScale = 0.9f * min(xSize/unitWidth, ySize/unitHeight);
++	const float yPos = readyBox.y1 + (0.1f * ySize);
++	const float xPos = 0.5f * (readyBox.x1 + readyBox.x2);
++
+ 	const float white[4]  = { 1.0f, 1.0f, 1.0f, 1.0f };
+-	font-&gt;glPrintOutlined(&quot;Ready&quot;, xPixel, yPixel, white, dark);
+-	glPopMatrix();
++	font-&gt;glPrintOutlinedCentered(xPos, yPos, fontScale, &quot;Ready&quot;, white);
+ }
+
+Modified: trunk/rts/Game/UI/TooltipConsole.cpp
+===================================================================
+--- trunk/rts/Game/UI/TooltipConsole.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Game/UI/TooltipConsole.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -67,8 +67,8 @@
+ 
+ 	const std::string s = mouse-&gt;GetCurrentTooltip();
+ 
+-	glPushMatrix();
+ 	glDisable(GL_TEXTURE_2D);
++	glEnable(GL_BLEND);
+ 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+ 
+ 	if (!outFont) {
+@@ -76,17 +76,13 @@
+ 		glRectf(x, y, (x + w), (y + h));
+ 	}
+ 
+-	const float yScale = 0.015f;
+-	const float xScale = (yScale / gu-&gt;aspectRatio) * 1.2f;
+-	const float xPixel  = 1.0f / (xScale * (float)gu-&gt;viewSizeX);
+-	const float yPixel  = 1.0f / (yScale * (float)gu-&gt;viewSizeY);
++	const float fontScale = 1.0f;
++	const float fontHeight = fontScale * smallFont-&gt;GetHeight();
+ 
+-	glTranslatef(x + 0.01f, y + 0.08f, 0.0f);
+-	glScalef(xScale, yScale, 1.0f);
++	float curX = x + 0.01f;
++	float curY = y + 0.07f;
+ 	glColor4f(1.0f, 1.0f, 1.0f, 0.8f);
+ 
+-	glEnable(GL_TEXTURE_2D);
+-
+ 	unsigned int p = 0;
+ 	while (p &lt; s.size()) {
+ 		std::string s2;
+@@ -97,16 +93,14 @@
+ 			}
+ 		}
+ 		if (!outFont) {
+-			font-&gt;glPrintColor(&quot;%s&quot;, s2.c_str());
++			smallFont-&gt;glPrintColorAt(curX, curY, fontScale, s2.c_str());
+ 		} else {
+ 			const float color[4] = { 1.0f, 1.0f, 1.0f, 0.0f };
+-			outlineFont.print(xPixel, yPixel, color, StripColorCodes(s2).c_str());
+-			font-&gt;glPrintColor(&quot;%s&quot;, s2.c_str());
++			smallFont-&gt;glPrintOutlinedAt(curX, curY, fontScale, StripColorCodes(s2).c_str(), color);
++			smallFont-&gt;glPrintColorAt(curX, curY, fontScale, s2.c_str());
+ 		}
+-		glTranslatef(0.0f, -1.2f, 0.0f);
++		curY -= fontHeight;
+ 	}
+-
+-	glPopMatrix();
+ }
+ 
+ 
+
+Modified: trunk/rts/Lua/LuaOpenGL.cpp
+===================================================================
+--- trunk/rts/Lua/LuaOpenGL.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Lua/LuaOpenGL.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -134,12 +134,14 @@
+ 
+ void LuaOpenGL::CalcFontHeight()
+ {
++	/*
+ 	// calculate the text height that we'll use to
+ 	// provide a consistent display when rendering text
+ 	// (note the missing characters)
+ 	fontHeight = font-&gt;CalcTextHeight(&quot;abcdef hi klmno  rstuvwx z&quot;
+ 	                                  &quot;ABCDEFGHIJKLMNOPQRSTUVWXYZ&quot;
+-                                    &quot;0123456789&quot;);
++                                    &quot;0123456789&quot;); */
++	fontHeight = font-&gt;GetHeight();		// get height between two baselines
+ 	fontHeight = max(1.0e-6f, fontHeight);  // safety for dividing
+ }
+ 
+@@ -1147,10 +1149,10 @@
+ 		  &quot;Incorrect arguments to gl.Text(msg, x, y [,size] [,\&quot;options\&quot;]&quot;);
+ 	}
+ 	const string text = lua_tostring(L, 1);
+-	const float x     = lua_tonumber(L, 2);
+-	const float y     = lua_tonumber(L, 3);
++	const float x     = lua_tonumber(L, 2) * gu-&gt;pixelX;
++	const float y     = lua_tonumber(L, 3) * gu-&gt;pixelY;
+ 
+-	float size = 12.0f;
++	float size = 12.0f * gu-&gt;pixelY;
+ 	bool right = false;
+ 	bool center = false;
+ 	bool outline = false;
+@@ -1158,7 +1160,7 @@
+ 	bool lightOut;
+ 
+ 	if ((args &gt;= 4) &amp;&amp; lua_isnumber(L, 4)) {
+-		size = lua_tonumber(L, 4);
++		size = lua_tonumber(L, 4) * gu-&gt;pixelY;
+ 	}
+ 	if ((args &gt;= 5) &amp;&amp; lua_isstring(L, 5)) {
+ 	  const char* c = lua_tostring(L, 5);
+@@ -1174,40 +1176,38 @@
+ 		}
+ 	}
+ 
+-	const float yScale = size / fontHeight;
+-	const float xScale = yScale;
++	const float fontScale = size / fontHeight * (4.0f / 3.0f);		// In the old font system, fonts were created at 96 dpi. 96/72 = 4/3. Don't ask.
++
+ 	float xj = x; // justified x position
+ 	if (right) {
+-		xj -= xScale * font-&gt;CalcTextWidth(text.c_str());
++		xj -= fontScale * font-&gt;CalcTextWidth(text.c_str());
+ 	} else if (center) {
+-		xj -= xScale * font-&gt;CalcTextWidth(text.c_str()) * 0.5f;
++		xj -= fontScale * font-&gt;CalcTextWidth(text.c_str()) * 0.5f;
+ 	}
++
+ 	glPushMatrix();
+-	glTranslatef(xj, y, 0.0f);
+-	glScalef(xScale, yScale, 1.0f);
+-	if (!outline) {
+-		if (colorCodes) {
+-			font-&gt;glPrintColor(&quot;%s&quot;, text.c_str());
+-		} else {
+-			font-&gt;glPrint(&quot;%s&quot;, text.c_str());
+-		}
+-	} else {
++	glScalef(gu-&gt;viewSizeX, gu-&gt;viewSizeY, 1.0f);
++
++	if (outline) {
++		const float lightOutline[4] = { 0.85f, 0.85f, 0.85f, 0.8f };
+ 		const float darkOutline[4]  = { 0.25f, 0.25f, 0.25f, 0.8f };
+-		const float lightOutline[4] = { 0.85f, 0.85f, 0.85f, 0.8f };
+ 		const float noshow[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+-		const float xPixel = 1.0f / xScale;
+-		const float yPixel = 1.0f / yScale;
++
+ 		if (lightOut) {
+-			font-&gt;glPrintOutlined(text.c_str(), xPixel, yPixel, noshow, lightOutline);
++			font-&gt;Outline(true, noshow, lightOutline);
+ 		} else {
+-			font-&gt;glPrintOutlined(text.c_str(), xPixel, yPixel, noshow, darkOutline);
++			font-&gt;Outline(true, noshow, darkOutline);
+ 		}
+-		if (colorCodes) {
+-			font-&gt;glPrintColor(&quot;%s&quot;, text.c_str());
+-		} else {
+-			font-&gt;glPrint(&quot;%s&quot;, text.c_str());
+-		}
++		font-&gt;glPrintAt(xj, y, fontScale, text.c_str());
+ 	}
++
++	if (colorCodes) {
++		font-&gt;glPrintColorAt(xj, y, fontScale, text.c_str());
++	} else {
++		//glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
++		font-&gt;glPrintAt(xj, y, fontScale, text.c_str());
++	}
++
+ 	glPopMatrix();
+ 
+ 	return 0;
+
+Modified: trunk/rts/Rendering/GL/glList.cpp
+===================================================================
+--- trunk/rts/Rendering/GL/glList.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Rendering/GL/glList.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -12,6 +12,9 @@
+ #include &lt;SDL_mouse.h&gt;
+ #include &quot;mmgr.h&quot;
+ 
++const float itemFontScale = 1.5f;
++const float itemXMargin = 0.02f;
++
+ //////////////////////////////////////////////////////////////////////
+ // Construction/Destruction
+ //////////////////////////////////////////////////////////////////////
+@@ -51,7 +54,7 @@
+ 	items.push_back(name);
+ 
+ 	// calculate width of text and resize box if necessary
+-	float w = font-&gt;CalcTextWidth(name) * 0.035f + 0.04f;
++	float w = itemFontScale * font-&gt;CalcTextWidth(name) + 2 * itemXMargin;
+ 	if (w &gt; (box.x2 - box.x1)) {
+ 		box.x1 = 0.5f - 0.5f * w;
+ 		box.x2 = 0.5f + 0.5f * w;
+@@ -140,10 +143,7 @@
+ 	DrawBox(box);
+ 
+ 	glColor4f(1,1,0.4f,0.8f);
+-	glLoadIdentity();
+-	glTranslatef(box.x1 + 0.01f, box.y2 - 0.05f, 0.0f);
+-	glScalef(0.035f*0.7f,0.05f*0.7f,0.1f);
+-	font-&gt;glPrint(name.c_str());
++	font-&gt;glPrintAt(box.x1 + 0.01f, box.y2 - 0.05f, itemFontScale*0.7f, name.c_str());
+ 
+ 	/****************************************
+ 	* Insert Robert Diamond's section here *
+@@ -225,19 +225,14 @@
+ 		}
+ 
+ 		const float dShadow = 0.002f;
+-		const float xStart = box.x1 + 0.02f;
+-		const float yStart = box.y2 - 0.11f - (nDrawOffset * 0.06f);
++		const float xStart = box.x1 + itemXMargin;
++		const float yStart = b.y1 + 0.002f;
+ 
+ 		glColor4f(0.0f, 0.0f, 0.0f, 0.8f);
+-		glTranslatef(xStart + dShadow, yStart - dShadow, 0.0f);
+-		glScalef(0.035f, 0.05f, 0.1f);
+-		font-&gt;glPrint(ii-&gt;c_str());
++		font-&gt;glPrintAt(xStart + dShadow, yStart - dShadow, itemFontScale, ii-&gt;c_str());
+ 
+-		glLoadIdentity();
+ 		glColor4f(1,1,1,0.8f);
+-		glTranslatef(xStart, yStart, 0.0f);
+-		glScalef(0.035f,0.05f,0.1f);
+-		font-&gt;glPrint(ii-&gt;c_str());
++		font-&gt;glPrintAt(xStart, yStart, itemFontScale, ii-&gt;c_str());
+ 
+ 		// Up our index's
+ 		nCurIndex++; nDrawOffset++;
+
+Modified: trunk/rts/Rendering/InMapDraw.cpp
+===================================================================
+--- trunk/rts/Rendering/InMapDraw.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Rendering/InMapDraw.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -246,9 +246,9 @@
+ 			if (pi-&gt;label.size() &gt; 0) {
+ 				glPushMatrix();
+ 				glTranslatef3(pi-&gt;pos + UpVector * 105);
+-				glScalef(30, 30, 30);
++				glScalef(1200, 1200, 1200);
+ 				glColor4ub(pi-&gt;color[0], pi-&gt;color[1], pi-&gt;color[2], 250);
+-				font-&gt;glWorldPrint(&quot;%s&quot;, pi-&gt;label.c_str());
++				font-&gt;glWorldPrint(pi-&gt;label.c_str());
+ 				glPopMatrix();
+ 				glBindTexture(GL_TEXTURE_2D, texture);
+ 			}
+@@ -520,3 +520,6 @@
+ 	game-&gt;ignoreChar = '\xA7';		//should do something better here
+ }
+ 
++
++
++
+
+Modified: trunk/rts/Rendering/UnitModels/UnitDrawer.cpp
+===================================================================
+--- trunk/rts/Rendering/UnitModels/UnitDrawer.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Rendering/UnitModels/UnitDrawer.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -1993,19 +1993,13 @@
+ 	}
+ 
+ 	if (unit-&gt;group) {
+-		const float scale = 10.0f;
+-		char buf[32];
++		const float fontScale = 10.0f / font-&gt;GetHeight();
++		char buf[16];
+ 		sprintf(buf, &quot;%i&quot;, unit-&gt;group-&gt;id);
+-		const float width = scale * font-&gt;CalcTextWidth(buf);
++		const float width = fontScale  * font-&gt;CalcTextWidth(buf);
+ 
+-		glEnable(GL_TEXTURE_2D);
+-		glEnable(GL_BLEND);
+-		glTranslatef(-7.0f - width, 0.0f, 0.0f); // right justified
+-		glScalef(scale, scale, scale);
+ 		glColor3f(1.0f, 1.0f, 1.0f);
+-		font-&gt;glPrintSuperRaw(buf);
+-		glDisable(GL_TEXTURE_2D);
+-		glDisable(GL_BLEND);
++		font-&gt;glPrintAt(-7.0f - width, 0.0f, fontScale, buf);
+ 	}
+ 
+ 	glPopMatrix();
+
+Modified: trunk/rts/Rendering/glFont.cpp
+===================================================================
+--- trunk/rts/Rendering/glFont.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Rendering/glFont.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -18,26 +18,115 @@
+ // Construction/Destruction
+ //////////////////////////////////////////////////////////////////////
+ 
+-CglFont* font;
++CglFont *font, *smallFont;
+ 
+-typedef struct 
++class texture_size_exception : public std::exception
+ {
+-	int bitmap_width;
+-	int bitmap_rows;
+-	FT_Pos ybearing;
+-	FT_Pos xbearing;
+-	FT_Pos advance_x;
+-	FT_Pos height;
+-	unsigned char * bitmap_buffer;
+-	int bitmap_pitch; 
+-} StoredGlyph;
++};
+ 
++/**
++ * A utility class for CglFont which collects all glyphs of
++ * a font into one square luminance/alpha texture.
++ */
++class CFontTextureRenderer
++{
++public:
++	CFontTextureRenderer(int width, int height);
++	~CFontTextureRenderer();
++	void AddGlyph(FT_GlyphSlot slot, int &amp;outX, int &amp;outY);
++	GLuint CreateTexture();
++private:
++	int width, height;
++	unsigned char *buffer, *cur;
++	int curX, curY;
++	int curHeight;		// height of highest glyph in current line
+ 
+-#define DRAW_SIZE 1
+-#define FONTSIZE 20
++	void BreakLine();
++};
+ 
+-CglFont::CglFont(int start, int end, const char* fontfile)
++CFontTextureRenderer::CFontTextureRenderer(int width, int height)
+ {
++	this-&gt;width = width;
++	this-&gt;height = height;
++	buffer = SAFE_NEW unsigned char[2*width*height];		// luminance and alpha per pixel
++	memset(buffer, 0, 2*width*height);
++	cur = buffer;
++	curX = curY = 0;
++	curHeight = 0;
++}
++
++CFontTextureRenderer::~CFontTextureRenderer()
++{
++	if (buffer)
++		delete buffer;
++}
++
++void CFontTextureRenderer::AddGlyph(FT_GlyphSlot slot, int &amp;outX, int &amp;outY)
++{
++	FT_Bitmap &amp;bmp = slot-&gt;bitmap;
++	if (bmp.width &gt; width - curX)
++		BreakLine();
++	if (bmp.width &gt; width - curX)
++		throw texture_size_exception();
++	if (bmp.rows &gt; height - curY)
++		throw texture_size_exception();
++
++	// blit the bitmap into our buffer (row by row to avoid pitch issues)
++	for (int y = 0; y &lt; bmp.rows; y++) {
++		unsigned char *src = bmp.buffer + y * bmp.pitch;
++		unsigned char *dst = cur + 2 * y * width;
++		for (int x = 0; x &lt; bmp.width; x++) {
++			*dst++ = 255;		// luminance
++			*dst++ = *src++;	// alpha
++		}
++	}
++	outX = curX; outY = curY;
++
++	curX += bmp.width + 1;		// leave one pixel space between each glyph
++	cur += 2*(bmp.width + 1);
++	curHeight = max(curHeight, bmp.rows);
++}
++
++void CFontTextureRenderer::BreakLine()
++{
++	curX = 0;
++	curY += curHeight;
++	curHeight = 0;
++
++	if (curY &gt;= height)
++		throw texture_size_exception();
++
++	cur = buffer + curY * 2*width;
++}
++
++GLuint CFontTextureRenderer::CreateTexture()
++{
++	GLuint tex;
++	glGenTextures(1, &amp;tex);
++
++	glBindTexture(GL_TEXTURE_2D, tex);
++	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
++	if (GLEW_EXT_texture_edge_clamp) {
++		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++	} else {
++		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
++		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
++	}
++	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE_ALPHA, 
++		width, height, 0, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, buffer);
++	delete [] buffer;
++	buffer = 0;
++	if (glGetError() != GL_NO_ERROR)
++		throw std::runtime_error(&quot;Could not allocate font texture.&quot;);
++	return tex;
++}
++
++
++
++CglFont::CglFont(int start, int end, const char* fontfile, float size, int texWidth, int texHeight)
++{
+ 	FT_Library library;
+ 	FT_Face face;
+ 
+@@ -55,7 +144,8 @@
+ 		throw content_error(msg);
+ 	}
+ 
+-	FT_Set_Char_Size(face, FONTSIZE &lt;&lt; 6, FONTSIZE &lt;&lt; 6, 96,96);
++	const float height = gu-&gt;viewSizeY*size*64.0f;
++	FT_Set_Char_Size(face, (int)(height * gu-&gt;aspectRatio/(4.0f/3.0f)), (int)height, 72, 72);
+ 
+ 	// clamp the char range
+ 	end = min(254, end);
+@@ -66,24 +156,19 @@
+ 	charend = end;
+ 	charstart = start;
+ 
+-	charWidths = SAFE_NEW int[chars];
+-	charHeights = SAFE_NEW int[chars];
+-	textures = SAFE_NEW GLuint[chars];
+-
+-	listbase        = glGenLists(chars);
+-	listbaseNoshift = glGenLists(chars);
+-	glGenTextures(chars, textures);
++	glyphs = SAFE_NEW GlyphInfo[chars];
+ 	
+-	StoredGlyph * glyphs = SAFE_NEW StoredGlyph[chars];
++	const float toX = gu-&gt;pixelX;
++	const float toY = gu-&gt;pixelY;
++		
++	float descender = FT_MulFix(face-&gt;descender, face-&gt;size-&gt;metrics.y_scale) / 64.0f;	// max font descender in pixels
++	fontHeight = FT_MulFix(face-&gt;height, face-&gt;size-&gt;metrics.y_scale) / 64.0f * toY;	// distance between baselines in screen units
+ 
+-	int maxabove = 0;
+-	int maxbelow = 0;
+-	int maxleft = 0;
+-	int maxright = 0;
+-	
++	CFontTextureRenderer texRenderer(texWidth, texHeight);
++
+ 	for (int i = charstart; i &lt;= charend; i++) {
+-		StoredGlyph* g = &amp;(glyphs[i - charstart]);
+-	
++		GlyphInfo *g = &amp;glyphs[i-charstart];
++
+ 		// retrieve glyph index from character code
+ 		FT_UInt glyph_index = FT_Get_Char_Index(face, i);
+ 		
+@@ -101,183 +186,73 @@
+ 			throw std::runtime_error(msg);
+ 		}
+ 		FT_GlyphSlot slot = face-&gt;glyph;
++
++		int texture_x, texture_y;
++		try {
++			texRenderer.AddGlyph(slot, texture_x, texture_y);
++		} catch (texture_size_exception&amp;) {
++			FT_Done_Face(face);			// destructor does not run when re-throwing
++			FT_Done_FreeType(library);
++			delete [] glyphs;
++			throw;
++		}
+ 		
+-		g-&gt;bitmap_width = slot-&gt;bitmap.width;
+-		g-&gt;bitmap_rows = slot-&gt;bitmap.rows;
+-		g-&gt;bitmap_pitch = slot-&gt;bitmap.pitch;
++		int bitmap_width = slot-&gt;bitmap.width;
++		int bitmap_rows = slot-&gt;bitmap.rows;
++		int bitmap_pitch = slot-&gt;bitmap.pitch;
+ 		// Keep sign!
+-		g-&gt;ybearing = slot-&gt;metrics.horiBearingY / 64;	
+-		g-&gt;xbearing = slot-&gt;metrics.horiBearingX / 64;
+-		g-&gt;advance_x = slot-&gt;advance.x;
+-		g-&gt;height = slot-&gt;metrics.height;
+-		
+-		g-&gt;bitmap_buffer = SAFE_NEW unsigned char[slot-&gt;bitmap.rows * slot-&gt;bitmap.width];
+-		memcpy(g-&gt;bitmap_buffer, 
+-			slot-&gt;bitmap.buffer, 
+-			slot-&gt;bitmap.width * slot-&gt;bitmap.rows);
+-		
+-		/* Vertical bearing. */
+-		int above = 0;
+-		int below = 0;
+-		
+-		if (g-&gt;ybearing &gt;= 0) {
+-			above = g-&gt;ybearing;
+-			if (g-&gt;bitmap_rows &gt; g-&gt;ybearing) {
+-				below = g-&gt;bitmap_rows - g-&gt;ybearing;
+-			}
+-			/* Otherwise, it does not extend below the line. */
+-		} else {
+-			/* If the bearing defines the top, then the character 
+-			   does not extend above the baseline. */
+-		
+-			below = abs(g-&gt;ybearing) + g-&gt;bitmap_rows;
+-		}
+-		
+-		maxabove = max(above, maxabove);
+-		maxbelow = max(below, maxbelow);
+-				
+-		/* Horizontal bearing. */
+-		int left = 0;
+-		int right = 0;
+-		
+-		if (g-&gt;xbearing &gt;= 0) {
+-			right = g-&gt;xbearing + g-&gt;bitmap_width;
+-		} else {
+-			left = abs(g-&gt;xbearing);
+-			/* If the character extends back across the origin's
+-			   Y axis, then there's also a right component. */
+-			if (g-&gt;bitmap_width &gt; left) {
+-				right = g-&gt;bitmap_width - left;
+-			}
+-		}
+-		
+-		maxleft = max(left, maxleft);
+-		maxright = max(right, maxright);
++		float ybearing = slot-&gt;metrics.horiBearingY / 64.0f;
++		float xbearing = slot-&gt;metrics.horiBearingX / 64.0f;
++
++		g-&gt;advance = slot-&gt;advance.x / 64.0f * toX;
++		g-&gt;height = slot-&gt;metrics.height / 64.0f * toY;
++
++		// determine texture coordinates of glyph bitmap in font texture
++		g-&gt;u0 = (float)texture_x / (float)texWidth;
++		g-&gt;v0 = (float)texture_y / (float)texHeight;
++		g-&gt;u1 = g-&gt;u0 + (float)bitmap_width / (float)texWidth;
++		g-&gt;v1 = g-&gt;v0 + (float)bitmap_rows / (float)texHeight;
++
++		g-&gt;x0 = xbearing * toX;
++		g-&gt;y0 = (ybearing - descender) * toY;
++		g-&gt;x1 = (xbearing + bitmap_width) * toX;
++		g-&gt;y1 = g-&gt;y0 - (slot-&gt;metrics.height / 64.0f) * toY;
+ 	}
+ 	
+-	int texsize = max(maxleft + maxright, maxabove + maxbelow);
+-	/* Make texture sizes a power of two */
+-	int p2 = 1;
+-	while (p2 &lt; texsize) p2 &lt;&lt;= 1;
+-	texsize = p2;
+-
+-	/* Now copy each bitmap into a texture of the same size, 
+-	   but position them so the bottom of the e, g and k all
+-	   start on the same pixel, so they line up properly at
+-	   the right size. */
+-	
+-	// variable sized arrays on stack is a GCC-specific feature unfortunately...
+-	unsigned char *tex = SAFE_NEW unsigned char[texsize*texsize*2];
+-	
+-	for (int ch = charstart; ch &lt;= charend; ch++) {
+-		StoredGlyph* g = &amp;(glyphs[ch - charstart]);
+-		
+-		/* Copy the glyph into position. */
+-		signed int move_down = maxabove - g-&gt;ybearing;
+-		signed int move_right = g-&gt;xbearing;
+-			
+-		for (int y = 0; y &lt; texsize; y++) {
+-			for (int x = 0; x &lt; texsize; x++) {
+-				unsigned char pel_val;
+-				
+-				int buf_y = y - move_down;
+-				int buf_x = x - move_right;
+-				
+-				if ((buf_x &lt; 0) || (buf_x &gt;= g-&gt;bitmap_width) ||
+-				    (buf_y &lt; 0) || (buf_y &gt;= g-&gt;bitmap_rows)) {
+-					pel_val = 0;
+-				} else {
+-					pel_val = g-&gt;bitmap_buffer[g-&gt;bitmap_pitch*buf_y+buf_x];
+-				}
+-				
+-				tex[(y*texsize+x)*2+0] = 255;
+-				tex[(y*texsize+x)*2+1] = pel_val;
+-			}
+-		}
+-		
+-		/* Upload the glyph's bitmap. */
+-		glBindTexture(GL_TEXTURE_2D,textures[ch - charstart]);
+-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+-		if (GLEW_EXT_texture_edge_clamp) {
+-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+-		} else {
+-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+-		}
+-		glTexImage2D(GL_TEXTURE_2D, 
+-			0, 2, 
+-			texsize, texsize, 0, GL_LUMINANCE_ALPHA, GL_UNSIGNED_BYTE, tex);
+-		
+-		charWidths[ch - charstart] = g-&gt;advance_x / 2 / texsize;		
+-		charHeights[ch - charstart] = g-&gt;height / 2 / texsize;		
+-		const float x = (charWidths[ch - charstart]) / 32.0f;
+-		const float y = 1 - 1.0f / 64;
+-		
+-		/* Upload drawing instructions for the glyph. */
+-		glNewList(listbase + (ch - charstart), GL_COMPILE);
+-		glBindTexture(GL_TEXTURE_2D, textures[ch - charstart]);
+-		glBegin(GL_TRIANGLE_STRIP);
+-			glTexCoord2f(0, y); glVertex3f(0, 0, 0);
+-			glTexCoord2f(0, 0); glVertex3f(0, DRAW_SIZE, 0);
+-			glTexCoord2f(x, y); glVertex3f(DRAW_SIZE * x, 0, 0);
+-			glTexCoord2f(x, 0); glVertex3f(DRAW_SIZE * x, DRAW_SIZE, 0);
+-		glEnd();
+-		glTranslatef(DRAW_SIZE * (x + 0.02f), 0, 0);
+-		glEndList();
+-		
+-		/* Upload drawing instructions for the glyph, without the translation or texture binding */
+-		glNewList(listbaseNoshift + (ch - charstart), GL_COMPILE);
+-		glBegin(GL_TRIANGLE_STRIP);
+-			glTexCoord2f(0, y); glVertex3f(0, 0, 0);
+-			glTexCoord2f(0, 0); glVertex3f(0, DRAW_SIZE, 0);
+-			glTexCoord2f(x, y); glVertex3f(DRAW_SIZE * x, 0, 0);
+-			glTexCoord2f(x, 0); glVertex3f(DRAW_SIZE * x, DRAW_SIZE, 0);
+-		glEnd();
+-		glEndList();
+-		
+-		delete[] g-&gt;bitmap_buffer;
+-		g-&gt;bitmap_buffer = NULL;
+-	}
+-
+-	delete[] tex;
+-	delete[] glyphs;
+ 	FT_Done_Face(face);
+ 	FT_Done_FreeType(library);
+-}
+ 
++	fontTexture = texRenderer.CreateTexture();
+ 
+-CglFont::~CglFont()
+-{
+-	glDeleteLists(listbase, chars);
+-	glDeleteLists(listbaseNoshift, chars);
+-	glDeleteTextures(chars, textures);
+-	delete[] textures;
+-	delete[] charWidths;
+-	delete[] charHeights;
++	outline = false;
++	color = outlineColor = 0;
+ }
+ 
+ 
+-void CglFont::printstring(const unsigned char *text)
++CglFont *CglFont::TryConstructFont(std::string fontFile, int start, int end, float size)
+ {
+-	glPushAttrib(GL_LIST_BIT | GL_CURRENT_BIT  | GL_ENABLE_BIT | GL_TRANSFORM_BIT);	
+-	glMatrixMode(GL_MODELVIEW);
+-	glDisable(GL_LIGHTING);
+-	glEnable(GL_TEXTURE_2D);
+-	glDisable(GL_DEPTH_TEST);
+-	glEnable(GL_BLEND);
+-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+-	for (int i = 0; i &lt; strlen((const char*)text); i++) {
+-		const unsigned int ch = (unsigned char)text[i];
+-		if ((ch &gt;= charstart) &amp;&amp; (ch &lt;= charend)) {
+-			glCallList((ch - charstart) + listbase);
++	CglFont *newFont = 0;
++	int texWidth = 128, texHeight = 128;
++	while (true) {
++		try {
++			newFont = SAFE_NEW CglFont(start, end, fontFile.c_str(), size, texWidth, texHeight);
++			return newFont;
++		} catch(texture_size_exception&amp;) {
++			// texture size too small; make higher or wider
++			if (texHeight &lt;= texWidth)
++				texHeight *= 2;
++			else
++				texWidth *= 2;
+ 		}
+ 	}
+-	glPopAttrib();
+ }
+ 
++CglFont::~CglFont()
++{
++	delete[] glyphs;
++}
+ 
++
+ static inline int SkipColorCodes(const char* text, int c)
+ {
+ 	while (text[c] == '\xff') {
+@@ -289,97 +264,16 @@
+ 	return c;
+ }
+ 
+-
+-void CglFont::glPrintOutlined(const char* text,
+-                              float shiftX, float shiftY,
+-                              const float* normalColor,
+-                              const float* outlineColor)
++float CglFont::CalcCharWidth (char c) const
+ {
+-	glPushAttrib(GL_LIST_BIT | GL_CURRENT_BIT  | GL_ENABLE_BIT | GL_TRANSFORM_BIT);	
+-	glMatrixMode(GL_MODELVIEW);
+-	glPushMatrix();
+-	glDisable(GL_LIGHTING);
+-	glEnable(GL_TEXTURE_2D);
+-	glDisable(GL_DEPTH_TEST);
+-	glEnable(GL_BLEND);
+-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+-	const float twiceY = shiftY*2;
+-	for (int i = 0; i &lt; strlen(text); i++) {
+-		i = SkipColorCodes(text, i);
+-		if (i &lt; 0) {
+-			break;
+-		}
+-		const unsigned int ch = (unsigned char)text[i];
+-		if ((ch &gt;= charstart) &amp;&amp; (ch &lt;= charend)) {
+-			glBindTexture(GL_TEXTURE_2D, textures[ch - charstart]);
+-			const GLuint nsList = (ch - charstart) + listbaseNoshift;
+-			glColor4fv(outlineColor);
+-			glTranslatef(+shiftX, +shiftY, 0.0f); glCallList(nsList);
+-			glTranslatef(0.0f, -twiceY, 0.0f); glCallList(nsList);
+-			glTranslatef(-(shiftX*2), 0.0f, 0.0f); glCallList(nsList);
+-			glTranslatef(0.0f, +twiceY, 0.0f); glCallList(nsList);
+-			glTranslatef(+shiftX, -shiftY, 0.0f);
+-			glColor4fv(normalColor);
+-			glCallList((ch - charstart) + listbase);
+-		}
+-	}
+-	glPopMatrix();
+-	glPopAttrib();
+-}
+-
+-
+-void CglFont::glPrint(const char *fmt, ...)
+-{
+-	char text[512];
+-	va_list	ap;
+-	if (fmt == NULL)
+-		return;
+-	va_start(ap, fmt);
+-	VSNPRINTF(text, sizeof(text), fmt, ap);
+-	va_end(ap);
+-	glPushMatrix();
+-	printstring((const unsigned char*)text);
+-	glPopMatrix();
+-}
+-
+-void CglFont::glPrintColor(const char* fmt, ...)
+-{
+-	char text[512];
+-	va_list ap;
+-	if (fmt == NULL)
+-		return;
+-	va_start(ap, fmt);
+-	VSNPRINTF(text, sizeof(text), fmt, ap);
+-	va_end(ap);
+-	glPushAttrib(GL_COLOR_BUFFER_BIT);
+-	glPushMatrix();
+-	glColor3f(1, 1, 1);
+-	size_t lf;
+-	string temp=text;
+-	while((lf=temp.find(&quot;\xff&quot;))!=string::npos) {
+-		printstring((const unsigned char*)temp.substr(0, lf).c_str());
+-		temp=temp.substr(lf, string::npos);
+-		float r=((unsigned char)temp[1])/255.0f;
+-		float g=((unsigned char)temp[2])/255.0f;
+-		float b=((unsigned char)temp[3])/255.0f;
+-		glColor3f(r, g, b);
+-		temp=temp.substr(4, string::npos);
+-	}
+-	printstring((const unsigned char*)temp.c_str());
+-	glPopMatrix();
+-	glPopAttrib();
+-}
+-
+-float CglFont::CalcCharWidth (char c)
+-{
+ 	const unsigned int ch = (unsigned int)c;
+ 	if ((c &gt;= charstart) &amp;&amp; (c &lt;= charend)) {
+-		return 0.02f + (charWidths[ch - charstart] / 32.0f);
+-	}
+-	return 0.02f + (charWidths[0] / 32.0f);
++		return glyphs[ch - charstart].advance;
++	} else
++		return 0.0f;
+ }
+ 
+-float CglFont::CalcTextWidth(const char *text)
++float CglFont::CalcTextWidth(const char *text) const
+ {
+ 	float w=0.0f;
+ 	for (int a = 0; text[a]; a++)  {
+@@ -389,14 +283,14 @@
+ 		}
+ 		const unsigned int c = (unsigned int)text[a];
+ 		if ((c &gt;= charstart) &amp;&amp; (c &lt;= charend)) {
+-			const float charpart = (charWidths[c - charstart]) / 32.0f;
+-			w += charpart + 0.02f;
++			const float charpart = glyphs[c - charstart].advance;
++			w += charpart;// + 0.02f;
+ 		}
+ 	}
+ 	return w;
+ }
+ 
+-float CglFont::CalcTextHeight(const char *text)
++float CglFont::CalcTextHeight(const char *text) const
+ {
+ 	float h=0.0f;
+ 	for (int a = 0; text[a]; a++)  {
+@@ -406,117 +300,289 @@
+ 		}
+ 		const unsigned int c = (unsigned int)text[a];
+ 		if ((c &gt;= charstart) &amp;&amp; (c &lt;= charend)) {
+-			float charpart = (charHeights[c - charstart])/32.0f;
++			float charpart = glyphs[c - charstart].height;
+ 			if (charpart &gt; h) {
+ 				h = charpart;
+ 			}
+ 		}
+ 	}
+-	return h+0.03f;
++	return h;
+ }
+ 
+-void CglFont::glWorldPrint(const char *fmt, ...)
++
++void CglFont::Outline(bool enable, const float *color, const float *outlineColor)
+ {
+-	char text[512];
+-	va_list	ap;
+-	if (fmt == NULL)
+-		return;
+-	va_start(ap, fmt);
+-	VSNPRINTF(text, sizeof(text), fmt, ap);
+-	va_end(ap);
+-	glPushMatrix();
+-	glRasterPos2i(0,0);
+-	float w=CalcTextWidth (text);
++	this-&gt;outline = enable;
++	if (enable) {
++		if (color) {		// if color is null, we keep the old settings (which should better not be null)
++			this-&gt;color = color;
++			this-&gt;outlineColor = outlineColor ? outlineColor : ChooseOutlineColor(color);
++		}
++	}
++}
++
++float CglFont::RenderString(float x, float y, float s, const unsigned char *text) const
++{
++//	glPushAttrib(GL_LIST_BIT | GL_CURRENT_BIT  | GL_ENABLE_BIT | GL_TRANSFORM_BIT);	
++	glPushAttrib(GL_ENABLE_BIT | GL_CURRENT_BIT);
++	glDisable(GL_LIGHTING);
++	glEnable(GL_TEXTURE_2D);
++	glBindTexture(GL_TEXTURE_2D, fontTexture);
++	glDisable(GL_DEPTH_TEST);
++	glEnable(GL_BLEND);
++	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++
++	/* NOTE:
++	 *
++	 * Font rendering no longer uses display lists, but immediate mode quads. This might
++	 * sound crazy at first, but it's actually faster for these reasons:
++	 *
++	 * 1. When using DLs, we can not group multiple glyphs into one glBegin/End pair
++	 *    because glTranslatef can not go between such a pair.
++	 * 2. We can now eliminate all glPushMatrix/PopMatrix pairs related to font rendering
++	 *    because the transformations are calculated on the fly. These are just a couple of
++	 *    floating point multiplications and shouldn't be too expensive.
++	 * 3. There is a certain overhead to using DLs, and having one quad per DL is probably
++	 *    not efficient.
++	 */
++
++	glBegin(GL_QUADS);
++	for (int i = 0; i &lt; strlen((const char*)text); i++) {
++		const unsigned int ch = (unsigned char)text[i];
++		if ((ch &gt;= charstart) &amp;&amp; (ch &lt;= charend)) {
++			GlyphInfo *g = &amp;glyphs[ch - charstart];
++
++			glTexCoord2f(g-&gt;u0, g-&gt;v1); glVertex2f(x+s*g-&gt;x0, y+s*g-&gt;y1);
++			glTexCoord2f(g-&gt;u0, g-&gt;v0); glVertex2f(x+s*g-&gt;x0, y+s*g-&gt;y0);
++			glTexCoord2f(g-&gt;u1, g-&gt;v0); glVertex2f(x+s*g-&gt;x1, y+s*g-&gt;y0);
++			glTexCoord2f(g-&gt;u1, g-&gt;v1); glVertex2f(x+s*g-&gt;x1, y+s*g-&gt;y1);
++
++			x += s*g-&gt;advance;
++		}
++	}
++	glEnd();
++
++	glPopAttrib();
++
++	return x;
++}
++
++float CglFont::RenderStringOutlined(float x, float y, float s, const unsigned char *text)
++{
++	const float shiftX = gu-&gt;pixelX, shiftY = gu-&gt;pixelY;
++
++	glPushAttrib(GL_ENABLE_BIT | GL_CURRENT_BIT);
++	glDisable(GL_LIGHTING);
++	glEnable(GL_TEXTURE_2D);
++	glBindTexture(GL_TEXTURE_2D, fontTexture);
++	glDisable(GL_DEPTH_TEST);
++	glEnable(GL_BLEND);
++	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++
++	glBegin(GL_QUADS);
++	for (int i = 0; i &lt; strlen((const char*)text); i++) {
++		const unsigned int ch = (unsigned char)text[i];
++		if ((ch &gt;= charstart) &amp;&amp; (ch &lt;= charend)) {
++
++			GlyphInfo *g = &amp;glyphs[ch - charstart];
++
++			float dx0 = x + s * g-&gt;x0, dy0 = y + s * g-&gt;y0;
++			float dx1 = x + s * g-&gt;x1, dy1 = y + s * g-&gt;y1;
++
++			glColor4fv(outlineColor);
++
++			// draw 4 offset copies of the character
++			glTexCoord2f(g-&gt;u0, g-&gt;v1); glVertex2f(dx0+shiftX, dy1+shiftY);
++			glTexCoord2f(g-&gt;u0, g-&gt;v0); glVertex2f(dx0+shiftX, dy0+shiftY);
++			glTexCoord2f(g-&gt;u1, g-&gt;v0); glVertex2f(dx1+shiftX, dy0+shiftY);
++			glTexCoord2f(g-&gt;u1, g-&gt;v1); glVertex2f(dx1+shiftX, dy1+shiftY);
++
++			glTexCoord2f(g-&gt;u0, g-&gt;v1); glVertex2f(dx0+shiftX, dy1-shiftY);
++			glTexCoord2f(g-&gt;u0, g-&gt;v0); glVertex2f(dx0+shiftX, dy0-shiftY);
++			glTexCoord2f(g-&gt;u1, g-&gt;v0); glVertex2f(dx1+shiftX, dy0-shiftY);
++			glTexCoord2f(g-&gt;u1, g-&gt;v1); glVertex2f(dx1+shiftX, dy1-shiftY);
++
++			glTexCoord2f(g-&gt;u0, g-&gt;v1); glVertex2f(dx0-shiftX, dy1-shiftY);
++			glTexCoord2f(g-&gt;u0, g-&gt;v0); glVertex2f(dx0-shiftX, dy0-shiftY);
++			glTexCoord2f(g-&gt;u1, g-&gt;v0); glVertex2f(dx1-shiftX, dy0-shiftY);
++			glTexCoord2f(g-&gt;u1, g-&gt;v1); glVertex2f(dx1-shiftX, dy1-shiftY);
++
++			glTexCoord2f(g-&gt;u0, g-&gt;v1); glVertex2f(dx0-shiftX, dy1+shiftY);
++			glTexCoord2f(g-&gt;u0, g-&gt;v0); glVertex2f(dx0-shiftX, dy0+shiftY);
++			glTexCoord2f(g-&gt;u1, g-&gt;v0); glVertex2f(dx1-shiftX, dy0+shiftY);
++			glTexCoord2f(g-&gt;u1, g-&gt;v1); glVertex2f(dx1-shiftX, dy1+shiftY);
++
++			glColor4fv(color);
++
++			// draw the actual character
++			glTexCoord2f(g-&gt;u0, g-&gt;v1); glVertex2f(dx0, dy1);
++			glTexCoord2f(g-&gt;u0, g-&gt;v0); glVertex2f(dx0, dy0);
++			glTexCoord2f(g-&gt;u1, g-&gt;v0); glVertex2f(dx1, dy0);
++			glTexCoord2f(g-&gt;u1, g-&gt;v1); glVertex2f(dx1, dy1);
++
++			x += s*g-&gt;advance;
++		}
++	}
++	glEnd();
++
++	glPopAttrib();
++	
++	outline = false;		// outlining is valid only for one drawing operation
++	return x;
++}
++
++
++void CglFont::glPrintOutlinedAt(float x, float y, float scale, const char* text, const float* normalColor)
++{
++	Outline(true, normalColor);
++	glPrintAt(x, y, scale, text);
++}
++
++void CglFont::glPrintOutlinedRight(float x, float y, float scale, const char* text, const float* normalColor)
++{
++	Outline(true, normalColor);
++	glPrintRight(x, y, scale, text);
++}
++
++void CglFont::glPrintOutlinedCentered(float x, float y, float scale, const char* text, const float* normalColor)
++{
++	Outline(true, normalColor);
++	glPrintCentered(x, y, scale, text);
++}
++
++// macro for formatting printf-style
++#define FORMAT_STRING(fmt,out)					\
++		char out[512];							\
++		va_list	ap;								\
++		if (fmt == NULL)						\
++			return;								\
++		va_start(ap, fmt);						\
++		VSNPRINTF(out, sizeof(out), fmt, ap);	\
++		va_end(ap);
++
++
++void CglFont::glWorldPrint(const char *str) const
++{
++	float w=gu-&gt;aspectRatio * CalcTextWidth(str);
+ 	/* Center (screen-wise) the text above the current position. */
+-	glTranslatef(-0.5f*DRAW_SIZE*w*camera-&gt;right.x,
+-	             -0.5f*DRAW_SIZE*w*camera-&gt;right.y,
+-	             -0.5f*DRAW_SIZE*w*camera-&gt;right.z);
+-	for (int a = 0; text[a]; a++)
+-		WorldChar(text[a]);
+-	glPopMatrix();
++	glTranslatef(-0.5f*w*camera-&gt;right.x,
++	             -0.5f*w*camera-&gt;right.y,
++	             -0.5f*w*camera-&gt;right.z);
++	glBindTexture(GL_TEXTURE_2D, fontTexture);
++	for (int a = 0; str[a]; a++) {
++		unsigned int ch = (unsigned char)str[a];
++		if (ch &gt;= charstart &amp;&amp; ch &lt;= charend)
++			WorldChar(ch);
++	}
+ }
+ 
++void CglFont::WorldChar(unsigned int ch) const
++{
++	GlyphInfo *g = &amp;glyphs[ch - charstart];
++
++	glBegin(GL_QUADS);
++
++	const float aspect = gu-&gt;aspectRatio;
++	const float ux = camera-&gt;up.x, uy = camera-&gt;up.y, uz = camera-&gt;up.z;
++	const float rx = aspect*camera-&gt;right.x, ry = aspect*camera-&gt;right.y, rz = aspect*camera-&gt;right.z;
++
++#define CAMCOORDS(cx,cy) cx*rx+cy*ux,cx*ry+cy*uy,cx*rz+cy*uz
++
++	glTexCoord2f(g-&gt;u0, g-&gt;v1);
++	glVertex3f(CAMCOORDS(g-&gt;x0, g-&gt;y1));
++
++	glTexCoord2f(g-&gt;u0, g-&gt;v0);
++	glVertex3f(CAMCOORDS(g-&gt;x0, g-&gt;y0));
++
++	glTexCoord2f(g-&gt;u1, g-&gt;v0);
++	glVertex3f(CAMCOORDS(g-&gt;x1, g-&gt;y0));
++
++	glTexCoord2f(g-&gt;u1, g-&gt;v1);
++	glVertex3f(CAMCOORDS(g-&gt;x1, g-&gt;y1));
++
++	glEnd();
++
++	float advance = g-&gt;advance;
++	glTranslatef(advance*rx, advance*ry, advance*rz);
++}
++
++
++
+ // centered version of glPrintAt
+ void CglFont::glPrintCentered (float x, float y, float s, const char *fmt, ...)
+ {
+-	char text[512];
+-	va_list	ap;
+-	if (fmt == NULL)
+-		return;
+-	va_start(ap, fmt);
+-	VSNPRINTF(text, sizeof(text), fmt, ap);
+-	va_end(ap);
++	FORMAT_STRING(fmt,text);
+ 
+-	glPushMatrix();
+-	glTranslatef(x,y,0.0f);
+-	glScalef(0.02f*s,0.025f*s,1.0f);
+-	glTranslatef(-0.5f*font-&gt;CalcTextWidth(text),0.0f,0.0f);
+-	printstring((const unsigned char*)text);
+-	glPopMatrix();
++	x -= s * 0.5f * CalcTextWidth(text);
++
++	if (outline)
++		RenderStringOutlined(x, y, s, (const unsigned char*)text);
++	else
++		RenderString(x, y, s, (const unsigned char*)text);
+ }
+ 
++void CglFont::glPrintAt(GLfloat x, GLfloat y, float s, const char *str)
++{
++	if (outline)
++		RenderStringOutlined(x, y, s, (const unsigned char*)str);
++	else
++		RenderString(x, y, s, (const unsigned char*)str);
++}
++
+ // right justified version of glPrintAt
+ void CglFont::glPrintRight (float x, float y, float s, const char *fmt, ...)
+ {
+-	char text[512];
+-	va_list	ap;
+-	if (fmt == NULL)
+-		return;
+-	va_start(ap, fmt);
+-	VSNPRINTF(text, sizeof(text), fmt, ap);
+-	va_end(ap);
++	FORMAT_STRING(fmt,text);
+ 
+-	glPushMatrix();
+-	glTranslatef(x,y,0.0f);
+-	glScalef(0.02f*s,0.025f*s,1.0f);
+-	glTranslatef(-font-&gt;CalcTextWidth(text),0.0f,0.0f);
+-	printstring((const unsigned char*)text);
+-	glPopMatrix();
++	x -= s * CalcTextWidth(text);
++
++	if (outline)
++		RenderStringOutlined(x, y, s, (const unsigned char*)text);
++	else
++		RenderString(x, y, s, (const unsigned char*)text);
+ }
+ 
+-void CglFont::glPrintAt(GLfloat x, GLfloat y, float s, const char *fmt, ...)
++void CglFont::glPrintColorAt(GLfloat x, GLfloat y, float s, const char *str)
+ {
+-	char text[512];
+-	va_list	ap;
+-	if (fmt == NULL)
+-		return;
+-	va_start(ap, fmt);
+-	VSNPRINTF(text, sizeof(text), fmt, ap);
+-	va_end(ap);
+-	glPushMatrix();
+-	glTranslatef(x, y, 0.0f);
+-	glScalef(.02f * s, .03f * s, .01f);
+-	printstring((const unsigned char*)text);
+-	glPopMatrix();
++	glColor3f(1, 1, 1);
++	size_t lf;
++	string temp=str;
++	while((lf=temp.find(&quot;\xff&quot;))!=string::npos) {
++		x = RenderString(x, y, s, (const unsigned char*)temp.substr(0, lf).c_str());
++		temp=temp.substr(lf, string::npos);
++		float r=((unsigned char)temp[1])/255.0f;
++		float g=((unsigned char)temp[2])/255.0f;
++		float b=((unsigned char)temp[3])/255.0f;
++		glColor3f(r, g, b);
++		temp=temp.substr(4, string::npos);
++	}
++	RenderString(x, y, s, (const unsigned char*)temp.c_str());
+ }
+ 
+-void CglFont::WorldChar(char c)
++void CglFont::glFormatAt(GLfloat x, GLfloat y, float s, const char *fmt, ...)
+ {
+-	float charpart=(charWidths[c - charstart])/32.0f;
+-	glBindTexture(GL_TEXTURE_2D, textures[c - charstart]);
+-	glBegin(GL_TRIANGLE_STRIP);
+-		glTexCoord2f(0,1);
+-		glVertex3f(0,0,0);
+-		glTexCoord2f(0,0);
+-		glVertex3f(DRAW_SIZE*camera-&gt;up.x,
+-		           DRAW_SIZE*camera-&gt;up.y,
+-		           DRAW_SIZE*camera-&gt;up.z);
+-		glTexCoord2f(charpart,1);
+-		glVertex3f(DRAW_SIZE*charpart*camera-&gt;right.x,
+-		           DRAW_SIZE*charpart*camera-&gt;right.y,
+-		           DRAW_SIZE*charpart*camera-&gt;right.z);
+-		glTexCoord2f(charpart,0);
+-		glVertex3f(DRAW_SIZE*(camera-&gt;up.x+camera-&gt;right.x*charpart),
+-		           DRAW_SIZE*(camera-&gt;up.y+camera-&gt;right.y*charpart),
+-		           DRAW_SIZE*(camera-&gt;up.z+camera-&gt;right.z*charpart));
+-	glEnd();
+-	glTranslatef(DRAW_SIZE*(charpart+0.03f)*camera-&gt;right.x,
+-	             DRAW_SIZE*(charpart+0.03f)*camera-&gt;right.y,
+-	             DRAW_SIZE*(charpart+0.03f)*camera-&gt;right.z);
++	FORMAT_STRING(fmt,text);
++	glPrintAt(x, y, s, text);
+ }
+ 
+ 
++const float* CglFont::ChooseOutlineColor(const float *textColor)
++{
++	static const float darkOutline[4]  = { 0.25f, 0.25f, 0.25f, 0.8f };
++	static const float lightOutline[4] = { 0.85f, 0.85f, 0.85f, 0.8f };
+ 
++	const float luminance = (textColor[0] * 0.299f) +
++	                        (textColor[1] * 0.587f) +
++	                        (textColor[2] * 0.114f);
++	                        
++	if (luminance &gt; 0.25f) {
++		return darkOutline;
++	} else {
++		return lightOutline;
++	}
++}
++
++
+ #undef __FTERRORS_H__
+ #define FT_ERRORDEF( e, v, s )  { e, s },
+ #define FT_ERROR_START_LIST     {
+@@ -529,7 +595,7 @@
+ #include FT_ERRORS_H
+ 
+ 
+-const char* CglFont::GetFTError (FT_Error e)
++const char* CglFont::GetFTError (FT_Error e) const
+ {
+ 	for (int a=0;errorTable[a].err_msg;a++) {
+ 		if (errorTable[a].err_code == e)
+
+Modified: trunk/rts/Rendering/glFont.h
+===================================================================
+--- trunk/rts/Rendering/glFont.h	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Rendering/glFont.h	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -4,55 +4,63 @@
+ #include &lt;ft2build.h&gt;
+ #include FT_FREETYPE_H
+ #include &quot;GL/myGL.h&quot;
++#include &lt;string&gt;
+ 
++struct GlyphInfo
++{
++	float u0, v0;
++	float u1, v1;
++	float x0, y0;
++	float x1, y1;
++	float advance, height;
++};
++
+ class CglFont
+ {
+ public:
+-	void glPrint(const char* fmt, ...);
+-	void glPrintColor(const char* fmt, ...);
+-	void glWorldPrint(const char* fmt, ...);
+-	void glPrintAt(GLfloat x, GLfloat y, float s, const char* fmt, ...);
++	static CglFont *TryConstructFont(std::string fontFile, int start, int end, float size);
++
++	void glWorldPrint(const char* str) const;
++	void glPrintAt(GLfloat x, GLfloat y, float s, const char* str);
++	void glPrintColorAt(GLfloat x, GLfloat y, float s, const char* str);
++	void glFormatAt(GLfloat x, GLfloat y, float s, const char* fmt, ...);
+ 	void glPrintRight (float x,float y, float s, const char *fmt,...);
+ 	void glPrintCentered (float x,float y, float s, const char *fmt,...);
+-	void glPrintOutlined(const char* text, float shiftX, float shiftY,
+-	                     const float* normalColor, const float* outlineColor);
+-	float CalcTextWidth (const char *txt);
+-	float CalcCharWidth (char c);
+-	float CalcTextHeight(const char *text);
++	void Outline(bool enable, const float *color, const float *outlineColor = 0);		/// Enable outlining for the next drawing operation.
+ 
+-	CglFont(int start, int end, const char* fontfile);
++	// The &quot;outlined&quot; functions are for convenience; their functionality may be obtained by calling Outline() before rendering text.
++	void glPrintOutlinedAt(float x, float y, float scale, const char* text, const float* normalColor);
++	void glPrintOutlinedRight(float x, float y, float scale, const char* text, const float* normalColor);
++	void glPrintOutlinedCentered(float x, float y, float scale, const char* text, const float* normalColor);
++
++	float CalcTextWidth (const char *txt) const;
++	float CalcCharWidth (char c) const;
++	float CalcTextHeight(const char *text) const;
++	inline float GetHeight() const { return fontHeight; }
++
++	CglFont(int start, int end, const char* fontfile, float size, int texWidth, int texHeight);
+ 	~CglFont();
+ 	
+ 	int GetCharStart() const { return charstart; }
+ 	int GetCharEnd()   const { return charend; }
+ 
+-	void glPrintRaw(const char* text) {
+-		printstring((const unsigned char*)text);
+-	}
+ 
+-	void glPrintSuperRaw(const char* text) const {
+-		for (const char* c = text; *c != 0; c++) {
+-			const unsigned int ch = (unsigned char)(*c);
+-			if ((ch &gt;= charstart) &amp;&amp; (ch &lt;= charend)) {
+-				glCallList((ch - charstart) + listbase);
+-			}
+-		}
+-	}
+-	
+ private:
+-	void printstring(const unsigned char *text);
+-	void WorldChar(char c);
+-	const char* GetFTError (FT_Error e);
++	float RenderString(float x, float y, float s, const unsigned char *text) const;
++	float RenderStringOutlined(float x, float y, float s, const unsigned char *text);
++	void WorldChar(unsigned int ch) const;
++	const char* GetFTError (FT_Error e) const;
+ 	int chars;
+ 	int charstart;
+ 	int charend;
+-	int charheight;
+-	GLuint *textures;
+-	GLuint listbase;
+-	GLuint listbaseNoshift;
+-	int *charWidths;
+-	int *charHeights;
++	GLuint fontTexture;
++	float fontHeight;
++	bool outline;
++	const float *color, *outlineColor;
++	GlyphInfo *glyphs;
++
++	static const float* ChooseOutlineColor(const float *textColor);
+ };
+-extern CglFont* font;
++extern CglFont *font, *smallFont;
+ 
+ #endif /* _GLFONT_H */
+
+Modified: trunk/rts/Sim/Units/Unit.cpp
+===================================================================
+--- trunk/rts/Sim/Units/Unit.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/Sim/Units/Unit.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -1041,6 +1041,8 @@
+ 	}
+ }
+ 
++
++
+ /******************************************************************************/
+ /******************************************************************************/
+ 
+@@ -2179,3 +2181,6 @@
+ 
+ 
+ 
++
++
++
+
+Modified: trunk/rts/System/GlobalStuff.cpp
+===================================================================
+--- trunk/rts/System/GlobalStuff.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/System/GlobalStuff.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -204,6 +204,8 @@
+ 	lastFrameTime=0;
+ 	viewSizeX=100;
+ 	viewSizeY=100;
++	pixelX=0.01f;
++	pixelY=0.01f;
+ 	aspectRatio=1.0f;
+ 	myPlayerNum=0;
+ 	myTeam=1;
+@@ -270,3 +272,6 @@
+ 	return ret;
+ }
+ 
++
++
++
+
+Modified: trunk/rts/System/GlobalStuff.h
+===================================================================
+--- trunk/rts/System/GlobalStuff.h	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/System/GlobalStuff.h	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -510,6 +510,10 @@
+ 	int viewSizeX;
+ 	int viewSizeY;
+ 
++	// size of one pixel in viewport coordinates, i.e. 1/viewSizeX and 1/viewSizeY
++	float pixelX;
++	float pixelY;
++
+ 	/**
+ 	 * @brief aspect ratio
+ 	 *
+
+Modified: trunk/rts/System/Main.cpp
+===================================================================
+--- trunk/rts/System/Main.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/System/Main.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -22,6 +22,7 @@
+ #endif
+ 
+ 
++
+ // On msvc main() is declared as a non-throwing function.
+ // Moving the catch clause to a seperate function makes it possible to re-throw the exception for the installed crash reporter
+ int Run(int argc, char *argv[])
+@@ -84,6 +85,8 @@
+ #endif
+ }
+ 
++
++
+ /**
+  * @brief main
+  * @return exit code
+@@ -97,6 +100,8 @@
+ 	return Run (argc,argv);
+ }
+ 
++
++
+ #ifdef WIN32
+ 
+ int WINAPI WinMain(HINSTANCE hInstanceIn, HINSTANCE	hPrevInstance, LPSTR lpCmdLine,int nCmdShow)
+@@ -107,3 +112,4 @@
+ 
+ #endif
+ 
++
+
+Modified: trunk/rts/System/SpringApp.cpp
+===================================================================
+--- trunk/rts/System/SpringApp.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/System/SpringApp.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -204,15 +204,20 @@
+ 	const int charLast  = configHandler.GetInt(&quot;FontCharLast&quot;, 255);
+ 	std::string fontFile = configHandler.GetString(&quot;FontFile&quot;, &quot;fonts/Luxi.ttf&quot;);
+ 
++	const float fontSize = 0.027f;      // ~20 pixels at 1024x768
++	const float smallFontSize = 0.016f; // ~12 pixels at 1024x768
++
+ 	try {
+-		font = SAFE_NEW CglFont(charFirst, charLast, fontFile.c_str());
++		font = CglFont::TryConstructFont(fontFile, charFirst, charLast, fontSize);
++		smallFont = CglFont::TryConstructFont(fontFile, charFirst, charLast, smallFontSize);
+ 	} catch(content_error&amp;) {
+ 		// If the standard location fails, retry in fonts directory or vice versa.
+ 		if (fontFile.substr(0, 6) == &quot;fonts/&quot;)
+ 			fontFile = fontFile.substr(6);
+ 		else
+ 			fontFile = &quot;fonts/&quot; + fontFile;
+-		font = SAFE_NEW CglFont(charFirst, charLast, fontFile.c_str());
++		font = CglFont::TryConstructFont(fontFile, charFirst, charLast, fontSize);
++		smallFont = CglFont::TryConstructFont(fontFile, charFirst, charLast, smallFontSize);
+ 	}
+ 
+ 	// Initialize GLEW
+@@ -508,6 +513,9 @@
+ 		}
+ 	}
+ 
++	gu-&gt;pixelX = 1.0f / (float)gu-&gt;viewSizeX;
++	gu-&gt;pixelY = 1.0f / (float)gu-&gt;viewSizeY;
++
+ 	// NOTE:  gu-&gt;viewPosY is not currently used
+ 
+ 	gu-&gt;aspectRatio = (float)gu-&gt;viewSizeX / (float)gu-&gt;viewSizeY;
+
+Modified: trunk/rts/System/UnsyncedRNG.cpp
+===================================================================
+--- trunk/rts/System/UnsyncedRNG.cpp	2008-04-01 13:47:07 UTC (rev 5639)
++++ trunk/rts/System/UnsyncedRNG.cpp	2008-04-01 14:07:07 UTC (rev 5640)
+@@ -1,3 +1,4 @@
++#include &quot;StdAfx.h&quot;
+ #include &quot;UnsyncedRNG.h&quot;
+ 
+ #include &lt;limits.h&gt;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000420.html">[Taspring-linux-commit] r5639 - trunk/Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="000422.html">[Taspring-linux-commit] r5641 - in trunk: rts/Game rts/Game/Server	rts/Game/UI rts/System rts/System/Net tools/DedicatedServer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#421">[ date ]</a>
+              <a href="thread.html#421">[ thread ]</a>
+              <a href="subject.html#421">[ subject ]</a>
+              <a href="author.html#421">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

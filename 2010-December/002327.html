@@ -1,0 +1,465 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7557 - in Lobby/TASClient: . Python	Python/scripts Python/scripts/subf
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7557%20-%20in%20Lobby/TASClient%3A%20.%20Python%0A%09Python/scripts%20Python/scripts/subf&In-Reply-To=%3C20101218031722.8C7632322A%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002326.html">
+   <LINK REL="Next"  HREF="002328.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7557 - in Lobby/TASClient: . Python	Python/scripts Python/scripts/subf</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7557%20-%20in%20Lobby/TASClient%3A%20.%20Python%0A%09Python/scripts%20Python/scripts/subf&In-Reply-To=%3C20101218031722.8C7632322A%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7557 - in Lobby/TASClient: . Python	Python/scripts Python/scripts/subf">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Dec 18 04:17:22 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002326.html">[Taspring-linux-commit] r7556 - in Lobby/TASClient: . Python/scripts
+</A></li>
+        <LI>Next message: <A HREF="002328.html">[Taspring-linux-commit] r7558 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2327">[ date ]</a>
+              <a href="thread.html#2327">[ thread ]</a>
+              <a href="subject.html#2327">[ subject ]</a>
+              <a href="author.html#2327">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2010-12-18 04:17:19 +0100 (Sat, 18 Dec 2010)
+New Revision: 7557
+
+Modified:
+   Lobby/TASClient/LobbyScriptUnit.pas
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/Python/api.txt
+   Lobby/TASClient/Python/scripts/replaysBrowser.py
+   Lobby/TASClient/Python/scripts/subf/stabilityTestWithThreads.py
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* PYTHON : gui.SynchronizedUpdate function added
+* PYTHON : replaysBrowser.py and stabilityTestWithThreads.py updated to use SynchronizedUpdate
+
+Modified: Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- Lobby/TASClient/LobbyScriptUnit.pas	2010-12-13 23:41:35 UTC (rev 7556)
++++ Lobby/TASClient/LobbyScriptUnit.pas	2010-12-18 03:17:19 UTC (rev 7557)
+@@ -84,6 +84,13 @@
+ 
+   {$METHODINFO ON}
+ 
++  TGUIUpdateCallback = record
++    moduleName : string;
++    functionName : string;
++    args: PPyObject;
++  end;
++  PGUIUpdateCallback = ^TGUIUpdateCallback;
++
+   TGUI = class(TPersistent)
+     protected
+       menuIdInc : integer;
+@@ -113,8 +120,6 @@
+       procedure onDropDownButtonClick(Sender: TObject);
+       procedure Print(data : string);
+       procedure EventHandler(Sender: TObject);
+-
+-
+     public
+       constructor Create;
+       function AddItemToMenu(menu: string;compName: string; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string;itemCaption: string): Integer;
+@@ -149,6 +154,8 @@
+       procedure SetUserDisplayName(userId: integer; displayName: string);
+ 
+       procedure ManualDock(component: string; dockDest: string);
++
++      procedure SynchronizedUpdate(callbackModuleName: string; callbackFunctionName: string;callbackArgs: Variant);
+   end;
+ 
+   TCallback = class(TPersistent)
+@@ -287,6 +294,8 @@
+   procedure StartDownloads;
+   function GetComponentFromString(component: string): TComponent;
+   function GetStringFromComponent(component : TComponent): string;
++  procedure DebugPrint(s: string);
++  procedure GUISynchronizedUpdate(ucb: PGUIUpdateCallback);
+ 
+ var
+   MainThreadState: PPyThreadState;
+@@ -1934,6 +1943,20 @@
+   Self.FStackLayoutChanges := b;
+ end;
+ 
++procedure TGUI.SynchronizedUpdate(callbackModuleName: string; callbackFunctionName: string;callbackArgs: Variant);
++var
++  ucb: PGUIUpdateCallback;
++begin
++  with GetPythonEngine do
++  begin
++    New(ucb);
++    ucb.moduleName := callbackModuleName;
++    ucb.functionName := callbackFunctionName;
++    ucb.args := PyList_AsTuple(VariantAsPyObject(callbackArgs));
++    PostMessage(MainForm.Handle,WM_SCRIPT,6,Integer(ucb));
++  end;
++end;
++
+ procedure TGUI.SetBattleVisible(battleId: integer; bVisible: integer);
+ var
+   battle: TBattle;
+@@ -2136,6 +2159,7 @@
+   p: TProperty;
+ begin
+   Result := False;
++
+   try
+     c := GetComponentFromString(component) as TComponent;
+   except
+@@ -2143,7 +2167,6 @@
+   end;
+ 
+   if c = nil then Exit;
+-
+   LockGUI;
+   try
+     Result := True;
+@@ -2543,12 +2566,10 @@
+ 
+ procedure TGUI.Print(data : string);
+ begin
+-  PythonScriptDebugForm.Output.Lines.Add(data);
+-  Misc.TryToAddLog(PythonScriptDebugForm.debugOutput,data);
+-  //PythonScriptDebugFormUnit.printList.BeginUpdate;
+-  //PythonScriptDebugFormUnit.printList.Add(data);
+-  //PythonScriptDebugFormUnit.printList.EndUpdate;
+-  //PostMessage(PythonScriptDebugForm.Handle, WM_REFRESHOUTPUT, 0, 0);
++  PythonScriptDebugFormUnit.printList.BeginUpdate;
++  PythonScriptDebugFormUnit.printList.Add(data);
++  PythonScriptDebugFormUnit.printList.EndUpdate;
++  PostMessage(PythonScriptDebugForm.Handle, WM_REFRESHOUTPUT, 0, 0);
+ end;
+ 
+ procedure TGUI.AddEvent(component: string; event: string;moduleName: string; functionName: string);
+@@ -2816,24 +2837,26 @@
+ //    procedures
+ //------------------------------------------------------------------------------------------------------
+ 
++procedure DebugPrint(s: string);
++begin
++  //PythonScriptDebugForm.Output.Lines.Add(s);
++  Misc.TryToAddLog(PythonScriptDebugForm.debugOutput,s);
++  //PythonScriptDebugFormUnit.printList.BeginUpdate;
++  //PythonScriptDebugFormUnit.printList.Add(s);
++  //PythonScriptDebugFormUnit.printList.EndUpdate;
++  //PostMessage(PythonScriptDebugForm.Handle, WM_REFRESHOUTPUT, 0, 0);
++end;
++
+ // i have no idea why this works but it works :D
+ function AcquireMainThread:boolean;
+-var
+-  curState: PPyThreadState;
+ begin
+   Result := False;
+   if Preferences.ScriptsDisabled or not ScriptsInitialized then Exit;
+   if GetCurrentThreadId &lt;&gt; MainThreadID then Exit;
+   Result := True;
+   if MainThreadFocused then Exit;
+-  curState := GetPythonEngine.PyThreadState_Swap(nil);
+-  if curState &lt;&gt; nil then
+-  begin
+-    GetPythonEngine.PyThreadState_Swap(curState);
+-    Exit;
+-  end;
++  MainThreadFocused := True;
+   GetPythonEngine.PyEval_AcquireThread(MainThreadState);
+-  MainThreadFocused := True;
+   Result := True;
+ end;
+ 
+@@ -3176,4 +3199,22 @@
+   end;
+ end;
+ 
++procedure GUISynchronizedUpdate(ucb: PGUIUpdateCallback);
++var
++  m: PPyObject;
++begin
++  AcquireMainThread;
++  with GetPythonEngine do
++  begin
++    m := FindFunction(ucb.moduleName,ucb.functionName);
++    try
++      EvalPyFunction(m,ucb.args);
++    except
++    end;
++    Py_XDECREF(ucb.args);
++    FreeMemory(ucb);
++  end;
++  ReleaseMainThread;
++end;
++
+ end.
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2010-12-13 23:41:35 UTC (rev 7556)
++++ Lobby/TASClient/MainUnit.dfm	2010-12-18 03:17:19 UTC (rev 7557)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 397
+-  Top = 244
++  Left = 593
++  Top = 437
+   Width = 883
+   Height = 553
+   Caption = 'TASClient'
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2010-12-13 23:41:35 UTC (rev 7556)
++++ Lobby/TASClient/MainUnit.pas	2010-12-18 03:17:19 UTC (rev 7557)
+@@ -413,7 +413,7 @@
+   );
+ 
+ const
+-  VERSION_NUMBER = '0.82'; // Must be float value! (with a period as a decimal seperator)
++  VERSION_NUMBER = '0.83'; // Must be float value! (with a period as a decimal seperator)
+   AUTOUPDATE_URL = '<A HREF="http://tasclient.no-ip.org/TASClient_update_v5.txt">http://tasclient.no-ip.org/TASClient_update_v5.txt</A>';
+   PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER;
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+@@ -790,6 +790,14 @@
+     constructor Create(Suspended : Boolean);
+   end;
+ 
++  TTestThread = class(TThread)
++  protected
++    procedure Execute; override;
++
++  public
++    constructor Create(Suspended : Boolean);
++  end;
++
+   TDownloadMapThread = class(TThread)
+   private
+     MapHash: integer;
+@@ -8803,6 +8811,10 @@
+     begin
+       LobbyScriptUnit.StartDownloads;
+     end;
++    6: // TGUI.SynchronizedUpdate
++    begin
++      GUISynchronizedUpdate(PGUIUpdateCallback(Msg.LParam));
++    end;
+   end;
+ end;
+ 
+@@ -12341,6 +12353,21 @@
+   end;
+ end;
+ 
++constructor TTestThread.Create(Suspended: Boolean);
++begin
++   FreeOnTerminate := True;
++   inherited Create(Suspended);
++end;
++
++procedure TTestThread.Execute;
++begin
++  while True do
++  begin
++    Misc.ProcessSendMessages;
++    Sleep(100);
++  end;
++end;
++
+ constructor TLadderTopPlayersThread.Create(Suspended: Boolean);
+ begin
+    FreeOnTerminate := True;
+@@ -14661,11 +14688,7 @@
+ 
+ procedure TMainForm.Button1Click(Sender: TObject);
+ begin
+-  while True do
+-  begin
+-    BattleForm.ChangeMap(MapList.IndexOf('Blend Warland'));
+-    BattleForm.ChangeMap(MapList.IndexOf('Seths_Ravine'));
+-  end;
++  TTestThread.Create(False);
+ end;
+ 
+ procedure TMainForm.tmrCumulativeDataSentHistoryTimer(Sender: TObject);
+
+Modified: Lobby/TASClient/Python/api.txt
+===================================================================
+--- Lobby/TASClient/Python/api.txt	2010-12-13 23:41:35 UTC (rev 7556)
++++ Lobby/TASClient/Python/api.txt	2010-12-18 03:17:19 UTC (rev 7557)
+@@ -146,6 +146,8 @@
+ 	allow you to execute a published method (mostly control events functions)
+ 	check the TASClient sources to get the list of functions (ex: ExecMethod('MainForm','mnuPlaynowClick',()) )
+ - ManualDock(component, dockDest)
++- SynchronizedUpdate(moduleName,functionName,arguments)
++	gui is not thread safe, using it in a thread will result in a dead lock, if you need to update gui items, put everything in a function and call it using this method from your thread.
+ 
+ 
+ TODO :
+
+Modified: Lobby/TASClient/Python/scripts/replaysBrowser.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/replaysBrowser.py	2010-12-13 23:41:35 UTC (rev 7556)
++++ Lobby/TASClient/Python/scripts/replaysBrowser.py	2010-12-18 03:17:19 UTC (rev 7557)
+@@ -59,6 +59,9 @@
+ 			p = subprocess.Popen([api.GetSpringExe(), demoPath])
+ 		else:
+ 			api.DownloadMap(mapName,(),'replaysBrowser','onMapDownloadProgress')
++			
++def syncedSetControlProperties(componentName,prop,values):
++	gui.SetControlProperties (componentName, prop, values)
+ 
+ class DownloaderThread(Thread):
+ 	def __init__(self, url, destFileName):
+@@ -70,7 +73,7 @@
+ 	def onProgress(self,dlTotal,dlNow,ulTotal, ulNow):
+ 		if self.abort:
+ 			return False
+-		gui.SetControlProperties ('ReplayDownload.TitleBar.pbDownload', '', {'Position':int(100*dlNow/dlTotal)})
++		gui.SynchronizedUpdate('replaysBrowser','syncedSetControlProperties',('ReplayDownload.TitleBar.pbDownload', '', {'Position':int(100*dlNow/dlTotal)}))
+ 		
+ 	def onDone(self):
+ 		global demoPath 
+@@ -100,7 +103,7 @@
+ 							downloadingReplayOrMap = False
+ 							p = subprocess.Popen([api.GetSpringExe(), demoPath])
+ 							time.sleep(2)
+-							gui.SetControlProperties ('ReplayDownload', '', {'Visible':'False'})
++							gui.SynchronizedUpdate('replaysBrowser','syncedSetControlProperties',('ReplayDownload', '', {'Visible':'False'}))
+ 							replayDownloadWindowVisible = False
+ 						else:
+ 							api.DownloadMap(mapName,(),'replaysBrowser','onMapDownloadProgress')
+@@ -110,7 +113,7 @@
+ 					downloadingReplayOrMap = False
+ 					p = subprocess.Popen([api.GetSpringExe(), demoPath])
+ 					time.sleep(2)
+-					gui.SetControlProperties ('ReplayDownload', '', {'Visible':'False'})
++					gui.SynchronizedUpdate('replaysBrowser','syncedSetControlProperties',('ReplayDownload', '', {'Visible':'False'}))
+ 					replayDownloadWindowVisible = False
+ 
+ 	def run(self):
+
+Modified: Lobby/TASClient/Python/scripts/subf/stabilityTestWithThreads.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/subf/stabilityTestWithThreads.py	2010-12-13 23:41:35 UTC (rev 7556)
++++ Lobby/TASClient/Python/scripts/subf/stabilityTestWithThreads.py	2010-12-18 03:17:19 UTC (rev 7557)
+@@ -6,10 +6,6 @@
+ 
+ num = 0
+ mutexTest = thread.allocate_lock()
+-a = 0
+-b = 0
+-c = 0
+-d = 0
+ 
+ def changeComponentProp(comp,prop,value):
+ 	changeComponentPropFull(comp,'',prop,value)
+@@ -22,14 +18,8 @@
+ def _init():
+ 	api.ShowDebugWindow()
+ 	
+-def all_in(args):
+-	global num
+-	global mutexTest
+-	global a,b,c
+-	mutexTest.acquire()
+-	changeComponentProp('MainForm.MainTitleBar','Caption',str(num)+' '+str(a)+' '+str(b)+' '+str(c)+' '+str(d))
+-	changeComponentProp('MainForm','Caption',str(num)+' '+str(a)+' '+str(b)+' '+str(c)+' '+str(d))
+-	mutexTest.release()
++def updateGUI(a,b,c,d):
++	gui.SetControlProperties('MainForm.MainTitleBar','',{'Caption':str(num)+' '+str(a)+' '+str(b)+' '+str(c)+' '+str(d)})
+ 
+ def cmd_test():
+ 	for i in range(1,100):
+@@ -41,10 +31,9 @@
+ def timer_1():
+ 	global num
+ 	global mutexTest
+-	global a,b,c,d
+ 	mutexTest.acquire()
+ 	num += 1
+-	#a = api.GetUsers()
++	b = 0
+ 	bb = api.GetReplays()
+ 	if bb != None:
+ 		b = len(bb)
+@@ -55,4 +44,6 @@
+ 		d = len(dd)
+ 	else:
+ 		d = 0
++
++	gui.SynchronizedUpdate('stabilityTestWithThreads','updateGUI',(a,b,c,d))
+ 	mutexTest.release()
+\ No newline at end of file
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2010-12-13 23:41:35 UTC (rev 7556)
++++ Lobby/TASClient/TASClient.dof	2010-12-18 03:17:19 UTC (rev 7557)
+@@ -113,9 +113,9 @@
+ IncludeVerInfo=1
+ AutoIncBuild=1
+ MajorVer=0
+-MinorVer=82
++MinorVer=83
+ Release=0
+-Build=1169
++Build=1174
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.82.0.1169
++FileVersion=0.83.0.1174
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002326.html">[Taspring-linux-commit] r7556 - in Lobby/TASClient: . Python/scripts
+</A></li>
+	<LI>Next message: <A HREF="002328.html">[Taspring-linux-commit] r7558 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2327">[ date ]</a>
+              <a href="thread.html#2327">[ thread ]</a>
+              <a href="subject.html#2327">[ subject ]</a>
+              <a href="author.html#2327">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

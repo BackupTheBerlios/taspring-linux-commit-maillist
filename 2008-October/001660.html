@@ -1,0 +1,242 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6891 - trunk/tools/unitsync
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6891%20-%20trunk/tools/unitsync&In-Reply-To=%3C20081025233942.94EFD4744%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001659.html">
+   <LINK REL="Next"  HREF="001661.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6891 - trunk/tools/unitsync</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6891%20-%20trunk/tools/unitsync&In-Reply-To=%3C20081025233942.94EFD4744%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6891 - trunk/tools/unitsync">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Oct 26 01:39:42 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001659.html">[Taspring-linux-commit] r6890 - trunk/rts/Lua
+</A></li>
+        <LI>Next message: <A HREF="001661.html">[Taspring-linux-commit] r6892 - trunk/tools/unitsync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1660">[ date ]</a>
+              <a href="thread.html#1660">[ thread ]</a>
+              <a href="subject.html#1660">[ subject ]</a>
+              <a href="author.html#1660">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-10-26 01:39:41 +0200 (Sun, 26 Oct 2008)
+New Revision: 6891
+
+Modified:
+   trunk/tools/unitsync/unitsync.cpp
+Log:
+Some small fixes and added some logging.
+
+
+
+Modified: trunk/tools/unitsync/unitsync.cpp
+===================================================================
+--- trunk/tools/unitsync/unitsync.cpp	2008-10-25 21:15:47 UTC (rev 6890)
++++ trunk/tools/unitsync/unitsync.cpp	2008-10-25 23:39:41 UTC (rev 6891)
+@@ -1257,6 +1257,7 @@
+ 		return archiveScanner-&gt;GetModChecksum(archiveScanner-&gt;ModNameToModArchive(name));
+ 	}
+ 	UNITSYNC_CATCH_BLOCKS;
++	return 0;
+ }
+ 
+ 
+@@ -1323,12 +1324,12 @@
+ 
+ 	LuaParser luaParser(&quot;LuaAI.lua&quot;, SPRING_VFS_MOD_BASE, SPRING_VFS_MOD_BASE);
+ 	if (!luaParser.Execute()) {
+-		return;
++		throw content_error(&quot;luaParser.Execute() failed: &quot; + luaParser.GetErrorLog());
+ 	}
+ 
+ 	const LuaTable root = luaParser.GetRoot();
+ 	if (!root.IsValid()) {
+-		return;
++		throw content_error(&quot;root table invalid&quot;);
+ 	}
+ 
+ 	for (int i = 1; root.KeyExists(i); i++) {
+@@ -1354,8 +1355,6 @@
+ 		aiData.desc = optTbl.GetString(&quot;desc&quot;, aiData.name);
+ 		luaAIOptions.push_back(aiData);
+ 	}
+-
+-	return;
+ }
+ 
+ 
+@@ -1447,21 +1446,24 @@
+ {
+ 	const LuaTable&amp; optTbl = root.SubTable(index);
+ 	if (!optTbl.IsValid()) {
++		logOutput.Print(LOG_UNITSYNC, &quot;ParseOption: subtable %d invalid&quot;, index);
+ 		return false;
+ 	}
+ 
+ 	// common options properties
+ 	opt.key = optTbl.GetString(&quot;key&quot;, &quot;&quot;);
+-	if (opt.key.empty() ||
+-	    (opt.key.find_first_of(badKeyChars) != string::npos)) {
++	if (opt.key.empty() || (opt.key.find_first_of(badKeyChars) != string::npos)) {
++		logOutput.Print(LOG_UNITSYNC, &quot;ParseOption: empty key or key contains bad characters&quot;);
+ 		return false;
+ 	}
+ 	opt.key = StringToLower(opt.key);
+ 	if (optionsSet.find(opt.key) != optionsSet.end()) {
++		logOutput.Print(LOG_UNITSYNC, &quot;ParseOption: key %s exists already&quot;, opt.key.c_str());
+ 		return false;
+ 	}
+ 	opt.name = optTbl.GetString(&quot;name&quot;, opt.key);
+ 	if (opt.name.empty()) {
++		logOutput.Print(LOG_UNITSYNC, &quot;ParseOption: %s: empty name&quot;, opt.key.c_str());
+ 		return false;
+ 	}
+ 	opt.desc = optTbl.GetString(&quot;desc&quot;, opt.name);
+@@ -1494,6 +1496,7 @@
+ 
+ 		const LuaTable&amp; listTbl = optTbl.SubTable(&quot;items&quot;);
+ 		if (!listTbl.IsValid()) {
++			logOutput.Print(LOG_UNITSYNC, &quot;ParseOption: %s: subtable items invalid&quot;, opt.key.c_str());
+ 			return false;
+ 		}
+ 
+@@ -1513,16 +1516,18 @@
+ 			// table format  (name &amp; desc)
+ 			const LuaTable&amp; itemTbl = listTbl.SubTable(i);
+ 			if (!itemTbl.IsValid()) {
++				logOutput.Print(LOG_UNITSYNC, &quot;ParseOption: %s: subtable %d of subtable items invalid&quot;, opt.key.c_str(), i);
+ 				break;
+ 			}
+ 			item.key = itemTbl.GetString(&quot;key&quot;, &quot;&quot;);
+-			if (item.key.empty() ||
+-			    (item.key.find_first_of(badKeyChars) != string::npos)) {
++			if (item.key.empty() || (item.key.find_first_of(badKeyChars) != string::npos)) {
++				logOutput.Print(LOG_UNITSYNC, &quot;ParseOption: %s: empty key or key contains bad characters&quot;, opt.key.c_str());
+ 				return false;
+ 			}
+ 			item.key = StringToLower(item.key);
+ 			item.name = itemTbl.GetString(&quot;name&quot;, item.key);
+ 			if (item.name.empty()) {
++				logOutput.Print(LOG_UNITSYNC, &quot;ParseOption: %s: empty name&quot;, opt.key.c_str());
+ 				return false;
+ 			}
+ 			item.desc = itemTbl.GetString(&quot;desc&quot;, item.name);
+@@ -1530,6 +1535,7 @@
+ 		}
+ 
+ 		if (opt.list.size() &lt;= 0) {
++			logOutput.Print(LOG_UNITSYNC, &quot;ParseOption: %s: empty list&quot;, opt.key.c_str());
+ 			return false; // no empty lists
+ 		}
+ 
+@@ -1539,6 +1545,7 @@
+ 		opt.typeCode = opt_section;
+ 	}
+ 	else {
++		logOutput.Print(LOG_UNITSYNC, &quot;ParseOption: %s: unknown type %s&quot;, opt.key.c_str(), opt.type.c_str());
+ 		return false; // unknown type
+ 	}
+ 
+@@ -1566,14 +1573,12 @@
+ 	}
+ 
+ 	if (!luaParser.Execute()) {
+-		logOutput.Print(LOG_UNITSYNC, &quot;ParseOptions(%s) ERROR: %s\n&quot;,
+-		       fileName.c_str(), luaParser.GetErrorLog().c_str());
+-		return;
++		throw content_error(&quot;luaParser.Execute() failed: &quot; + luaParser.GetErrorLog());
+ 	}
+ 
+ 	const LuaTable root = luaParser.GetRoot();
+ 	if (!root.IsValid()) {
+-		return;
++		throw content_error(&quot;root table invalid&quot;);
+ 	}
+ 
+ 	for (int index = 1; root.KeyExists(index); index++) {
+@@ -1582,8 +1587,6 @@
+ 			options.push_back(opt);
+ 		}
+ 	}
+-
+-	return;
+ };
+ 
+ 
+@@ -1617,7 +1620,7 @@
+ 
+ 		optionsSet.clear();
+ 
+-		return (int)options.size();
++		return options.size();
+ 	}
+ 	UNITSYNC_CATCH_BLOCKS;
+ 
+@@ -1643,7 +1646,7 @@
+ 
+ 		optionsSet.clear();
+ 
+-		return (int)options.size();
++		return options.size();
+ 	}
+ 	UNITSYNC_CATCH_BLOCKS;
+ 
+@@ -2144,7 +2147,7 @@
+ 		return handle + 1;
+ 	}
+ 	UNITSYNC_CATCH_BLOCKS;
+-	return -1;
++	return 0;
+ }
+ 
+ 
+@@ -2413,6 +2416,7 @@
+ 		bool alreadyDone;
+ 
+ 	public:
++		CMessageOnce() : alreadyDone(false) {}
+ 		void operator() (const string&amp; msg)
+ 		{
+ 			if (alreadyDone) return;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001659.html">[Taspring-linux-commit] r6890 - trunk/rts/Lua
+</A></li>
+	<LI>Next message: <A HREF="001661.html">[Taspring-linux-commit] r6892 - trunk/tools/unitsync
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1660">[ date ]</a>
+              <a href="thread.html#1660">[ thread ]</a>
+              <a href="subject.html#1660">[ subject ]</a>
+              <a href="author.html#1660">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,637 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6449 - in trunk/rts: Game System/Sync
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6449%20-%20in%20trunk/rts%3A%20Game%20System/Sync&In-Reply-To=%3C20080923185841.F3C9C4A69%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001218.html">
+   <LINK REL="Next"  HREF="001220.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6449 - in trunk/rts: Game System/Sync</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6449%20-%20in%20trunk/rts%3A%20Game%20System/Sync&In-Reply-To=%3C20080923185841.F3C9C4A69%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6449 - in trunk/rts: Game System/Sync">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Sep 23 20:58:41 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001218.html">[Taspring-linux-commit] r6448 - trunk/rts/Sim/Misc
+</A></li>
+        <LI>Next message: <A HREF="001220.html">[Taspring-linux-commit] r6450 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1219">[ date ]</a>
+              <a href="thread.html#1219">[ thread ]</a>
+              <a href="subject.html#1219">[ subject ]</a>
+              <a href="author.html#1219">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: imbaczek
+Date: 2008-09-23 20:58:39 +0200 (Tue, 23 Sep 2008)
+New Revision: 6449
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/System/Sync/Logger.cpp
+   trunk/rts/System/Sync/SyncDebugger.cpp
+   trunk/rts/System/Sync/SyncDebugger.h
+   trunk/rts/System/Sync/SyncedFloat3.h
+   trunk/rts/System/Sync/SyncedPrimitive.h
+Log:
+improvements to SyncDebugger, added ASSERT_SYNCED_PRIMITIVE and ASSERT_SYNCED_FLOAT3 macros
+
+ASSERT_SYNCED_PRIMITIVE and ASSERT_SYNCED_FLOAT3 work by forcing an expression to be considered in checksum calculations. When compiling without SYNCDEBUG, these expand to nothing; otherwise, they expand to a local temporary variable and are immediately destroyed, after checksumming. Coupled with sync debugger's ability of providing a backtrace in every place the checksum differs between clients, this should be a helpful addition.
+
+Currently those macros are only executed when issuing /desync in a debug build and in GroundMoveType.cpp (which seems to be the source of mantis #1033.)
+
+Also improved sync debugger checksumming (isn't that delicate when handing it multiple repeating values) and reduced stacktrace clipping to 3 frames on 32bit OSes (4 frames was too much, it clipped copy ctors.)
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-09-23 16:52:41 UTC (rev 6448)
++++ trunk/rts/Game/Game.cpp	2008-09-23 18:58:39 UTC (rev 6449)
+@@ -2333,6 +2333,11 @@
+ 	}
+ #ifdef DEBUG
+ 	else if (action.command == &quot;desync&quot; &amp;&amp; gs-&gt;cheatEnabled) {
++		ASSERT_SYNCED_PRIMITIVE(gu-&gt;myPlayerNum * 123.0f);
++		ASSERT_SYNCED_PRIMITIVE(gu-&gt;myPlayerNum * 123);
++		ASSERT_SYNCED_PRIMITIVE((short)(gu-&gt;myPlayerNum * 123 + 123));
++		ASSERT_SYNCED_FLOAT3(float3(gu-&gt;myPlayerNum, gu-&gt;myPlayerNum, gu-&gt;myPlayerNum));
++
+ 		for (int i = MAX_UNITS - 1; i &gt;= 0; --i) {
+ 			if (uh-&gt;units[i]) {
+ 				if (playernum == gu-&gt;myPlayerNum) {
+@@ -4226,7 +4231,7 @@
+ 		glEnable(GL_TEXTURE_2D);
+ 
+ 		glColor4f(0.2f, 0.8f, 0.2f, 0.8f);
+-		font-&gt;glFormatAt(0.02f, 0.65f, 1.0f, &quot;Health %.0f / %.0f&quot;, unit-&gt;health, unit-&gt;maxHealth);
++		font-&gt;glFormatAt(0.02f, 0.65f, 1.0f, &quot;Health %.0f / %.0f&quot;, (float)unit-&gt;health, (float)unit-&gt;maxHealth);
+ 
+ 		if(gs-&gt;players[gu-&gt;myPlayerNum]-&gt;myControl.mouse2){
+ 			font-&gt;glPrintAt(0.02f, 0.7f, 1.0f, &quot;Free fire mode&quot;);
+
+Modified: trunk/rts/System/Sync/Logger.cpp
+===================================================================
+--- trunk/rts/System/Sync/Logger.cpp	2008-09-23 16:52:41 UTC (rev 6448)
++++ trunk/rts/System/Sync/Logger.cpp	2008-09-23 18:58:39 UTC (rev 6449)
+@@ -131,7 +131,7 @@
+ 	std::vector&lt;std::string&gt;::iterator it;
+ 	bool runTheCommand = false;
+ 
+-	command &lt;&lt; ADDR2LINE &lt;&lt; &quot; \&quot;--exe=&quot; &lt;&lt; exename &lt;&lt; &quot;\&quot; --functions --demangle&quot;;
++	command &lt;&lt; ADDR2LINE &lt;&lt; &quot; \&quot;--exe=&quot; &lt;&lt; exename &lt;&lt; &quot;\&quot; --functions --demangle --inline&quot;;
+ 
+ 	for (it = buffer.begin(); it != buffer.end(); ++it) {
+ 		int open = it-&gt;find('{');
+
+Modified: trunk/rts/System/Sync/SyncDebugger.cpp
+===================================================================
+--- trunk/rts/System/Sync/SyncDebugger.cpp	2008-09-23 16:52:41 UTC (rev 6448)
++++ trunk/rts/System/Sync/SyncDebugger.cpp	2008-09-23 18:58:39 UTC (rev 6449)
+@@ -4,11 +4,15 @@
+ 
+ #ifdef SYNCDEBUG
+ 
++#include &lt;boost/format.hpp&gt;
++
+ #include &quot;LogOutput.h&quot;
+ #include &quot;System/GlobalStuff.h&quot;
+ #include &quot;System/BaseNetProtocol.h&quot;
+ #include &quot;System/NetProtocol.h&quot;
+ #include &quot;SyncDebugger.h&quot;
++#include &quot;SyncChecker.h&quot;
++#include &quot;SyncTracer.h&quot;
+ #include &quot;Logger.h&quot;
+ 
+ #include &lt;map&gt;
+@@ -88,6 +92,7 @@
+  * Initialize the sync debugger. Pass true for a server (this requires approx.
+  * 144 megabytes on 32 bit systems and 240 megabytes on 64 bit systems) and
+  * false for a client (requires only 16 megabytes extra).
++ * FIXME update this comment to reflect new values
+  */
+ void CSyncDebugger::Initialize(bool useBacktrace)
+ {
+@@ -143,8 +148,8 @@
+ 
+ #ifdef HAVE_BACKTRACE
+ 	if (historybt) {
+-		// dirty hack to skip the uppermost 2 or 4 (32 resp. 64 bit) frames without memcpy'ing the whole backtrace...
+-		const int frameskip = (12 + sizeof(void*)) / sizeof(void*);
++		// dirty hack to skip the uppermost 2 or 3 (32 resp. 64 bit) frames without memcpy'ing the whole backtrace...
++		const int frameskip = (8 + sizeof(void*)) / sizeof(void*);
+ 		historybt[historyIndex].bt_size = backtrace(historybt[historyIndex].bt - frameskip, MAX_STACK + frameskip) - frameskip;
+ 		historybt[historyIndex].op = op;
+ 		historybt[historyIndex].frameNum = gs-&gt;frameNum;
+@@ -152,12 +157,31 @@
+ 	}
+ #endif
+ 
++	// if data fits and has even size, it's probably a POD type, store it verbatim
++	// TODO: transfer offending blocks from clients to the server
++	if (size == 1) {
++		h-&gt;data = *(unsigned char*)p;
++	} else if (size == sizeof(short)) {
++		h-&gt;data = *(unsigned short*)p;
++	} else if (size &gt;= sizeof(unsigned)) {
++		h-&gt;data = *(unsigned *)p;
++	} else {
++		h-&gt;data = -1;
++	}
++
++	// xor is dangerous in that every bit is independent of any other, this is bad
++#ifdef SD_USE_SIMPLE_CHECKSUM
+ 	unsigned i = 0;
+ 	h-&gt;chk = 0;
+ 	for (; i &lt; (size &amp; ~3); i += 4)
+ 		h-&gt;chk ^= *(unsigned*) ((unsigned char*) p + i);
+ 	for (; i &lt; size; ++i)
+ 		h-&gt;chk ^= *((unsigned char*) p + i);
++#else
++	// 33*flop + gs-&gt;frameNum is enough to prevent zero slurping
++	// using CSyncChecker::g_checksum here will cause cascade false positives
++	h-&gt;chk = CSyncChecker::HsiehHash((char*)p, size, 33*flop + gs-&gt;frameNum);
++#endif
+ 
+ 	if (++historyIndex == HISTORY_SIZE * BLOCK_SIZE)
+ 		historyIndex = 0; // wrap around
+@@ -197,11 +221,15 @@
+  */
+ unsigned CSyncDebugger::GetBacktraceChecksum(int index) const
+ {
++#ifdef SD_USE_SIMPLE_CHECKSUM
+ 	unsigned checksum = 0;
+ 	const unsigned* p = (const unsigned*) historybt[index].bt;
+ 	for (unsigned i = 0; i &lt; (sizeof(void*)/sizeof(unsigned)) * historybt[index].bt_size; ++i, ++p)
+ 		checksum = 33 * checksum + *p;
+ 	return checksum;
++#else
++	return CSyncChecker::HsiehHash((char *)historybt[index].bt, sizeof(void*) * historybt[index].bt_size, 0xf00dcafe);
++#endif
+ }
+ 
+ 
+@@ -344,12 +372,21 @@
+ {
+ 	std::vector&lt;unsigned&gt; checksums;
+ 	for (unsigned i = 0; i &lt; HISTORY_SIZE; ++i) {
++#ifdef SD_USE_SIMPLE_CHECKSUM
+ 		unsigned checksum = 0;
+ 		for (unsigned j = 0; j &lt; BLOCK_SIZE; ++j) {
+ 			if (historybt)
+ 				checksum = 33 * checksum + historybt[BLOCK_SIZE * i + j].chk;
+ 			else  checksum = 33 * checksum + history[BLOCK_SIZE * i + j].chk;
+ 		}
++#else
++		unsigned checksum = 123456789;
++		for (unsigned j = 0; j &lt; BLOCK_SIZE; ++j) {
++			if (historybt)
++				checksum = CSyncChecker::HsiehHash((char*)&amp;historybt[BLOCK_SIZE * i + j].chk, sizeof(historybt[BLOCK_SIZE * i + j].chk), checksum);
++			else  checksum = CSyncChecker::HsiehHash((char*)&amp;history[BLOCK_SIZE * i + j].chk, sizeof(history[BLOCK_SIZE * i + j].chk), checksum);
++		}
++#endif
+ 		checksums.push_back(checksum);
+ 	}
+ 	net-&gt;Send(CBaseNetProtocol::Get().SendSdCheckresponse(gu-&gt;myPlayerNum, flop, checksums));
+@@ -428,11 +465,22 @@
+ void CSyncDebugger::ClientSendBlockResponse(int block)
+ {
+ 	std::vector&lt;unsigned&gt; checksums;
++#ifdef TRACE_SYNC
++	tracefile &lt;&lt; &quot;Sending block response for block &quot; &lt;&lt; block &lt;&lt; &quot;\n&quot;;
++#endif
+ 	for (unsigned i = 0; i &lt; BLOCK_SIZE; ++i) {
+ 		if (historybt)
+ 			checksums.push_back(historybt[BLOCK_SIZE * block + i].chk);
+ 		else  checksums.push_back(history[BLOCK_SIZE * block + i].chk);
++#ifdef TRACE_SYNC
++		if (historybt)
++			tracefile &lt;&lt; historybt[BLOCK_SIZE * block + i].chk &lt;&lt; &quot; &quot; &lt;&lt; historybt[BLOCK_SIZE * block + i].data &lt;&lt; &quot;\n&quot;;
++		else  tracefile &lt;&lt; history[BLOCK_SIZE * block + i].chk &lt;&lt; &quot; &quot; &lt;&lt; history[BLOCK_SIZE * block + i].data  &lt;&lt; &quot;\n&quot;;
++#endif
+ 	}
++#ifdef TRACE_SYNC
++	tracefile &lt;&lt; &quot;done\n&quot;;
++#endif
+ 	net-&gt;Send(CBaseNetProtocol::Get().SendSdBlockresponse(gu-&gt;myPlayerNum, checksums));
+ }
+ 
+@@ -501,9 +549,9 @@
+ 						checksumToIndex[checksum] = curBacktrace;
+ 						indexToHistPos[curBacktrace] = histPos;
+ 					}
+-					logger.AddLine(&quot;Server: chk %08X, %15.8e instead of %08X, %15.8e, frame %06u, backtrace %u in \&quot;%s\&quot;&quot;, remoteHistory[j][i], *(float*)&amp;remoteHistory[j][i], correctChecksum, *(float*)&amp;correctChecksum, historybt[histPos].frameNum, checksumToIndex[checksum], historybt[histPos].op);
++					logger.AddLine(&quot;Server: chk %08X instead of %08X frame %06u, (value=%08x %15.8e) backtrace %u in \&quot;%s\&quot;&quot;, remoteHistory[j][i], correctChecksum, historybt[histPos].frameNum, historybt[histPos].data, *(float*)&amp;historybt[histPos].data, checksumToIndex[checksum], historybt[histPos].op);
+ 				} else {
+-					logger.AddLine(&quot;Server: chk %08X, %15.8e instead of %08X, %15.8e&quot;, remoteHistory[j][i], *(float*)&amp;remoteHistory[j][i], correctChecksum, *(float*)&amp;correctChecksum);
++					logger.AddLine(&quot;Server: chk %08X instead of %08X&quot;, remoteHistory[j][i], correctChecksum);
+ 				}
+ 				err = true;
+ 			} else {
+@@ -519,6 +567,7 @@
+ 	else
+ 		// This is impossible (internal error).
+ 		// Server first finds there are differing blocks, then all checksums equal??
++		// Turns out this can happen if the checksum function is weak.
+ 		logger.AddLine(&quot;Server: huh, all checksums equal?!? (INTERNAL ERROR)&quot;);
+ 
+ 	//cleanup
+
+Modified: trunk/rts/System/Sync/SyncDebugger.h
+===================================================================
+--- trunk/rts/System/Sync/SyncDebugger.h	2008-09-23 16:52:41 UTC (rev 6448)
++++ trunk/rts/System/Sync/SyncDebugger.h	2008-09-23 18:58:39 UTC (rev 6449)
+@@ -41,6 +41,7 @@
+ 		 */
+ 		struct HistItem {
+ 			unsigned chk; ///&lt; Checksum (XOR of 32 bit dwords of the data).
++			unsigned data; ///&lt; First four bytes of data
+ 		};
+ 
+ 		/**
+
+Modified: trunk/rts/System/Sync/SyncedFloat3.h
+===================================================================
+--- trunk/rts/System/Sync/SyncedFloat3.h	2008-09-23 16:52:41 UTC (rev 6448)
++++ trunk/rts/System/Sync/SyncedFloat3.h	2008-09-23 18:58:39 UTC (rev 6449)
+@@ -28,7 +28,7 @@
+ */
+ 	/**
+ 	 * @brief Constructor
+-	 * 
++	 *
+ 	 * With no parameters, x/y/z are just initialized to 0.
+ 	 */
+ 	inline SyncedFloat3() : x(0), y(0), z(0) {};
+@@ -38,7 +38,7 @@
+ 	 * @param x float x
+ 	 * @param y float y
+ 	 * @param z float z
+-	 * 
++	 *
+ 	 * With parameters, initializes x/y/z to the given floats.
+ 	 */
+ 	inline SyncedFloat3(const float x,const float y,const float z) : x(x),y(y),z(z) {}
+@@ -52,7 +52,7 @@
+ 
+ 	/**
+ 	 * @brief Destructor
+-	 * 
++	 *
+ 	 * Does nothing
+ 	 */
+ 	inline ~SyncedFloat3(){}
+@@ -61,7 +61,7 @@
+ 	 * @brief operator +
+ 	 * @param f SyncedFloat3 reference to add.
+ 	 * @return sum of float3s
+-	 * 
++	 *
+ 	 * When adding another SyncedFloat3, will
+ 	 * calculate the sum of the positions in
+ 	 * space (adds the x/y/z components individually)
+@@ -80,7 +80,7 @@
+ 	 * @brief operator +
+ 	 * @return sum of SyncedFloat3+float
+ 	 * @param f single float to add
+-	 * 
++	 *
+ 	 * When adding just a float, the point is
+ 	 * increased in all directions by that float.
+ 	 */
+@@ -91,7 +91,7 @@
+ 	/**
+ 	 * @brief operator +=
+ 	 * @param SyncedFloat3
+-	 * 
++	 *
+ 	 * Just like adding a SyncedFloat3, but updates this
+ 	 * float with the new sum.
+ 	 */
+@@ -110,7 +110,7 @@
+ 	 * @brief operator -
+ 	 * @param f SyncedFloat3 to subtract
+ 	 * @return difference of float3s
+-	 * 
++	 *
+ 	 * Decreases the SyncedFloat3 by another SyncedFloat3,
+ 	 * subtracting each x/y/z component individually.
+ 	 */
+@@ -127,7 +127,7 @@
+ 	/**
+ 	 * @brief operator -
+ 	 * @return inverted SyncedFloat3
+-	 * 
++	 *
+ 	 * When negating the SyncedFloat3, inverts all three
+ 	 * x/y/z components.
+ 	 */
+@@ -139,7 +139,7 @@
+ 	 * @brief operator -
+ 	 * @return difference of SyncedFloat3 and float
+ 	 * @param f float to subtract
+-	 * 
++	 *
+ 	 * When subtracting a single fixed float,
+ 	 * decreases all three x/y/z components by that amount.
+ 	 */
+@@ -150,7 +150,7 @@
+ 	/**
+ 	 * @brief operator -=
+ 	 * @param f SyncedFloat3 to subtract
+-	 * 
++	 *
+ 	 * Same as subtracting a SyncedFloat3, but stores
+ 	 * the new SyncedFloat3 inside this one.
+ 	 */
+@@ -169,7 +169,7 @@
+ 	 * @brief operator *
+ 	 * @param f SyncedFloat3 to multiply
+ 	 * @return product of float3s
+-	 * 
++	 *
+ 	 * When multiplying by another SyncedFloat3,
+ 	 * multiplies each x/y/z component individually.
+ 	 */
+@@ -187,7 +187,7 @@
+ 	 * @brief operator *
+ 	 * @param f float to multiply
+ 	 * @return product of SyncedFloat3 and float
+-	 * 
++	 *
+ 	 * When multiplying by a single float, multiplies
+ 	 * each x/y/z component by that float.
+ 	 */
+@@ -198,7 +198,7 @@
+ 	/**
+ 	 * @brief operator *=
+ 	 * @param f SyncedFloat3 to multiply
+-	 * 
++	 *
+ 	 * Same as multiplying a SyncedFloat3, but stores
+ 	 * the new SyncedFloat3 inside this one.
+ 	 */
+@@ -216,7 +216,7 @@
+ 	/**
+ 	 * @brief operator *=
+ 	 * @param f float to multiply
+-	 * 
++	 *
+ 	 * Same as multiplying a float, but stores
+ 	 * the new SyncedFloat3 inside this one.
+ 	 */
+@@ -230,7 +230,7 @@
+ 	 * @brief operator /
+ 	 * @param f SyncedFloat3 to divide
+ 	 * @return divided SyncedFloat3
+-	 * 
++	 *
+ 	 * When dividing by a SyncedFloat3, divides
+ 	 * each x/y/z component individually.
+ 	 */
+@@ -248,7 +248,7 @@
+ 	 * @brief operator /
+ 	 * @param f float to divide
+ 	 * @return SyncedFloat3 divided by float
+-	 * 
++	 *
+ 	 * When dividing by a single float, divides
+ 	 * each x/y/z component by that float.
+ 	 */
+@@ -260,7 +260,7 @@
+ 	/**
+ 	 * @brief operator /=
+ 	 * @param f SyncedFloat3 to divide
+-	 * 
++	 *
+ 	 * Same as dividing by a SyncedFloat3, but stores
+ 	 * the new values inside this SyncedFloat3.
+ 	 */
+@@ -278,7 +278,7 @@
+ 	/**
+ 	 * @brief operator /=
+ 	 * @param f float to divide
+-	 * 
++	 *
+ 	 * Same as dividing by a single float, but stores
+ 	 * the new values inside this SyncedFloat3.
+ 	 */
+@@ -293,7 +293,7 @@
+ 	 * @brief operator ==
+ 	 * @param f SyncedFloat3 to test
+ 	 * @return whether float3s are equal
+-	 * 
++	 *
+ 	 * Tests if this SyncedFloat3 is equal to another, by
+ 	 * checking each x/y/z component individually.
+ 	 */
+@@ -311,7 +311,7 @@
+ 	 * @brief operator !=
+ 	 * @param f SyncedFloat3 to test
+ 	 * @return whether float3s are not equal
+-	 * 
++	 *
+ 	 * Tests if this SyncedFloat3 is not equal to another, by
+ 	 * checking each x/y/z component individually.
+ 	 */
+@@ -329,7 +329,7 @@
+ 	 * @brief operator[]
+ 	 * @param t index in xyz array
+ 	 * @return float component at index
+-	 * 
++	 *
+ 	 * Array access for x/y/z components
+ 	 * (index 0 is x, index 1 is y, index 2 is z)
+ 	 */
+@@ -341,7 +341,7 @@
+ 	 * @brief operator [] const
+ 	 * @param t index in xyz array
+ 	 * @return const float component at index
+-	 * 
++	 *
+ 	 * Same as plain [] operator but used in
+ 	 * a const context
+ 	 */
+@@ -353,7 +353,7 @@
+ 	 * @brief dot product
+ 	 * @param f SyncedFloat3 to use
+ 	 * @return dot product of float3s
+-	 * 
++	 *
+ 	 * Calculates the dot product of this and
+ 	 * another SyncedFloat3 (sums the products of each
+ 	 * x/y/z component).
+@@ -369,7 +369,7 @@
+ 	 * @brief cross product
+ 	 * @param f SyncedFloat3 to use
+ 	 * @return cross product of two float3s
+-	 * 
++	 *
+ 	 * Calculates the cross product of this and
+ 	 * another SyncedFloat3 (y1*z2-z1*y2,z1*x2-x1*z2,x1*y2-y1*x2)
+ 	 */
+@@ -388,7 +388,7 @@
+ 	 * @brief distance between float3s
+ 	 * @param f SyncedFloat3 to compare against
+ 	 * @return float distance between float3s
+-	 * 
++	 *
+ 	 * Calculates the distance between this SyncedFloat3
+ 	 * and another SyncedFloat3 (sums the differences in each
+ 	 * x/y/z component, square root for pythagorean theorem)
+@@ -410,7 +410,7 @@
+ 	 * @brief distance2D between float3s (only x and y)
+ 	 * @param f SyncedFloat3 to compare against
+ 	 * @return 2D distance between float3s
+-	 * 
++	 *
+ 	 * Calculates the distance between this SyncedFloat3
+ 	 * and another SyncedFloat3 2-dimensionally (that is,
+ 	 * only using the x and y components).  Sums the
+@@ -431,7 +431,7 @@
+ 	/**
+ 	 * @brief Length of this vector
+ 	 * @return float length of vector
+-	 * 
++	 *
+ 	 * Returns the length of this vector
+ 	 * (squares and sums each x/y/z component,
+ 	 * square root for pythagorean theorem)
+@@ -443,7 +443,7 @@
+ 	/**
+ 	 * @brief 2-dimensional length of this vector
+ 	 * @return 2D float length of vector
+-	 * 
++	 *
+ 	 * Returns the 2-dimensional length of this vector
+ 	 * (squares and sums only the x and z components,
+ 	 * square root for pythagorean theorem)
+@@ -455,7 +455,7 @@
+ 	/**
+ 	 * @brief normalizes the vector
+ 	 * @return pointer to self
+-	 * 
++	 *
+ 	 * Normalizes the vector by dividing each
+ 	 * x/y/z component by the vector's length.
+ 	 */
+@@ -476,7 +476,7 @@
+ 	/**
+ 	 * @brief length squared
+ 	 * @return length squared
+-	 * 
++	 *
+ 	 * Returns the length of this vector squared.
+ 	 */
+ 	inline float SqLength() const{
+@@ -486,7 +486,7 @@
+ 	/**
+ 	 * @brief 2-dimensional length squared
+ 	 * @return 2D length squared
+-	 * 
++	 *
+ 	 * Returns the 2-dimensional length of this
+ 	 * vector squared.
+ 	 */
+@@ -514,4 +514,11 @@
+ 
+ #endif // !SYNCDEBUG &amp;&amp; !SYNCCHECK
+ 
++// this macro looks like a noop, but causes checksum update
++#ifdef SYNCDEBUG
++#define ASSERT_SYNCED_FLOAT3(x) { SyncedFloat3(x); }
++#else
++#define ASSERT_SYNCED_FLOAT3(x)
++#endif
++
+ #endif // SYNCEDFLOAT3_H
+
+Modified: trunk/rts/System/Sync/SyncedPrimitive.h
+===================================================================
+--- trunk/rts/System/Sync/SyncedPrimitive.h	2008-09-23 16:52:41 UTC (rev 6448)
++++ trunk/rts/System/Sync/SyncedPrimitive.h	2008-09-23 18:58:39 UTC (rev 6449)
+@@ -180,6 +180,36 @@
+ typedef SyncedPrimitive&lt;         Uint64 &gt; SyncedUint64;
+ #endif // UPCAST_USE_64_BIT_TYPES
+ 
++
++// overload some useful functions
++// this is barely legal
++// can't just put template functions in namespace std, this confuses several things
++namespace std {
++	inline float min(SyncedFloat&amp; a, float b)
++	{
++		if (a &lt; b) return a;
++		else return b;
++	}
++
++	inline float min(float a, SyncedFloat&amp; b)
++	{
++		if (a &lt; b) return a;
++		else return b;
++	}
++
++	inline float max(SyncedFloat&amp; a, float b)
++	{
++		if (a &gt; b) return a;
++		else return b;
++	}
++
++	inline float max(float a, SyncedFloat&amp; b)
++	{
++		if (a &gt; b) return a;
++		else return b;
++	}
++}
++
+ #else // SYNCDEBUG || SYNCCHECK
+ 
+ // 64 bit types are missing here because they made AIs depend on SDL
+@@ -199,4 +229,11 @@
+ 
+ #endif // !SYNCDEBUG &amp;&amp; !SYNCCHECK
+ 
++// this macro looks like a noop, but causes checksum update
++#if defined(SYNCDEBUG) &amp;&amp; defined(__GNUC__)
++#define ASSERT_SYNCED_PRIMITIVE(x) { SyncedPrimitive&lt;typeof(x)&gt;(x); }
++#else
++#define ASSERT_SYNCED_PRIMITIVE(x)
++#endif
++
+ #endif // SYNCEDPRIMITIVE_H
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001218.html">[Taspring-linux-commit] r6448 - trunk/rts/Sim/Misc
+</A></li>
+	<LI>Next message: <A HREF="001220.html">[Taspring-linux-commit] r6450 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1219">[ date ]</a>
+              <a href="thread.html#1219">[ thread ]</a>
+              <a href="subject.html#1219">[ subject ]</a>
+              <a href="author.html#1219">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

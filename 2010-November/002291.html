@@ -1,0 +1,734 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7521 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2010-November/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7521%20-%20Lobby/TASClient&In-Reply-To=%3C20101111191522.99D47230F5%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002290.html">
+   <LINK REL="Next"  HREF="002292.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7521 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7521%20-%20Lobby/TASClient&In-Reply-To=%3C20101111191522.99D47230F5%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7521 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Nov 11 20:15:22 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002290.html">[Taspring-linux-commit] r7520 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002292.html">[Taspring-linux-commit] r7522 - in Lobby/TASClient: . Graphics	LobbyComponents/DockPanel Python/scripts/layoutScripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2291">[ date ]</a>
+              <a href="thread.html#2291">[ thread ]</a>
+              <a href="subject.html#2291">[ subject ]</a>
+              <a href="author.html#2291">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2010-11-11 20:15:22 +0100 (Thu, 11 Nov 2010)
+New Revision: 7521
+
+Modified:
+   Lobby/TASClient/BattleFormUnit.pas
+   Lobby/TASClient/HttpGetUnit.dfm
+   Lobby/TASClient/HttpGetUnit.pas
+   Lobby/TASClient/LobbyScriptUnit.pas
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/Misc.pas
+   Lobby/TASClient/PreferencesFormUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+   Lobby/TASClient/WidgetDBFormUnit.dfm
+   Lobby/TASClient/WidgetDBFormUnit.pas
+Log:
+* hidden custom spring exe selected now auto select the ST one
+* several display problem with the windows skin fixed
+* improved update system
+
+Modified: Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.pas	2010-11-10 14:20:38 UTC (rev 7520)
++++ Lobby/TASClient/BattleFormUnit.pas	2010-11-11 19:15:22 UTC (rev 7521)
+@@ -7723,6 +7723,8 @@
+   sspDefaultItem.Checked := SpringSettingsProfile = '';
+   sspCustomExe.Caption := SpringSettingsProfileForm.beCustomSpringExe.Text;
+   sspCustomExe.Visible := SpringSettingsProfileForm.beCustomSpringExe.Text &lt;&gt; '';
++  if not sspCustomExe.Visible and sspCustomExe.Checked then
++    sspST.Checked := True;
+ end;
+ 
+ procedure TBattleForm.VDTBattleClientsHeaderDraw(Sender: TVTHeader;
+
+Modified: Lobby/TASClient/HttpGetUnit.dfm
+===================================================================
+--- Lobby/TASClient/HttpGetUnit.dfm	2010-11-10 14:20:38 UTC (rev 7520)
++++ Lobby/TASClient/HttpGetUnit.dfm	2010-11-11 19:15:22 UTC (rev 7521)
+@@ -1,6 +1,6 @@
+ object HttpGetForm: THttpGetForm
+-  Left = 512
+-  Top = 232
++  Left = 895
++  Top = 662
+   Width = 482
+   Height = 185
+   Caption = 'File download 4'
+
+Modified: Lobby/TASClient/HttpGetUnit.pas
+===================================================================
+--- Lobby/TASClient/HttpGetUnit.pas	2010-11-10 14:20:38 UTC (rev 7520)
++++ Lobby/TASClient/HttpGetUnit.pas	2010-11-11 19:15:22 UTC (rev 7521)
+@@ -6,7 +6,7 @@
+   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
+   Dialogs, OverbyteIcsHttpProt, StdCtrls, Buttons, ComCtrls, MainUnit, Misc, ShellAPI,
+   SpTBXControls, SpTBXItem,StrUtils, SevenZipVCL,Utility,
+-  OverbyteIcsWndControl;
++  OverbyteIcsWndControl,IniFiles;
+ 
+ type
+   THttpGetForm = class(TForm)
+@@ -97,6 +97,11 @@
+   appExePath: string;
+   e: integer;
+   errorList: TStringList;
++  Ini : TIniFile;
++  deleteFileName: String;
++  regExpDelete: string;
++  deleteWholeDirName: string;
++  defaultRegExp: string;
+ begin
+   Result := False;
+ 
+@@ -204,6 +209,52 @@
+           // uninit unitsync
+           Utility.DeInitLib;
+ 
++          if FileExists(ExtractFilePath(appExePath)+'TASClientUpdateTemp\update.ini') then
++          begin
++            Ini := TIniFile.Create(ExtractFilePath(appExePath)+'TASClientUpdateTemp\update.ini');
++
++            if Ini.ValueExists('Warning','Message') then
++              MessageDlg(Ini.ReadString('Warning','Message',_('TASClient is about to update and delete some files in the lobby folder, please backup everything you don''t want to loose')),mtWarning,[mbOK],0);
++
++            // delete whole dir
++            i := 1;
++            while Ini.ValueExists('DeleteWholeDir','Dir'+IntToStr(i)) do
++            begin
++              deleteWholeDirName := Ini.ReadString('DeleteWholeDir','Dir'+IntToStr(i),'');
++              if (deleteWholeDirName &lt;&gt; '') and (Pos('..',deleteWholeDirName) = 0) then // reverse path is forbidden for security issue
++                Misc.DelTree(ExtractFilePath(appExePath)+'Lobby\'+deleteWholeDirName);
++              Inc(i);
++            end;
++
++            // delete outdated files
++            i := 1;
++            while Ini.ValueExists('Delete','File'+IntToStr(i)) do
++            begin
++              deleteFileName := Ini.ReadString('Delete','File'+IntToStr(i),'');
++              if Pos('..',deleteFileName) = 0 then // reverse path is forbidden for security issue
++              begin
++                deleteFileName := ExtractFilePath(appExePath)+'Lobby\'+deleteFileName;
++                if FileExists(deleteFileName) then
++                  DeleteFile(deleteFileName);
++              end;
++              Inc(i);
++            end;
++
++            defaultRegExp := '^'+StringReplace(LowerCase(ExtractFilePath(appExePath)+'Lobby\'),'\','\\',[rfReplaceAll]);
++
++            // regex delete outdated files
++            i := 1;
++            while Ini.ValueExists('RegExDelete','RegEx'+IntToStr(i)) do
++            begin
++              regExpDelete := Ini.ReadString('RegExDelete','RegEx'+IntToStr(i),'');
++              if regExpDelete &lt;&gt; '' then
++                Misc.DeleteFilesRegExp(ExtractFilePath(appExePath)+'Lobby',defaultRegExp+regExpDelete);
++              Inc(i);
++            end;
++
++            DeleteFile(ExtractFilePath(appExePath)+'TASClientUpdateTemp\update.ini');
++          end;
++
+           // updates files
+           MoveTree(ExtractFilePath(appExePath)+'TASClientUpdateTemp\',ExtractFilePath(appExePath));
+ 
+@@ -249,7 +300,7 @@
+ begin
+   if not DownloadStatus.Downloading then
+   begin
+-    ReceivedLabel.Caption := _('Received 0 KB');
++    ReceivedLabel.Caption := _('Received 0 byte');
+     ProgressBar.Position := 0;
+     Exit;
+   end;
+@@ -258,9 +309,9 @@
+   fileSize := HttpCli1.ContentLength;
+ 
+   try
+-    ReceivedLabel.Caption := Format(_('Received %s kB (%d%%)'),[Misc.FormatFileSize(currentSize),Round(currentSize / fileSize * 100)])
++    ReceivedLabel.Caption := Format(_('Received %s (%d%%)'),[Misc.FormatFileSize3([currentSize, fileSize],'%s/%s %u'),Round(currentSize / fileSize * 100)])
+   except
+-    ReceivedLabel.Caption := Format('Received %s kB (%d%%)',[Misc.FormatFileSize(currentSize),Round(currentSize / fileSize * 100)])
++    ReceivedLabel.Caption := Format('Received %s (%d%%)',[Misc.FormatFileSize3([currentSize, fileSize],'%s/%s %u'),Round(currentSize / fileSize * 100)])
+   end;
+   if fileSize = 0 then
+     ProgressBar.Position := 0
+
+Modified: Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- Lobby/TASClient/LobbyScriptUnit.pas	2010-11-10 14:20:38 UTC (rev 7520)
++++ Lobby/TASClient/LobbyScriptUnit.pas	2010-11-11 19:15:22 UTC (rev 7521)
+@@ -302,7 +302,6 @@
+   PlayerIconTypeNames: TStringList;
+   PlayerIconTypeIcons: TList;
+   PlayerIconTypeIconsNames: TList;
+-
+ implementation
+ 
+ uses PythonScriptDebugFormUnit, Utility, MapListFormUnit, HostBattleFormUnit,
+@@ -3046,5 +3045,4 @@
+   end;
+ end;
+ 
+-
+ end.
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2010-11-10 14:20:38 UTC (rev 7520)
++++ Lobby/TASClient/MainUnit.dfm	2010-11-11 19:15:22 UTC (rev 7521)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 1069
+-  Top = 522
++  Left = 902
++  Top = 402
+   Width = 883
+   Height = 539
+   Caption = '.'
+@@ -682,7 +682,7 @@
+                   TabOrder = 0
+                   TreeOptions.AutoOptions = [toAutoDropExpand, toAutoScrollOnExpand, toAutoSort, toAutoTristateTracking, toAutoDeleteMovedNodes]
+                   TreeOptions.MiscOptions = [toAcceptOLEDrop, toCheckSupport, toEditable, toFullRepaintOnResize, toInitOnSave, toToggleOnDblClick, toWheelPanning, toEditOnClick]
+-                  TreeOptions.PaintOptions = [toShowButtons, toShowDropmark, toThemeAware, toUseBlendedImages]
++                  TreeOptions.PaintOptions = [toHotTrack, toShowButtons, toShowDropmark, toThemeAware, toUseBlendedImages]
+                   TreeOptions.SelectionOptions = [toFullRowSelect]
+                   OnChecking = FilterListChecking
+                   OnClick = FilterListClick
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2010-11-10 14:20:38 UTC (rev 7520)
++++ Lobby/TASClient/MainUnit.pas	2010-11-11 19:15:22 UTC (rev 7521)
+@@ -414,7 +414,7 @@
+ 
+ const
+   VERSION_NUMBER = '0.78'; // Must be float value! (with a period as a decimal seperator)
+-  AUTOUPDATE_URL = '<A HREF="http://tasclient.no-ip.org/TASClient_update_v3.txt">http://tasclient.no-ip.org/TASClient_update_v3.txt</A>';
++  AUTOUPDATE_URL = '<A HREF="http://tasclient.no-ip.org/TASClient_update_v4.txt">http://tasclient.no-ip.org/TASClient_update_v4.txt</A>';
+   PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER;
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+   ASSUME_TIMEOUT_INTERVAL = 30000; // in milliseconds. Must be greater than KEEP_ALIVE_INTERVAL! If server hasn't send any data to us within this interval, then we assume timeout occured. It's us who must make sure we get constant replies from server by pinging it.
+@@ -6300,6 +6300,11 @@
+             end;
+             TMyTabSheet(ChatTabs[0]).ScrollRichEditToBottom;
+             mnuLockViewClick(nil);
++
++            // glitch fix for window skin
++            ClientListOptionsPanel.InvalidateBackground(False);
++            PlayersInfoPanel.InvalidateBackground(False);
++            PlayerFiltersPanel.InvalidateBackground(False);
+           end;
+         end;
+         AddTextToChatWindow(TMyTabSheet(ChatTabs[i]), _('* Now talking in ') + TMyTabSheet(ChatTabs[i]).Caption, Colors.ChanJoin,True);
+@@ -9402,8 +9407,8 @@
+         Canvas.Font.Color := SkinManager.CurrentSkin.GetTextColor(skncListItem,itemState);
+         SkinManager.CurrentSkin.PaintBackground(Canvas,BgRect,skncListItem,itemState,True,True);
+       end;
+-      if Column = 0 then
+-        CheckImages.Draw(Canvas,3,0,checkImgIdx);
++      //if Column = 0 then
++      //  CheckImages.Draw(Canvas,3,0,checkImgIdx);
+       Canvas.Brush.Style := Graphics.bsClear;
+     end
+     else if (Node = FocusedNode) and focused then
+@@ -9419,6 +9424,9 @@
+       Canvas.Font.Color := clWindowText;
+     end;
+ 
++    if Column = 0 then
++      CheckImages.Draw(Canvas,3,0,checkImgIdx);
++
+     InflateRect(R, TextMargin, 0);
+     if Column = 0 then
+     begin
+@@ -9429,7 +9437,7 @@
+ 
+     Dec(R.Right);
+     Dec(R.Bottom);
+-    s := '';
++    s := ' ';
+ 
+     case Column of
+       0: // join
+@@ -10209,6 +10217,7 @@
+     for i:=nb to j-1 do begin
+       VDTBattles.RootNodeCount := VDTBattles.RootNodeCount+1;
+       PTmpNode := VDTBattles.GetLast;
++      PTmpNode.CheckType := ctCheckBox;
+     end
+   end
+   else
+@@ -12493,6 +12502,7 @@
+ var
+   html : string;
+   parsedHtml: TStringList;
++  parsedHtml2: TStringList;
+   sl: TStringList;
+ begin
+   Sleep(delay);
+@@ -12502,6 +12512,7 @@
+   with MainForm do
+   begin
+     parsedHtml := TStringList.Create;
++    parsedHtml2 := TStringList.Create;
+     {if Preferences.UseProxy then
+     begin
+       HttpCli1.Proxy := Preferences.ProxyAddress;
+@@ -12527,19 +12538,27 @@
+ 
+       Misc.ParseDelimited(parsedHtml,html,EOL,#$A);
+ 
+-      if parsedHtml.Count &lt; 2 then
++      if parsedHtml.Count &lt; 4 then
+         Raise Exception.Create('error');
+ 
+       if dlBeta  then
+-        Misc.ParseDelimited(parsedHtml,parsedHtml[0],' ','')
++      begin
++        Misc.ParseDelimited(parsedHtml2,parsedHtml[0],' ','');
++        if StrToInt(parsedHtml2[0]) &gt; Misc.GetLobbyRevision then
++          Misc.ParseDelimited(parsedHtml2,parsedHtml[1],' ','')
++      end
+       else
+-        Misc.ParseDelimited(parsedHtml,parsedHtml[1],' ','');
++      begin
++        Misc.ParseDelimited(parsedHtml2,parsedHtml[2],' ','');
++        if StrToInt(parsedHtml2[0]) &gt; Misc.GetLobbyRevision then
++          Misc.ParseDelimited(parsedHtml2,parsedHtml[3],' ','');
++      end;
+ 
+-      if forceUpt or (StrToInt(parsedHtml[0]) &gt; Misc.GetLobbyRevision) then
++      if forceUpt or (StrToInt(parsedHtml2[0]) &gt; Misc.GetLobbyRevision) then
+       begin
+-        if forceUpt or (autoUpdt and dlBeta) or (MessageDlgThread(StringReplace(MakeSentence(parsedHtml,2),'\n',EOL,[rfReplaceAll]),mtInformation,[mbYes,mbNo],0) = mrYes) then
++        if forceUpt or (autoUpdt and dlBeta) or (MessageDlgThread(StringReplace(MakeSentence(parsedHtml2,2),'\n',EOL,[rfReplaceAll]),mtInformation,[mbYes,mbNo],0) = mrYes) then
+         begin
+-            DownloadFile.URL := parsedHtml[1];
++            DownloadFile.URL := parsedHtml2[1];
+             DownloadFile.HeaderReceived := False;
+             if FileExists(ExtractFilePath(Application.ExeName)+'\_AutoUpdateTempFile.7z') then
+               DeleteFile(ExtractFilePath(Application.ExeName)+'\_AutoUpdateTempFile.7z');
+
+Modified: Lobby/TASClient/Misc.pas
+===================================================================
+--- Lobby/TASClient/Misc.pas	2010-11-10 14:20:38 UTC (rev 7520)
++++ Lobby/TASClient/Misc.pas	2010-11-11 19:15:22 UTC (rev 7521)
+@@ -151,6 +151,7 @@
+ function VariantToString(AVar: OleVariant): string;
+ function GetLongPathNameA(lpFileName:LPCTSTR;lpBuffer:LPTSTR;nBufferLength:DWORD): integer;stdcall; external 'Kernel32.dll';
+ function GetLongPathName(FileName: string): string;
++function DeleteFilesRegExp(DirName: string; regularExpression: string): LongInt;
+ Function DelTree(DirName : string): LongInt;
+ Function CopyTree(DirFrom : string; DirTo : string): LongInt;
+ Function MoveTree(DirFrom : string; DirTo : string): LongInt;
+@@ -189,7 +190,7 @@
+ 
+ uses
+   ShellAPI, Math, RichEdit, Messages, MainUnit, StringParser,gnugettext,
+-  StrUtils, uMd5, SZCodeBaseX, HighlightingUnit, DSiWin32, ColorPicker;
++  StrUtils, uMd5, SZCodeBaseX, HighlightingUnit, DSiWin32, ColorPicker,RegExpr;
+ 
+ const
+   Hex: array[0..15] of Char = ('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F');
+@@ -2146,6 +2147,36 @@
+     else showmessage('IncorrectPath');
+ end;
+ 
++function DeleteFilesRegExp(DirName: string; regularExpression: string): LongInt;
++var
++  SearchRec :TSearchRec;
++begin
++    if RightStr(DirName,1) = '\' then
++      DirName := LeftStr(DirName,Length(DirName)-1);
++
++    Result := FindFirst(DirName+'\*.*', faAnyFile , SearchRec);
++    while Result = 0 do
++    begin
++      if not(SearchRec.name[1]='.') then
++      begin
++       if (SearchRec.attr and faDirectory) &lt;&gt; 0 then
++        begin
++            DeleteFilesRegExp(DirName +'\' + SearchRec.name,regularExpression);
++        end
++        else
++        begin
++          if RegExpr.ExecRegExpr(regularExpression,LowerCase(DirName+'\'+SearchRec.name)) then
++            try
++              DeleteFile(DirName+'\'+SearchRec.name);
++            except
++            end;
++        end;
++      end; //if . ..
++      Result := FindNext(SearchRec);
++    end;
++    FindClose(SearchRec);
++end;
++
+ Function DelTree(DirName : string): LongInt;
+ var
+   SearchRec :TSearchRec;
+
+Modified: Lobby/TASClient/PreferencesFormUnit.pas
+===================================================================
+--- Lobby/TASClient/PreferencesFormUnit.pas	2010-11-10 14:20:38 UTC (rev 7520)
++++ Lobby/TASClient/PreferencesFormUnit.pas	2010-11-11 19:15:22 UTC (rev 7521)
+@@ -489,8 +489,8 @@
+     with WidgetDBForm.vstWidgetList.Header.Columns do
+       for i := 0 to Count-1 do
+       try
+-        Items[i].Width := Misc.GetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\WidgetDBForm', 'Column' + IntToStr(i));
+-        Items[i].Position := Misc.GetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\WidgetDBForm', 'ColumnPosition' + IntToStr(i));
++        Items[i].Width := Misc.GetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\WidgetDBForm', 'Column2_' + IntToStr(i));
++        Items[i].Position := Misc.GetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\WidgetDBForm', 'ColumnPosition2_' + IntToStr(i));
+       except
+       end;
+     FixFormBounds(WidgetDBForm);
+@@ -645,8 +645,8 @@
+     with WidgetDBForm.vstWidgetList.Header.Columns do
+       for i := 0 to Count-1 do
+       begin
+-        Misc.SetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\WidgetDBForm', 'Column' + IntToStr(i), rdInteger, Items[i].Width);
+-        Misc.SetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\WidgetDBForm', 'ColumnPosition' + IntToStr(i), rdInteger, Items[i].Position);
++        Misc.SetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\WidgetDBForm', 'Column2_' + IntToStr(i), rdInteger, Items[i].Width);
++        Misc.SetRegistryData(HKEY_CURRENT_USER, TASCLIENT_REGISTRY_KEY+'\Forms\WidgetDBForm', 'ColumnPosition2_' + IntToStr(i), rdInteger, Items[i].Position);
+       end;
+ 
+ 
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2010-11-10 14:20:38 UTC (rev 7520)
++++ Lobby/TASClient/TASClient.dof	2010-11-11 19:15:22 UTC (rev 7521)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=78
+ Release=0
+-Build=1024
++Build=1041
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.78.0.1024
++FileVersion=0.78.0.1041
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+Modified: Lobby/TASClient/WidgetDBFormUnit.dfm
+===================================================================
+--- Lobby/TASClient/WidgetDBFormUnit.dfm	2010-11-10 14:20:38 UTC (rev 7520)
++++ Lobby/TASClient/WidgetDBFormUnit.dfm	2010-11-11 19:15:22 UTC (rev 7521)
+@@ -48,7 +48,8 @@
+         Height = 151
+         Align = alClient
+         CheckImageKind = ckSystemFlat
+-        Header.AutoSizeIndex = 0
++        DragOperations = []
++        Header.AutoSizeIndex = 1
+         Header.DefaultHeight = 17
+         Header.Font.Charset = DEFAULT_CHARSET
+         Header.Font.Color = clWindowText
+@@ -60,8 +61,10 @@
+         Header.Style = hsFlatButtons
+         TabOrder = 1
+         TreeOptions.AutoOptions = [toAutoDropExpand, toAutoScrollOnExpand, toAutoSort, toAutoTristateTracking, toAutoDeleteMovedNodes]
++        TreeOptions.MiscOptions = [toAcceptOLEDrop, toCheckSupport, toEditable, toFullRepaintOnResize, toInitOnSave, toToggleOnDblClick, toWheelPanning, toEditOnClick]
+         TreeOptions.PaintOptions = [toHotTrack, toShowButtons, toShowDropmark, toThemeAware, toUseBlendedImages]
+         TreeOptions.SelectionOptions = [toFullRowSelect]
++        OnChecking = vstWidgetListChecking
+         OnCompareNodes = vstWidgetListCompareNodes
+         OnDrawText = vstWidgetListDrawText
+         OnFocusChanged = vstWidgetListFocusChanged
+@@ -71,64 +74,56 @@
+         OnHeaderDraw = vstWidgetListHeaderDraw
+         Columns = &lt;
+           item
++            CheckBox = True
++            MaxWidth = 20
++            MinWidth = 20
++            Options = [coAllowClick, coEnabled, coParentBidiMode, coParentColor, coShowDropMark, coVisible]
++            Position = 0
++            Width = 20
++            WideText = 'Installed'
++          end
++          item
+             Position = 1
+-            Style = vsOwnerDraw
+             Width = 168
+             WideText = 'Name'
+           end
+           item
+             Position = 2
+-            Style = vsOwnerDraw
+             Width = 100
+             WideText = 'Category'
+           end
+           item
+             Position = 3
+-            Style = vsOwnerDraw
+             WideText = 'DLs'
+           end
+           item
+             Position = 4
+-            Style = vsOwnerDraw
+             Width = 100
+             WideText = 'Games'
+           end
+           item
+             Position = 5
+-            Style = vsOwnerDraw
+             Width = 45
+             WideText = 'Rating'
+           end
+           item
++            Position = 6
++            Width = 45
++            WideText = 'Votes'
++          end
++          item
+             Position = 7
+-            Style = vsOwnerDraw
+             WideText = 'Comments'
+           end
+           item
+             Position = 8
+-            Style = vsOwnerDraw
+             Width = 125
+             WideText = 'Author'
+           end
+           item
+             Position = 9
+-            Style = vsOwnerDraw
+             Width = 120
+             WideText = 'Entry date'
+-          end
+-          item
+-            CheckBox = True
+-            MaxWidth = 20
+-            MinWidth = 20
+-            Position = 0
+-            Style = vsOwnerDraw
+-            Width = 20
+-            WideText = 'Installed'
+-          end
+-          item
+-            Position = 6
+-            Width = 45
+-            WideText = 'Votes'
+           end&gt;
+       end
+       object pnlWidgetInfo: TSpTBXPanel
+
+Modified: Lobby/TASClient/WidgetDBFormUnit.pas
+===================================================================
+--- Lobby/TASClient/WidgetDBFormUnit.pas	2010-11-10 14:20:38 UTC (rev 7520)
++++ Lobby/TASClient/WidgetDBFormUnit.pas	2010-11-11 19:15:22 UTC (rev 7521)
+@@ -138,9 +138,6 @@
+     procedure vstWidgetListGetText(Sender: TBaseVirtualTree;
+       Node: PVirtualNode; Column: TColumnIndex; TextType: TVSTTextType;
+       var CellText: WideString);
+-    procedure vstWidgetListPaintText(Sender: TBaseVirtualTree;
+-      const TargetCanvas: TCanvas; Node: PVirtualNode;
+-      Column: TColumnIndex; TextType: TVSTTextType);
+     procedure vstWidgetListDrawText(Sender: TBaseVirtualTree;
+       TargetCanvas: TCanvas; Node: PVirtualNode; Column: TColumnIndex;
+       const Text: WideString; const CellRect: TRect;
+@@ -171,6 +168,11 @@
+     procedure btRate3Click(Sender: TObject);
+     procedure btRate4Click(Sender: TObject);
+     procedure btRate5Click(Sender: TObject);
++    procedure vstWidgetListPaintText(Sender: TBaseVirtualTree;
++      const TargetCanvas: TCanvas; Node: PVirtualNode;
++      Column: TColumnIndex; TextType: TVSTTextType);
++    procedure vstWidgetListChecking(Sender: TBaseVirtualTree;
++      Node: PVirtualNode; var NewState: TCheckState; var Allowed: Boolean);
+   private
+     { Private declarations }
+   public
+@@ -284,33 +286,19 @@
+     Exit;
+   end;
+   case Column of
+-    0: CellText := widget.Name;
+-    1: CellText := widget.Category.Name;
+-    2: CellText := IntToStr(widget.Downloads);
+-    3: CellText := widget.Games;
+-    4: CellText := IFF(widget.Rating&gt;-1,FloatToStrF(widget.Rating,ffGeneral,2,1),' ');
+-    5: CellText := IntToStr(widget.Comments);
+-    6: CellText := widget.Author;
+-    7: CellText := widget.Entry;
+-    9: CellText := IntToStr(widget.VoteCount);
++    0: CellText := '   ';
++    1: CellText := widget.Name;
++    2: CellText := widget.Category.Name;
++    3: CellText := IntToStr(widget.Downloads);
++    4: CellText := widget.Games;
++    5: CellText := IFF(widget.Rating&gt;-1,FloatToStrF(widget.Rating,ffGeneral,2,1),' ');
++    6: CellText := IntToStr(widget.VoteCount);
++    7: CellText := IntToStr(widget.Comments);
++    8: CellText := widget.Author;
++    9: CellText := widget.Entry;
+   end;
+ end;
+ 
+-procedure TWidgetDBForm.vstWidgetListPaintText(Sender: TBaseVirtualTree;
+-  const TargetCanvas: TCanvas; Node: PVirtualNode; Column: TColumnIndex;
+-  TextType: TVSTTextType);
+-begin
+-  if Column = 0 then
+-  begin
+-    TargetCanvas.Font.Style := [fsBold];
+-  end
+-  else
+-  begin
+-    TargetCanvas.Font.Style := [];
+-  end;
+-  inherited;
+-end;
+-
+ procedure TWidgetDBForm.vstWidgetListDrawText(Sender: TBaseVirtualTree;
+   TargetCanvas: TCanvas; Node: PVirtualNode; Column: TColumnIndex;
+   const Text: WideString; const CellRect: TRect; var DefaultDraw: Boolean);
+@@ -430,16 +418,16 @@
+   end;
+ 
+   case Column of
+-    0: Result := AnsiCompareStr(widget1.Name,widget2.Name);
+-    1: Result := AnsiCompareStr(widget1.Category.Name,widget2.Category.Name);
+-    2: Result := CompareValue(widget1.Downloads,widget2.Downloads);
+-    3: Result := AnsiCompareStr(widget1.Games,widget2.Games);
+-    4: Result := CompareValue(widget1.Rating,widget2.Rating);
+-    5: Result := CompareValue(widget1.Comments,widget2.Comments);
+-    6: Result := AnsiCompareStr(widget1.Author,widget2.Author);
+-    7: Result := AnsiCompareStr(widget1.Entry,widget2.Entry);
+-    8: Result := CompareBoolean(widget1.Installed,widget2.Installed);
+-    9: Result := CompareValue(widget1.VoteCount,widget2.VoteCount);
++    0: Result := CompareBoolean(widget1.Installed,widget2.Installed);
++    1: Result := AnsiCompareStr(widget1.Name,widget2.Name);
++    2: Result := AnsiCompareStr(widget1.Category.Name,widget2.Category.Name);
++    3: Result := CompareValue(widget1.Downloads,widget2.Downloads);
++    4: Result := AnsiCompareStr(widget1.Games,widget2.Games);
++    5: Result := CompareValue(widget1.Rating,widget2.Rating);
++    6: Result := CompareValue(widget1.VoteCount,widget2.VoteCount);
++    7: Result := CompareValue(widget1.Comments,widget2.Comments);
++    8: Result := AnsiCompareStr(widget1.Author,widget2.Author);
++    9: Result := AnsiCompareStr(widget1.Entry,widget2.Entry);
+   end;
+ end;
+ 
+@@ -466,6 +454,7 @@
+   reChangelog.Text := widget.Changelog;
+ 
+   btUninstall.Enabled := widget.Installed;
++  btInstall.Enabled := True;
+   if widget.Installed then
+     btInstall.Caption := _('Update')
+   else
+@@ -658,6 +647,7 @@
+     begin
+       TWidgetItem(widgetList[i]).NodeAdded := True;
+       TWidgetItem(widgetList[i]).Node := vstWidgetList.AddChild(vstWidgetList.RootNode);
++      TWidgetItem(widgetList[i]).Node.CheckType := ctCheckBox;
+       if TWidgetItem(widgetList[i]).Installed then
+         TWidgetItem(widgetList[i]).Node.CheckState := csCheckedNormal;
+     end
+@@ -874,6 +864,8 @@
+   if not btRefresh.Enabled then Exit;
+   SelectWidget(nil);
+   btRefresh.Enabled := False;
++  btInstall.Enabled := False;
++  btUninstall.Enabled := False;
+   refreshThread := TRefreshWidgetListThread.Create(False);
+ end;
+ 
+@@ -1270,4 +1262,25 @@
+   RateWidget(5);
+ end;
+ 
++procedure TWidgetDBForm.vstWidgetListPaintText(Sender: TBaseVirtualTree;
++  const TargetCanvas: TCanvas; Node: PVirtualNode; Column: TColumnIndex;
++  TextType: TVSTTextType);
++begin
++  if Column = 1 then
++  begin
++    TargetCanvas.Font.Style := [fsBold];
++  end
++  else
++  begin
++    TargetCanvas.Font.Style := [];
++  end;
++  inherited;
++end;
++
++procedure TWidgetDBForm.vstWidgetListChecking(Sender: TBaseVirtualTree;
++  Node: PVirtualNode; var NewState: TCheckState; var Allowed: Boolean);
++begin
++  Allowed := False;
++end;
++
+ end.
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002290.html">[Taspring-linux-commit] r7520 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002292.html">[Taspring-linux-commit] r7522 - in Lobby/TASClient: . Graphics	LobbyComponents/DockPanel Python/scripts/layoutScripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2291">[ date ]</a>
+              <a href="thread.html#2291">[ thread ]</a>
+              <a href="subject.html#2291">[ subject ]</a>
+              <a href="author.html#2291">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

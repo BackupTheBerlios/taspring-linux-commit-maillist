@@ -1,0 +1,654 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6488 - trunk/rts/Rendering
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6488%20-%20trunk/rts/Rendering&In-Reply-To=%3C20080930141422.98D504A61%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001257.html">
+   <LINK REL="Next"  HREF="001259.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6488 - trunk/rts/Rendering</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6488%20-%20trunk/rts/Rendering&In-Reply-To=%3C20080930141422.98D504A61%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6488 - trunk/rts/Rendering">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Sep 30 16:14:22 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001257.html">[Taspring-linux-commit] r6487 - in trunk/rts: Map Rendering/Env
+</A></li>
+        <LI>Next message: <A HREF="001259.html">[Taspring-linux-commit] r6489 - trunk/rts/Rendering
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1258">[ date ]</a>
+              <a href="thread.html#1258">[ thread ]</a>
+              <a href="subject.html#1258">[ subject ]</a>
+              <a href="author.html#1258">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-09-30 16:14:22 +0200 (Tue, 30 Sep 2008)
+New Revision: 6488
+
+Modified:
+   trunk/rts/Rendering/GroundDecalHandler.cpp
+   trunk/rts/Rendering/GroundDecalHandler.h
+Log:
+bring the floating decals back down to Earth
+
+Modified: trunk/rts/Rendering/GroundDecalHandler.cpp
+===================================================================
+--- trunk/rts/Rendering/GroundDecalHandler.cpp	2008-09-30 12:12:46 UTC (rev 6487)
++++ trunk/rts/Rendering/GroundDecalHandler.cpp	2008-09-30 14:14:22 UTC (rev 6488)
+@@ -113,22 +113,259 @@
+ }
+ 
+ 
+-// get the maximum heightmap-value of the four vertices
+-// and draw the quad at that height (after terraforming
+-// the ground can be assumed to be mostly flat directly
+-// below a factory, so this is preferable to splitting
+-// the texture quad into quadratically many tiles every
+-// frame just so it follows the terrain slightly better)
+-// TODO: do split the quad, but use VA buffers to draw
+-// them (as with the groundscars)?
+-inline float get_hmapval(const float* heightmap, int tlz, int tlx, int trz, int trx, int brz, int brx, int blz, int blx, int gsmx1) {
+-	const float tlh = heightmap[tlz * gsmx1 + tlx];
+-	const float trh = heightmap[trz * gsmx1 + trx];
+-	const float brh = heightmap[brz * gsmx1 + brx];
+-	const float blh = heightmap[blz * gsmx1 + blx];
+-	return max(max(tlh, trh), max(brh, blh)) + 0.2f;
++
++// inline void AddQuadVertices(CVertexArray* va, int x, float y, int z, float u, float v, float* color) {
++// 		va-&gt;AddVertexTC( VERTEX(xh    , htl, zh    ),   utl, vtl,   color);
++// 		va-&gt;AddVertexTC( VERTEX(xh + 1, htr, zh    ),   utr, vtr,   color);
++// 		va-&gt;AddVertexTC( VERTEX(xh + 1, hbr, zh + 1),   ubr, vbr,   color);
++// 		va-&gt;AddVertexTC( VERTEX(xh    , hbl, zh + 1),   ubl, vbl,   color);
++// }
++
++inline void DrawBuildingDecal(BuildingGroundDecal* decal) {
++	const float* hm = readmap-&gt;GetHeightmap();
++	const int gsmx = gs-&gt;mapx;
++	const int gsmx1 = gsmx + 1;
++	const int gsmy = gs-&gt;mapy;
++
++	unsigned char color[4] = {255, 255, 255, int(decal-&gt;alpha * 255)};
++
++	#define HEIGHT2WORLD(x) ((x) &lt;&lt; 3)
++	#define WORLD2HEIGHT(x) ((x) &gt;&gt; 3)
++	#define VERTEX(x, y, z) float3(HEIGHT2WORLD((x)), (y), HEIGHT2WORLD((z)))
++	#define HEIGHT(x, z) (hm[((z) * gsmx1) + (x)])
++
++	if (!decal-&gt;va) {
++		// NOTE: this really needs CLOD'ing
++		decal-&gt;va = SAFE_NEW CVertexArray();
++		decal-&gt;va-&gt;Initialize();
++
++		const float xts = 1.0f / decal-&gt;xsize;
++		const float yts = 1.0f / decal-&gt;ysize;
++
++		int xMin = 0, xMax = decal-&gt;xsize;			// x-extends in local decal-space (heightmap scale)
++		int zMin = 0, zMax = decal-&gt;ysize;			// z-extends in local decal-space (heightmap scale)
++		int tlx = decal-&gt;posx + xMin, blx = tlx;	// heightmap x-coor of {top, bottom}-left   quad vertex
++		int trx = decal-&gt;posx + xMax, brx = trx;	// heightmap x-coor of {top, bottom}-right  quad vertex
++		int tlz = decal-&gt;posy + zMin, trz = tlz;	// heightmap z-coor of top-{left, right}    quad vertex
++		int brz = decal-&gt;posy + zMax, blz = brz;	// heightmap z-coor of bottom-{left, right} quad vertex
++
++		switch (decal-&gt;facing) {
++			case 0: { // South (determines our reference texcoors)
++				// clip the quad vertices and texcoors against the map boundaries
++				if (tlx &lt;    0) { xMin -= tlx       ;   tlx =    0; blx = tlx; }
++				if (trx &gt; gsmx) { xMax -= trx - gsmx;   trx = gsmx; brx = trx; }
++				if (tlz &lt;    0) { zMin -= tlz       ;   tlz =    0; trz = tlz; }
++				if (brz &gt; gsmy) { zMax -= brz - gsmy;   brz = gsmy; blz = brz; }
++
++				for (int x = xMin; x &lt; xMax; x++) {
++					const int xh = tlx + x;
++
++					for (int z = zMin; z &lt; zMax; z++) {
++						const int zh = tlz + z;
++
++						const float htl = HEIGHT(zh,     xh    );
++						const float htr = HEIGHT(zh,     xh + 1);
++						const float hbr = HEIGHT(zh + 1, xh + 1);
++						const float hbl = HEIGHT(zh + 1, xh    );
++						const float utl = (x    ) * xts, vtl = (z    ) * yts; // uv = (0, 0)
++						const float utr = (x + 1) * xts, vtr = (z    ) * yts; // uv = (1, 0)
++						const float ubr = (x + 1) * xts, vbr = (z + 1) * yts; // uv = (1, 1)
++						const float ubl = (x    ) * xts, vbl = (z + 1) * yts; // uv = (0, 1)
++
++						decal-&gt;va-&gt;AddVertexTC( VERTEX(xh    , htl, zh    ),   utl, vtl,   color);
++						decal-&gt;va-&gt;AddVertexTC( VERTEX(xh + 1, htr, zh    ),   utr, vtr,   color);
++						decal-&gt;va-&gt;AddVertexTC( VERTEX(xh + 1, hbr, zh + 1),   ubr, vbr,   color);
++						decal-&gt;va-&gt;AddVertexTC( VERTEX(xh    , hbl, zh + 1),   ubl, vbl,   color);
++					}
++				}
++			} break;
++	
++			case 1: { // East
++				if (tlx &lt;    0) { zMin -= tlx       ; tlx =    0; blx = tlx; }
++				if (trx &gt; gsmx) { zMax -= trx - gsmx; trx = gsmx; brx = trx; }
++				if (tlz &lt;    0) { xMax += tlz       ; tlz =    0; trz = tlz; }
++				if (brz &gt; gsmy) { xMin += brz - gsmy; brz = gsmy; blz = brz; }
++
++				for (int x = xMin; x &lt; xMax; x++) {
++					const int xh = tlx + x;
++
++					for (int z = zMin; z &lt; zMax; z++) {
++						const int zh = tlz + z;
++
++						const float htl = HEIGHT(zh,     xh    );
++						const float htr = HEIGHT(zh,     xh + 1);
++						const float hbr = HEIGHT(zh + 1, xh + 1);
++						const float hbl = HEIGHT(zh + 1, xh    );
++						const float utl = 1.0f - (z    ) * yts, vtl = (x    ) * xts; // uv = (1, 0)
++						const float utr = 1.0f - (z    ) * yts, vtr = (x + 1) * xts; // uv = (1, 1)
++						const float ubr = 1.0f - (z + 1) * yts, vbr = (x + 1) * xts; // uv = (0, 1)
++						const float ubl = 1.0f - (z + 1) * yts, vbl = (x    ) * xts; // uv = (0, 0)
++
++						decal-&gt;va-&gt;AddVertexTC( VERTEX(xh    , htl, zh    ),   utl, vtl,   color);
++						decal-&gt;va-&gt;AddVertexTC( VERTEX(xh + 1, htr, zh    ),   utr, vtr,   color);
++						decal-&gt;va-&gt;AddVertexTC( VERTEX(xh + 1, hbr, zh + 1),   ubr, vbr,   color);
++						decal-&gt;va-&gt;AddVertexTC( VERTEX(xh    , hbl, zh + 1),   ubl, vbl,   color);
++					}
++				}
++			} break;
++
++			case 2: { // North
++				if (tlx &lt;    0) { xMax += tlx       ; tlx =    0; blx = tlx; }
++				if (trx &gt; gsmx) { xMin += trx - gsmx; trx = gsmx; brx = trx; }
++				if (tlz &lt;    0) { zMax += tlz       ; tlz =    0; trz = tlz; }
++				if (brz &gt; gsmy) { zMin += brz - gsmy; brz = gsmy; blz = brz; }
++
++				for (int x = xMin; x &lt; xMax; x++) {
++					const int xh = tlx + x;
++
++					for (int z = zMin; z &lt; zMax; z++) {
++						const int zh = tlz + z;
++
++						const float htl = HEIGHT(zh,     xh    );
++						const float htr = HEIGHT(zh,     xh + 1);
++						const float hbr = HEIGHT(zh + 1, xh + 1);
++						const float hbl = HEIGHT(zh + 1, xh    );
++						const float utl = (xMax - x    ) * xts, vtl = (zMax - z    ) * yts; // uv = (1, 1)
++						const float utr = (xMax - x - 1) * xts, vtr = (zMax - z    ) * yts; // uv = (0, 1)
++						const float ubr = (xMax - x - 1) * xts, vbr = (zMax - z - 1) * yts; // uv = (0, 0)
++						const float ubl = (xMax - x    ) * xts, vbl = (zMax - z - 1) * yts; // uv = (1, 0)
++
++						decal-&gt;va-&gt;AddVertexTC( VERTEX(xh    , htl, zh    ),   utl, vtl,   color);
++						decal-&gt;va-&gt;AddVertexTC( VERTEX(xh + 1, htr, zh    ),   utr, vtr,   color);
++						decal-&gt;va-&gt;AddVertexTC( VERTEX(xh + 1, hbr, zh + 1),   ubr, vbr,   color);
++						decal-&gt;va-&gt;AddVertexTC( VERTEX(xh    , hbl, zh + 1),   ubl, vbl,   color);
++					}
++				}
++			} break;
++
++			case 3: { // West
++				if (tlx &lt;    0) { zMax += tlx       ; tlx =    0; blx = tlx; }
++				if (trx &gt; gsmx) { zMin += trx - gsmx; trx = gsmx; brx = trx; }
++				if (tlz &lt;    0) { xMin -= tlz       ; tlz =    0; trz = tlz; }
++				if (brz &gt; gsmy) { xMax -= brz - gsmy; brz = gsmy; blz = brz; }
++
++				for (int x = xMin; x &lt; xMax; x++) {
++					const int xh = tlx + x;
++
++					for (int z = zMin; z &lt; zMax; z++) {
++						const int zh = tlz + z;
++
++						const float htl = HEIGHT(zh,     xh    );
++						const float htr = HEIGHT(zh,     xh + 1);
++						const float hbr = HEIGHT(zh + 1, xh + 1);
++						const float hbl = HEIGHT(zh + 1, xh    );
++						const float utl = (z    ) * yts, vtl = 1.0f - (x    ) * xts; // uv = (0, 1)
++						const float utr = (z    ) * yts, vtr = 1.0f - (x + 1) * xts; // uv = (0, 0)
++						const float ubr = (z + 1) * yts, vbr = 1.0f - (x + 1) * xts; // uv = (1, 0)
++						const float ubl = (z + 1) * yts, vbl = 1.0f - (x    ) * xts; // uv = (1, 1)
++
++						decal-&gt;va-&gt;AddVertexTC( VERTEX(xh    , htl, zh    ),   utl, vtl,   color);
++						decal-&gt;va-&gt;AddVertexTC( VERTEX(xh + 1, htr, zh    ),   utr, vtr,   color);
++						decal-&gt;va-&gt;AddVertexTC( VERTEX(xh + 1, hbr, zh + 1),   ubr, vbr,   color);
++						decal-&gt;va-&gt;AddVertexTC( VERTEX(xh    , hbl, zh + 1),   ubl, vbl,   color);
++					}
++				}
++			} break;
++		}
++	} else {
++		const float c = *((float*) (color));
++		const int start = 0;
++		const int stride = 6;
++		const int sdi = decal-&gt;va-&gt;drawIndex();
++
++		for (int i = start; i &lt; sdi; i += stride) {
++			const int x = int(decal-&gt;va-&gt;drawArray[i + 0]) &gt;&gt; 3;
++			const int z = int(decal-&gt;va-&gt;drawArray[i + 2]) &gt;&gt; 3;
++			const float h = hm[z * gsmx1 + x];
++
++			// update the height and alpha
++			decal-&gt;va-&gt;drawArray[i + 1] = h;
++			decal-&gt;va-&gt;drawArray[i + 5] = c;
++		}
++
++		decal-&gt;va-&gt;DrawArrayTC(GL_QUADS);
++	}
+ }
+ 
++inline void DrawGroundScar(CGroundDecalHandler::Scar* scar, bool fade) {
++	const float* hm = readmap-&gt;GetHeightmap();
++	const int gsmx = gs-&gt;mapx;
++	const int gsmx1 = gsmx + 1;
++	const int gsmx12 = (gs-&gt;mapx + 1) * 2;
++
++	unsigned char color[4] = {255, 255, 255, 255};
++
++	if (!scar-&gt;va) {
++		scar-&gt;va = SAFE_NEW CVertexArray();
++		scar-&gt;va-&gt;Initialize();
++
++		float3 pos = scar-&gt;pos;
++		const float radius = scar-&gt;radius;
++		const float radius4 = radius * 4.0f;
++		const float tx = scar-&gt;texOffsetX;
++		const float ty = scar-&gt;texOffsetY;
++
++		int sx = (int) max(0.0f,                 (pos.x - radius) * 0.0625f);
++		int ex = (int) min(float(gs-&gt;hmapx - 1), (pos.x + radius) * 0.0625f);
++		int sz = (int) max(0.0f,                 (pos.z - radius) * 0.0625f);
++		int ez = (int) min(float(gs-&gt;hmapy - 1), (pos.z + radius) * 0.0625f);
++
++		// create the scar texture-quads
++		float px1 = sx * 16;
++		for (int x = sx; x &lt;= ex; ++x) {
++			const float* hm2 = hm;
++			float px2 = px1 + 16;
++			float pz1 = sz * 16;
++
++			for (int z = sz; z &lt;= ez; ++z) {
++				float pz2 = pz1 + 16;
++				float tx1 = min(0.5f, (pos.x - px1) / radius4 + 0.25f);
++				float tx2 = max(0.0f, (pos.x - px2) / radius4 + 0.25f);
++				float tz1 = min(0.5f, (pos.z - pz1) / radius4 + 0.25f);
++				float tz2 = max(0.0f, (pos.z - pz2) / radius4 + 0.25f);
++
++				scar-&gt;va-&gt;AddVertexTC(float3(px1, * (hm2             ) + 0.5f, pz1), tx1 + tx, tz1 + ty, color);
++				scar-&gt;va-&gt;AddVertexTC(float3(px2, * (hm2 +          2) + 0.5f, pz1), tx2 + tx, tz1 + ty, color);
++				scar-&gt;va-&gt;AddVertexTC(float3(px2, * (hm2 + gsmx12 + 2) + 0.5f, pz2), tx2 + tx, tz2 + ty, color);
++				scar-&gt;va-&gt;AddVertexTC(float3(px1, * (hm2 + gsmx12    ) + 0.5f, pz2), tx1 + tx, tz2 + ty, color);
++				hm2 += gsmx12;
++				pz1 = pz2;
++			}
++
++			hm2 += 2;
++			px1 = px2;
++		}
++	} else {
++		if (fade) {
++			if (scar-&gt;creationTime + 10 &gt; gs-&gt;frameNum) {
++				color[3] = (int) (scar-&gt;startAlpha * (gs-&gt;frameNum - scar-&gt;creationTime) * 0.1f);
++			} else {
++				color[3] = (int) (scar-&gt;startAlpha - (gs-&gt;frameNum - scar-&gt;creationTime) * scar-&gt;alphaFalloff);
++			}
++
++			const float c = *((float*) (color));
++			const int start = 0;
++			const int stride = 6;
++			const int sdi = scar-&gt;va-&gt;drawIndex();
++
++			for (int i = start; i &lt; sdi; i += stride) {
++				const int x = int(scar-&gt;va-&gt;drawArray[i + 0]) &gt;&gt; 3;
++				const int z = int(scar-&gt;va-&gt;drawArray[i + 2]) &gt;&gt; 3;
++				const float h = hm[z * gsmx1 + x];
++
++				// update the height and alpha
++				scar-&gt;va-&gt;drawArray[i + 1] = h;
++				scar-&gt;va-&gt;drawArray[i + 5] = c;
++			}
++		}
++
++		scar-&gt;va-&gt;DrawArrayTC(GL_QUADS);
++	}
++}
++
++
++
++
+ void CGroundDecalHandler::Draw(void)
+ {
+ 	if (!drawDecals) {
+@@ -144,12 +381,6 @@
+ 	glPolygonOffset(-10, -200);
+ 	glDepthMask(0);
+ 
+-	unsigned char color[4];
+-	color[0] = 255;
+-	color[1] = 255;
+-	color[2] = 255;
+-	color[3] = 255;
+-
+ 	glActiveTextureARB(GL_TEXTURE1_ARB);
+ 		glEnable(GL_TEXTURE_2D);
+ 		glBindTexture(GL_TEXTURE_2D, readmap-&gt;GetShadingTexture());
+@@ -183,11 +414,10 @@
+ 		glMatrixMode(GL_MODELVIEW);
+ 	}
+ 
++
+ 	// create and draw the quads for each building decal
+ 	for (std::vector&lt;BuildingDecalType*&gt;::iterator bdi = buildingDecalTypes.begin(); bdi != buildingDecalTypes.end(); ++bdi) {
+ 		if (!(*bdi)-&gt;buildingDecals.empty()) {
+-			CVertexArray* va = GetVertexArray();
+-			va-&gt;Initialize();
+ 			glBindTexture(GL_TEXTURE_2D, (*bdi)-&gt;texture);
+ 
+ 			for (set&lt;BuildingGroundDecal*&gt;::iterator bi = (*bdi)-&gt;buildingDecals.begin(); bi != (*bdi)-&gt;buildingDecals.end(); ) {
+@@ -198,92 +428,28 @@
+ 				} else if (!decal-&gt;gbOwner) {
+ 					decal-&gt;alpha -= decal-&gt;AlphaFalloff * gu-&gt;lastFrameTime * gs-&gt;speedFactor;
+ 				}
+-				if (decal-&gt;alpha &lt; 0) {
++
++				if (decal-&gt;alpha &lt; 0.0f) {
+ 					// make sure RemoveBuilding() won't try to modify this decal
+ 					if (decal-&gt;owner) {
+ 						decal-&gt;owner-&gt;buildingDecal = 0;
+ 					}
++
++					delete decal-&gt;va;
++					decal-&gt;va = 0x0;
+ 					delete decal;
++
+ 					(*bdi)-&gt;buildingDecals.erase(bi++);
+ 					continue;
+ 				}
+ 
+ 				if (camera-&gt;InView(decal-&gt;pos, decal-&gt;radius) &amp;&amp;
+ 					(!decal-&gt;owner || (decal-&gt;owner-&gt;losStatus[gu-&gt;myAllyTeam] &amp; (LOS_INLOS | LOS_PREVLOS)) || gu-&gt;spectatingFullView)) {
+-					color[3] = int(decal-&gt;alpha * 255);
+-					const float* heightmap = readmap-&gt;GetHeightmap();
+-					float xts = 1.0f / decal-&gt;xsize;
+-					float yts = 1.0f / decal-&gt;ysize;
+ 
+-					int xMin = 0, xMax = decal-&gt;xsize;
+-					int zMin = 0, zMax = decal-&gt;ysize;
+-					int tlx = decal-&gt;posx + xMin;			// heightmap x-coor of top-left quad vertex
+-					int trx = decal-&gt;posx + xMax;			// heightmap x-coor of top-right quad vertex
+-					int brx = trx;							// heightmap x-coor of bottom-right quad vertex
+-					int blx = tlx;							// heightmap x-coor of bottom-left quad vertex
+-					int tlz = decal-&gt;posy + zMin;			// heightmap z-coor of top-left quad vertex
+-					int trz = tlz;							// heightmap z-coor of top-right quad vertex
+-					int brz = decal-&gt;posy + zMax;			// heightmap z-coor of bottom-right quad vertex
+-					int blz = brz;							// heightmap z-coor of bottom-left quad vertex
+-
+-					int gsmx=gs-&gt;mapx;
+-					int gsmx1=gsmx + 1;
+-					int gsmy=gs-&gt;mapy;
+-
+-					switch (decal-&gt;facing) {
+-						case 0: { // South (determines our reference texcoors)
+-							// clip the quad vertices and texcoors against the map boundaries
+-							if (tlx &lt; 0   ) { xMin -= tlx       ; tlx =    0; blx = tlx; }
+-							if (trx &gt; gsmx) { xMax -= trx - gsmx; trx = gsmx; brx = trx; }
+-							if (tlz &lt; 0   ) { zMin -= tlz       ; tlz =    0; trz = tlz; }
+-							if (brz &gt; gsmy) { zMax -= brz - gsmy; brz = gsmy; blz = brz; }
+-							float h=get_hmapval(heightmap, tlz, tlx, trz, trx, brz, brx, blz, blx, gsmx1);
+-							va-&gt;AddVertexTC(float3(tlx * 8, h, tlz * 8), xMin * xts, zMin * yts, color); // tc = (0, 0)
+-							va-&gt;AddVertexTC(float3(trx * 8, h, trz * 8), xMax * xts, zMin * yts, color); // tc = (1, 0)
+-							va-&gt;AddVertexTC(float3(brx * 8, h, brz * 8), xMax * xts, zMax * yts, color); // tc = (1, 1)
+-							va-&gt;AddVertexTC(float3(blx * 8, h, blz * 8), xMin * xts, zMax * yts, color); // tc = (0, 1)
+-						} break;
+-
+-						case 1: { // East
+-							if (tlx &lt;    0) { zMin -= tlx       ; tlx =    0; blx = tlx; }
+-							if (trx &gt; gsmx) { zMax -= trx - gsmx; trx = gsmx; brx = trx; }
+-							if (tlz &lt;    0) { xMax += tlz       ; tlz =    0; trz = tlz; }
+-							if (brz &gt; gsmy) { xMin += brz - gsmy; brz = gsmy; blz = brz; }
+-							float h=get_hmapval(heightmap, tlz, tlx, trz, trx, brz, brx, blz, blx, gsmx1);
+-							va-&gt;AddVertexTC(float3(tlx * 8, h, tlz * 8), xMax * xts, zMin * yts, color); // tc = (1, 0)
+-							va-&gt;AddVertexTC(float3(trx * 8, h, trz * 8), xMax * xts, zMax * yts, color); // tc = (1, 1)
+-							va-&gt;AddVertexTC(float3(brx * 8, h, brz * 8), xMin * xts, zMax * yts, color); // tc = (0, 1)
+-							va-&gt;AddVertexTC(float3(blx * 8, h, blz * 8), xMin * xts, zMin * yts, color); // tc = (0, 0)
+-						} break;
+-
+-						case 2: { // North
+-							if (tlx &lt;    0) { xMax += tlx       ; tlx =    0; blx = tlx; }
+-							if (trx &gt; gsmx) { xMin += trx - gsmx; trx = gsmx; brx = trx; }
+-							if (tlz &lt;    0) { zMax += tlz       ; tlz =    0; trz = tlz; }
+-							if (brz &gt; gsmy) { zMin += brz - gsmy; brz = gsmy; blz = brz; }
+-							float h=get_hmapval(heightmap, tlz, tlx, trz, trx, brz, brx, blz, blx, gsmx1);
+-							va-&gt;AddVertexTC(float3(tlx * 8, h, tlz * 8), xMax * xts, zMax * yts, color); // tc = (1, 1)
+-							va-&gt;AddVertexTC(float3(trx * 8, h, trz * 8), xMin * xts, zMax * yts, color); // tc = (0, 1)
+-							va-&gt;AddVertexTC(float3(brx * 8, h, brz * 8), xMin * xts, zMin * yts, color); // tc = (0, 0)
+-							va-&gt;AddVertexTC(float3(blx * 8, h, blz * 8), xMax * xts, zMin * yts, color); // tc = (1, 0)
+-						} break;
+-
+-						case 3: { // West
+-							if (tlx &lt;    0) { zMax += tlx       ; tlx =    0; blx = tlx; }
+-							if (trx &gt; gsmx) { zMin += trx - gsmx; trx = gsmx; brx = trx; }
+-							if (tlz &lt;    0) { xMin -= tlz       ; tlz =    0; trz = tlz; }
+-							if (brz &gt; gsmy) { xMax -= brz - gsmy; brz = gsmy; blz = brz; }
+-							float h=get_hmapval(heightmap, tlz, tlx, trz, trx, brz, brx, blz, blx, gsmx1);
+-							va-&gt;AddVertexTC(float3(tlx * 8, h, tlz * 8), xMin * xts, zMax * yts, color); // tc = (0, 1)
+-							va-&gt;AddVertexTC(float3(trx * 8, h, trz * 8), xMin * xts, zMin * yts, color); // tc = (0, 0)
+-							va-&gt;AddVertexTC(float3(brx * 8, h, brz * 8), xMax * xts, zMin * yts, color); // tc = (1, 0)
+-							va-&gt;AddVertexTC(float3(blx * 8, h, blz * 8), xMax * xts, zMax * yts, color); // tc = (1, 1)
+-						} break;
+-					}
++					DrawBuildingDecal(decal);
+ 				}
+ 				++bi;
+ 			}
+-			va-&gt;DrawArrayTC(GL_QUADS);
+ 		}
+ 	}
+ 
+@@ -303,13 +469,11 @@
+ 	}
+ 
+ 
++
+ 	glPolygonOffset(-10, -20);
+ 
+-	unsigned char color2[4];
+-	color2[0] = 255;
+-	color2[1] = 255;
+-	color2[2] = 255;
+-	color2[3] = 255;
++	unsigned char color[4] = {255, 255, 255, 255};
++	unsigned char color2[4] = {255, 255, 255, 255};
+ 
+ 	// create and draw the unit footprint quads
+ 	for (std::vector&lt;TrackType*&gt;::iterator tti = trackTypes.begin(); tti != trackTypes.end(); ++tti) {
+@@ -354,88 +518,32 @@
+ 		}
+ 	}
+ 
++
+ 	glBindTexture(GL_TEXTURE_2D, scarTex);
+ 	glPolygonOffset(-10, -400);
+ 
+-	int gsmx12=(gs-&gt;mapx + 1)*2;
+ 	// create and draw the 16x16 quads for each ground scar
+ 	for (std::list&lt;Scar*&gt;::iterator si = scars.begin(); si != scars.end(); ) {
+ 		Scar* scar = *si;
+ 
+ 		if (scar-&gt;lifeTime &lt; gs-&gt;frameNum) {
+-			delete scar-&gt;scarQuads;
++			delete scar-&gt;va;
++			scar-&gt;va = 0x0;
++
+ 			RemoveScar(*si, false);
+ 			si = scars.erase(si);
+ 			continue;
+ 		}
+ 
+ 		if (camera-&gt;InView(scar-&gt;pos, scar-&gt;radius + 16)) {
+-			if (!scar-&gt;scarQuads) {
+-				scar-&gt;scarQuads = SAFE_NEW CVertexArray();
+-				scar-&gt;scarQuads-&gt;Initialize();
+-
+-				float3 pos = scar-&gt;pos;
+-				float radius = scar-&gt;radius;
+-				float radius4=radius * 4.0f;
+-				float tx = scar-&gt;texOffsetX;
+-				float ty = scar-&gt;texOffsetY;
+-
+-				int sx = (int) max(0.f,                  (pos.x - radius) / 16.0f);
+-				int ex = (int) min(float(gs-&gt;hmapx - 1), (pos.x + radius) / 16.0f);
+-				int sz = (int) max(0.f,                  (pos.z - radius) / 16.0f);
+-				int ez = (int) min(float(gs-&gt;hmapy - 1), (pos.z + radius) / 16.0f);
+-				const float* hm2 = readmap-&gt;GetHeightmap();
+-
+-				// create the scar texture-quads
+-				float px1 = sx*16;
+-				for (int x = sx; x &lt;= ex; ++x) {
+-					const float* hm=hm2;
+-					float px2 = px1+16;
+-					float pz1 = sz*16;
+-					for (int z = sz; z &lt;= ez; ++z) {
+-						float pz2 = pz1+16;
+-						float tx1 = min(0.5f, (pos.x - px1) / radius4 + 0.25f);
+-						float tx2 = max(0.0f, (pos.x - px2) / radius4 + 0.25f);
+-						float tz1 = min(0.5f, (pos.z - pz1) / radius4 + 0.25f);
+-						float tz2 = max(0.0f, (pos.z - pz2) / radius4 + 0.25f);
+-
+-						scar-&gt;scarQuads-&gt;AddVertexTC(float3(px1, *(hm) + 0.5f, pz1), tx1 + tx, tz1 + ty, color);
+-						scar-&gt;scarQuads-&gt;AddVertexTC(float3(px2, *(hm+2) + 0.5f, pz1), tx2 + tx, tz1 + ty, color);
+-						scar-&gt;scarQuads-&gt;AddVertexTC(float3(px2, *(hm+gsmx12+2) + 0.5f, pz2), tx2 + tx, tz2 + ty, color);
+-						scar-&gt;scarQuads-&gt;AddVertexTC(float3(px1, *(hm+gsmx12) + 0.5f, pz2), tx1 + tx, tz2 + ty, color);
+-						hm+=gsmx12;
+-						pz1=pz2;
+-					}
+-					hm2+=2;
+-					px1=px2;
+-				}
+-			}
+-			else {
+-				if (groundScarAlphaFade == 1) {
+-					if (scar-&gt;creationTime + 10 &gt; gs-&gt;frameNum) {
+-						color[3] = (int) (scar-&gt;startAlpha * (gs-&gt;frameNum - scar-&gt;creationTime) * 0.1f);
+-					} else {
+-						color[3] = (int) (scar-&gt;startAlpha - (gs-&gt;frameNum - scar-&gt;creationTime) * scar-&gt;alphaFalloff);
+-					}
+-
+-					const float c = *((float*) (color));
+-					const int start = 5;
+-					const int stride = 6;
+-
+-					int sdi=scar-&gt;scarQuads-&gt;drawIndex();
+-					for (int i = start; i &lt; sdi; i += stride) {
+-						scar-&gt;scarQuads-&gt;drawArray[i] = c;
+-					}
+-				}
+-
+-				scar-&gt;scarQuads-&gt;DrawArrayTC(GL_QUADS);
+-			}
++			DrawGroundScar(scar, groundScarAlphaFade);
+ 		}
+ 
+ 		++si;
+ 	}
+ 
+ 
++
+ 	glDisable(GL_POLYGON_OFFSET_FILL);
+ 	glDepthMask(1);
+ 	glDisable(GL_BLEND);
+
+Modified: trunk/rts/Rendering/GroundDecalHandler.h
+===================================================================
+--- trunk/rts/Rendering/GroundDecalHandler.h	2008-09-30 12:12:46 UTC (rev 6487)
++++ trunk/rts/Rendering/GroundDecalHandler.h	2008-09-30 14:14:22 UTC (rev 6488)
+@@ -21,7 +21,7 @@
+ 	int creationTime;
+ };
+ 
+-struct UnitTrackStruct{
++struct UnitTrackStruct {
+ 	CUnit* owner;
+ 	int lifeTime;
+ 	int trackAlpha;
+@@ -29,7 +29,11 @@
+ 	std::list&lt;TrackPart&gt; parts;
+ };
+ 
+-struct BuildingGroundDecal{
++struct BuildingGroundDecal {
++	BuildingGroundDecal(): va(0x0), owner(0x0), gbOwner(0x0), alpha(1.0f) {
++	}
++
++	CVertexArray* va;
+ 	CBuilding* owner;
+ 	CUnitDrawer::GhostBuilding* gbOwner;
+ 	int posx, posy;
+@@ -43,7 +47,8 @@
+ 	float AlphaFalloff;
+ };
+ 
+-class CGroundDecalHandler :
++
++class CGroundDecalHandler:
+ 	public CObject
+ {
+ public:
+@@ -81,7 +86,9 @@
+ 	std::vector&lt;BuildingDecalType*&gt; buildingDecalTypes;
+ 
+ 	struct Scar {
+-		Scar() { scarQuads = 0; }
++		Scar(): va(0x0) {
++		}
++
+ 		float3 pos;
+ 		float radius;
+ 		int creationTime;
+@@ -91,14 +98,14 @@
+ 		float texOffsetX;
+ 		float texOffsetY;
+ 
+-		int x1,x2;
+-		int y1,y2;
++		int x1, x2;
++		int y1, y2;
+ 		
+ 		float basesize;
+ 		float overdrawn;
+ 
+ 		int lastTest;
+-		CVertexArray* scarQuads;
++		CVertexArray* va;
+ 	};
+ 
+ 	std::list&lt;Scar*&gt; scars;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001257.html">[Taspring-linux-commit] r6487 - in trunk/rts: Map Rendering/Env
+</A></li>
+	<LI>Next message: <A HREF="001259.html">[Taspring-linux-commit] r6489 - trunk/rts/Rendering
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1258">[ date ]</a>
+              <a href="thread.html#1258">[ thread ]</a>
+              <a href="subject.html#1258">[ subject ]</a>
+              <a href="author.html#1258">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

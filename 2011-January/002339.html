@@ -1,0 +1,187 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7569 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2011-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7569%20-%20Lobby/TASClient&In-Reply-To=%3C20110106184909.CFE4428798%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002338.html">
+   <LINK REL="Next"  HREF="002340.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7569 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7569%20-%20Lobby/TASClient&In-Reply-To=%3C20110106184909.CFE4428798%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7569 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Jan  6 19:49:09 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002338.html">[Taspring-linux-commit] r7568 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002340.html">[Taspring-linux-commit] r7570 - in Lobby/TASClient: . Python/scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2339">[ date ]</a>
+              <a href="thread.html#2339">[ thread ]</a>
+              <a href="subject.html#2339">[ subject ]</a>
+              <a href="author.html#2339">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2011-01-06 19:49:07 +0100 (Thu, 06 Jan 2011)
+New Revision: 7569
+
+Modified:
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* scrolling news refresh moved to a separate thread to not block the main thread when the feed isn't available
+* springfiles is definetely too slow and unstable for now, scrolling news back to springinfo.info
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2011-01-06 14:43:45 UTC (rev 7568)
++++ Lobby/TASClient/MainUnit.dfm	2011-01-06 18:49:07 UTC (rev 7569)
+@@ -5964,6 +5964,7 @@
+     Top = 166
+   end
+   object ScrollingNewsTimer: TTimer
++    Enabled = False
+     Interval = 600000
+     OnTimer = ScrollingNewsTimerTimer
+     Left = 276
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2011-01-06 14:43:45 UTC (rev 7568)
++++ Lobby/TASClient/MainUnit.pas	2011-01-06 18:49:07 UTC (rev 7569)
+@@ -29,7 +29,7 @@
+   JvWinampLabel, JvExControls, JvLinkLabel, ActnList, JvgHint, OpenGL1x,
+   SpTBXSkins,pngimage, SpTBXExtEditors, BotOptionsFormUnit,
+   OverbyteIcsHttpProt, OverbyteIcsWndControl, OverbyteIcsWSocket,
+-  OverbyteIcsMultipartHttpDownloader;
++  OverbyteIcsMultipartHttpDownloader,ActiveX;
+ 
+ const
+   RelayedCommands : array[0..17] of string =
+@@ -1798,7 +1798,7 @@
+     Crashed: Boolean; // set to true if tasclient crashed during the previous run
+   end;
+ 
+-  SCROLLING_NEWS_RSS_URL: string = '<A HREF="http://springfiles.com/rss2.php?s=20">http://springfiles.com/rss2.php?s=20</A>';
++  SCROLLING_NEWS_RSS_URL: string = '<A HREF="http://www.springinfo.info/feed/">http://www.springinfo.info/feed/</A>';//'<A HREF="http://springfiles.com/rss2.php?s=20">http://springfiles.com/rss2.php?s=20</A>';
+   NEWS_URL:string = '<A HREF="http://springrts.com/news.php">http://springrts.com/news.php</A>';
+   DISABLE_FADEIN: boolean = false;
+   TASCLIENT_REGISTRY_KEY: string = 'Software\TASClient';
+@@ -4418,7 +4418,10 @@
+       ExpandNewsButton.ImageIndex := 0;
+       MainForm.WindowState := wsMinimized;
+       MainForm.Visible := True;
+-      ScrollingNewsTimerTimer(nil);
++      
++      //ScrollingNewsTimerTimer(nil);
++      TScrollingNewsRefreshThread.Create(False,600000);
++
+       if MainUnit.Debug.Enabled then
+       Misc.TryToAddLog(MainUnit.StartDebugLog,'Displaying news page ...');
+       try
+@@ -12943,32 +12946,15 @@
+ end;
+ 
+ procedure TScrollingNewsRefreshThread.Execute;
+-var
+-   StartItemNode : IXMLNode;
+-   ANode : IXMLNode;
+-   STitle, sDesc, sLink : WideString;
+ begin
+-  with MainForm do
++  CoInitialize(nil);
++  while True do
+   begin
+-  //points to local XML file in &quot;original&quot; code
+-  ScrollingNewsRSS.FileName := '<A HREF="http://www.springinfo.info/?feed=rss2">http://www.springinfo.info/?feed=rss2</A>';
+-  ScrollingNewsRSS.Active:=True;
++    MainForm.ScrollingNewsTimerTimer(nil);
+ 
+-  StartItemNode := ScrollingNewsRSS.DocumentElement.ChildNodes.First.ChildNodes.FindNode('item') ;
+-
+-  ANode := StartItemNode;
+-  repeat
+-    STitle := ANode.ChildNodes['title'].Text;
+-    sLink := ANode.ChildNodes['link'].Text;
+-    sDesc := ANode.ChildNodes['description'].Text;
+-
+-    AddMainLog(STitle,Colors.Normal);
+-    AddMainLog(sLink,Colors.Normal);
+-    AddMainLog(sDesc,Colors.Normal);
+-
+-    ANode := ANode.NextSibling;
+-  until ANode = nil;
++    Sleep(m_timer);
+   end;
++  CoUnInitialize;
+ end;
+ 
+ procedure TMainForm.SpTBXItem3Click(Sender: TObject);
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2011-01-06 14:43:45 UTC (rev 7568)
++++ Lobby/TASClient/TASClient.dof	2011-01-06 18:49:07 UTC (rev 7569)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=84
+ Release=0
+-Build=1212
++Build=1214
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.84.0.1212
++FileVersion=0.84.0.1214
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002338.html">[Taspring-linux-commit] r7568 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002340.html">[Taspring-linux-commit] r7570 - in Lobby/TASClient: . Python/scripts
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2339">[ date ]</a>
+              <a href="thread.html#2339">[ thread ]</a>
+              <a href="subject.html#2339">[ subject ]</a>
+              <a href="author.html#2339">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

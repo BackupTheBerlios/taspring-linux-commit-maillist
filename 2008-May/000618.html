@@ -1,0 +1,182 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5838 - trunk/rts/Lua
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5838%20-%20trunk/rts/Lua&In-Reply-To=%3C20080503194736.180F546BE%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000617.html">
+   <LINK REL="Next"  HREF="000619.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5838 - trunk/rts/Lua</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5838%20-%20trunk/rts/Lua&In-Reply-To=%3C20080503194736.180F546BE%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5838 - trunk/rts/Lua">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat May  3 21:47:35 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000617.html">[Taspring-linux-commit] r5837 - trunk/Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="000619.html">[Taspring-linux-commit] r5839 - in site/trunk: . Documentation	www-root/forums www-root/forums/cache	www-root/forums/styles/spring/template www-root/tpl	www-root/wiki/conf www-root/wiki/data/pages www-root/wiki/inc	www-root/wiki/lib/tpl/default
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#618">[ date ]</a>
+              <a href="thread.html#618">[ thread ]</a>
+              <a href="subject.html#618">[ subject ]</a>
+              <a href="author.html#618">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-05-03 21:47:34 +0200 (Sat, 03 May 2008)
+New Revision: 5838
+
+Modified:
+   trunk/rts/Lua/LuaUnsyncedCtrl.cpp
+   trunk/rts/Lua/LuaUnsyncedCtrl.h
+Log:
+Add an unsynced ExtractModArchiveFile(path) callout to enable LuaUI
+widgets to extract files from mod archives. Only relative paths that
+point to actual archive members are accepted, example:
+
+Spring.ExtractModArchiveFile(&quot;sounds/boom.wav&quot;)
+
+will create a directory &quot;sounds/&quot; and extract &quot;boom.wav&quot; to it if and
+only if the mod archive contains both the directory and the file (any
+dirs pointing anywhere but to an archive member will simply cause the
+&quot;does this file exist?&quot; check to fail).
+
+
+Modified: trunk/rts/Lua/LuaUnsyncedCtrl.cpp
+===================================================================
+--- trunk/rts/Lua/LuaUnsyncedCtrl.cpp	2008-05-03 19:22:20 UTC (rev 5837)
++++ trunk/rts/Lua/LuaUnsyncedCtrl.cpp	2008-05-03 19:47:34 UTC (rev 5838)
+@@ -7,6 +7,8 @@
+ #include &lt;set&gt;
+ #include &lt;list&gt;
+ #include &lt;cctype&gt;
++
++#include &lt;fstream&gt;
+ using namespace std;
+ 
+ #include &quot;LuaInclude.h&quot;
+@@ -34,7 +36,10 @@
+ #include &quot;System/LogOutput.h&quot;
+ #include &quot;System/Sound.h&quot;
+ 
++#include &quot;System/FileSystem/FileHandler.h&quot;
++#include &quot;System/Platform/FileSystem.h&quot;
+ 
++
+ /******************************************************************************/
+ /******************************************************************************/
+ 
+@@ -95,7 +100,8 @@
+ 	REGISTER_LUA_CFUNC(SetUnitNoDraw);
+ 	REGISTER_LUA_CFUNC(SetUnitNoMinimap);
+ 	REGISTER_LUA_CFUNC(SetUnitNoSelect);
+-            
++
++	REGISTER_LUA_CFUNC(ExtractModArchiveFile);
+ 	return true;
+ }
+ 
+@@ -923,5 +929,51 @@
+ }
+ 
+ 
++
++int LuaUnsyncedCtrl::ExtractModArchiveFile(lua_State* L)
++{
++	bool ret = false;
++	const int args = lua_gettop(L);
++
++	if (args == 1) {
++		if (lua_isstring(L, 1)) {
++			std::string path(lua_tostring(L, 1));
++			CFileHandler fh(path, SPRING_VFS_MOD);
++
++			if (fh.FileExists()) {
++				std::string dname = filesystem.GetDirectory(path);
++				std::string fname = filesystem.GetFilename(path);
++
++				if (filesystem.CreateDirectory(dname)) {
++					int numBytes = fh.FileSize();
++					char* buffer = SAFE_NEW char[numBytes];
++
++					fh.Read(buffer, numBytes);
++
++					std::fstream fstr(path.c_str(), std::ios::out | std::ios::binary);
++					fstr.write((const char*) buffer, numBytes);
++					fstr.close();
++
++					logOutput.Print(&quot;Extracted file \&quot;%s\&quot; to directory \&quot;%s\&quot;&quot;, fname.c_str(), dname.c_str());
++
++					delete[] buffer;
++					ret = true;
++				} else {
++					luaL_error(L, &quot;Could not create directory \&quot;%s\&quot; for file \&quot;%s\&quot;&quot;, dname.c_str(), fname.c_str());
++				}
++			} else {
++				luaL_error(L, &quot;Path \&quot;%s\&quot; not found in mod archive&quot;, path.c_str());
++			}
++		} else {
++			luaL_error(L, &quot;Argument to ExtractModArchiveFile(s) not a string&quot;);
++		}
++	} else {
++		luaL_error(L, &quot;Incorrect number of arguments to ExtractModArchiveFile(s)&quot;);
++	}
++
++	lua_pushboolean(L, ret);
++	return 1;
++}
++
+ /******************************************************************************/
+ /******************************************************************************/
+
+Modified: trunk/rts/Lua/LuaUnsyncedCtrl.h
+===================================================================
+--- trunk/rts/Lua/LuaUnsyncedCtrl.h	2008-05-03 19:22:20 UTC (rev 5837)
++++ trunk/rts/Lua/LuaUnsyncedCtrl.h	2008-05-03 19:47:34 UTC (rev 5838)
+@@ -61,6 +61,8 @@
+ 		static int SetUnitNoDraw(lua_State* L);
+ 		static int SetUnitNoMinimap(lua_State* L);
+ 		static int SetUnitNoSelect(lua_State* L);
++
++		static int ExtractModArchiveFile(lua_State* L);
+ };
+ 
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000617.html">[Taspring-linux-commit] r5837 - trunk/Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="000619.html">[Taspring-linux-commit] r5839 - in site/trunk: . Documentation	www-root/forums www-root/forums/cache	www-root/forums/styles/spring/template www-root/tpl	www-root/wiki/conf www-root/wiki/data/pages www-root/wiki/inc	www-root/wiki/lib/tpl/default
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#618">[ date ]</a>
+              <a href="thread.html#618">[ thread ]</a>
+              <a href="subject.html#618">[ subject ]</a>
+              <a href="author.html#618">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

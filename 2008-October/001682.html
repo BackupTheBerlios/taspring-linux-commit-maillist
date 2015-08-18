@@ -1,0 +1,586 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6913 - in trunk/rts: Game Map Map/SM3	Map/SMF Rendering Rendering/Env Sim/MoveTypes Sim/Units
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6913%20-%20in%20trunk/rts%3A%20Game%20Map%20Map/SM3%0A%09Map/SMF%20Rendering%20Rendering/Env%20Sim/MoveTypes%20Sim/Units&In-Reply-To=%3C20081027090840.AEACA4752%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001681.html">
+   <LINK REL="Next"  HREF="001683.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6913 - in trunk/rts: Game Map Map/SM3	Map/SMF Rendering Rendering/Env Sim/MoveTypes Sim/Units</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6913%20-%20in%20trunk/rts%3A%20Game%20Map%20Map/SM3%0A%09Map/SMF%20Rendering%20Rendering/Env%20Sim/MoveTypes%20Sim/Units&In-Reply-To=%3C20081027090840.AEACA4752%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6913 - in trunk/rts: Game Map Map/SM3	Map/SMF Rendering Rendering/Env Sim/MoveTypes Sim/Units">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon Oct 27 10:08:40 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001681.html">[Taspring-linux-commit] r6912 - trunk/rts/Sim/MoveTypes
+</A></li>
+        <LI>Next message: <A HREF="001683.html">[Taspring-linux-commit] r6914 - trunk/rts/Map
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1682">[ date ]</a>
+              <a href="thread.html#1682">[ thread ]</a>
+              <a href="subject.html#1682">[ subject ]</a>
+              <a href="author.html#1682">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: jk
+Date: 2008-10-27 10:08:39 +0100 (Mon, 27 Oct 2008)
+New Revision: 6913
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/GameHelper.cpp
+   trunk/rts/Game/SelectedUnits.cpp
+   trunk/rts/Map/BaseGroundDrawer.cpp
+   trunk/rts/Map/BaseGroundDrawer.h
+   trunk/rts/Map/SM3/Sm3GroundDrawer.cpp
+   trunk/rts/Map/SMF/BFGroundDrawer.cpp
+   trunk/rts/Rendering/Env/AdvTreeDrawer.cpp
+   trunk/rts/Rendering/Env/BumpWater.cpp
+   trunk/rts/Rendering/GroundDecalHandler.cpp
+   trunk/rts/Sim/MoveTypes/TAAirMoveType.cpp
+   trunk/rts/Sim/Units/Unit.cpp
+Log:
+ * fixed enemy unit MouseHover detection for spectators
+ * optimized aircraft hovering
+ * resorted lua's DrawWorldPreUnit() in render queue
+   * it gets now called before trees and after grass
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-10-27 07:50:29 UTC (rev 6912)
++++ trunk/rts/Game/Game.cpp	2008-10-27 09:08:39 UTC (rev 6913)
+@@ -2569,13 +2569,16 @@
+ 	if (drawSky) {
+ 		sky-&gt;Draw();
+ 	}
++
+ 	if (drawGround) {
+ 		{
+ 		SCOPED_TIMER(&quot;ExtraTexture&quot;);
+ 		gd-&gt;UpdateExtraTexture();
+ 		}
+ 		gd-&gt;Draw();
++		treeDrawer-&gt;DrawGrass();
+ 	}
++
+ 	if (drawWater) {
+ 		if (!mapInfo-&gt;map.voidWater &amp;&amp; water-&gt;drawSolid) {
+ 			water-&gt;Draw();
+@@ -2585,6 +2588,10 @@
+ 	selectedUnits.Draw();
+ 	eventHandler.DrawWorldPreUnit();
+ 
++	if (drawGround) {
++		gd-&gt;DrawTrees();
++	}
++
+ 	unitDrawer-&gt;Draw(false);
+ 	featureHandler-&gt;Draw();
+ 
+@@ -2596,11 +2603,6 @@
+ 	glEnable(GL_BLEND);
+ 	glDepthFunc(GL_LEQUAL);
+ 
+-	if (drawGround) {
+-		if (treeDrawer-&gt;drawTrees) {
+-			treeDrawer-&gt;DrawGrass();
+-		}
+-	}
+ 	if (drawWater) {
+ 		if (!mapInfo-&gt;map.voidWater &amp;&amp; !water-&gt;drawSolid) {
+ 			water-&gt;Draw();
+
+Modified: trunk/rts/Game/GameHelper.cpp
+===================================================================
+--- trunk/rts/Game/GameHelper.cpp	2008-10-27 07:50:29 UTC (rev 6912)
++++ trunk/rts/Game/GameHelper.cpp	2008-10-27 09:08:39 UTC (rev 6913)
+@@ -746,7 +746,7 @@
+ float3 CGameHelper::GetUnitErrorPos(const CUnit* unit, int allyteam)
+ {
+ 	float3 pos = unit-&gt;midPos;
+-	if (gs-&gt;Ally(allyteam,unit-&gt;allyteam) || (unit-&gt;losStatus[allyteam] &amp; LOS_INLOS) || gu-&gt;spectatingFullView) {
++	if (gs-&gt;Ally(allyteam,unit-&gt;allyteam) || (unit-&gt;losStatus[allyteam] &amp; LOS_INLOS)) {
+ 		// ^ it's one of our own, or it's in LOS, so don't add an error ^
+ 	} else if ((!gameSetup || gameSetup-&gt;ghostedBuildings) &amp;&amp; (unit-&gt;losStatus[allyteam] &amp; LOS_PREVLOS) &amp;&amp; (unit-&gt;losStatus[allyteam] &amp; LOS_CONTRADAR) &amp;&amp; !unit-&gt;mobility) {
+ 		// ^ this is a ghosted building, so don't add an error ^
+
+Modified: trunk/rts/Game/SelectedUnits.cpp
+===================================================================
+--- trunk/rts/Game/SelectedUnits.cpp	2008-10-27 07:50:29 UTC (rev 6912)
++++ trunk/rts/Game/SelectedUnits.cpp	2008-10-27 09:08:39 UTC (rev 6913)
+@@ -452,6 +452,8 @@
+ 
+ void CSelectedUnits::Draw()
+ {
++	glDisable(GL_TEXTURE_2D);
++	glDepthMask(false);
+ 	glDisable(GL_DEPTH_TEST);
+ 	glEnable(GL_BLEND); // for line smoothing
+ 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+@@ -524,6 +526,8 @@
+ 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+ 	glDisable(GL_BLEND);
+ 	glEnable(GL_DEPTH_TEST);
++	glDepthMask(true);
++	glEnable(GL_TEXTURE_2D);
+ }
+ 
+ 
+
+Modified: trunk/rts/Map/BaseGroundDrawer.cpp
+===================================================================
+--- trunk/rts/Map/BaseGroundDrawer.cpp	2008-10-27 07:50:29 UTC (rev 6912)
++++ trunk/rts/Map/BaseGroundDrawer.cpp	2008-10-27 09:08:39 UTC (rev 6913)
+@@ -86,6 +86,49 @@
+ {}
+ 
+ 
++void CBaseGroundDrawer::DrawTrees(bool drawReflection) const
++{
++	glEnable(GL_ALPHA_TEST);
++	glAlphaFunc(GL_GREATER, 0.005f);
++	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++	glEnable(GL_BLEND);
++
++	if (treeDrawer-&gt;drawTrees) {
++		if (DrawExtraTex()) {
++			glActiveTextureARB(GL_TEXTURE1_ARB);
++			glEnable(GL_TEXTURE_2D);
++			glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB_ARB, GL_ADD_SIGNED_ARB);
++			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE0_RGB_ARB, GL_PREVIOUS_ARB);
++			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE1_RGB_ARB, GL_TEXTURE);
++			glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_ALPHA_ARB, GL_MODULATE);
++			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE0_ALPHA_ARB, GL_PREVIOUS_ARB);
++			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE1_ALPHA_ARB, GL_TEXTURE);
++			glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE_ARB);
++			glBindTexture(GL_TEXTURE_2D, infoTex);
++			SetTexGen(1.0f / (gs-&gt;pwr2mapx * SQUARE_SIZE), 1.0f / (gs-&gt;pwr2mapy * SQUARE_SIZE), 0, 0);
++			glActiveTextureARB(GL_TEXTURE0_ARB);
++		}
++
++		treeDrawer-&gt;Draw(drawReflection);
++
++		if (DrawExtraTex()) {
++			glActiveTextureARB(GL_TEXTURE1_ARB);
++			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE0_RGB_ARB, GL_TEXTURE);
++			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE1_RGB_ARB, GL_PREVIOUS_ARB);
++			glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
++
++			glDisable(GL_TEXTURE_GEN_S);
++			glDisable(GL_TEXTURE_GEN_T);
++			glDisable(GL_TEXTURE_2D);
++			glActiveTextureARB(GL_TEXTURE0_ARB);
++		}
++	}
++
++	glDisable(GL_ALPHA_TEST);
++	glDisable(GL_BLEND);
++}
++
++
+ void CBaseGroundDrawer::SetDrawMode (DrawMode dm)
+ {
+ 	drawMode = dm;
+@@ -437,7 +480,7 @@
+ }
+ 
+ 
+-void CBaseGroundDrawer::SetTexGen(float scalex,float scaley, float offsetx, float offsety)
++void CBaseGroundDrawer::SetTexGen(float scalex,float scaley, float offsetx, float offsety) const
+ {
+ 	GLfloat plan[]={scalex,0,0,offsetx};
+ 	glTexGeni(GL_S,GL_TEXTURE_GEN_MODE,GL_EYE_LINEAR);
+
+Modified: trunk/rts/Map/BaseGroundDrawer.h
+===================================================================
+--- trunk/rts/Map/BaseGroundDrawer.h	2008-10-27 07:50:29 UTC (rev 6912)
++++ trunk/rts/Map/BaseGroundDrawer.h	2008-10-27 09:08:39 UTC (rev 6913)
+@@ -41,6 +41,8 @@
+ protected:
+ 	virtual void SetDrawMode(DrawMode dm);
+ public:
++	void CBaseGroundDrawer::DrawTrees(bool drawReflection=false) const;
++
+ 	// Everything that deals with drawing extra textures on top
+ 	void DisableExtraTexture();
+ 	void SetHeightTexture();
+@@ -51,7 +53,7 @@
+ 	bool UpdateExtraTexture();
+ 	bool DrawExtraTex() const { return drawMode!=drawNormal; };
+ 
+-	void SetTexGen(float scalex,float scaley, float offsetx, float offsety);
++	void SetTexGen(float scalex,float scaley, float offsetx, float offsety) const;
+ 
+ 	bool updateFov;
+ 	bool drawRadarAndJammer;
+
+Modified: trunk/rts/Map/SM3/Sm3GroundDrawer.cpp
+===================================================================
+--- trunk/rts/Map/SM3/Sm3GroundDrawer.cpp	2008-10-27 07:50:29 UTC (rev 6912)
++++ trunk/rts/Map/SM3/Sm3GroundDrawer.cpp	2008-10-27 09:08:39 UTC (rev 6913)
+@@ -211,36 +211,11 @@
+ //	if(drawWaterReflection)
+ //		treeDistance*=0.5f;
+ 
+-	if(groundDecals &amp;&amp; !(drawWaterReflection || drawUnitReflection))
++	if(groundDecals &amp;&amp; !(drawWaterReflection || drawUnitReflection)) {
+ 		groundDecals-&gt;Draw();
+-	ph-&gt;DrawGroundFlashes();
+-	if(treeDrawer-&gt;drawTrees){
+-		if(DrawExtraTex()){
+-			glActiveTextureARB(GL_TEXTURE1_ARB);
+-			glEnable(GL_TEXTURE_2D);
+-			glTexEnvi(GL_TEXTURE_ENV,GL_COMBINE_RGB_ARB,GL_ADD_SIGNED_ARB);
+-			glTexEnvi(GL_TEXTURE_ENV,GL_SOURCE0_RGB_ARB,GL_PREVIOUS_ARB);
+-			glTexEnvi(GL_TEXTURE_ENV,GL_SOURCE1_RGB_ARB,GL_TEXTURE);
+-			glTexEnvi(GL_TEXTURE_ENV,GL_COMBINE_ALPHA_ARB,GL_MODULATE);
+-			glTexEnvi(GL_TEXTURE_ENV,GL_SOURCE0_ALPHA_ARB,GL_PREVIOUS_ARB);
+-			glTexEnvi(GL_TEXTURE_ENV,GL_SOURCE1_ALPHA_ARB,GL_TEXTURE);
+-			glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_COMBINE_ARB);
+-			glBindTexture(GL_TEXTURE_2D, infoTex);
+-			SetTexGen(1.0f/(gs-&gt;pwr2mapx*SQUARE_SIZE),1.0f/(gs-&gt;pwr2mapy*SQUARE_SIZE),0,0);
+-		  glActiveTextureARB(GL_TEXTURE0_ARB);
+-		}
+-		treeDrawer-&gt;Draw(drawWaterReflection || drawUnitReflection);
+-		if(DrawExtraTex()){
+-			glActiveTextureARB(GL_TEXTURE1_ARB);
+-			glTexEnvi(GL_TEXTURE_ENV,GL_TEXTURE_ENV_MODE,GL_MODULATE);
+-			glDisable(GL_TEXTURE_GEN_S);
+-			glDisable(GL_TEXTURE_GEN_T);
+-			glDisable(GL_TEXTURE_2D);
+-		  glActiveTextureARB(GL_TEXTURE0_ARB);
+-		}
++		ph-&gt;DrawGroundFlashes();
++		glDepthMask(1);
+ 	}
+-	
+-	glDisable(GL_ALPHA_TEST);
+ }
+ 
+ const int maxQuadDepth = 4;
+
+Modified: trunk/rts/Map/SMF/BFGroundDrawer.cpp
+===================================================================
+--- trunk/rts/Map/SMF/BFGroundDrawer.cpp	2008-10-27 07:50:29 UTC (rev 6912)
++++ trunk/rts/Map/SMF/BFGroundDrawer.cpp	2008-10-27 09:08:39 UTC (rev 6913)
+@@ -742,59 +742,22 @@
+ 		glDisable(GL_ALPHA_TEST);
+ 	}
+ 
+-	if (mapInfo-&gt;hasWaterPlane) {
+-		DrawWaterPlane(drawWaterReflection);
+-	}
++	if (!(drawWaterReflection || drawUnitReflection)) {
++		if (mapInfo-&gt;hasWaterPlane) {
++			DrawWaterPlane(drawWaterReflection);
++		}
+ 
+-	if (groundDecals &amp;&amp; !(drawWaterReflection || drawUnitReflection)) {
+-		groundDecals-&gt;Draw();
++		if (groundDecals) {
++			groundDecals-&gt;Draw();
++			ph-&gt;DrawGroundFlashes();
++			glDepthMask(1);
++		}
+ 	}
+ 
+-	glEnable(GL_ALPHA_TEST);
+-	glEnable(GL_TEXTURE_2D);
+-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+-	glEnable(GL_BLEND);
+-
+ //	sky-&gt;SetCloudShadow(1);
+ //	if (drawWaterReflection)
+ //		treeDistance *= 0.5f;
+ 
+-	ph-&gt;DrawGroundFlashes();
+-
+-
+-	if (treeDrawer-&gt;drawTrees) {
+-		if (DrawExtraTex()) {
+-			glActiveTextureARB(GL_TEXTURE1_ARB);
+-			glEnable(GL_TEXTURE_2D);
+-			glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB_ARB, GL_ADD_SIGNED_ARB);
+-			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE0_RGB_ARB, GL_PREVIOUS_ARB);
+-			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE1_RGB_ARB, GL_TEXTURE);
+-			glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_ALPHA_ARB, GL_MODULATE);
+-			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE0_ALPHA_ARB, GL_PREVIOUS_ARB);
+-			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE1_ALPHA_ARB, GL_TEXTURE);
+-			glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE_ARB);
+-			glBindTexture(GL_TEXTURE_2D, infoTex);
+-			SetTexGen(1.0f / (gs-&gt;pwr2mapx * SQUARE_SIZE), 1.0f / (gs-&gt;pwr2mapy * SQUARE_SIZE), 0, 0);
+-			glActiveTextureARB(GL_TEXTURE0_ARB);
+-		}
+-
+-		treeDrawer-&gt;Draw(drawWaterReflection || drawUnitReflection);
+-
+-		if (DrawExtraTex()) {
+-			glActiveTextureARB(GL_TEXTURE1_ARB);
+-			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE0_RGB_ARB, GL_TEXTURE);
+-			glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE1_RGB_ARB, GL_PREVIOUS_ARB);
+-			glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+-
+-			glDisable(GL_TEXTURE_GEN_S);
+-			glDisable(GL_TEXTURE_GEN_T);
+-			glDisable(GL_TEXTURE_2D);
+-			glActiveTextureARB(GL_TEXTURE0_ARB);
+-		}
+-	}
+-
+-	glDisable(GL_ALPHA_TEST);
+-	glDisable(GL_TEXTURE_2D);
+ 	viewRadius = baseViewRadius;
+ }
+ 
+@@ -1178,7 +1141,15 @@
+ 			glEnable(GL_TEXTURE_2D);
+ 			glBindTexture(GL_TEXTURE_2D, map-&gt;detailTex);
+ 			glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB_ARB, GL_ADD_SIGNED_ARB);
+-			SetTexGen(0.02f,0.02f, -floor(camera-&gt;pos.x * 0.02f), -floor(camera-&gt;pos.z * 0.02f));
++			//SetTexGen(0.02f,0.02f, -floor(camera-&gt;pos.x * 0.02f), -floor(camera-&gt;pos.z * 0.02f));
++			GLfloat plan[]={0.02f,0.5f,0,0};
++			glTexGeni(GL_S,GL_TEXTURE_GEN_MODE,GL_OBJECT_LINEAR);
++			glTexGenfv(GL_S,GL_EYE_PLANE,plan);
++			glEnable(GL_TEXTURE_GEN_S);
++			GLfloat plan2[]={0,0.5f,0.02f,0};
++			glTexGeni(GL_T,GL_TEXTURE_GEN_MODE,GL_OBJECT_LINEAR);
++			glTexGenfv(GL_T,GL_EYE_PLANE,plan2);
++			glEnable(GL_TEXTURE_GEN_T);
+ 		} else {
+ 			glDisable (GL_TEXTURE_2D);
+ 		}
+@@ -1263,7 +1234,15 @@
+ 			glBindTexture(GL_TEXTURE_2D, map-&gt;detailTex);
+ 			glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB_ARB, GL_ADD_SIGNED_ARB);
+ 			glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE_ARB);
+-			SetTexGen(0.02f, 0.02f, -floor(camera-&gt;pos.x * 0.02f), -floor(camera-&gt;pos.z * 0.02f));
++			//SetTexGen(0.02f, 0.02f, -floor(camera-&gt;pos.x * 0.02f), -floor(camera-&gt;pos.z * 0.02f));
++			GLfloat plan[]={0.02f,0,0,0};
++			glTexGeni(GL_S,GL_TEXTURE_GEN_MODE,GL_OBJECT_LINEAR);
++			glTexGenfv(GL_S,GL_OBJECT_PLANE,plan);
++			glEnable(GL_TEXTURE_GEN_S);
++			GLfloat plan2[]={0,0,0.02f,0};
++			glTexGeni(GL_T,GL_TEXTURE_GEN_MODE,GL_OBJECT_LINEAR);
++			glTexGenfv(GL_T,GL_OBJECT_PLANE,plan2);
++			glEnable(GL_TEXTURE_GEN_T);
+ 		} else {
+ 			glDisable (GL_TEXTURE_2D);
+ 		}
+
+Modified: trunk/rts/Rendering/Env/AdvTreeDrawer.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/AdvTreeDrawer.cpp	2008-10-27 07:50:29 UTC (rev 6912)
++++ trunk/rts/Rendering/Env/AdvTreeDrawer.cpp	2008-10-27 09:08:39 UTC (rev 6913)
+@@ -771,7 +771,9 @@
+ 
+ void CAdvTreeDrawer::DrawGrass(void)
+ {
+-	grassDrawer-&gt;Draw();
++	if (drawTrees) {
++		grassDrawer-&gt;Draw();
++	}
+ }
+ 
+ void CAdvTreeDrawer::ResetPos(const float3&amp; pos)
+
+Modified: trunk/rts/Rendering/Env/BumpWater.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/BumpWater.cpp	2008-10-27 07:50:29 UTC (rev 6912)
++++ trunk/rts/Rendering/Env/BumpWater.cpp	2008-10-27 09:08:39 UTC (rev 6913)
+@@ -313,7 +313,7 @@
+ 		glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, coastFBO);
+ 		glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, coastTexture[0], 0);
+ 		glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT1_EXT, GL_TEXTURE_2D, coastTexture[1], 0);
+-		glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
++		//glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+ 
+ 		//! initialize
+ 		UploadCoastline(0, 0, gs-&gt;mapx, gs-&gt;mapy);
+@@ -421,7 +421,7 @@
+ 			glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT, GL_DEPTH_ATTACHMENT_EXT, GL_RENDERBUFFER_EXT, reflectRBO);
+ 			glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, reflectTexture, 0);
+ 			GLenum status = glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT);
+-			glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
++			//glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+ 			if (status != GL_FRAMEBUFFER_COMPLETE_EXT) {
+ 				PrintFboError(&quot;reflection&quot;,status);
+ 				glDeleteRenderbuffersEXT(1, &amp;reflectRBO);
+@@ -440,7 +440,7 @@
+ 			glFramebufferRenderbufferEXT(GL_FRAMEBUFFER_EXT, GL_DEPTH_ATTACHMENT_EXT, GL_RENDERBUFFER_EXT, refractRBO);
+ 			glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, target, refractTexture, 0);
+ 			GLenum status = glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT);
+-			glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
++			//glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+ 			if (status != GL_FRAMEBUFFER_COMPLETE_EXT) {
+ 				PrintFboError(&quot;refraction&quot;,status);
+ 				glDeleteRenderbuffersEXT(1, &amp;refractRBO);
+@@ -454,7 +454,7 @@
+ 			glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, dynWavesFBO);
+ 			glFramebufferTexture2DEXT(GL_FRAMEBUFFER_EXT, GL_COLOR_ATTACHMENT0_EXT, GL_TEXTURE_2D, normalTexture, 0);
+ 			GLenum status = glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT);
+-			glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
++			//glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+ 			if (status != GL_FRAMEBUFFER_COMPLETE_EXT) {
+ 				PrintFboError(&quot;dynamicWaves&quot;,status);
+ 				glDeleteFramebuffersEXT(1,  &amp;dynWavesFBO);
+@@ -463,7 +463,7 @@
+ 				UpdateDynWaves(true); //! initialize
+ 			}
+ 		}
+-
++		glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, 0);
+ 	}
+ 
+ 
+
+Modified: trunk/rts/Rendering/GroundDecalHandler.cpp
+===================================================================
+--- trunk/rts/Rendering/GroundDecalHandler.cpp	2008-10-27 07:50:29 UTC (rev 6912)
++++ trunk/rts/Rendering/GroundDecalHandler.cpp	2008-10-27 09:08:39 UTC (rev 6913)
+@@ -584,9 +584,7 @@
+ 	}
+ 
+ 
+-
+ 	glDisable(GL_POLYGON_OFFSET_FILL);
+-	glDepthMask(1);
+ 	glDisable(GL_BLEND);
+ 
+ 	glActiveTextureARB(GL_TEXTURE1_ARB);
+
+Modified: trunk/rts/Sim/MoveTypes/TAAirMoveType.cpp
+===================================================================
+--- trunk/rts/Sim/MoveTypes/TAAirMoveType.cpp	2008-10-27 07:50:29 UTC (rev 6912)
++++ trunk/rts/Sim/MoveTypes/TAAirMoveType.cpp	2008-10-27 09:08:39 UTC (rev 6913)
+@@ -309,45 +309,34 @@
+ 
+ 
+ 
+-// Move the unit around a bit.. and when it gets too far away from goal position
+-// it switches to normal flying instead
++// Move the unit around a bit..
+ void CTAAirMoveType::UpdateHovering()
+ {
+ 	const float driftSpeed = fabs(owner-&gt;unitDef-&gt;dlHoverFactor);
+ 	float3 deltaVec = goalPos - owner-&gt;pos;
+-	float3 deltaVec2d = float3(deltaVec.x, 0, deltaVec.z);
+-	float3 deltaDir = deltaVec2d.Normalize();
+-	float moveFactor = pow(deltaVec2d.Length2D(), 0.5f);
++	float3 deltaDir = float3(deltaVec.x, 0, deltaVec.z);
++	const float l   = deltaDir.Length2D();
++	deltaDir       /= std::max(l,0.0001f);
++	float moveFactor  = math::sqrt(l);
+ 	const float3 &amp;pos = owner-&gt;pos;
+ 
+ 	// move towards goal position if it's not immediately
+ 	// behind us when we have more waypoints to get to
+-	if (aircraftState != AIRCRAFT_LANDING &amp;&amp; (owner-&gt;commandAI-&gt;HasMoreMoveCommands() &amp;&amp;
+-		deltaVec.Length2D() &lt; 120) &amp;&amp; deltaDir.distance(deltaVec) &gt; 1.0f) {
++	if (aircraftState != AIRCRAFT_LANDING &amp;&amp; owner-&gt;commandAI-&gt;HasMoreMoveCommands() &amp;&amp;
++		(l &lt; 120) &amp;&amp; (deltaDir.distance(deltaVec) &gt; 1.0f)) {
+ 		deltaDir = owner-&gt;frontdir;
+ 		moveFactor = 1.0f;
+ 	}
+ 
+ 	wantedSpeed += deltaDir * moveFactor * driftSpeed * 0.05f;
+ 	// damping
+-	wantedSpeed *= 0.97f;
++	wantedSpeed *= 0.95f;
+ 
+ 	// random movement (a sort of fake wind effect)
+-	randomWind = float3(randomWind.x + (gs-&gt;randFloat() - 0.5f), 0,
+-		randomWind.z + (gs-&gt;randFloat() - 0.5f)).Normalize();
+-	float3 tempwind = randomWind;
+-	if (pos.x &lt; 0) {
+-		// When plane is off map, make the wind drift the plane onto map rather than off map.
+-		randomWind.x=fabs(randomWind.x);
+-	} else if (pos.x &gt; float3::maxxpos) {
+-		randomWind.x=-fabs(randomWind.x);
+-	}
+-	if (pos.z &lt; 0) {
+-		randomWind.z=fabs(randomWind.z);
+-	} else if (pos.z &gt; float3::maxzpos) {
+-		randomWind.z=-fabs(randomWind.z);
+-	}
+-	wantedSpeed += randomWind * 0.05f * driftSpeed;
++	// random drift values are in range -0.5 ... 0.5
++	randomWind = float3(randomWind.x * 0.8f + (gs-&gt;randFloat() - 0.5f) * 0.2f, 0,
++		            randomWind.z * 0.8f + (gs-&gt;randFloat() - 0.5f) * 0.2f) * driftSpeed * 0.5f;
++	wantedSpeed += randomWind;
+ 
+ 	UpdateAirPhysics();
+ }
+@@ -363,8 +352,8 @@
+ 	owner-&gt;restTime = 0;
+ 
+ 	// don't change direction for waypoints we just flew over and missed slightly
+-	if (flyState != FLY_LANDING &amp;&amp; (owner-&gt;commandAI-&gt;HasMoreMoveCommands() &amp;&amp;
+-		dir.Length2D() &lt; 100) &amp;&amp; (goalPos - pos).Normalize().distance(dir) &lt; 1) {
++	if (flyState != FLY_LANDING &amp;&amp; owner-&gt;commandAI-&gt;HasMoreMoveCommands() &amp;&amp;
++		(dir.SqLength2D() &lt; 10000) &amp;&amp; (float3(dir).Normalize().distance(dir) &lt; 1)) {
+ 		dir = owner-&gt;frontdir;
+ 	}
+ 
+@@ -693,8 +682,8 @@
+ 		speedNew = std::min(ws, speed.y + accRate * (h &lt; 20.0f? 2.0f: 0.7f));
+ 	}
+ 
+-	if (fabs(wh - h) &lt; 2.0f) {  //keep them from bobbing up and down when at the correct height
+-		speed.y = speed.y * 0.89 + speedNew / 100.0f;
++	if (fabs(wh - h) &lt; 1.0f) {
++		speed.y = speed.y * 0.89 + speedNew / 10.0f;
+ 	} else {
+ 		speed.y = speedNew;
+ 	}
+
+Modified: trunk/rts/Sim/Units/Unit.cpp
+===================================================================
+--- trunk/rts/Sim/Units/Unit.cpp	2008-10-27 07:50:29 UTC (rev 6912)
++++ trunk/rts/Sim/Units/Unit.cpp	2008-10-27 09:08:39 UTC (rev 6913)
+@@ -1141,7 +1141,7 @@
+ {
+ 	float3 interPos = synced ? pos : drawPos;
+ 
+-	if (!synced &amp;&amp; error) {
++	if (error &amp;&amp; !synced &amp;&amp; !gu-&gt;spectatingFullView) {
+ 		interPos += helper-&gt;GetUnitErrorPos(this, gu-&gt;myAllyTeam) - midPos;
+ 	}
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001681.html">[Taspring-linux-commit] r6912 - trunk/rts/Sim/MoveTypes
+</A></li>
+	<LI>Next message: <A HREF="001683.html">[Taspring-linux-commit] r6914 - trunk/rts/Map
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1682">[ date ]</a>
+              <a href="thread.html#1682">[ thread ]</a>
+              <a href="subject.html#1682">[ subject ]</a>
+              <a href="author.html#1682">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

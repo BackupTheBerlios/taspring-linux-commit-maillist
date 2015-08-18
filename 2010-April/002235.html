@@ -1,0 +1,201 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7465 - in Lobby/TASClient: . Python	Python/engine
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2010-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7465%20-%20in%20Lobby/TASClient%3A%20.%20Python%0A%09Python/engine&In-Reply-To=%3C20100415171204.0AF9E23D20%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002234.html">
+   <LINK REL="Next"  HREF="002236.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7465 - in Lobby/TASClient: . Python	Python/engine</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7465%20-%20in%20Lobby/TASClient%3A%20.%20Python%0A%09Python/engine&In-Reply-To=%3C20100415171204.0AF9E23D20%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7465 - in Lobby/TASClient: . Python	Python/engine">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Apr 15 19:12:03 CEST 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002234.html">[Taspring-linux-commit] r7464 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002236.html">[Taspring-linux-commit] r7466 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2235">[ date ]</a>
+              <a href="thread.html#2235">[ thread ]</a>
+              <a href="subject.html#2235">[ subject ]</a>
+              <a href="author.html#2235">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2010-04-15 19:12:03 +0200 (Thu, 15 Apr 2010)
+New Revision: 7465
+
+Modified:
+   Lobby/TASClient/BattleFormUnit.pas
+   Lobby/TASClient/LobbyScriptUnit.pas
+   Lobby/TASClient/ManageGroups.pas
+   Lobby/TASClient/Python/api.txt
+   Lobby/TASClient/Python/engine/handlers.py
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* PYTHON: onBackFromGame event added
+* PYTHON: api.Print (thread safe version of print) added
+
+Modified: Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.pas	2010-04-13 20:49:30 UTC (rev 7464)
++++ Lobby/TASClient/BattleFormUnit.pas	2010-04-15 17:12:03 UTC (rev 7465)
+@@ -3851,6 +3851,9 @@
+       MainForm.TryToSendCommand('MYSTATUS', '0'); // let's tell the server we returned from the game
+ 
+       CloseHandle(BattleState.Process.proc_info.hProcess);
++      AcquireMainThread;
++      try if not Preferences.ScriptsDisabled then handlers.onBackFromGame(); except end;
++      ReleaseMainThread;
+       UploadReplayAndLadderReport;
+     end
+   else
+@@ -3861,6 +3864,9 @@
+ 
+     TerminateProcess(BattleState.Process.proc_info.hProcess, 0);
+     CloseHandle(BattleState.Process.proc_info.hProcess);
++    AcquireMainThread;
++    try if not Preferences.ScriptsDisabled then handlers.onBackFromGame(); except end;
++    ReleaseMainThread;
+     UploadReplayAndLadderReport;
+   end;
+ end;
+
+Modified: Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- Lobby/TASClient/LobbyScriptUnit.pas	2010-04-13 20:49:30 UTC (rev 7464)
++++ Lobby/TASClient/LobbyScriptUnit.pas	2010-04-15 17:12:03 UTC (rev 7465)
+@@ -176,7 +176,6 @@
+       procedure RefreshPythonLists;
+       procedure LockCallback;
+       procedure UnlockCallback;
+-      procedure Print(data : string);
+       procedure DownloadCallbackEvent(snc: PScriptDownloadCallback;progress: integer);
+ 
+ 
+@@ -185,7 +184,7 @@
+       
+       // tasclient special functions
+       procedure ShowDebugWindow;
+-      //procedure Print(data : string);
++      procedure Print(data : string);
+ 
+       // official api
+       procedure ExitLobby;
+
+Modified: Lobby/TASClient/ManageGroups.pas
+===================================================================
+--- Lobby/TASClient/ManageGroups.pas	2010-04-13 20:49:30 UTC (rev 7464)
++++ Lobby/TASClient/ManageGroups.pas	2010-04-15 17:12:03 UTC (rev 7465)
+@@ -296,7 +296,7 @@
+   var Action: TCloseAction);
+ begin
+   AcquireMainThread;
+-  try handlers.onGroupsChanged(); except end;
++  try if not Preferences.ScriptsDisabled then handlers.onGroupsChanged(); except end;
+   ReleaseMainThread;
+   MainForm.SaveGroups;
+ end;
+
+Modified: Lobby/TASClient/Python/api.txt
+===================================================================
+--- Lobby/TASClient/Python/api.txt	2010-04-13 20:49:30 UTC (rev 7464)
++++ Lobby/TASClient/Python/api.txt	2010-04-15 17:12:03 UTC (rev 7465)
+@@ -30,6 +30,7 @@
+ - onURLClick(channel,url) return dontLetLobbyHandleIt : boolean
+ - onChatDblClick(channel,charPos,line) return dontLetLobbyHandleIt : boolean
+ - onStartSpring(args) return newArgs : string
++- onBackFromGame
+ - onDownloadModStart(formName,modHash,modName) return Cancel : boolean
+ - onDownloadMapStart(formName,mapHash,mapName) return Cancel : boolean
+ - timer_NBSECONDSINTERVAL()
+@@ -40,6 +41,7 @@
+ 
+ callout :
+ 
++- Print(string) thread safe debug print
+ - Disconnect
+ - ExitLobby
+ - GetBattles
+
+Modified: Lobby/TASClient/Python/engine/handlers.py
+===================================================================
+--- Lobby/TASClient/Python/engine/handlers.py	2010-04-13 20:49:30 UTC (rev 7464)
++++ Lobby/TASClient/Python/engine/handlers.py	2010-04-15 17:12:03 UTC (rev 7465)
+@@ -251,6 +251,9 @@
+ def onStartSpring(args):
+ 	return _handle_callin('onStartSpring',args)
+ 	
++def onBackFromGame():
++	return _handle_callin('onBackFromGame')
++	
+ def onClose():
+ 	global running
+ 	running = False
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2010-04-13 20:49:30 UTC (rev 7464)
++++ Lobby/TASClient/TASClient.dof	2010-04-15 17:12:03 UTC (rev 7465)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=72
+ Release=0
+-Build=865
++Build=866
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.72.0.865
++FileVersion=0.72.0.866
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002234.html">[Taspring-linux-commit] r7464 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002236.html">[Taspring-linux-commit] r7466 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2235">[ date ]</a>
+              <a href="thread.html#2235">[ thread ]</a>
+              <a href="subject.html#2235">[ subject ]</a>
+              <a href="author.html#2235">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

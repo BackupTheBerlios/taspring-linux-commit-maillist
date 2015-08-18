@@ -1,0 +1,258 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6043 - in trunk: rts rts/Game	tools/DedicatedServer
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-June/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6043%20-%20in%20trunk%3A%20rts%20rts/Game%0A%09tools/DedicatedServer&In-Reply-To=%3C20080618174738.6B9CF4452%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000822.html">
+   <LINK REL="Next"  HREF="000824.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6043 - in trunk: rts rts/Game	tools/DedicatedServer</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6043%20-%20in%20trunk%3A%20rts%20rts/Game%0A%09tools/DedicatedServer&In-Reply-To=%3C20080618174738.6B9CF4452%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6043 - in trunk: rts rts/Game	tools/DedicatedServer">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Jun 18 19:47:38 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000822.html">[Taspring-linux-commit] r6042 - trunk/rts/Sim/Units/CommandAI
+</A></li>
+        <LI>Next message: <A HREF="000824.html">[Taspring-linux-commit] r6044 - in branches/gml/rts: . Game	Game/StartScripts Lua Rendering	Sim/Projectiles/WeaponProjectiles Sim/Units	Sim/Units/CommandAI Sim/Units/UnitTypes Sim/Weapons	System/Net System/Platform/Linux build/scons build/vstudio8 lib/gml
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#823">[ date ]</a>
+              <a href="thread.html#823">[ thread ]</a>
+              <a href="subject.html#823">[ subject ]</a>
+              <a href="author.html#823">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-06-18 19:47:37 +0200 (Wed, 18 Jun 2008)
+New Revision: 6043
+
+Modified:
+   trunk/rts/CMakeLists.txt
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameSetup.cpp
+   trunk/rts/Game/GameSetupData.h
+   trunk/tools/DedicatedServer/CMakeLists.txt
+   trunk/tools/DedicatedServer/GameSetup.cpp
+Log:
+* fixed bugs #958 (&quot;/setmaxspeed 0&quot; will be ignored) and #955 (no spectating possible)
+
+
+Modified: trunk/rts/CMakeLists.txt
+===================================================================
+--- trunk/rts/CMakeLists.txt	2008-06-17 23:27:55 UTC (rev 6042)
++++ trunk/rts/CMakeLists.txt	2008-06-18 17:47:37 UTC (rev 6043)
+@@ -14,6 +14,7 @@
+ SET(CMAKE_CXX_FLAGS_DEBUG2  &quot;${BASE_FLAGS} -ggdb2 -O0 -Wall -DDEBUG -D_DEBUG&quot;)
+ SET(CMAKE_CXX_FLAGS_DEBUG3  &quot;${BASE_FLAGS} -ggdb3 -O0 -Wall -DDEBUG -D_DEBUG&quot;)
+ SET(CMAKE_CXX_FLAGS_RELEASE &quot;${BASE_FLAGS} ${VISIBILITY_HIDDEN} -O2 -DNDEBUG -fomit-frame-pointer&quot;)
++SET(CMAKE_CXX_FLAGS_PROFILE   &quot;${BASE_FLAGS} -O2 -pg -Wall -DNDEBUG&quot;)
+ 
+ ### Spring defines
+ SET(USE_MMGR FALSE CACHE BOOL &quot;Use memory manager?&quot;)
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-06-17 23:27:55 UTC (rev 6042)
++++ trunk/rts/Game/Game.cpp	2008-06-18 17:47:37 UTC (rev 6043)
+@@ -3708,7 +3708,6 @@
+ 						break;
+ 					}
+ 					case TEAMMSG_JOIN_TEAM: {
+-						//TODO is this enought?
+ 						int newTeam = int(inbuf[3]);
+ 						gs-&gt;players[player]-&gt;team = newTeam;
+ 						gs-&gt;players[player]-&gt;spectator = false;
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-06-17 23:27:55 UTC (rev 6042)
++++ trunk/rts/Game/GameServer.cpp	2008-06-18 17:47:37 UTC (rev 6043)
+@@ -1105,13 +1105,17 @@
+ 	}
+ 	else if (action.command == &quot;setmaxspeed&quot;)
+ 	{
+-		maxUserSpeed = atof(action.extra.c_str());
+-		if (userSpeedFactor &gt; maxUserSpeed) {
+-			Broadcast(CBaseNetProtocol::Get().SendUserSpeed(SERVER_PLAYER, maxUserSpeed));
+-			userSpeedFactor = maxUserSpeed;
+-			if (internalSpeed &gt; maxUserSpeed) {
+-				Broadcast(CBaseNetProtocol::Get().SendInternalSpeed(userSpeedFactor));
+-				internalSpeed = userSpeedFactor;
++		float newUserSpeed = atof(action.extra.c_str());
++		if (newUserSpeed &gt; 0.2)
++		{
++			maxUserSpeed = atof(action.extra.c_str());
++			if (userSpeedFactor &gt; maxUserSpeed) {
++				Broadcast(CBaseNetProtocol::Get().SendUserSpeed(SERVER_PLAYER, maxUserSpeed));
++				userSpeedFactor = maxUserSpeed;
++				if (internalSpeed &gt; maxUserSpeed) {
++					Broadcast(CBaseNetProtocol::Get().SendInternalSpeed(userSpeedFactor));
++					internalSpeed = userSpeedFactor;
++				}
+ 			}
+ 		}
+ 	}
+@@ -1369,7 +1373,7 @@
+ 
+ 	if (setup)
+ 	{
+-		unsigned hisTeam = setup-&gt;playerStartingTeam[hisNewNumber];
++		unsigned hisTeam = setup-&gt;playerStartingData[hisNewNumber].team;
+ 		if (!teams[hisTeam]) // create new team
+ 		{
+ 			teams[hisTeam].reset(new GameTeam());
+@@ -1378,7 +1382,8 @@
+ 			teams[hisTeam]-&gt;allyTeam = setup-&gt;teamAllyteam[hisTeam];
+ 		}
+ 		players[hisNewNumber]-&gt;team = hisTeam;
+-		Broadcast(CBaseNetProtocol::Get().SendJoinTeam(hisNewNumber, hisTeam));
++		if (!setup-&gt;playerStartingData[hisNewNumber].spectator)
++			Broadcast(CBaseNetProtocol::Get().SendJoinTeam(hisNewNumber, hisTeam));
+ 		for (int a = 0; a &lt; MAX_TEAMS; ++a)
+ 		{
+ 			if (teams[a])
+
+Modified: trunk/rts/Game/GameSetup.cpp
+===================================================================
+--- trunk/rts/Game/GameSetup.cpp	2008-06-17 23:27:55 UTC (rev 6042)
++++ trunk/rts/Game/GameSetup.cpp	2008-06-18 17:47:37 UTC (rev 6043)
+@@ -163,18 +163,19 @@
+ 
+ 		if (!file.SectionExist(s.substr(0, s.length() - 1))) {
+ 			// don't leave this uninitialized
+-			playerStartingTeam[i] = 0;
++			playerStartingData[i].team = 0;
+ 			continue;
+ 		}
+ 
+ 		// expects lines of form team=x rather than team=TEAMx
+ 		// team field is relocated in RemapTeams
+ 		gs-&gt;players[i]-&gt;team = atoi(file.SGetValueDef(&quot;0&quot;,   s + &quot;team&quot;).c_str());
+-		playerStartingTeam[i] = unsigned(gs-&gt;players[i]-&gt;team);
++		playerStartingData[i].team = unsigned(gs-&gt;players[i]-&gt;team);
+ 		gs-&gt;players[i]-&gt;rank = atoi(file.SGetValueDef(&quot;-1&quot;,  s + &quot;rank&quot;).c_str());
+ 		gs-&gt;players[i]-&gt;playerName  = file.SGetValueDef(&quot;no name&quot;, s + &quot;name&quot;);
+ 		gs-&gt;players[i]-&gt;countryCode = file.SGetValueDef(&quot;&quot;,  s + &quot;countryCode&quot;);
+ 		gs-&gt;players[i]-&gt;spectator = !!atoi(file.SGetValueDef(&quot;0&quot;, s + &quot;spectator&quot;).c_str());
++		playerStartingData[i].spectator = gs-&gt;players[i]-&gt;spectator;
+ 
+ 		int fromDemo;
+ 		file.GetDef(fromDemo, &quot;0&quot;, s + &quot;IsFromDemo&quot;);
+@@ -315,7 +316,7 @@
+ 		if (teamRemap.find(gs-&gt;players[a]-&gt;team) == teamRemap.end())
+ 			throw content_error(&quot;invalid Player.Team in GameSetup script&quot;);
+ 		gs-&gt;players[a]-&gt;team = teamRemap[gs-&gt;players[a]-&gt;team];
+-		playerStartingTeam[a] = teamRemap[playerStartingTeam[a]];
++		playerStartingData[a].team = teamRemap[playerStartingData[a].team];
+ 	}
+ }
+ 
+
+Modified: trunk/rts/Game/GameSetupData.h
+===================================================================
+--- trunk/rts/Game/GameSetupData.h	2008-06-17 23:27:55 UTC (rev 6042)
++++ trunk/rts/Game/GameSetupData.h	2008-06-18 17:47:37 UTC (rev 6043)
+@@ -46,7 +46,12 @@
+ 	
+ 	
+ 	/// Team the player will start in (read-only)
+-	unsigned playerStartingTeam[MAX_PLAYERS];
++	struct PlayerData
++	{
++		unsigned team;
++		bool spectator;
++	};
++	PlayerData playerStartingData[MAX_PLAYERS];
+ 	/// Initial startposition (read-only)
+ 	SFloat3 startPos[MAX_TEAMS];
+ 	bool readyTeams[MAX_TEAMS];
+
+Modified: trunk/tools/DedicatedServer/CMakeLists.txt
+===================================================================
+--- trunk/tools/DedicatedServer/CMakeLists.txt	2008-06-17 23:27:55 UTC (rev 6042)
++++ trunk/tools/DedicatedServer/CMakeLists.txt	2008-06-18 17:47:37 UTC (rev 6043)
+@@ -3,7 +3,9 @@
+ PROJECT(Dedicated)
+ 
+ IF (MINGW)
+-	SET(SPRING_DATADIR CACHE STRING &quot;Path to game content (in addition to /etc/spring/datadir)&quot;)
++	if (NOT COMPLETE_BUILD)
++		SET(SPRING_DATADIR CACHE STRING &quot;Path to game content (in addition to /etc/spring/datadir)&quot;)
++	endif (NOT COMPLETE_BUILD)
+ 	INCLUDE_DIRECTORIES(${MINGWLIBS}/include ${MINGWLIBS}/include/SDL)
+ 	LINK_DIRECTORIES(${MINGWLIBS}/lib ${MINGWLIBS}/dll)
+ 
+@@ -28,7 +30,9 @@
+ ENDIF (MINGW)
+ INCLUDE_DIRECTORIES(../../rts/System/Net/ ../../rts/lib/lua/include)
+ 
+-ADD_SUBDIRECTORY(../../rts/lib libs)
++if (NOT COMPLETE_BUILD)
++	ADD_SUBDIRECTORY(../../rts/lib libs)
++endif (NOT COMPLETE_BUILD)
+ 
+ IF (UNIX)
+ 	SET(platformfiles ../../rts/System/Platform/Linux/UnixFileSystemHandler ../../rts/System/Platform/Linux/DataDirLocater ../../rts/System/Platform/Linux/DotfileHandler)
+
+Modified: trunk/tools/DedicatedServer/GameSetup.cpp
+===================================================================
+--- trunk/tools/DedicatedServer/GameSetup.cpp	2008-06-17 23:27:55 UTC (rev 6042)
++++ trunk/tools/DedicatedServer/GameSetup.cpp	2008-06-18 17:47:37 UTC (rev 6043)
+@@ -188,7 +188,8 @@
+ 		if (!file.SectionExist(s.substr(0, s.length() - 1)))
+ 			continue;
+ 
+-		playerStartingTeam[i] = unsigned(atoi(file.SGetValueDef(&quot;0&quot;,   s + &quot;team&quot;).c_str()));
++		playerStartingData[i].team = unsigned(atoi(file.SGetValueDef(&quot;0&quot;,   s + &quot;team&quot;).c_str()));
++		playerStartingData[i].spectator = !!atoi(file.SGetValueDef(&quot;0&quot;, s + &quot;spectator&quot;).c_str());
+ 
+ 		int fromDemo;
+ 		file.GetDef(fromDemo, &quot;0&quot;, s + &quot;IsFromDemo&quot;);
+@@ -291,7 +292,7 @@
+ {
+ 	// relocate Player.Team field
+ 	for (int a = 0; a &lt; numPlayers; ++a) {
+-		playerStartingTeam[a] = teamRemap[playerStartingTeam[a]];
++		playerStartingData[a].team = teamRemap[playerStartingData[a].team];
+ 	}
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000822.html">[Taspring-linux-commit] r6042 - trunk/rts/Sim/Units/CommandAI
+</A></li>
+	<LI>Next message: <A HREF="000824.html">[Taspring-linux-commit] r6044 - in branches/gml/rts: . Game	Game/StartScripts Lua Rendering	Sim/Projectiles/WeaponProjectiles Sim/Units	Sim/Units/CommandAI Sim/Units/UnitTypes Sim/Weapons	System/Net System/Platform/Linux build/scons build/vstudio8 lib/gml
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#823">[ date ]</a>
+              <a href="thread.html#823">[ thread ]</a>
+              <a href="subject.html#823">[ subject ]</a>
+              <a href="author.html#823">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

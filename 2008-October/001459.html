@@ -1,0 +1,165 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6690 - in trunk/rts/Sim: MoveTypes Units
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6690%20-%20in%20trunk/rts/Sim%3A%20MoveTypes%20Units&In-Reply-To=%3C20081013084439.DD8E4472A%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001458.html">
+   <LINK REL="Next"  HREF="001460.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6690 - in trunk/rts/Sim: MoveTypes Units</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6690%20-%20in%20trunk/rts/Sim%3A%20MoveTypes%20Units&In-Reply-To=%3C20081013084439.DD8E4472A%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6690 - in trunk/rts/Sim: MoveTypes Units">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon Oct 13 10:44:39 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001458.html">[Taspring-linux-commit] r6689 - in Lobby/TASClient: . Python	Python/scripts/subf
+</A></li>
+        <LI>Next message: <A HREF="001460.html">[Taspring-linux-commit] r6691 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1459">[ date ]</a>
+              <a href="thread.html#1459">[ thread ]</a>
+              <a href="subject.html#1459">[ subject ]</a>
+              <a href="author.html#1459">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: KDR_11k
+Date: 2008-10-13 10:44:39 +0200 (Mon, 13 Oct 2008)
+New Revision: 6690
+
+Modified:
+   trunk/rts/Sim/MoveTypes/AirMoveType.cpp
+   trunk/rts/Sim/MoveTypes/AirMoveType.h
+   trunk/rts/Sim/Units/UnitDef.h
+   trunk/rts/Sim/Units/UnitDefHandler.cpp
+   trunk/rts/Sim/Units/UnitLoader.cpp
+Log:
+*added crashDrag tag (float, default 0.005) to fighter/bomber planes, when the plane is crashing it uses this drag instead of the automatically calculated drag it uses when flying. The calculated drag is no longer used when crashing, even if no crashDrag tag is present in the unit fbi. 
+
+The default drag seems to be pretty much equal to the drag seen on TA-like planes that crash properly, the only deviations I've seen was when planes would crash super slowly because they have a maxAcc tag and I don't think anyone actually wanted that behaviour.
+
+Realistically I think all the mods can just ignore the tag and use the default (which seems to be the most desired behaviour) but the tag is provided anyway in case a mod has any special plans.
+
+Modified: trunk/rts/Sim/MoveTypes/AirMoveType.cpp
+===================================================================
+--- trunk/rts/Sim/MoveTypes/AirMoveType.cpp	2008-10-12 23:08:20 UTC (rev 6689)
++++ trunk/rts/Sim/MoveTypes/AirMoveType.cpp	2008-10-13 08:44:39 UTC (rev 6690)
+@@ -37,6 +37,7 @@
+ 		CR_MEMBER(wingDrag),
+ 		CR_MEMBER(wingAngle),
+ 		CR_MEMBER(invDrag),
++		CR_MEMBER(crashDrag),
+ 		CR_MEMBER(frontToSpeed),
+ 		CR_MEMBER(speedToFront),
+ 		CR_MEMBER(myGravity),
+@@ -100,6 +101,7 @@
+ 	maxElevator(0.02f),
+ 	maxRudder(0.01f),
+ 	invDrag(0.995f),
++	crashDrag(0.995f),
+ 	inSupply(0),
+ 	subState(0),
+ 	myGravity(0.8f),
+@@ -976,7 +978,12 @@
+ 
+ 	speed += engineVector * maxAcc * engine;
+ 	speed.y += mapInfo-&gt;map.gravity * myGravity;
+-	speed *= invDrag;
++	if (aircraftState == AIRCRAFT_CRASHING) {
++		speed *= crashDrag;
++	}
++	else {
++		speed *= invDrag;
++	}
+ 
+ 	float3 wingDir = updir * (1 - wingAngle) - frontdir * wingAngle;
+ 	float wingForce = wingDir.dot(speed) * wingDrag;
+
+Modified: trunk/rts/Sim/MoveTypes/AirMoveType.h
+===================================================================
+--- trunk/rts/Sim/MoveTypes/AirMoveType.h	2008-10-12 23:08:20 UTC (rev 6689)
++++ trunk/rts/Sim/MoveTypes/AirMoveType.h	2008-10-13 08:44:39 UTC (rev 6690)
+@@ -56,6 +56,7 @@
+ 	float wingDrag;
+ 	float wingAngle;
+ 	float invDrag;
++	float crashDrag;    //actually the invDrag of crashDrag
+ 	float frontToSpeed;
+ 	float speedToFront;
+ 	float myGravity;
+
+Modified: trunk/rts/Sim/Units/UnitDef.h
+===================================================================
+--- trunk/rts/Sim/Units/UnitDef.h	2008-10-12 23:08:20 UTC (rev 6689)
++++ trunk/rts/Sim/Units/UnitDef.h	2008-10-13 08:44:39 UTC (rev 6690)
+@@ -297,6 +297,7 @@
+ 	float maxAileron;
+ 	float maxElevator;
+ 	float maxRudder;
++	float crashDrag;
+ 
+ 	MoveData* movedata;
+ //	unsigned char* yardmapLevels[6];
+
+Modified: trunk/rts/Sim/Units/UnitDefHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-10-12 23:08:20 UTC (rev 6689)
++++ trunk/rts/Sim/Units/UnitDefHandler.cpp	2008-10-13 08:44:39 UTC (rev 6690)
+@@ -487,6 +487,7 @@
+ 	ud.frontToSpeed = udTable.GetFloat(&quot;frontToSpeed&quot;, 0.1f);   // fudge factor for lining up speed and front of plane
+ 	ud.speedToFront = udTable.GetFloat(&quot;speedToFront&quot;, 0.07f);  // fudge factor for lining up speed and front of plane
+ 	ud.myGravity    = udTable.GetFloat(&quot;myGravity&quot;,    0.4f);   // planes are slower than real airplanes so lower gravity to compensate
++	ud.crashDrag    = udTable.GetFloat(&quot;crashDrag&quot;,0.005f);     // drag used when crashing
+ 
+ 	ud.maxBank = udTable.GetFloat(&quot;maxBank&quot;, 0.8f);         // max roll
+ 	ud.maxPitch = udTable.GetFloat(&quot;maxPitch&quot;, 0.45f);      // max pitch this plane tries to keep
+
+Modified: trunk/rts/Sim/Units/UnitLoader.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitLoader.cpp	2008-10-12 23:08:20 UTC (rev 6689)
++++ trunk/rts/Sim/Units/UnitLoader.cpp	2008-10-13 08:44:39 UTC (rev 6690)
+@@ -269,6 +269,7 @@
+ 			mt-&gt;collide = ud-&gt;collide;
+ 
+ 			mt-&gt;wingAngle = ud-&gt;wingAngle;
++			mt-&gt;crashDrag = 1 - ud-&gt;crashDrag;
+ 			mt-&gt;invDrag = 1 - ud-&gt;drag;
+ 			mt-&gt;frontToSpeed = ud-&gt;frontToSpeed;
+ 			mt-&gt;speedToFront = ud-&gt;speedToFront;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001458.html">[Taspring-linux-commit] r6689 - in Lobby/TASClient: . Python	Python/scripts/subf
+</A></li>
+	<LI>Next message: <A HREF="001460.html">[Taspring-linux-commit] r6691 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1459">[ date ]</a>
+              <a href="thread.html#1459">[ thread ]</a>
+              <a href="subject.html#1459">[ subject ]</a>
+              <a href="author.html#1459">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

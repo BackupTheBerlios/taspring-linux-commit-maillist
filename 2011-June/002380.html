@@ -1,0 +1,602 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7610 - in Lobby/TASClient: . Python	Python/engine
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2011-June/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7610%20-%20in%20Lobby/TASClient%3A%20.%20Python%0A%09Python/engine&In-Reply-To=%3C20110611184036.0C40C21773%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002379.html">
+   <LINK REL="Next"  HREF="002381.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7610 - in Lobby/TASClient: . Python	Python/engine</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7610%20-%20in%20Lobby/TASClient%3A%20.%20Python%0A%09Python/engine&In-Reply-To=%3C20110611184036.0C40C21773%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7610 - in Lobby/TASClient: . Python	Python/engine">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Jun 11 20:40:35 CEST 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002379.html">[Taspring-linux-commit] r7609 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002381.html">[Taspring-linux-commit] r7611 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2380">[ date ]</a>
+              <a href="thread.html#2380">[ thread ]</a>
+              <a href="subject.html#2380">[ subject ]</a>
+              <a href="author.html#2380">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2011-06-11 20:40:35 +0200 (Sat, 11 Jun 2011)
+New Revision: 7610
+
+Modified:
+   Lobby/TASClient/LobbyScriptUnit.pas
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/Python/api.txt
+   Lobby/TASClient/Python/engine/handlers.py
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+   Lobby/TASClient/WidgetDBFormUnit.dfm
+   Lobby/TASClient/WidgetDBFormUnit.pas
+Log:
+*** 0.91 ***
+* PYTHON : onWidgetListRefreshed, onWidgetInstalledOrUpdated and onWidgetUninstalled events added
+* PYTHON : Callback : RefreshWidgetList, GetWidgets, InstallOrUpdateWidget and UninstallWidget functions added
+
+Modified: Lobby/TASClient/LobbyScriptUnit.pas
+===================================================================
+--- Lobby/TASClient/LobbyScriptUnit.pas	2011-06-07 21:54:26 UTC (rev 7609)
++++ Lobby/TASClient/LobbyScriptUnit.pas	2011-06-11 18:40:35 UTC (rev 7610)
+@@ -194,6 +194,8 @@
+       procedure ShowDebugWindow;
+       procedure Print(data : string);
+       function GetVersion:String;
++      function GetSettings: Variant;
++      function SetSettings(newSettings: Variant): Boolean;
+ 
+       // official api
+       procedure ExitLobby;
+@@ -226,9 +228,8 @@
+       procedure SetServers(sV : Variant);
+       function ChangeMap(mapName: string): Boolean;
+       function GetSpringExe: String;
+-      function GetSettings: Variant;
+-      function SetSettings(newSettings: Variant): Boolean;
+ 
++      // spring downloader api
+       procedure DownloadMap(mapName: string; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string);
+       procedure DownloadMap2(mapName: string; callbackArgs: Variant; callbackFunction: Variant);
+       procedure DownloadMod(modName: string; callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string);
+@@ -238,6 +239,13 @@
+       procedure ListRapidTags(callbackArgs: Variant; callbackModuleName: string; callbackFunctionName: string);
+       procedure ListRapidTags2(callbackArgs: Variant; callbackFunction: Variant);
+ 
++      // widget db api
++      procedure RefreshWidgetList;
++      function GetWidgets: Variant;
++      function InstallOrUpdateWidget(id: integer): boolean;
++      function UninstallWidget(id: integer): boolean;
++
++      // Must not be called from python
+       procedure DownloadCallbackEvent(snc: PScriptDownloadCallback;progress: integer);
+ 
+       constructor Create;
+@@ -305,6 +313,7 @@
+   function GetStringFromComponent(component : TComponent): string;
+   procedure DebugPrint(s: string);
+   procedure GUISynchronizedUpdate(ucb: PGUIUpdateCallback);
++  procedure ExecuteNextWidgetAction;
+ 
+ var
+   MainThreadState: PPyThreadState;
+@@ -327,6 +336,9 @@
+   MapDownloadList: TList;
+   ModDownloadList: TList;
+   RapidDownloadList: TList;
++  InstallWidgetIds: TIntegerList;
++  UninstallWidgetIds: TIntegerList;
++  RefreshWidgetListAction: Boolean;
+   GUICS: TCriticalSection;
+   
+ 
+@@ -338,7 +350,8 @@
+ uses PythonScriptDebugFormUnit, Utility, MapListFormUnit, HostBattleFormUnit,
+ BattleFormUnit, ReplaysUnit, PreferencesFormUnit, CustomizeGUIFormUnit,
+ TypInfo, SpringDownloaderFormUnit, StdCtrls, SpringSettingsProfileFormUnit,
+-PerformFormUnit, HighlightingUnit, NotificationsUnit;
++PerformFormUnit, HighlightingUnit, NotificationsUnit,WidgetDBFormUnit,
++gnugettext;
+ 
+ 
+ //------------------------------------------------------------------------------------------------------
+@@ -2088,6 +2101,80 @@
+   end;
+ end;
+ 
++procedure TCallback.RefreshWidgetList;
++begin
++  RefreshWidgetListAction := true;
++  ExecuteNextWidgetAction;
++end;
++
++function TCallback.GetWidgets: Variant;
++var
++  pyWidgets: PPyObject;
++  pyWidget: PPyObject;
++  widget: TWidgetItem;
++  i: integer;
++begin
++  LockCallback;
++  with GetPythonEngine do
++  begin
++    pyWidgets := PyList_New(0);
++
++    for i:=0 to WidgetDBForm.widgetList.Count-1 do
++    begin
++      widget := TWidgetItem(WidgetDBForm.widgetList[i]);
++
++      pyWidget := PyDict_New();
++
++      PyDict_SetItemStringDecRef( pyWidget, 'Id', widget.Id );
++      PyDict_SetItemStringDecRef( pyWidget, 'Name', widget.Name );
++      PyDict_SetItemStringDecRef( pyWidget, 'NameId', widget.NameId );
++      PyDict_SetItemStringDecRef( pyWidget, 'Downloads', widget.Downloads );
++      PyDict_SetItemStringDecRef( pyWidget, 'Games', widget.Games );
++      PyDict_SetItemStringDecRef( pyWidget, 'Rating', widget.Rating );
++      PyDict_SetItemStringDecRef( pyWidget, 'VoteCount', widget.VoteCount );
++      PyDict_SetItemStringDecRef( pyWidget, 'Comments', widget.Comments );
++      PyDict_SetItemStringDecRef( pyWidget, 'Author', widget.Author );
++      PyDict_SetItemStringDecRef( pyWidget, 'Description', widget.Description );
++      PyDict_SetItemStringDecRef( pyWidget, 'Category', widget.Category.Name );
++      PyDict_SetItemStringDecRef( pyWidget, 'Entry', widget.Entry );
++      PyDict_SetItemStringDecRef( pyWidget, 'Changelog', widget.Changelog );
++      PyDict_SetItemStringDecRef( pyWidget, 'Installed', widget.Installed );
++      PyDict_SetItemStringDecRef( pyWidget, 'UpToDate', widget.UpToDate );
++
++      PyList_Append(pyWidgets,pyWidget);
++      Py_XDECREF(pyWidget);
++    end;
++
++    Result := PyObjectAsVariant(pyWidgets);
++  end;
++end;
++
++function TCallback.InstallOrUpdateWidget(id: integer): boolean;
++var
++  widget: TWidgetItem;
++begin
++  widget := WidgetDBForm.GetWidgetById(id);
++  Result := widget &lt;&gt; nil;
++  if Result then
++  begin
++    InstallWidgetIds.Add(id);
++    ExecuteNextWidgetAction;
++  end;
++end;
++
++function TCallback.UninstallWidget(id: integer): boolean;
++var
++  widget: TWidgetItem;
++begin
++  widget := WidgetDBForm.GetWidgetById(id);
++  Result := (widget &lt;&gt; nil) and widget.Installed;
++  if Result then
++  begin
++    UninstallWidgetIds.Add(id);
++    ExecuteNextWidgetAction;
++  end;
++end;
++
+ //------------------------------------------------------------------------------------------------------
+ //    TGUI
+ //------------------------------------------------------------------------------------------------------
+@@ -3421,12 +3508,10 @@
+ 
+ procedure DebugPrint(s: string);
+ begin
+-  //PythonScriptDebugForm.Output.Lines.Add(s);
+-  Misc.TryToAddLog(PythonScriptDebugForm.debugOutput,s);
+-  //PythonScriptDebugFormUnit.printList.BeginUpdate;
+-  //PythonScriptDebugFormUnit.printList.Add(s);
+-  //PythonScriptDebugFormUnit.printList.EndUpdate;
+-  //PostMessage(PythonScriptDebugForm.Handle, WM_REFRESHOUTPUT, 0, 0);
++  PythonScriptDebugFormUnit.printList.BeginUpdate;
++  PythonScriptDebugFormUnit.printList.Add(s);
++  PythonScriptDebugFormUnit.printList.EndUpdate;
++  PostMessage(PythonScriptDebugForm.Handle, WM_REFRESHOUTPUT, 0, 0);
+ end;
+ 
+ // i have no idea why this works but it works :D
+@@ -3841,4 +3926,57 @@
+   end;
+ end;
+ 
++procedure ExecuteNextWidgetAction;
++var
++  widget: TWidgetItem;
++begin
++  with WidgetDBForm do
++  begin
++    if btRefresh.Enabled then
++    begin
++      if RefreshWidgetListAction then
++        btRefreshClick(nil)
++      else if InstallWidgetIds.Count &gt; 0 then
++      begin
++        widget := GetWidgetById(InstallWidgetIds.Items[0]);
++        InstallWidgetIds.Delete(0);
++
++        if widget = nil then
++        begin
++          DebugPrint('InstallOrUpdateWidget fatal error : unknown widget id')
++        end
++        else
++        begin
++          btInstall.Enabled := False;
++          btRefresh.Enabled := False;
++          if widget.Installed then
++            btInstall.Caption := _('Updating ...')
++          else
++            btInstall.Caption := _('Installing ...');
++
++          TInstallWidgetThread.Create(false,widget,false);
++        end;
++      end
++      else if UninstallWidgetIds.Count &gt; 0 then
++      begin
++        widget := GetWidgetById(UninstallWidgetIds.Items[0]);
++        UninstallWidgetIds.Delete(0);
++
++        if widget = nil then
++        begin
++          DebugPrint('UninstallWidget fatal error : unknown widget id')
++        end
++        else
++        begin
++          btInstall.Enabled := False;
++          btRefresh.Enabled := False;
++          btInstall.Caption := _('Uninstalling ...');
++
++          TInstallWidgetThread.Create(false,widget,true);
++        end;
++      end;
++    end;
++  end;
++end;
++
+ end.
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2011-06-07 21:54:26 UTC (rev 7609)
++++ Lobby/TASClient/MainUnit.dfm	2011-06-11 18:40:35 UTC (rev 7610)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 600
+-  Top = 301
++  Left = 381
++  Top = 165
+   Width = 883
+   Height = 553
+   Caption = 'TASClient'
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2011-06-07 21:54:26 UTC (rev 7609)
++++ Lobby/TASClient/MainUnit.pas	2011-06-11 18:40:35 UTC (rev 7610)
+@@ -427,7 +427,7 @@
+   );
+ 
+ const
+-  VERSION_NUMBER = '0.90'; // Must be float value! (with a period as a decimal seperator)
++  VERSION_NUMBER = '0.91'; // Must be float value! (with a period as a decimal seperator)
+   PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER;
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+   ASSUME_TIMEOUT_INTERVAL = 30000; // in milliseconds. Must be greater than KEEP_ALIVE_INTERVAL! If server hasn't send any data to us within this interval, then we assume timeout occured. It's us who must make sure we get constant replies from server by pinging it.
+@@ -13365,6 +13365,9 @@
+       LobbyScriptUnit.ModDownloadList := TList.Create;
+       LobbyScriptUnit.RapidDownloadList := TList.Create;
+       LobbyScriptUnit.GUICS := TCriticalSection.Create;
++      LobbyScriptUnit.InstallWidgetIds := TIntegerList.Create;
++      LobbyScriptUnit.UninstallWidgetIds := TIntegerList.Create;
++      LobbyScriptUnit.RefreshWidgetListAction := false;
+ 
+       handlers._load;
+ 
+
+Modified: Lobby/TASClient/Python/api.txt
+===================================================================
+--- Lobby/TASClient/Python/api.txt	2011-06-07 21:54:26 UTC (rev 7609)
++++ Lobby/TASClient/Python/api.txt	2011-06-11 18:40:35 UTC (rev 7610)
+@@ -34,7 +34,11 @@
+ - onDownloadRapidStart(formName,rapidName) return Cancel : boolan
+ - onDownloadModStart(formName,modHash,modName) return Cancel : boolean
+ - onDownloadMapStart(formName,mapHash,mapName) return Cancel : boolean
++- onWidgetListRefreshed
++- onWidgetInstalledOrUpdated(widgetId,widgetUpdated)
++- onWidgetUninstalled(widgetId)
+ - timer_NBSECONDSINTERVAL()
++	NBSECONDSINTERVAL is a parameter for a 2 second interval timer add a &quot;timer_2()&quot; function to you script.
+ 
+ 
+ Callback class
+@@ -96,6 +100,18 @@
+ 	return the full spring exe path
+ - GetSettings
+ - SetSettings(settings)
++- RefreshWidgetList
++	Asynchronous widget list refresh (if you want to do something after the list is refreshed do it in the onWidgetListRefreshed event)
++- GetWidgets
++	The widget list must be refreshed at least once before (either by the user or by RefreshWidgetList)
++- InstallOrUpdateWidget(id): Boolean
++	Asynchronous widget installation or update (if you want to do something after the widget is installed do it in the onWidgetInstalledOrUpdated event)
++	
++	return false if the id is not found in the widget list
++- UninstallWidget(id): Boolean
++	Asynchronous widget uninstallation (if you want to do something after the widget uninstallation do it in the onWidgetUninstalled event)
++	
++	return false if the id is not found in the widget list
+ 
+ GUI Class
+ ---------
+@@ -172,8 +188,7 @@
+ callout :
+ 
+ - GetFilters 
++- SetFilters(filters,presetname)
+ - GetPresetList
+ 
+-LowPriority
+-- GetIgnoreList
+-- SetIgnoreList
+\ No newline at end of file
++- GetUsersOfflineData 
+\ No newline at end of file
+
+Modified: Lobby/TASClient/Python/engine/handlers.py
+===================================================================
+--- Lobby/TASClient/Python/engine/handlers.py	2011-06-07 21:54:26 UTC (rev 7609)
++++ Lobby/TASClient/Python/engine/handlers.py	2011-06-11 18:40:35 UTC (rev 7610)
+@@ -257,6 +257,15 @@
+ def onBackFromGame():
+ 	return _handle_callin('onBackFromGame')
+ 	
++def onWidgetListRefreshed():
++	return _handle_callin('onWidgetListRefreshed')
++
++def onWidgetInstalledOrUpdated(widgetId,widgetUpdated):
++	return _handle_callin('onWidgetInstalledOrUpdated',str(widgetId)+' '+str(widgetUpdated))
++
++def onWidgetUninstalled(widgetId):
++	return _handle_callin('onWidgetUninstalled',str(widgetId))
++	
+ def onClose():
+ 	global running
+ 	running = False
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2011-06-07 21:54:26 UTC (rev 7609)
++++ Lobby/TASClient/TASClient.dof	2011-06-11 18:40:35 UTC (rev 7610)
+@@ -113,9 +113,9 @@
+ IncludeVerInfo=1
+ AutoIncBuild=1
+ MajorVer=0
+-MinorVer=90
++MinorVer=91
+ Release=0
+-Build=1308
++Build=1309
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.90.0.1308
++FileVersion=0.91.0.1309
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+Modified: Lobby/TASClient/WidgetDBFormUnit.dfm
+===================================================================
+--- Lobby/TASClient/WidgetDBFormUnit.dfm	2011-06-07 21:54:26 UTC (rev 7609)
++++ Lobby/TASClient/WidgetDBFormUnit.dfm	2011-06-11 18:40:35 UTC (rev 7610)
+@@ -1,6 +1,6 @@
+ object WidgetDBForm: TWidgetDBForm
+-  Left = 812
+-  Top = 284
++  Left = 741
++  Top = 184
+   Width = 835
+   Height = 603
+   Caption = 'Widget database'
+
+Modified: Lobby/TASClient/WidgetDBFormUnit.pas
+===================================================================
+--- Lobby/TASClient/WidgetDBFormUnit.pas	2011-06-07 21:54:26 UTC (rev 7609)
++++ Lobby/TASClient/WidgetDBFormUnit.pas	2011-06-11 18:40:35 UTC (rev 7610)
+@@ -13,13 +13,13 @@
+ 
+ type
+   TWidgetCategory = class
+-  protected
++  public
+     Id: integer;
+     Name: WideString;
+   end;
+ 
+   TWidgetItem = class
+-  protected
++  public
+     Id : integer;
+     Name : WideString;
+     NameId : Integer;
+@@ -66,6 +66,7 @@
+   protected
+     FWidget: TWidgetItem;
+     FUninstall: Boolean;
++    FUpdating: Boolean;
+     procedure Execute; override;
+     procedure UpdateGUI;
+ 
+@@ -180,6 +181,8 @@
+       var HintText: WideString);
+   private
+     { Private declarations }
++  protected
++    wbInitialized: Boolean;
+   public
+     widgetList: TList;
+     widgetCategoryList: TList;
+@@ -202,7 +205,7 @@
+ 
+ implementation
+ 
+-uses PreferencesFormUnit, Misc, Math, ComObj, StrUtils;
++uses PreferencesFormUnit, Misc, Math, ComObj, StrUtils,LobbyScriptUnit;
+ 
+ {$R *.dfm}
+ 
+@@ -217,6 +220,7 @@
+   noneCategory.Id := -1;
+   noneCategory.Name := ' ';
+   uwiThread := nil;
++  wbInitialized := false;
+ 
+   wbScreenShots := TWebBrowserWrapper.Create(Self);
+   TWinControl(wbScreenShots).Parent := pnlWidgetInfo;
+@@ -468,20 +472,24 @@
+   else
+     widget := GetWidgetByNode(Node);
+ 
++  vstWidgetList.FocusedNode := Node;
++
+   SpTBXSplitter2.Visible := False;
+   wbScreenShots.Visible := False;
+ 
+   if widget = nil then
+   begin
+     lblWidgetName.Caption := '';
+-    wbDescription.LoadFromString(GetSkinnedHtmlDescription(''));
++    if wbInitialized then // webbrowser are really created only once the form is shown
++      wbDescription.LoadFromString(GetSkinnedHtmlDescription(''));
+     reChangelog.Text := '';
+     reComments.Text := '';
+     result := false;
+     Exit;
+   end;
+   lblWidgetName.Caption := widget.Name;
+-  wbDescription.LoadFromString(GetSkinnedHtmlDescription(widget.Description));
++  if wbInitialized then // webbrowser are really created only once the form is shown
++    wbDescription.LoadFromString(GetSkinnedHtmlDescription(widget.Description));
+   reChangelog.Clear;
+   reChangelog.SelText := widget.Changelog;
+ 
+@@ -509,8 +517,11 @@
+ 
+ procedure TWidgetDBForm.FormShow(Sender: TObject);
+ begin
++  wbInitialized := true;
+   tcWidgetInfo.ActivePage := tsWidgetDescription;
+   wbDescription.LoadFromString(GetSkinnedHtmlDescription(''));
++  if vstWidgetList.FocusedNode = nil then
++    vstWidgetList.FocusedNode := vstWidgetList.RootNode.FirstChild;
+   SelectWidget(vstWidgetList.FocusedNode);
+ end;
+ 
+@@ -899,6 +910,14 @@
+   WidgetDBForm.SelectWidget(WidgetDBForm.vstWidgetList.RootNode.FirstChild);
+   WidgetDBForm.btRefresh.Caption := _('Refresh');
+   WidgetDBForm.btRefresh.Enabled := True;
++
++  LobbyScriptUnit.RefreshWidgetListAction := false;
++
++  AcquireMainThread;
++  try if not Preferences.ScriptsDisabled then handlers.onWidgetListRefreshed(); except end;
++  ReleaseMainThread;
++
++  LobbyScriptUnit.ExecuteNextWidgetAction;
+ end;
+ constructor TRefreshWidgetListThread.Create(Suspended : Boolean);
+ begin
+@@ -1087,6 +1106,20 @@
+   WidgetDBForm.btUninstall.Enabled := widget.Installed;
+   WidgetDBForm.btUninstall.Caption := _('Uninstall');
+   WidgetDBForm.vstWidgetList.Invalidate;
++
++  if FUninstall then
++  begin
++    AcquireMainThread;
++    try if not Preferences.ScriptsDisabled then handlers.onWidgetUninstalled(FWidget.Id); except end;
++    ReleaseMainThread;
++  end
++  else
++  begin
++    AcquireMainThread;
++    try if not Preferences.ScriptsDisabled then handlers.onWidgetInstalledOrUpdated(FWidget.Id,FUpdating); except end;
++    ReleaseMainThread;
++  end;
++  LobbyScriptUnit.ExecuteNextWidgetAction;
+ end;
+ 
+ constructor TInstallWidgetThread.Create(Suspended : Boolean; widget : TWidgetItem; uninstall: boolean);
+@@ -1095,6 +1128,7 @@
+   inherited Create(Suspended);
+   FWidget := widget;
+   FUninstall := uninstall;
++  FUpdating := widget.Installed;
+ end;
+ 
+ procedure TWidgetDBForm.btUninstallClick(Sender: TObject);
+@@ -1176,6 +1210,8 @@
+   WidgetDBForm.reMyComment.Text := '';
+   WidgetDBForm.reMyComment.Enabled := True;
+   WidgetDBForm.SelectWidget(WidgetDBForm.vstWidgetList.FocusedNode);
++
++  LobbyScriptUnit.ExecuteNextWidgetAction;
+ end;
+ constructor TSendCommentThread.Create(Suspended : Boolean; widget : TWidgetItem; comment: WideString);
+ begin
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002379.html">[Taspring-linux-commit] r7609 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002381.html">[Taspring-linux-commit] r7611 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2380">[ date ]</a>
+              <a href="thread.html#2380">[ thread ]</a>
+              <a href="subject.html#2380">[ subject ]</a>
+              <a href="author.html#2380">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

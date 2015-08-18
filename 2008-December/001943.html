@@ -1,0 +1,152 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7174 - in Lobby/springie:	Springie/PlanetWars Springie/autohost Springie/utils libs
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7174%20-%20in%20Lobby/springie%3A%0A%09Springie/PlanetWars%20Springie/autohost%20Springie/utils%20libs&In-Reply-To=%3C20081212220756.8B1F94786%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001942.html">
+   <LINK REL="Next"  HREF="001944.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7174 - in Lobby/springie:	Springie/PlanetWars Springie/autohost Springie/utils libs</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7174%20-%20in%20Lobby/springie%3A%0A%09Springie/PlanetWars%20Springie/autohost%20Springie/utils%20libs&In-Reply-To=%3C20081212220756.8B1F94786%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r7174 - in Lobby/springie:	Springie/PlanetWars Springie/autohost Springie/utils libs">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Dec 12 23:07:56 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001942.html">[Taspring-linux-commit] r7173 -	branches/caiinterface/rts/lib/streflop
+</A></li>
+        <LI>Next message: <A HREF="001944.html">[Taspring-linux-commit] r7175 - in trunk/rts: Sim/Features	System/Platform/Linux
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1943">[ date ]</a>
+              <a href="thread.html#1943">[ thread ]</a>
+              <a href="subject.html#1943">[ subject ]</a>
+              <a href="author.html#1943">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Licho
+Date: 2008-12-12 23:07:56 +0100 (Fri, 12 Dec 2008)
+New Revision: 7174
+
+Modified:
+   Lobby/springie/Springie/PlanetWars/PlanetWarsHandler.cs
+   Lobby/springie/Springie/autohost/AutoHost_commands.cs
+   Lobby/springie/Springie/utils/ResourceLinkProvider.cs
+   Lobby/springie/libs/PlanetWarsShared.dll
+Log:
+ComFix method reverted to previous one
+
+Modified: Lobby/springie/Springie/PlanetWars/PlanetWarsHandler.cs
+===================================================================
+--- Lobby/springie/Springie/PlanetWars/PlanetWarsHandler.cs	2008-12-12 16:30:53 UTC (rev 7173)
++++ Lobby/springie/Springie/PlanetWars/PlanetWarsHandler.cs	2008-12-12 22:07:56 UTC (rev 7174)
+@@ -291,6 +291,12 @@
+         public bool StartGame(TasSayEventArgs e)
+         {
+             try {
++                if (!autoHost.ComFix(e, &quot;silent&quot;))
++                {
++                    autoHost.Respond(e, &quot;Teams were not fixed, fixing&quot;);
++                    return false;
++                }
++              
+                 string currentMapName = tas.GetBattle().Map.Name;
+                 var planet = server.GetAttackOptions(account).Where(p =&gt; p.MapName == currentMapName).SingleOrDefault();
+ 
+@@ -300,7 +306,6 @@
+                 }
+ 
+                 var factions = server.GetFactions(account);
+-
+                 var actual = new List&lt;IPlayer&gt;();
+                 foreach (var user in tas.GetBattle().Users) {
+                     if (!user.IsSpectator) {
+
+Modified: Lobby/springie/Springie/autohost/AutoHost_commands.cs
+===================================================================
+--- Lobby/springie/Springie/autohost/AutoHost_commands.cs	2008-12-12 16:30:53 UTC (rev 7173)
++++ Lobby/springie/Springie/autohost/AutoHost_commands.cs	2008-12-12 22:07:56 UTC (rev 7174)
+@@ -402,18 +402,10 @@
+         public bool ComFix(TasSayEventArgs e, params string[] words)
+         {
+             var b = tas.GetBattle();
+-            int cnt = 0;
+             var groups = b.Users.Where(x =&gt; !x.IsSpectator &amp;&amp; x.SyncStatus != SyncStatuses.Unknown).GroupBy(x =&gt; x.TeamNumber).Where(g =&gt; g.Count() &gt; 1);
+             if (groups.Count() &gt; 0) {
+-                var used = new bool[Spring.MaxTeams];
+-                foreach (var u in b.Users.Where(x =&gt; !x.IsSpectator &amp;&amp; x.SyncStatus != SyncStatuses.Unknown)) used[u.TeamNumber] = true;
+-                foreach (var u in groups.SelectMany(x =&gt; x)) {
+-                    // groups of users with same team
+-                    int freeid = 0;
+-                    while (used[freeid]) freeid++;
+-                    tas.ForceTeam(u.name, freeid);
+-                    used[freeid] = true;
+-                }
++                int id = 0;
++                foreach (var u in b.Users.Where(x =&gt; !x.IsSpectator &amp;&amp; x.SyncStatus != SyncStatuses.Unknown)) tas.ForceTeam(u.name, id++);
+                 if (words == null || words.Length == 0 || words[0] != &quot;silent&quot;) SayBattle(&quot;team numbers fixed&quot;);
+                 return false;
+             } else return true;
+
+Modified: Lobby/springie/Springie/utils/ResourceLinkProvider.cs
+===================================================================
+--- Lobby/springie/Springie/utils/ResourceLinkProvider.cs	2008-12-12 16:30:53 UTC (rev 7173)
++++ Lobby/springie/Springie/utils/ResourceLinkProvider.cs	2008-12-12 22:07:56 UTC (rev 7174)
+@@ -59,7 +59,7 @@
+ 			if (words.Length == 0) {
+ 				var b = tas.GetBattle();
+ 				if (b == null) return;
+-				Program.main.AutoHost.Respond(e, string.Format(&quot;Searching for currently hosted {0}&quot;, type));
++				Program.main.AutoHost.Respond(e, string.Format(&quot;Getting SpringDownloader mirrors for currently hosted {0}&quot;, type));
+ 				if (type == FileType.Map) RequestLink(new LinkRequest(b.Map.Checksum, e));
+ 				else RequestLink(new LinkRequest(b.Mod.Checksum, e));
+ 			} else {
+@@ -71,7 +71,7 @@
+ 				string[] resultVals;
+ 				int cnt = AutoHost.Filter(items.ToArray(), words, out resultVals, out resultIndexes);
+ 				if (cnt == 0) Program.main.AutoHost.Respond(e, string.Format(&quot;No such {0} found&quot;, type));
+-				Program.main.AutoHost.Respond(e, string.Format(&quot;Searching for {0}, please wait&quot;, resultVals[0]));
++				Program.main.AutoHost.Respond(e, string.Format(&quot;Getting SpringDownloader mirrors for {0}, please wait&quot;, resultVals[0]));
+ 
+ 				int hash = type == FileType.Map ? Program.main.Spring.UnitSyncWrapper.MapList[resultVals[0]].Checksum : Program.main.Spring.UnitSyncWrapper.ModList[resultVals[0]].Checksum;
+ 
+
+Modified: Lobby/springie/libs/PlanetWarsShared.dll
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001942.html">[Taspring-linux-commit] r7173 -	branches/caiinterface/rts/lib/streflop
+</A></li>
+	<LI>Next message: <A HREF="001944.html">[Taspring-linux-commit] r7175 - in trunk/rts: Sim/Features	System/Platform/Linux
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1943">[ date ]</a>
+              <a href="thread.html#1943">[ thread ]</a>
+              <a href="subject.html#1943">[ subject ]</a>
+              <a href="author.html#1943">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

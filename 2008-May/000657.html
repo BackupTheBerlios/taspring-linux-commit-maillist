@@ -1,0 +1,1798 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5877 - in trunk: Documentation rts/Game	rts/Game/UI rts/System rts/build/scons
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5877%20-%20in%20trunk%3A%20Documentation%20rts/Game%0A%09rts/Game/UI%20rts/System%20rts/build/scons&In-Reply-To=%3C20080512130059.72D8D47D9%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000656.html">
+   <LINK REL="Next"  HREF="000658.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5877 - in trunk: Documentation rts/Game	rts/Game/UI rts/System rts/build/scons</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5877%20-%20in%20trunk%3A%20Documentation%20rts/Game%0A%09rts/Game/UI%20rts/System%20rts/build/scons&In-Reply-To=%3C20080512130059.72D8D47D9%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5877 - in trunk: Documentation rts/Game	rts/Game/UI rts/System rts/build/scons">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon May 12 15:00:59 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000656.html">[Taspring-linux-commit] r5876 - trunk/Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="000658.html">[Taspring-linux-commit] r5878 - in trunk/rts: Lua Sim/Units	Sim/Units/CommandAI Sim/Units/UnitTypes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#657">[ date ]</a>
+              <a href="thread.html#657">[ thread ]</a>
+              <a href="subject.html#657">[ subject ]</a>
+              <a href="author.html#657">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-05-12 15:00:57 +0200 (Mon, 12 May 2008)
+New Revision: 5877
+
+Added:
+   trunk/rts/Game/UI/HwMouseCursor.cpp
+   trunk/rts/Game/UI/HwMouseCursor.h
+Modified:
+   trunk/Documentation/cmds.txt
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/Game.h
+   trunk/rts/Game/UI/GuiHandler.cpp
+   trunk/rts/Game/UI/MiniMap.cpp
+   trunk/rts/Game/UI/MiniMap.h
+   trunk/rts/Game/UI/MouseCursor.cpp
+   trunk/rts/Game/UI/MouseCursor.h
+   trunk/rts/Game/UI/MouseHandler.cpp
+   trunk/rts/Game/UI/MouseHandler.h
+   trunk/rts/Game/WordCompletion.cpp
+   trunk/rts/System/MouseInput.cpp
+   trunk/rts/System/MouseInput.h
+   trunk/rts/build/scons/config.py
+Log:
+* Applied hwCursor.patch and ui.patch from jK's patch set (mantis #928),
+  except the -finline-ffunctions -funroll-loops change from hwCursor.patch,
+  and the water and wireframe hunks from ui.patch (will all follow later).
+
+* hwCursor.patch:
+  - added full hardware cursor support for x11 and windows (with alpha blending and animations)
+
+* ui.patch:
+  - new /unitreplyvolume [0.0-1.0]
+  - new /hardwarecursor [0|1]
+  - new /minimap drawprojectiles [0|1] + implementation
+    (you can turn off drawing of projectiles on the minimap now)
+  - added /grounddecals [0|1] to word completion
+
+
+
+Modified: trunk/Documentation/cmds.txt
+===================================================================
+--- trunk/Documentation/cmds.txt	2008-05-12 12:51:02 UTC (rev 5876)
++++ trunk/Documentation/cmds.txt	2008-05-12 13:00:57 UTC (rev 5877)
+@@ -145,6 +145,7 @@
+ cross &lt;size&gt;  -- locked mouse cross size
+ 
+ volume &lt;float&gt;  -- 0.0 to 1.0
++unitreplyvolume &lt;float&gt;  -- 0.0 to 1.0
+ 
+ toggleoverview
+ showhealthbars
+@@ -188,6 +189,7 @@
+ screenshot [&quot;png&quot;]
+ 
+ grabinput
++hardwarecursor [0|1]
+ 
+ bind
+ unbind
+@@ -222,6 +224,7 @@
+ minimap &lt;&quot;fullproxy&quot;&gt;    [0|1]
+ minimap &lt;&quot;icons&quot;&gt;        [0|1]
+ minimap &lt;&quot;drawcommands&quot;&gt; [0|1]
++minimap &lt;&quot;drawprojectiles&quot;&gt; [0|1]
+ minimap &lt;&quot;simplecolors&quot;&gt; [0|1]
+ minimap &lt;&quot;min&quot; | &quot;minimize&quot;&gt; [0|1]
+ minimap &lt;&quot;max&quot; | &quot;maximize&quot;&gt; [0|1]
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-05-12 12:51:02 UTC (rev 5876)
++++ trunk/rts/Game/Game.cpp	2008-05-12 13:00:57 UTC (rev 5877)
+@@ -193,6 +193,7 @@
+ 
+ 	CR_MEMBER(soundEnabled),
+ 	CR_MEMBER(gameSoundVolume),
++	CR_MEMBER(unitReplyVolume),
+ 
+ //	CR_MEMBER(script),
+ 	CR_RESERVED(64),
+@@ -283,9 +284,10 @@
+ 	ENTER_UNSYNCED;
+ 	sound = CSound::GetSoundSystem();
+ 	gameSoundVolume = configHandler.GetInt(&quot;SoundVolume&quot;, 60) * 0.01f;
++	unitReplyVolume = configHandler.GetInt(&quot;UnitReplyVolume&quot;, configHandler.GetInt(&quot;UnitReplySoundVolume&quot;, 80) ) * 0.01f;
+ 	soundEnabled = true;
+ 	sound-&gt;SetVolume(gameSoundVolume);
+-	sound-&gt;SetUnitReplyVolume(configHandler.GetInt (&quot;UnitReplySoundVolume&quot;, 80) * 0.01f);
++	sound-&gt;SetUnitReplyVolume(unitReplyVolume);
+ 
+ 	camera = SAFE_NEW CCamera();
+ 	cam2 = SAFE_NEW CCamera();
+@@ -499,6 +501,8 @@
+ 		net-&gt;SendStartPlaying(0);
+ 
+ 	lastCpuUsageTime = gu-&gt;gameTime + 10;
++
++	mouse-&gt;ShowMouse();
+ }
+ 
+ 
+@@ -1209,6 +1213,16 @@
+ 			configHandler.SetInt(&quot;SoundVolume&quot;, (int)(gameSoundVolume * 100.0f));
+ 		}
+ 	}
++	else if (cmd == &quot;unitreplyvolume&quot;) {
++		char* endPtr;
++		const char* startPtr = action.extra.c_str();
++		float volume = (float)strtod(startPtr, &amp;endPtr);
++		if (endPtr != startPtr) {
++			unitReplyVolume = std::max(0.0f, std::min(1.0f, volume));
++			sound-&gt;SetUnitReplyVolume(unitReplyVolume);
++			configHandler.SetInt(&quot;UnitReplyVolume&quot;,(int)(unitReplyVolume * 100.0f));
++		}
++	}
+ 	else if (cmd == &quot;savegame&quot;){
+ 		if (filesystem.CreateDirectory(&quot;Saves&quot;)) {
+ 			CLoadSaveHandler ls;
+@@ -1295,6 +1309,15 @@
+ 			hideInterface = !!atoi(action.extra.c_str());
+ 		}
+ 	}
++	else if (cmd == &quot;hardwarecursor&quot;) {
++		if (action.extra.empty()) {
++			mouse-&gt;hardwareCursor = !mouse-&gt;hardwareCursor;
++		} else {
++			mouse-&gt;hardwareCursor = !!atoi(action.extra.c_str());
++		}
++		mouse-&gt;UpdateHwCursor();
++		configHandler.SetInt(&quot;HardwareCursor&quot;, (int)mouse-&gt;hardwareCursor);
++	}
+ 	else if (cmd == &quot;increaseviewradius&quot;) {
+ 		gd-&gt;IncreaseDetail();
+ 	}
+@@ -1318,8 +1341,12 @@
+ 		logOutput &lt;&lt; &quot;Cloud density &quot; &lt;&lt; 1/sky-&gt;cloudDensity &lt;&lt; &quot;\n&quot;;
+ 	}
+ 
++	// Break up the if/else chain to workaround MSVC compiler limit
++	// &quot;fatal error C1061: compiler limit : blocks nested too deeply&quot;
++	else notfound1=true;
++	if (notfound1)
+ 
+-	else if (cmd == &quot;speedup&quot;) {
++	if (cmd == &quot;speedup&quot;) {
+ 		float speed = gs-&gt;userSpeedFactor;
+ 		if (speed &lt; 1) {
+ 			speed /= 0.8f;
+@@ -1354,11 +1381,7 @@
+ 	}
+ #endif
+ 
+-	// Break up the if/else chain to workaround MSVC compiler limit
+-	// &quot;fatal error C1061: compiler limit : blocks nested too deeply&quot;
+-	else notfound1=true;
+-	if (notfound1)
+-	if (cmd == &quot;showshadowmap&quot;) {
++	else if (cmd == &quot;showshadowmap&quot;) {
+ 		shadowHandler-&gt;showShadowMap = !shadowHandler-&gt;showShadowMap;
+ 	}
+ 	else if (cmd == &quot;showstandard&quot;) {
+@@ -2387,7 +2410,7 @@
+ 	SCOPED_TIMER(&quot;Draw world&quot;);
+ 
+ 	CBaseGroundDrawer* gd = readmap-&gt;GetGroundDrawer();
+-
++	
+ 	if (drawSky) {
+ 		sky-&gt;Draw();
+ 	}
+@@ -2423,6 +2446,7 @@
+ 			water-&gt;Draw();
+ 		}
+ 	}
++
+ 	unitDrawer-&gt;DrawCloakedUnits();
+ 	ph-&gt;Draw(false);
+ 
+
+Modified: trunk/rts/Game/Game.h
+===================================================================
+--- trunk/rts/Game/Game.h	2008-05-12 12:51:02 UTC (rev 5876)
++++ trunk/rts/Game/Game.h	2008-05-12 13:00:57 UTC (rev 5877)
+@@ -97,6 +97,7 @@
+ 
+ 	bool soundEnabled;
+ 	float gameSoundVolume;
++	float unitReplyVolume;
+ 
+ 	CScript* script;
+ 
+
+Modified: trunk/rts/Game/UI/GuiHandler.cpp
+===================================================================
+--- trunk/rts/Game/UI/GuiHandler.cpp	2008-05-12 12:51:02 UTC (rev 5876)
++++ trunk/rts/Game/UI/GuiHandler.cpp	2008-05-12 13:00:57 UTC (rev 5877)
+@@ -958,32 +958,30 @@
+ 
+ void CGuiHandler::SetCursorIcon() const
+ {
+-	mouse-&gt;cursorText = &quot;&quot;;
++	string newCursor = &quot;cursornormal&quot;;
+ 	mouse-&gt;cursorScale = 1.0f;
+ 
+ 	CInputReceiver* ir = NULL;
+-	if (!game-&gt;hideInterface) {
++	if (!game-&gt;hideInterface)
+ 		ir = GetReceiverAt(mouse-&gt;lastx, mouse-&gt;lasty);
+-	}
+ 
+ 	if ((ir != NULL) &amp;&amp; (ir != minimap)) {
++		mouse-&gt;SetCursor(newCursor);
+ 		return;
+ 	}
+ 
+-	if (ir == minimap) {
++	if (ir == minimap)
+ 		mouse-&gt;cursorScale = minimap-&gt;CursorScale();
+-	}
+ 
+-	const bool useMinimap =
+-		(minimap-&gt;ProxyMode() || ((activeReceiver != this) &amp;&amp; (ir == minimap)));
++	const bool useMinimap = (minimap-&gt;ProxyMode() || ((activeReceiver != this) &amp;&amp; (ir == minimap)));
+ 
+ 	if ((inCommand &gt;= 0) &amp;&amp; (inCommand&lt;commands.size())) {
+ 		const CommandDescription&amp; cmdDesc = commands[inCommand];
+ 
+ 		if (!cmdDesc.mouseicon.empty()) {
+-			mouse-&gt;cursorText = cmdDesc.mouseicon;
++			newCursor=cmdDesc.mouseicon;
+ 		} else {
+-			mouse-&gt;cursorText = cmdDesc.name;
++			newCursor=cmdDesc.name;
+ 		}
+ 
+ 		if (useMinimap &amp;&amp; (cmdDesc.id &lt; 0)) {
+@@ -996,9 +994,9 @@
+ 			// does not consider it when checking for position blocking
+ 			CFeature* feature;
+ 			if(!uh-&gt;TestUnitBuildSquare(bi, feature, gu-&gt;myAllyTeam)) {
+-				mouse-&gt;cursorText = &quot;BuildBad&quot;;
++				newCursor=&quot;BuildBad&quot;;
+ 			} else {
+-				mouse-&gt;cursorText = &quot;BuildGood&quot;;
++				newCursor=&quot;BuildGood&quot;;
+ 			}
+ 		}
+ 	}
+@@ -1013,16 +1011,17 @@
+ 		if ((defcmd &gt;= 0) &amp;&amp; (defcmd &lt; commands.size())) {
+ 			const CommandDescription&amp; cmdDesc = commands[defcmd];
+ 			if (!cmdDesc.mouseicon.empty()) {
+-				mouse-&gt;cursorText = cmdDesc.mouseicon;
++				newCursor=cmdDesc.mouseicon;
+ 			} else {
+-				mouse-&gt;cursorText = cmdDesc.name;
++				newCursor=cmdDesc.name;
+ 			}
+ 		}
+ 	}
+ 
+-	if (gatherMode &amp;&amp; (mouse-&gt;cursorText == &quot;Move&quot;)) {
+-		mouse-&gt;cursorText = &quot;GatherWait&quot;;
+-	}
++	if (gatherMode &amp;&amp; (mouse-&gt;cursorText == &quot;Move&quot;))
++		newCursor = &quot;GatherWait&quot;;
++	
++	mouse-&gt;SetCursor(newCursor);
+ }
+ 
+ 
+@@ -4006,11 +4005,6 @@
+ 	}
+ 	glEnd();
+ 
+-	if(sizeDiv!=0){
+-		char c[40];
+-		SNPRINTF(c, 40, &quot;%d&quot;, (int)(frontLen / sizeDiv) );
+-		mouse-&gt;cursorTextRight=c;
+-	}
+ 	glEnable(GL_FOG);
+ }
+ 
+
+Added: trunk/rts/Game/UI/HwMouseCursor.cpp
+===================================================================
+--- trunk/rts/Game/UI/HwMouseCursor.cpp	                        (rev 0)
++++ trunk/rts/Game/UI/HwMouseCursor.cpp	2008-05-12 13:00:57 UTC (rev 5877)
+@@ -0,0 +1,543 @@
++#include &quot;StdAfx.h&quot;
++#include &quot;bitops.h&quot;
++#include &quot;CommandColors.h&quot;
++#include &quot;FileSystem/FileHandler.h&quot;
++#include &quot;FileSystem/SimpleParser.h&quot;
++#include &quot;LogOutput.h&quot;
++#include &quot;MouseCursor.h&quot;
++#include &quot;HwMouseCursor.h&quot;
++#include &quot;myMath.h&quot;
++#include &quot;Rendering/GL/myGL.h&quot;
++#include &quot;Rendering/Textures/Bitmap.h&quot;
++#include &quot;mmgr.h&quot;
++#include &lt;SDL_syswm.h&gt;
++
++#ifdef WIN32
++	#include &quot;windows.h&quot;
++	#include &quot;MouseInput.h&quot;
++#elif defined(__APPLE__)
++	/*do nothing (duno how to create cursors on runtime on macs)*/
++#else
++	#include &lt;X11/Xcursor/Xcursor.h&gt;
++#endif
++
++//int savedcount=0;
++
++//////////////////////////////////////////////////////////////////////
++// Platform dependent classes
++//////////////////////////////////////////////////////////////////////
++
++#ifdef __APPLE__
++// no hardware cursor support for mac's
++class CHwDummyCursor : public IHwCursor {
++	public:
++		void PushImage(int xsize, int ysize, void* mem){};
++		void SetDelay(float delay){};
++		void PushFrame(int index, float delay){};
++		void Finish(){};
++
++		bool needsYFlip() {return false;};
++
++		bool IsValid(){return false;};
++		void Bind(){};
++};
++#elif defined(WIN32)
++class CHwWinCursor : public IHwCursor {
++	public:
++		CHwWinCursor(void);
++		~CHwWinCursor(void);
++
++		void PushImage(int xsize, int ysize, void* mem);
++		void SetDelay(float delay);
++		void PushFrame(int index, float delay);
++		void Finish();
++
++		bool needsYFlip() {return true;};
++
++		void Bind();
++
++		bool IsValid() {return (cursor!=NULL);};
++	protected:
++		HCURSOR cursor;
++
++		struct CursorDirectoryHeader {
++			byte  xsize,ysize,ncolors,reserved1;
++			short hotx,hoty;
++			DWORD size,offset;
++		};
++
++		struct CursorInfoHeader {
++			DWORD size,width,height;
++			WORD  planes, bpp;
++			DWORD res1,res2,res3,res4,res5,res6;
++		};
++
++		struct AnihStructure {
++			DWORD size,images,frames,width,height,bpp,planes,rate,flags;
++		};
++
++	protected:
++		struct ImageData {
++			unsigned char* data;
++			int width,height;
++		};
++
++		void buildIco(unsigned char* dst, ImageData &amp;image);
++		void resizeImage(ImageData *image, int new_x, int new_y);
++
++		int xmaxsize, ymaxsize;
++		short hotx, hoty;
++
++		byte image_count;
++
++		std::vector&lt;ImageData&gt; icons;
++		std::vector&lt;byte&gt;  frames;
++		std::vector&lt;int&gt;   framerates;
++};
++#else
++class CHwX11Cursor : public IHwCursor {
++	public:
++		CHwX11Cursor(void);
++		~CHwX11Cursor(void);
++
++		void PushImage(int xsize, int ysize, void* mem);
++		void SetDelay(float delay);
++		void PushFrame(int index, float delay);
++		void Finish();
++
++		bool needsYFlip() {return false;};
++
++		bool IsValid() {return (cursor!=0);};
++		void Bind();
++	protected:
++		int xmaxsize, ymaxsize;
++
++		void resizeImage(XcursorImage*&amp; image, const int new_x, const int new_y);
++
++		Cursor cursor;
++		std::vector&lt;XcursorImage*&gt; cimages;
++};
++#endif
++
++//////////////////////////////////////////////////////////////////////
++// GetHwCursor()
++//////////////////////////////////////////////////////////////////////
++
++IHwCursor* GetNewHwCursor()
++{
++#ifdef WIN32
++	return SAFE_NEW CHwWinCursor();
++#elif defined(__APPLE__)
++	return SAFE_NEW CHwDummyCursor();
++#else
++	return SAFE_NEW CHwX11Cursor();
++#endif
++}
++
++
++//////////////////////////////////////////////////////////////////////
++// Implementation 
++//////////////////////////////////////////////////////////////////////
++
++
++#ifdef __APPLE__
++	// no hardware cursor support for mac's
++#elif defined(WIN32)
++
++void CHwWinCursor::PushImage(int xsize, int ysize, void* mem)
++{
++	xmaxsize=std::max(xmaxsize,xsize);
++	ymaxsize=std::max(ymaxsize,ysize);
++
++	ImageData icon;
++	icon.data = new unsigned char[xsize*ysize*4];
++	icon.width = xsize;
++	icon.height = ysize;
++	memcpy(icon.data,mem,xsize*ysize*4);
++
++	icons.push_back(icon);
++
++	frames.push_back(image_count);
++	framerates.push_back(std::max((int)(defFrameLength*60.0f),1));
++	image_count++;
++}
++
++void CHwWinCursor::SetDelay(float delay)
++{
++	int &amp;last_item = framerates.back();
++	last_item = std::max((int)(delay*60.0f),1);
++}
++
++void CHwWinCursor::PushFrame(int index, float delay)
++{
++	if (index&gt;=image_count)
++		return;
++
++	frames.push_back((byte)index);
++	framerates.push_back(std::max((int)(delay*60.0f),1));
++}
++
++void CHwWinCursor::resizeImage(ImageData *image, int new_x, int new_y)
++{
++	if (image-&gt;width==new_x &amp;&amp; image-&gt;height==new_y)
++		return;
++
++	unsigned char* newdata = new unsigned char[new_x*new_y*4];
++	memset(newdata, 0, new_x*new_y*4);
++
++	for (int y = 0; y &lt; image-&gt;height; ++y)
++		for (int x = 0; x &lt; image-&gt;width; ++x)
++			for (int v = 0; v &lt; 4; ++v)
++				newdata[((y + (new_y-image-&gt;height))*new_x+x)*4+v] = image-&gt;data[(y*image-&gt;width+x)*4+v];
++
++	delete[] image-&gt;data;
++
++	image-&gt;data = newdata;
++
++	image-&gt;width  = new_x;
++	image-&gt;height = new_y;
++}
++
++void CHwWinCursor::buildIco(unsigned char* dst, ImageData &amp;image)
++{
++	const int xsize = image.width;
++	const int ysize = image.height;
++
++	//small header needed in .ani
++	strcpy((char*)dst,&quot;icon&quot;);
++	dst += 4;
++	DWORD* cursize = (DWORD*)&amp;dst[0];
++	cursize[0] = 3*sizeof(WORD)+sizeof(CursorDirectoryHeader)+sizeof(CursorInfoHeader)+xsize*ysize*4+xsize*ysize/8;
++	dst += 4;
++
++	////////////////////////////////////////////////////////////////////////////////////////////////
++	// the following code writes a full working .cur file in the memory (in a .ani container)
++
++	//file header
++	WORD* header = (WORD*)&amp;dst[0]; int i=0;
++	header[i++] = 0;		//reserved
++	header[i++] = 2;		//is cursor
++	header[i++] = 1;		//number of cursor in this file
++	dst += 3*sizeof(WORD);
++
++	CursorDirectoryHeader curHeader;
++	memset(&amp;curHeader,0,sizeof(CursorDirectoryHeader));
++	curHeader.xsize  = (byte)xsize;		//width
++	curHeader.ysize  = (byte)ysize;		//height
++	curHeader.hotx   = hotx;
++	curHeader.hoty   = hoty;
++	curHeader.size   = 40+xsize*ysize*4+xsize*ysize/8;	//size of the bmp data (infoheader 40byte, 32bit color, 1bit mask)
++	curHeader.offset = 22;			//offset, where the infoHeader starts
++	memcpy(dst, &amp;curHeader, sizeof(CursorDirectoryHeader));
++	dst += sizeof(CursorDirectoryHeader);
++
++	CursorInfoHeader infoHeader;
++	memset(&amp;infoHeader,0,sizeof(CursorInfoHeader));
++	infoHeader.size   = 40;		//size of the infoHeader
++	infoHeader.width  = xsize;		//cursor width
++	infoHeader.height = ysize*2;		//cursor height + mask height
++	infoHeader.planes = 1;		//number of color planes
++	infoHeader.bpp    = 32;		//bits per pixel
++	memcpy(dst, &amp;infoHeader, sizeof(CursorInfoHeader));
++	dst += sizeof(CursorInfoHeader);
++
++	//copy colormap
++	unsigned char* src = image.data;
++	unsigned char* end = src+xsize*ysize*4;
++	do{
++		if (src[3]==0) {
++			dst[0] = dst[1] = dst[2] = dst[3] = 0;
++		}else{
++			dst[0]=src[2];      // B
++			dst[1]=src[1];      // G
++			dst[2]=src[0];      // R
++			dst[3]=src[3];      // A
++		}
++		dst+=4;
++		src+=4;
++	}while(src&lt;end);
++
++	//create mask
++	src -= xsize*ysize*4;
++	int b = 0;
++	do{
++		dst[0] = 0x00;
++		for (b=0; b&lt;8; b++) {
++			if (src[3]==0) //alpha greater zero?
++				dst[0] |= 128&gt;&gt;b;
++			src+=4;
++		}
++		dst++;
++	}while(src&lt;end);
++
++/*	char fname[256];
++	SNPRINTF(fname, sizeof(fname), &quot;mycursor%d.cur&quot;, ++savedcount);
++	FILE * pFile = fopen( fname , &quot;wb&quot; );
++	fwrite(curs.back(), 1 , curmem-curs.back(), pFile );
++	fclose(pFile); */
++}
++
++void CHwWinCursor::Finish()
++{
++	if (frames.size()&lt;1)
++		return;
++
++	hotx = (hotSpot==CMouseCursor::TopLeft) ? 0 : (short)xmaxsize/2;
++	hoty = (hotSpot==CMouseCursor::TopLeft) ? 0 : (short)ymaxsize/2;
++
++	//note: windows only except 16x16,32x32,64x64,etc. (and some more not 2^n ones)
++	int squaresize =  next_power_of_2( std::max(xmaxsize,ymaxsize) );
++
++	//resize images
++	for (std::vector&lt;ImageData&gt;::iterator it=icons.begin(); it&lt;icons.end(); it++)
++		resizeImage(&amp;*it,squaresize,squaresize);
++
++	const int riffsize  = 32 + sizeof(AnihStructure) + (frames.size()+2) * 2 * sizeof(DWORD);
++	const int iconssize = icons.size() * (2*sizeof(DWORD) + 3*sizeof(WORD) +
++					       sizeof(CursorDirectoryHeader) +
++					       sizeof(CursorInfoHeader) +
++					       squaresize*squaresize*4 +
++					       squaresize*squaresize/8);
++	const int totalsize = riffsize + iconssize;
++	unsigned char* mem = SAFE_NEW unsigned char[ totalsize ];
++
++	unsigned char* curmem = mem;
++	DWORD* dwmem;
++
++	//write RIFF header
++		strcpy((char*)curmem,&quot;RIFF&quot;);	curmem+=4;
++		dwmem = (DWORD*)&amp;curmem[0];
++		dwmem[0] = totalsize-8;		curmem+=4; //filesize
++		strcpy((char*)curmem,&quot;ACON&quot;);	curmem+=4;
++
++	//Anih header
++		strcpy((char*)curmem,&quot;anih&quot;);
++		curmem += 4;
++		curmem[0] = 36;
++		curmem[1] = curmem[2] = curmem[3] = 0;
++		curmem += 4;
++
++		AnihStructure anih;
++		memset(&amp;anih,0,sizeof(AnihStructure));
++		anih.size   = 36;		//anih structure size
++		anih.images = image_count;		//number of images
++		anih.frames = framerates.size();	//number of frames
++		anih.flags  = 0x3L;		//using seq structure and .cur format for saving bmp data
++		memcpy(curmem, &amp;anih, sizeof(AnihStructure));
++		curmem += sizeof(AnihStructure);
++
++	//LIST + icons
++		strcpy((char*)curmem,&quot;LIST&quot;);	curmem+=4;
++		dwmem = (DWORD*)&amp;curmem[0];
++		dwmem[0] = iconssize+4;		curmem+=4;
++		strcpy((char*)curmem,&quot;fram&quot;);	curmem+=4;
++
++		for (std::vector&lt;ImageData&gt;::iterator it=icons.begin(); it&lt;icons.end(); it++) {
++			buildIco(curmem,*it);
++			curmem += 2*sizeof(DWORD) + 3*sizeof(WORD)+sizeof(CursorDirectoryHeader)+sizeof(CursorInfoHeader)+squaresize*squaresize*4+squaresize*squaresize/8;
++		}
++
++	//SEQ header
++		strcpy((char*)curmem,&quot;seq &quot;);
++		curmem += 4;
++		DWORD* seq = (DWORD*)&amp;curmem[0];
++		seq[0] = frames.size()*sizeof(DWORD);
++		seq++;
++		for (int i=0; i&lt;frames.size(); i++)
++			seq[i] = frames.at(i);
++		curmem += (frames.size()+1)*sizeof(DWORD);
++
++	//RATE header
++		strcpy((char*)curmem,&quot;rate&quot;);
++		curmem += 4;
++		DWORD* rate = (DWORD*)&amp;curmem[0];
++		rate[0] = framerates.size()*sizeof(DWORD);
++		rate++;
++		for (int i=0; i&lt;framerates.size(); i++)
++			rate[i] = framerates.at(i);
++		curmem += (framerates.size()+1)*sizeof(DWORD);
++
++	/*char fname[256];
++	SNPRINTF(fname, sizeof(fname), &quot;cursors/mycursor%d.ani&quot;, ++savedcount);
++	FILE * pFile = fopen( fname , &quot;wb&quot; );
++	fwrite(mem , 1 , curmem-mem, pFile );
++	fclose(pFile);*/
++
++	cursor = (HCURSOR)CreateIconFromResourceEx((PBYTE)mem,totalsize,FALSE,0x00030000,squaresize,squaresize,0);
++
++	delete[] mem;
++	for (std::vector&lt;ImageData&gt;::iterator it=icons.begin(); it&lt;icons.end(); it++)
++		delete[] (*it).data;
++	icons.clear();
++
++	//if (cursor==NULL) logOutput.Print(&quot;hw cursor failed: x%d y%d&quot;,squaresize,squaresize);
++}
++
++void CHwWinCursor::Bind()
++{
++	/*SDL_SysWMinfo info;
++	SDL_VERSION(&amp;info.version);
++	if (!SDL_GetWMInfo(&amp;info)) {
++		logOutput.Print(&quot;SDL error: can't get window handle&quot;);
++		return;
++	}
++	SetClassLong(info.window,GCL_HCURSOR,(LONG)cursor);*/ //SDL doesn't let us use it :&lt;
++
++	SetCursor(cursor);
++	mouseInput-&gt;SetWMMouseCursor(cursor);
++}
++
++CHwWinCursor::CHwWinCursor(void)
++{
++	cursor = NULL;
++	hotSpot= CMouseCursor::Center;
++	image_count = 0;
++	xmaxsize = ymaxsize = 0;
++}
++
++CHwWinCursor::~CHwWinCursor(void)
++{
++	if (cursor!=NULL)
++		DestroyCursor(cursor);
++
++	for (std::vector&lt;ImageData&gt;::iterator it=icons.begin(); it&lt;icons.end(); it++)
++		delete[] (*it).data;
++	icons.clear();
++}
++
++#else
++
++void CHwX11Cursor::resizeImage(XcursorImage*&amp; image, const int new_x, const int new_y)
++{
++	if (image-&gt;width==new_x &amp;&amp; image-&gt;height==new_y)
++		return;
++
++	const int old_x = image-&gt;width;
++	const int old_y = image-&gt;height;
++
++	XcursorImage* new_image = XcursorImageCreate(new_x, new_y);
++	new_image-&gt;delay = image-&gt;delay;
++
++	unsigned char* src = (unsigned char*)image-&gt;pixels;
++	unsigned char* dst = (unsigned char*)new_image-&gt;pixels;
++	memset(dst, 0, new_x*new_y*4);
++
++	for (int y = 0; y &lt; old_y; ++y)
++		for (int x = 0; x &lt; old_x; ++x)
++			for (int v = 0; v &lt; 4; ++v)
++				dst[(y*new_x+x)*4+v] = src[(y*old_x+x)*4+v];
++
++	XcursorImageDestroy(image);
++	image = new_image;
++}
++
++void CHwX11Cursor::PushImage(int xsize, int ysize, void* mem)
++{
++	xmaxsize=std::max(xmaxsize,xsize);
++	ymaxsize=std::max(ymaxsize,ysize);
++
++	XcursorImage* image = XcursorImageCreate(xsize,ysize);
++	image-&gt;delay = (XcursorUInt)(defFrameLength*1000.0f);
++	char* dst=(char*)image-&gt;pixels;
++	char* src=(char*)mem;
++	char* end=src+xsize*ysize*4;
++	do{
++		dst[0]=src[2];      // B
++		dst[1]=src[1];      // G
++		dst[2]=src[0];      // R
++		dst[3]=src[3];      // A
++		dst+=4;
++		src+=4;
++	}while(src&lt;end);
++
++	cimages.push_back(image);
++}
++
++void CHwX11Cursor::SetDelay(float delay)
++{
++	cimages.back()-&gt;delay = (XcursorUInt)(delay*1000.0f); //in millseconds
++}
++
++void CHwX11Cursor::PushFrame(int index, float delay)
++{
++	if (index&gt;=cimages.size())
++		return;
++
++	if (cimages[index]-&gt;delay!=delay) {
++		// make a copy of the existing one
++		XcursorImage* ci = cimages[index];
++		PushImage( ci-&gt;width, ci-&gt;height, ci-&gt;pixels );
++		SetDelay(delay);
++	}else{
++		cimages.push_back( cimages[index] );
++	}
++}
++
++void CHwX11Cursor::Finish()
++{
++	if (cimages.size()&lt;1)
++		return;
++
++	//resize images
++	for (std::vector&lt;XcursorImage*&gt;::iterator it=cimages.begin(); it&lt;cimages.end(); it++)
++		resizeImage(*it,xmaxsize,ymaxsize);
++
++	XcursorImages *cis = XcursorImagesCreate(cimages.size());
++	cis-&gt;nimage = cimages.size();
++	for (int i=0; i &lt; cimages.size(); i++ ) {
++		XcursorImage* ci = cimages[i];
++		ci-&gt;xhot = (hotSpot==CMouseCursor::TopLeft) ? 0 : ci-&gt;width/2;
++		ci-&gt;yhot = (hotSpot==CMouseCursor::TopLeft) ? 0 : ci-&gt;height/2;
++		cis-&gt;images[i] = ci;
++	}
++
++	SDL_SysWMinfo info;
++	SDL_VERSION(&amp;info.version);
++	if (!SDL_GetWMInfo(&amp;info)) {
++		XcursorImagesDestroy(cis);
++		cimages.clear();
++		logOutput.Print(&quot;SDL error: can't get X11 window info&quot;);
++		return;
++	}
++
++	cursor = XcursorImagesLoadCursor(info.info.x11.display,cis);
++	XcursorImagesDestroy(cis);
++	cimages.clear();
++}
++
++void CHwX11Cursor::Bind()
++{
++	SDL_SysWMinfo info;
++	SDL_VERSION(&amp;info.version);
++	if (!SDL_GetWMInfo(&amp;info)) {
++		logOutput.Print(&quot;SDL error: can't get X11 window info&quot;);
++		return;
++	}
++	XDefineCursor(info.info.x11.display,info.info.x11.window,cursor);
++}
++
++CHwX11Cursor::CHwX11Cursor(void)
++{
++	cursor = 0;
++	hotSpot=CMouseCursor::Center;
++	xmaxsize = ymaxsize = 0;
++}
++
++CHwX11Cursor::~CHwX11Cursor(void)
++{
++	for (std::vector&lt;XcursorImage*&gt;::iterator it=cimages.begin() ; it &lt; cimages.end(); it++ )
++		XcursorImageDestroy(*it);
++	cimages.clear();
++
++	if (cursor!=0) {
++		SDL_SysWMinfo info;
++		SDL_VERSION(&amp;info.version);
++		if (!SDL_GetWMInfo(&amp;info)) {
++			logOutput.Print(&quot;SDL error: can't get X11 window info&quot;);
++			return;
++		}
++		XFreeCursor(info.info.x11.display,cursor);
++	}
++}
++
++#endif
+
+
+Property changes on: trunk/rts/Game/UI/HwMouseCursor.cpp
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Added: trunk/rts/Game/UI/HwMouseCursor.h
+===================================================================
+--- trunk/rts/Game/UI/HwMouseCursor.h	                        (rev 0)
++++ trunk/rts/Game/UI/HwMouseCursor.h	2008-05-12 13:00:57 UTC (rev 5877)
+@@ -0,0 +1,27 @@
++#ifndef HWMOUSECURSOR_H
++#define HWMOUSECURSOR_H
++
++#include &lt;string&gt;
++#include &lt;vector&gt;
++#include &quot;MouseCursor.h&quot;
++
++class CMouseCursor;
++
++class IHwCursor {
++	public:
++		virtual void PushImage(int xsize, int ysize, void* mem) = 0;
++		virtual void SetDelay(float delay) = 0;
++		virtual void PushFrame(int index, float delay) = 0;
++		virtual void Finish() = 0;
++
++		virtual bool needsYFlip() = 0; //windows needs flipped Y axis
++
++		virtual bool IsValid() = 0;
++		virtual void Bind() = 0;
++
++		CMouseCursor::HotSpot hotSpot;
++};
++
++IHwCursor* GetNewHwCursor();
++
++#endif /* HWMOUSECURSOR_H */
+
+
+Property changes on: trunk/rts/Game/UI/HwMouseCursor.h
+___________________________________________________________________
+Name: svn:eol-style
+   + native
+
+Modified: trunk/rts/Game/UI/MiniMap.cpp
+===================================================================
+--- trunk/rts/Game/UI/MiniMap.cpp	2008-05-12 12:51:02 UTC (rev 5876)
++++ trunk/rts/Game/UI/MiniMap.cpp	2008-05-12 13:00:57 UTC (rev 5877)
+@@ -115,6 +115,8 @@
+ 
+ 	drawCommands = std::max(0, configHandler.GetInt(&quot;MiniMapDrawCommands&quot;, 1));
+ 
++	drawProjectiles = !!configHandler.GetInt(&quot;MiniMapDrawProjectiles&quot;, 1);
++
+ 	simpleColors = !!configHandler.GetInt(&quot;SimpleMiniMapColors&quot;, 0);
+ 
+ 	myColor[0]    = (unsigned char)(0.2f * 255);
+@@ -352,6 +354,14 @@
+ 			drawCommands = (drawCommands &gt; 0) ? 0 : 1;
+ 		}
+ 	}
++	else if (command == &quot;drawprojectiles&quot;) {
++		if (words.size() &gt;= 2) {
++			drawProjectiles = !!atoi(words[1].c_str());
++
++		} else {
++			drawProjectiles = !drawProjectiles;
++		}
++	}
+ 	else if (command == &quot;simplecolors&quot;) {
+ 		if (words.size() &gt;= 2) {
+ 			simpleColors = !!atoi(words[1].c_str());
+@@ -1060,57 +1070,59 @@
+ 	// draw the projectiles
+ 	glRotatef(-90.0f, +1.0f, 0.0f, 0.0f); // real 'world' coordinates
+ 
+-	Projectile_List::iterator psi;
+-	for(psi = ph-&gt;ps.begin(); psi != ph-&gt;ps.end(); ++psi) {
+-		CProjectile* p = *psi;
++	if (drawProjectiles) {
++		Projectile_List::iterator psi;
++		for(psi = ph-&gt;ps.begin(); psi != ph-&gt;ps.end(); ++psi) {
++			CProjectile* p = *psi;
+ 
+-		if ((p-&gt;owner &amp;&amp; (p-&gt;owner-&gt;allyteam == gu-&gt;myAllyTeam)) ||
+-			gu-&gt;spectatingFullView || loshandler-&gt;InLos(p, gu-&gt;myAllyTeam)) {
++			if ((p-&gt;owner &amp;&amp; (p-&gt;owner-&gt;allyteam == gu-&gt;myAllyTeam)) ||
++				gu-&gt;spectatingFullView || loshandler-&gt;InLos(p, gu-&gt;myAllyTeam)) {
+ 
+-			if (dynamic_cast&lt;CGeoThermSmokeProjectile*&gt;(p)) {
+-			} else if (dynamic_cast&lt;CGfxProjectile*&gt;(p)) {//Nano-piece
+-				glBegin(GL_POINTS);
+-				glColor4f(0,1,0,0.1);
+-				glVertexf3(p-&gt;pos);
+-				glEnd();
+-			} else if (dynamic_cast&lt;CBeamLaserProjectile*&gt;(p)) {
+-				glBegin(GL_LINES);
+-				glColor4f(((CBeamLaserProjectile*)p)-&gt;kocolstart[0]/255.0,((CBeamLaserProjectile*)p)-&gt;kocolstart[1]/255.0,((CBeamLaserProjectile*)p)-&gt;kocolstart[2]/255.0,1);
+-				glVertexf3(((CBeamLaserProjectile*)p)-&gt;startPos);
+-				glVertexf3(((CBeamLaserProjectile*)p)-&gt;endPos);
+-				glEnd();
+-			} else if (dynamic_cast&lt;CLargeBeamLaserProjectile*&gt;(p)) {
+-				glBegin(GL_LINES);
+-				glColor4f(((CLargeBeamLaserProjectile*)p)-&gt;kocolstart[0]/255.0,((CLargeBeamLaserProjectile*)p)-&gt;kocolstart[1]/255.0,((CLargeBeamLaserProjectile*)p)-&gt;kocolstart[2]/255.0,1);
+-				glVertexf3(((CLargeBeamLaserProjectile*)p)-&gt;startPos);
+-				glVertexf3(((CLargeBeamLaserProjectile*)p)-&gt;endPos);
+-				glEnd();
+-			} else if (dynamic_cast&lt;CLightingProjectile*&gt;(p)) {
+-				glBegin(GL_LINES);
+-				glColor4f(((CLightingProjectile*)p)-&gt;color[0],((CLightingProjectile*)p)-&gt;color[1],((CLightingProjectile*)p)-&gt;color[2],1);
+-				glVertexf3(((CLightingProjectile*)p)-&gt;pos);
+-				glVertexf3(((CLightingProjectile*)p)-&gt;endPos);
+-				glEnd();
+-			} else if (dynamic_cast&lt;CPieceProjectile*&gt;(p)) {
+-				glBegin(GL_POINTS);
+-				glColor4f(1,0,0,1);
+-				glVertexf3(p-&gt;pos);
+-				glEnd();
+-			} else if (dynamic_cast&lt;CWreckProjectile*&gt;(p)) {
+-				glBegin(GL_POINTS);
+-				glColor4f(1,0,0,0.5);
+-				glVertexf3(p-&gt;pos);
+-				glEnd();
+-			} else if (dynamic_cast&lt;CWeaponProjectile*&gt;(p)) {
+-				glBegin(GL_POINTS);
+-				glColor4f(1,1,0,1);
+-				glVertexf3(p-&gt;pos);
+-				glEnd();
+-			} else {
+-				glBegin(GL_POINTS);
+-				glColor4f(1,1,1,0.1/*0.0002f*(width+height)*/);
+-				glVertexf3(p-&gt;pos);
+-				glEnd();
++				if (dynamic_cast&lt;CGeoThermSmokeProjectile*&gt;(p)) {
++				} else if (dynamic_cast&lt;CGfxProjectile*&gt;(p)) {//Nano-piece
++					glBegin(GL_POINTS);
++					glColor4f(0,1,0,0.1);
++					glVertexf3(p-&gt;pos);
++					glEnd();
++				} else if (dynamic_cast&lt;CBeamLaserProjectile*&gt;(p)) {
++					glBegin(GL_LINES);
++					glColor4f(((CBeamLaserProjectile*)p)-&gt;kocolstart[0]/255.0,((CBeamLaserProjectile*)p)-&gt;kocolstart[1]/255.0,((CBeamLaserProjectile*)p)-&gt;kocolstart[2]/255.0,1);
++					glVertexf3(((CBeamLaserProjectile*)p)-&gt;startPos);
++					glVertexf3(((CBeamLaserProjectile*)p)-&gt;endPos);
++					glEnd();
++				} else if (dynamic_cast&lt;CLargeBeamLaserProjectile*&gt;(p)) {
++					glBegin(GL_LINES);
++					glColor4f(((CLargeBeamLaserProjectile*)p)-&gt;kocolstart[0]/255.0,((CLargeBeamLaserProjectile*)p)-&gt;kocolstart[1]/255.0,((CLargeBeamLaserProjectile*)p)-&gt;kocolstart[2]/255.0,1);
++					glVertexf3(((CLargeBeamLaserProjectile*)p)-&gt;startPos);
++					glVertexf3(((CLargeBeamLaserProjectile*)p)-&gt;endPos);
++					glEnd();
++				} else if (dynamic_cast&lt;CLightingProjectile*&gt;(p)) {
++					glBegin(GL_LINES);
++					glColor4f(((CLightingProjectile*)p)-&gt;color[0],((CLightingProjectile*)p)-&gt;color[1],((CLightingProjectile*)p)-&gt;color[2],1);
++					glVertexf3(((CLightingProjectile*)p)-&gt;pos);
++					glVertexf3(((CLightingProjectile*)p)-&gt;endPos);
++					glEnd();
++				} else if (dynamic_cast&lt;CPieceProjectile*&gt;(p)) {
++					glBegin(GL_POINTS);
++					glColor4f(1,0,0,1);
++					glVertexf3(p-&gt;pos);
++					glEnd();
++				} else if (dynamic_cast&lt;CWreckProjectile*&gt;(p)) {
++					glBegin(GL_POINTS);
++					glColor4f(1,0,0,0.5);
++					glVertexf3(p-&gt;pos);
++					glEnd();
++				} else if (dynamic_cast&lt;CWeaponProjectile*&gt;(p)) {
++					glBegin(GL_POINTS);
++					glColor4f(1,1,0,1);
++					glVertexf3(p-&gt;pos);
++					glEnd();
++				} else {
++					glBegin(GL_POINTS);
++					glColor4f(1,1,1,0.1/*0.0002f*(width+height)*/);
++					glVertexf3(p-&gt;pos);
++					glEnd();
++				}
+ 			}
+ 		}
+ 	}
+@@ -1120,7 +1132,7 @@
+ 	// NOTE: this needlessly adds to the CursorIcons list, but at least
+ 	//       they are not drawn  (because the input receivers are drawn
+ 	//       after the command queues)
+-  LuaUnsyncedCtrl::DrawUnitCommandQueues();
++	LuaUnsyncedCtrl::DrawUnitCommandQueues();
+ 	if ((drawCommands &gt; 0) &amp;&amp; guihandler-&gt;GetQueueKeystate()) {
+ 	  selectedUnits.DrawCommands();
+ 	}
+
+Modified: trunk/rts/Game/UI/MiniMap.h
+===================================================================
+--- trunk/rts/Game/UI/MiniMap.h	2008-05-12 12:51:02 UTC (rev 5876)
++++ trunk/rts/Game/UI/MiniMap.h	2008-05-12 13:00:57 UTC (rev 5877)
+@@ -122,6 +122,7 @@
+ 		int lastWindowSizeX;
+ 		int lastWindowSizeY;
+ 		
++		bool drawProjectiles;
+ 		bool useIcons;
+ 		int drawCommands;
+ 		float cursorScale;
+
+Modified: trunk/rts/Game/UI/MouseCursor.cpp
+===================================================================
+--- trunk/rts/Game/UI/MouseCursor.cpp	2008-05-12 12:51:02 UTC (rev 5876)
++++ trunk/rts/Game/UI/MouseCursor.cpp	2008-05-12 13:00:57 UTC (rev 5877)
+@@ -5,16 +5,16 @@
+ #include &quot;FileSystem/SimpleParser.h&quot;
+ #include &quot;LogOutput.h&quot;
+ #include &quot;MouseCursor.h&quot;
++#include &quot;HwMouseCursor.h&quot;
+ #include &quot;myMath.h&quot;
+ #include &quot;Rendering/GL/myGL.h&quot;
+ #include &quot;Rendering/Textures/Bitmap.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
++//////////////////////////////////////////////////////////////////////
++// CMouseCursor Class
++//////////////////////////////////////////////////////////////////////
+ 
+-static const float minFrameLength = 0.010f;  // seconds
+-static const float defFrameLength = 0.100f;  // seconds
+-
+-
+ CMouseCursor* CMouseCursor::New(const string &amp;name, HotSpot hs)
+ {
+ 	CMouseCursor* c = SAFE_NEW CMouseCursor(name, hs);
+@@ -25,20 +25,21 @@
+ 	return c;
+ }
+ 
+-
+-//Would be nice if these were read from a gaf-file instead.
+ CMouseCursor::CMouseCursor(const string &amp;name, HotSpot hs)
+ {
++	hwCursor = GetNewHwCursor();
++	hwCursor-&gt;hotSpot = hs;
+ 	hotSpot = hs;
+ 
+-	if (!BuildFromSpecFile(name)) {
++	if (!BuildFromSpecFile(name))
+ 		BuildFromFileNames(name, 123456);
+-	}
+ 
+-	if (frames.size() &lt;= 0) {
++	if (frames.size() &lt;= 0)
+ 		return;
+-	}
+ 
++	animated = (frames.size() &gt; 1);
++	hwValid  = hwCursor-&gt;IsValid();
++
+ 	animTime = 0.0f;
+ 	animPeriod = 0.0f;
+ 	currentFrame = 0;
+@@ -66,10 +67,11 @@
+ 
+ CMouseCursor::~CMouseCursor(void)
+ {
++	delete hwCursor;
++
+ 	std::vector&lt;ImageData&gt;::iterator it;
+-	for (it = images.begin(); it != images.end(); ++it) {
++	for (it = images.begin(); it != images.end(); ++it)
+ 		glDeleteTextures(1, &amp;it-&gt;texture);
+-	}
+ }
+ 
+ 
+@@ -100,10 +102,12 @@
+ 			if (iit != imageIndexMap.end()) {
+ 				FrameData frame(images[iit-&gt;second], length);
+ 				frames.push_back(frame);
++				hwCursor-&gt;PushFrame(iit-&gt;second,length);
+ 			}
+ 			else {
+ 				ImageData image;
+ 				if (LoadCursorImage(imageName, image)) {
++					hwCursor-&gt;SetDelay(length);
+ 					imageIndexMap[imageName] = images.size();
+ 					images.push_back(image);
+ 					FrameData frame(image, length);
+@@ -114,13 +118,15 @@
+ 		else if ((command == &quot;hotspot&quot;) &amp;&amp; (words.size() &gt;= 1)) {
+ 			if (words[1] == &quot;topleft&quot;) {
+ 				hotSpot = TopLeft;
++				hwCursor-&gt;hotSpot = TopLeft;
+ 			}
+ 			else if (words[1] == &quot;center&quot;) {
+ 				hotSpot = Center;
++				hwCursor-&gt;hotSpot = Center;
+ 			}
+ 			else {
+ 				logOutput.Print(&quot;%s: unknown hotspot  (%s)\n&quot;,
+-												specFile.c_str(), words[1].c_str());
++							specFile.c_str(), words[1].c_str());
+ 			}
+ 		}
+ 		else if ((command == &quot;lastframe&quot;) &amp;&amp; (words.size() &gt;= 1)) {
+@@ -136,6 +142,8 @@
+ 		return BuildFromFileNames(name, lastFrame);
+ 	}
+ 
++	hwCursor-&gt;Finish();
++
+ 	return true;
+ }
+ 
+@@ -168,14 +176,15 @@
+ 		SNPRINTF(namebuf, sizeof(namebuf), &quot;anims/%s_%d.%s&quot;,
+ 		         name.c_str(), frames.size(), ext);
+ 		ImageData image;
+-		if (!LoadCursorImage(namebuf, image)) {
++		if (!LoadCursorImage(namebuf, image))
+ 			break;
+-		}
+ 		images.push_back(image);
+ 		FrameData frame(image, defFrameLength);
+ 		frames.push_back(frame);
+ 	}
+ 
++	hwCursor-&gt;Finish();
++
+ 	return true;
+ }
+ 
+@@ -193,16 +202,24 @@
+ 		return false;
+ 	}
+ 
+-	b.ReverseYAxis();
+-
+-	CBitmap* final = getAlignedBitmap(b);
+-
+-	// coded bmp transparency mask
++	// hardcoded bmp transparency mask
+ 	if ((name.size() &gt;= 3) &amp;&amp;
+ 	    (StringToLower(name.substr(name.size() - 3)) == &quot;bmp&quot;)) {
+-		setBitmapTransparency(*final, 84, 84, 252);
++		setBitmapTransparency(b, 84, 84, 252);
+ 	}
+ 
++	if (hwCursor-&gt;needsYFlip()) {
++		//WINDOWS
++		b.ReverseYAxis();
++		hwCursor-&gt;PushImage(b.xsize,b.ysize,b.mem);
++	}else{
++		//X11
++		hwCursor-&gt;PushImage(b.xsize,b.ysize,b.mem);
++		b.ReverseYAxis();
++	}
++
++	CBitmap* final = getAlignedBitmap(b);
++
+ 	GLuint texID = 0;
+ 	glGenTextures(1, &amp;texID);
+ 	glBindTexture(GL_TEXTURE_2D, texID);
+@@ -267,6 +284,8 @@
+ 
+ void CMouseCursor::Draw(int x, int y, float scale)
+ {
++	if (scale&lt;0) scale=-scale;
++
+ 	const FrameData&amp; frame = frames[currentFrame];
+ 	const int xs = int(float(frame.image.xAlignedSize) * scale);
+ 	const int ys = int(float(frame.image.yAlignedSize) * scale);
+@@ -346,3 +365,8 @@
+ 	const FrameData&amp; frame = frames[currentFrame];
+ 	glBindTexture(GL_TEXTURE_2D, frame.image.texture);
+ }
++
++bool CMouseCursor::BindHwCursor()
++{
++	hwCursor-&gt;Bind();	
++}
+
+Modified: trunk/rts/Game/UI/MouseCursor.h
+===================================================================
+--- trunk/rts/Game/UI/MouseCursor.h	2008-05-12 12:51:02 UTC (rev 5876)
++++ trunk/rts/Game/UI/MouseCursor.h	2008-05-12 13:00:57 UTC (rev 5877)
+@@ -4,22 +4,27 @@
+ #include &lt;string&gt;
+ #include &lt;vector&gt;
+ #include &quot;Rendering/GL/myGL.h&quot;
++//#include &quot;HwMouseCursor.h&quot;
+ 
+ class CBitmap;
++class IHwCursor;
+ 
+-
+ class CMouseCursor {
+ 	public:
+ 		enum HotSpot {TopLeft, Center};
+ 
++		bool animated;
++		bool hwValid; //if hardware cursor is valid
++
+ 		static CMouseCursor* New(const std::string &amp;name, HotSpot hs);
+ 
+ 		~CMouseCursor(void);
+ 
+ 		void Update();
+-		void Draw(int x, int y, float scale);
+-		void DrawQuad(int x, int y);
+-		void BindTexture();
++		void Draw(int x, int y, float scale);	// software cursor draw
++		void DrawQuad(int x, int y);		// draw command queue icon
++		void BindTexture(); 			// software mouse cursor
++		bool BindHwCursor(); 			// hardware mouse cursor
+ 
+ 		int GetMaxSizeX() const { return xmaxsize; }
+ 		int GetMaxSizeY() const { return ymaxsize; }
+@@ -55,6 +60,8 @@
+ 		std::vector&lt;ImageData&gt; images;
+ 		std::vector&lt;FrameData&gt; frames;
+ 
++		IHwCursor* hwCursor; // hardware cursor
++
+ 		float animTime;
+ 		float animPeriod;
+ 		int currentFrame;
+@@ -67,4 +74,8 @@
+ };
+ 
+ 
++static const float minFrameLength = 0.010f;  // seconds
++static const float defFrameLength = 0.100f;  // seconds
++
++
+ #endif /* MOUSECURSOR_H */
+
+Modified: trunk/rts/Game/UI/MouseHandler.cpp
+===================================================================
+--- trunk/rts/Game/UI/MouseHandler.cpp	2008-05-12 12:51:02 UTC (rev 5876)
++++ trunk/rts/Game/UI/MouseHandler.cpp	2008-05-12 13:00:57 UTC (rev 5877)
+@@ -61,7 +61,9 @@
+ {
+ 	lastx=300;
+ 	lasty=200;
+-	hide=false;
++	hide=true;
++	hwHide=true;
++	currentCursor=NULL;
+ 
+ 	for(int a=1;a&lt;=NUM_BUTTONS;a++){
+ 		buttons[a].pressed=false;
+@@ -73,11 +75,18 @@
+ 
+ 	LoadCursors();
+ 
++	// hide the cursor until we are ingame (not in loading screen etc.)
+ 	SDL_ShowCursor(SDL_DISABLE);
+ 
++#ifndef __APPLE__
++	hardwareCursor = !!configHandler.GetInt(&quot;HardwareCursor&quot;, 0);
++#else
++	hardwareCursor = false;
++#endif
++
+ 	soundMultiselID = sound-&gt;GetWaveId(&quot;sounds/button9.wav&quot;);
+ 
+-	invertMouse=!!configHandler.GetInt(&quot;InvertMouse&quot;,1);
++	invertMouse = !!configHandler.GetInt(&quot;InvertMouse&quot;,1);
+ 	doubleClickTime = (float)configHandler.GetInt(&quot;DoubleClickTime&quot;, 200) / 1000.0f;
+ 
+ 	scrollWheelSpeed = (float)configHandler.GetInt(&quot;ScrollWheelSpeed&quot;, 25);
+@@ -86,7 +95,8 @@
+ 
+ CMouseHandler::~CMouseHandler()
+ {
+-	SDL_ShowCursor(SDL_ENABLE);
++	if (hwHide)
++		SDL_ShowCursor(SDL_ENABLE);
+ 
+ 	std::map&lt;std::string, CMouseCursor*&gt;::iterator ci;
+ 	for (ci = cursorFileMap.begin(); ci != cursorFileMap.end(); ++ci) {
+@@ -533,37 +543,7 @@
+ 	}
+ }
+ 
+-void CMouseHandler::ShowMouse()
+-{
+-	if(hide){
+-		SDL_ShowCursor(SDL_DISABLE);
+-		hide=false;
+-	}
+-}
+ 
+-
+-void CMouseHandler::HideMouse()
+-{
+-	if (!hide) {
+-		lastx = gu-&gt;viewSizeX / 2 + gu-&gt;viewPosX;
+-		lasty = gu-&gt;viewSizeY / 2 + gu-&gt;viewPosY;
+-    	SDL_ShowCursor(SDL_DISABLE);
+-		mouseInput-&gt;SetPos(int2(lastx, lasty));
+-		hide = true;
+-	}
+-}
+-
+-void CMouseHandler::ToggleState()
+-{
+-	if(locked){
+-		locked=false;
+-		ShowMouse();
+-	} else {
+-		locked=true;
+-		HideMouse();
+-}
+-}
+-
+ void CMouseHandler::WarpMouse(int x, int y)
+ {
+ 	if (!locked) {
+@@ -631,6 +611,7 @@
+ 	return &quot;&quot;;
+ }
+ 
++
+ void CMouseHandler::EmptyMsgQueUpdate(void)
+ {
+ 	if (!hide) {
+@@ -653,29 +634,115 @@
+ 	}
+ }
+ 
++
++void CMouseHandler::ShowMouse()
++{
++	if(hide){
++		// I don't use SDL_ShowCursor here 'cos it would cause a flicker (with hwCursor)
++		// instead update state and cursor at the same time
++		if (hardwareCursor){
++			hwHide=true; //call SDL_ShowCursor(SDL_ENABLE) later!
++		}else{
++			SDL_ShowCursor(SDL_DISABLE);
++		}
++		cursorText=&quot;&quot;; //force hardware cursor rebinding (else we have standard b&amp;w cursor)
++		hide=false;
++	}
++}
++
++
++void CMouseHandler::HideMouse()
++{
++	if (!hide) {
++		hwHide = true;
++		SDL_ShowCursor(SDL_DISABLE);
++		mouseInput-&gt;SetWMMouseCursor(NULL);
++		lastx = gu-&gt;viewSizeX / 2 + gu-&gt;viewPosX;
++		lasty = gu-&gt;viewSizeY / 2 + gu-&gt;viewPosY;
++		mouseInput-&gt;SetPos(int2(lastx, lasty));
++		hide = true;
++	}
++}
++
++
++void CMouseHandler::ToggleState()
++{
++	if(locked){
++		locked=false;
++		ShowMouse();
++	} else {
++		locked=true;
++		HideMouse();
++	}
++}
++
++
++void CMouseHandler::UpdateHwCursor()
++{
++	if (hardwareCursor){
++		hwHide=true; //call SDL_ShowCursor(SDL_ENABLE) later!
++	}else{
++		mouseInput-&gt;SetWMMouseCursor(NULL);
++		SDL_ShowCursor(SDL_DISABLE);
++	}
++	cursorText = &quot;&quot;;
++}
++
++
+ /******************************************************************************/
+ 
++void CMouseHandler::SetCursor(const std::string&amp; cmdName)
++{
++	if (cursorText.compare(cmdName)==0)
++		return;
++
++	cursorText = cmdName;
++	map&lt;string, CMouseCursor*&gt;::iterator it = cursorCommandMap.find(cmdName);
++	if (it != cursorCommandMap.end()) {
++		currentCursor = it-&gt;second;
++	} else {
++		currentCursor = cursorFileMap[&quot;cursornormal&quot;];
++	}
++
++	if (hardwareCursor &amp;&amp; !hide &amp;&amp; currentCursor) {
++		if (currentCursor-&gt;hwValid) {
++			if (hwHide) {
++				SDL_ShowCursor(SDL_ENABLE);
++				hwHide = false;
++			}
++			currentCursor-&gt;BindHwCursor();
++		}else{
++			hwHide = true;
++			SDL_ShowCursor(SDL_DISABLE);
++			mouseInput-&gt;SetWMMouseCursor(NULL);
++		}
++	}
++}
++
++
+ void CMouseHandler::UpdateCursors()
+ {
++	//we update all cursors, 'cos of the command queue icons
+ 	map&lt;string, CMouseCursor *&gt;::iterator it;
+ 	for (it = cursorFileMap.begin(); it != cursorFileMap.end(); ++it) {
+-		if (it-&gt;second != NULL) {
++		if (it-&gt;second != NULL)
+ 			it-&gt;second-&gt;Update();
+-		}
+ 	}
+ }
+ 
+ 
+ void CMouseHandler::DrawCursor(void)
+ {
+-	if (guihandler) {
++	if (guihandler)
+ 		guihandler-&gt;DrawCentroidCursor();
+-	}
+ 
+-	if (hide || (cursorText == &quot;none&quot;)) {
++	if (hide || (cursorText == &quot;none&quot;))
+ 		return;
+-	}
+ 
++	if (currentCursor &amp;&amp; (!hardwareCursor || !currentCursor-&gt;hwValid) )
++		currentCursor-&gt;Draw(lastx, lasty, cursorScale);
++
++/*
+ 	CMouseCursor* mc;
+ 	map&lt;string, CMouseCursor*&gt;::iterator it = cursorCommandMap.find(cursorText);
+ 	if (it != cursorCommandMap.end()) {
+@@ -699,11 +766,10 @@
+ 		else {
+ 			nc-&gt;Draw(lastx, lasty, 1.0f);
+ 			if (mc != nc) {
+-				mc-&gt;Draw(lastx + nc-&gt;GetMaxSizeX(),
+-								 lasty + nc-&gt;GetMaxSizeY(), -cursorScale);
++				mc-&gt;Draw(lastx + nc-&gt;GetMaxSizeX(),  lasty + nc-&gt;GetMaxSizeY(), -cursorScale);
+ 			}
+ 		}
+-	}
++	}*/
+ }
+ 
+ 
+
+Modified: trunk/rts/Game/UI/MouseHandler.h
+===================================================================
+--- trunk/rts/Game/UI/MouseHandler.h	2008-05-12 12:51:02 UTC (rev 5876)
++++ trunk/rts/Game/UI/MouseHandler.h	2008-05-12 13:00:57 UTC (rev 5877)
+@@ -16,15 +16,20 @@
+ class CCameraController;
+ 
+ 
+-class CMouseHandler  
++class CMouseHandler
+ {
+ public:
++	void SetCursor(const std::string&amp; cmdName);
++
++	bool hardwareCursor;
++	void UpdateHwCursor(); //calls SDL_ShowCursor, used for ingame hwcursor enabling
++
+ 	void UpdateCursors();
+ 	void HideMouse();
+ 	void ShowMouse();
+-	void ToggleState();
++	void ToggleState(); // lock+hide (used by fps camera and middle click scrolling)
+ 	void WarpMouse(int x, int y);
+-	void Draw();
++	void Draw(); // draw mousebox (selection box)
+ 	void MouseRelease(int x,int y,int button);
+ 	void MousePress(int x,int y,int button);
+ 	void MouseMove(int x,int y);
+@@ -32,9 +37,10 @@
+ 	CMouseHandler();
+ 	virtual ~CMouseHandler();
+ 
+-	int lastx;  
+-	int lasty;  
++	int lastx;
++	int lasty;
+ 	bool hide;
++	bool hwHide;
+ 	bool locked;
+ 	bool invertMouse;
+ 	float doubleClickTime;
+@@ -53,23 +59,19 @@
+ 	};
+ 
+ 	ButtonPress buttons[NUM_BUTTONS + 1]; /* One-bottomed. */
++	int activeButton;
+ 	float3 dir;
+ 
+-	int activeButton;
++	int soundMultiselID;
+ 
+-	unsigned int cursorTex;
+-	std::string cursorText;
+-	std::string cursorTextRight;
+-	float cursorScale;	
++	float cursorScale;
+ 	void DrawCursor(void);
+ 	std::string GetCurrentTooltip(void);
+ 
++	std::string cursorText; //current cursor name
++	CMouseCursor *currentCursor;
+ 	std::map&lt;std::string, CMouseCursor*&gt; cursorFileMap;
+ 	std::map&lt;std::string, CMouseCursor*&gt; cursorCommandMap;
+-	//CMouseCursor *mc;
+-
+-	int soundMultiselID;
+-
+ 	bool AssignMouseCursor(const std::string&amp; cmdName,
+ 	                       const std::string&amp; fileName,
+ 	                       CMouseCursor::HotSpot hotSpot,
+
+Modified: trunk/rts/Game/WordCompletion.cpp
+===================================================================
+--- trunk/rts/Game/WordCompletion.cpp	2008-05-12 12:51:02 UTC (rev 5876)
++++ trunk/rts/Game/WordCompletion.cpp	2008-05-12 13:00:57 UTC (rev 5877)
+@@ -30,12 +30,14 @@
+ 
+ 	// local commands
+ 	words[&quot;/advshading &quot;] = sl;
++	words[&quot;/hardwarecursor &quot;] = sl;
+ 	words[&quot;/clock&quot;] = sl;
+ 	words[&quot;/cmdcolors &quot;] = sl;
+ 	words[&quot;/ctrlpanel &quot;] = sl;
+ 	words[&quot;/echo &quot;] = sl;
+ 	words[&quot;/font &quot;] = sl;
+ 	words[&quot;/gameinfo&quot;] = sl;
++	words[&quot;/grounddecals &quot;] = sl;
+ 	words[&quot;/info &quot;] = sl;
+ 	words[&quot;/luaui &quot;] = sl;
+ 	words[&quot;/maxparticles &quot;] = sl;
+@@ -58,12 +60,15 @@
+ 	words[&quot;/keydebug&quot;] = sl;
+ 	words[&quot;/fakemeta &quot;] = sl;
+ 	words[&quot;/volume &quot;] = sl;
++	words[&quot;/unitreplyvolume &quot;] = sl;
+ 	words[&quot;/vsync &quot;] = sl;
++	words[&quot;/wiremap &quot;] = sl;
+ 
+ 	// minimap sub-commands
+ 	WordProperties mm(false, false, true);
+ 	words[&quot;fullproxy &quot;] = mm;
+ 	words[&quot;drawcommands &quot;] = mm;
++	words[&quot;drawprojectiles &quot;] = mm;
+ 	words[&quot;icons &quot;] = mm;
+ 	words[&quot;unitexp &quot;] = mm;
+ 	words[&quot;unitsize &quot;] = mm;
+
+Modified: trunk/rts/System/MouseInput.cpp
+===================================================================
+--- trunk/rts/System/MouseInput.cpp	2008-05-12 12:51:02 UTC (rev 5876)
++++ trunk/rts/System/MouseInput.cpp	2008-05-12 13:00:57 UTC (rev 5877)
+@@ -3,12 +3,17 @@
+ 	The code hacks around the mouse input from DirectInput, which SDL uses in fullscreen mode.
+ 	Instead it installs a window message proc and reads input from WM_MOUSEMOVE.
+ 	On non-windows, the normal SDL events are used for mouse input
++
++	new:
++	It also workarounds a issue with SDL+windows and hardware cursors (-&gt;it has to block WM_SETCURSOR),
++	so it is used now always even in window mode!
+ */
+ 
+ #include &quot;StdAfx.h&quot;
+ #include &quot;Platform/Win/win32.h&quot;
+ #include &quot;MouseInput.h&quot;
+ #include &quot;Game/UI/MouseHandler.h&quot;
++#include &quot;LogOutput.h&quot;
+ 
+ #include &lt;SDL_events.h&gt;
+ #include &lt;SDL_syswm.h&gt;
+@@ -24,6 +29,7 @@
+ //////////////////////////////////////////////////////////////////////
+ 
+ #ifdef WIN32
++
+ class CWin32MouseInput : public IMouseInput
+ {
+ public:
+@@ -33,6 +39,7 @@
+ 	int2 mousepos;
+ 	bool mousemoved;
+ 	HWND wnd;
++	HCURSOR hCursor;
+ 
+ 	// SDL runs the window in a different thread, hence the indirectness of the mouse pos handling
+ 	static LRESULT CALLBACK SpringWndProc(HWND wnd, UINT msg, WPARAM wparam, LPARAM lparam)
+@@ -41,10 +48,23 @@
+ 			inst-&gt;mousepos = int2(LOWORD(lparam),HIWORD(lparam));
+ 			inst-&gt;mousemoved = true;
+ 			return FALSE;
++		}else if (msg==WM_SETCURSOR) {
++			if (inst-&gt;hCursor!=NULL) {
++				Uint16 hittest = LOWORD(lparam);
++				if ( hittest == HTCLIENT ) {
++					SetCursor(inst-&gt;hCursor);
++					return TRUE;
++				}
++			}
+ 		}
+ 		return CallWindowProc((WNDPROC)inst-&gt;sdl_wndproc, wnd, msg, wparam, lparam);
+ 	}
+ 
++	void SetWMMouseCursor(void* wmcursor)
++	{
++		hCursor = (HCURSOR)wmcursor;
++	}
++
+ 	void InstallWndCallback()
+ 	{
+ 		sdl_wndproc = GetWindowLongPtr(wnd, GWLP_WNDPROC);
+@@ -55,6 +75,8 @@
+ 	{
+ 		inst = this;
+ 
++		hCursor = NULL;
++
+ 		mousemoved = false;
+ 		sdl_wndproc = 0;
+ 
+@@ -65,9 +87,7 @@
+ 
+ 		wnd = info.window;
+ 
+-		// In windowed mode, SDL uses straight Win32 API to handle mouse movement, which works ok.
+-		if (fullscreen)
+-			InstallWndCallback();
++		InstallWndCallback();
+ 	}
+ 	~CWin32MouseInput()
+ 	{
+@@ -83,7 +103,7 @@
+ 	{
+ 		mousepos = pos;
+ 		if (fullscreen)
+-			SetCursorPos (pos.x, pos.y);
++			SetCursorPos(pos.x, pos.y);
+ 		else
+ 			SDL_WarpMouse(pos.x, pos.y);
+ 	}
+@@ -111,12 +131,12 @@
+ 					mouse-&gt;MousePress (mousepos.x, mousepos.y, 5);
+ 			}
+ 			break;}
+-		case SDL_MOUSEMOTION: // the normal SDL method works fine in windowed mode 
++		/*case SDL_MOUSEMOTION: // the normal SDL method works fine in windowed mode 
+ 			if(!fullscreen) {
+ 				mousepos = int2(event.motion.x, event.motion.y);
+ 				mouse-&gt;MouseMove(mousepos.x, mousepos.y);
+ 			}
+-			break;
++			break;*/
+ 		case SDL_MOUSEBUTTONDOWN:
+ 			if (event.button.button == SDL_BUTTON_WHEELUP)
+ 				mouse-&gt;MouseWheel(true);
+
+Modified: trunk/rts/System/MouseInput.h
+===================================================================
+--- trunk/rts/System/MouseInput.h	2008-05-12 12:51:02 UTC (rev 5876)
++++ trunk/rts/System/MouseInput.h	2008-05-12 13:00:57 UTC (rev 5877)
+@@ -17,6 +17,8 @@
+ 	virtual void Update () {}
+ 
+ 	virtual void HandleSDLMouseEvent (SDL_Event&amp; event) = 0;
++
++	virtual void SetWMMouseCursor (void* wmcursor) {}
+ };
+ 
+ 
+
+Modified: trunk/rts/build/scons/config.py
+===================================================================
+--- trunk/rts/build/scons/config.py	2008-05-12 12:51:02 UTC (rev 5876)
++++ trunk/rts/build/scons/config.py	2008-05-12 13:00:57 UTC (rev 5877)
+@@ -301,6 +301,8 @@
+ 		d += [Dependency(['SDLmain'],  [])]
+ 	else:
+ 		d += [Dependency(['openal', 'openal32'], ['AL/al.h'])]
++		d += [Dependency(['Xcursor'], ['X11/Xcursor/Xcursor.h'])]
++		d += [Dependency(['X11'], ['X11/X.h'])]
+ 
+ 	d += [Dependency(['vorbisfile'], ['vorbis/vorbisfile.h'])]
+ 	d += [Dependency(['vorbis'], [])]
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000656.html">[Taspring-linux-commit] r5876 - trunk/Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="000658.html">[Taspring-linux-commit] r5878 - in trunk/rts: Lua Sim/Units	Sim/Units/CommandAI Sim/Units/UnitTypes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#657">[ date ]</a>
+              <a href="thread.html#657">[ thread ]</a>
+              <a href="subject.html#657">[ subject ]</a>
+              <a href="author.html#657">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

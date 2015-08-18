@@ -1,0 +1,150 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5491 - trunk/rts/System/Platform/Win
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5491%20-%20trunk/rts/System/Platform/Win&In-Reply-To=%3CE1JOzaW-0002HG-Px%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000297.html">
+   <LINK REL="Next"  HREF="000299.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5491 - trunk/rts/System/Platform/Win</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5491%20-%20trunk/rts/System/Platform/Win&In-Reply-To=%3CE1JOzaW-0002HG-Px%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5491 - trunk/rts/System/Platform/Win">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Feb 12 19:10:36 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000297.html">[Taspring-linux-commit] r5490 - trunk/rts/Sim/Weapons
+</A></li>
+        <LI>Next message: <A HREF="000299.html">[Taspring-linux-commit] r5492 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#298">[ date ]</a>
+              <a href="thread.html#298">[ thread ]</a>
+              <a href="subject.html#298">[ subject ]</a>
+              <a href="author.html#298">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-02-12 19:10:36 +0100 (Tue, 12 Feb 2008)
+New Revision: 5491
+
+Modified:
+   trunk/rts/System/Platform/Win/AVIGenerator.cpp
+Log:
+* fix avi generator deadlock
+
+Modified: trunk/rts/System/Platform/Win/AVIGenerator.cpp
+===================================================================
+--- trunk/rts/System/Platform/Win/AVIGenerator.cpp	2008-02-12 17:15:54 UTC (rev 5490)
++++ trunk/rts/System/Platform/Win/AVIGenerator.cpp	2008-02-12 18:10:36 UTC (rev 5491)
+@@ -207,13 +207,12 @@
+ 	memset(&amp;cv,0,sizeof(COMPVARS));
+ 	cv.cbSize=sizeof(COMPVARS);
+ 	cv.dwFlags=ICMF_COMPVARS_VALID;
+-	cv.fccHandler=mmioFOURCC('f','f','d','s');//default video codec
++	cv.fccHandler=mmioFOURCC('x','v','i','d');//default video codec
+ 	cv.lQ=ICQUALITY_DEFAULT;
+ 
+ 
+-	HWND hWnd = FindWindow(NULL, (&quot;Spring &quot; + std::string(VERSION_STRING)).c_str());
+ 	//Set the compression, prompting dialog if necessary
+-	if (!ICCompressorChoose_ptr(hWnd, ICMF_CHOOSE_DATARATE | ICMF_CHOOSE_KEYFRAME, &amp;bitmapInfo, NULL, &amp;cv, NULL)){
++	if (!ICCompressorChoose_ptr(NULL, ICMF_CHOOSE_DATARATE | ICMF_CHOOSE_KEYFRAME, &amp;bitmapInfo, NULL, &amp;cv, NULL)){
+ 		return S_FALSE;
+ 	}
+ 
+@@ -341,19 +340,22 @@
+ 		return false;
+ 	}
+ 
+-	HRESULT hr = InitAVICompressionEngine();
+-	if(hr != AVIERR_OK){
+-		quitAVIgen = true;
+-		return false;
+-	}
+-
+ 	for(int i=0; i&lt;10; i++){
+ 		unsigned char* tmpBuf = SAFE_NEW unsigned char[bitmapInfo.biSizeImage];
+ 		freeDataPointers.push_back(tmpBuf);
+ 	}
+ 
++	HWND mainWindow = FindWindow(NULL, (&quot;Spring &quot; + std::string(VERSION_STRING)).c_str());
++	if(fullscreen){
++		ShowWindow(mainWindow, SW_SHOWMINNOACTIVE);
++	}
++	boost::mutex::scoped_lock lock(AVIMutex);
+ 	AVIThread = SAFE_NEW boost::thread(boost::bind(&amp;CAVIGenerator::AVIGeneratorThreadProc, this));
+-	return true;
++	AVICondition.wait(lock);  //Wait until InitAVICompressionEngine() completes.
++	if(fullscreen){
++		ShowWindow(mainWindow, SW_RESTORE);
++	}
++	return !quitAVIgen;
+ }
+ 
+ 
+@@ -403,6 +405,11 @@
+ 
+ void CAVIGenerator::AVIGeneratorThreadProc(){
+ 
++	//Run init from the encoding thread because custom controls displayed by codecs
++	//sends window messages to the thread it started from, thus deadlocking if
++	//sending to the main thread whilst it is blocking on readOpenglPixelDataThreaded().
++	quitAVIgen = InitAVICompressionEngine() != AVIERR_OK;
++	AVICondition.notify_all();
+ 	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+ 	unsigned char* localWriteBuf = 0;
+ 
+@@ -427,6 +434,16 @@
+ 		if(AddFrame(localWriteBuf)){
+ 			quitAVIgen = true;
+ 		}
++		MSG msg;
++		//Handle all messages the codec sends.
++		while(PeekMessage(&amp;msg, NULL, 0, 0, PM_NOREMOVE)){
++			if(GetMessage(&amp;msg, NULL, 0, 0) &lt; 0){
++				quitAVIgen = true;
++				break;
++			}
++			TranslateMessage(&amp;msg);
++			DispatchMessage(&amp;msg);
++		}
+ 	}
+ 	delete [] localWriteBuf;
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000297.html">[Taspring-linux-commit] r5490 - trunk/rts/Sim/Weapons
+</A></li>
+	<LI>Next message: <A HREF="000299.html">[Taspring-linux-commit] r5492 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#298">[ date ]</a>
+              <a href="thread.html#298">[ thread ]</a>
+              <a href="subject.html#298">[ subject ]</a>
+              <a href="author.html#298">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,234 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5360 - in trunk/rts: Game Rendering System
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5360%20-%20in%20trunk/rts%3A%20Game%20Rendering%20System&In-Reply-To=%3CE1JGj8c-0002a2-OG%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000166.html">
+   <LINK REL="Next"  HREF="000168.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5360 - in trunk/rts: Game Rendering System</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5360%20-%20in%20trunk/rts%3A%20Game%20Rendering%20System&In-Reply-To=%3CE1JGj8c-0002a2-OG%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5360 - in trunk/rts: Game Rendering System">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Jan 20 23:59:38 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000166.html">[Taspring-linux-commit] r5359 - trunk/rts/Game
+</A></li>
+        <LI>Next message: <A HREF="000168.html">[Taspring-linux-commit] r5361 -	trunk/installer/builddata/springcontent/gamedata
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#167">[ date ]</a>
+              <a href="thread.html#167">[ thread ]</a>
+              <a href="subject.html#167">[ subject ]</a>
+              <a href="author.html#167">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-01-20 23:59:38 +0100 (Sun, 20 Jan 2008)
+New Revision: 5360
+
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Rendering/FartextureHandler.cpp
+   trunk/rts/Rendering/FartextureHandler.h
+   trunk/rts/System/LogOutput.h
+Log:
+* Fix gray flashing when Fartextures are rendered by queueing up far texture
+  creation requests and rendering them all at once the next frame before
+  normal world rendering.
+* Fix compile error with gcc 3.4.
+
+
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-01-20 22:16:59 UTC (rev 5359)
++++ trunk/rts/Game/Game.cpp	2008-01-20 22:59:38 UTC (rev 5360)
+@@ -2102,6 +2102,7 @@
+ 	}
+ 
+ 	ph-&gt;UpdateTextures();
++	fartextureHandler-&gt;CreateFarTextures();
+ 
+ 	glClearColor(FogLand[0],FogLand[1],FogLand[2],0);
+ 
+@@ -3171,13 +3172,13 @@
+ 				const int player = (int)inbuf[1];
+ 				const unsigned char action = inbuf[2];
+ 				const int fromTeam = gs-&gt;players[player]-&gt;team;
+-				
++
+ 				unsigned numPlayersInTeam = 0;
+ 				for (int a=0;a&lt;MAX_PLAYERS;++a)
+ 					if (gs-&gt;players[a]-&gt;active &amp;&amp; gs-&gt;players[a]-&gt;team == fromTeam)
+ 						++numPlayersInTeam;
+ 				assert(numPlayersInTeam &gt; 0);
+-				
++
+ 				switch (action)
+ 				{
+ 					case TEAMMSG_SELFD: {
+
+Modified: trunk/rts/Rendering/FartextureHandler.cpp
+===================================================================
+--- trunk/rts/Rendering/FartextureHandler.cpp	2008-01-20 22:16:59 UTC (rev 5359)
++++ trunk/rts/Rendering/FartextureHandler.cpp	2008-01-20 22:59:38 UTC (rev 5360)
+@@ -12,7 +12,7 @@
+ 
+ extern GLfloat LightDiffuseLand[];
+ extern GLfloat LightAmbientLand[];
+-extern GLfloat FogLand[]; 
++extern GLfloat FogLand[];
+ 
+ CFartextureHandler::CFartextureHandler(void)
+ {
+@@ -22,7 +22,7 @@
+ 
+ 	for(int a=0;a&lt;128*16*4;++a)
+ 		farTextureMem[a]=0;
+-	
++
+ 	farTexture=0;
+ }
+ 
+@@ -35,8 +35,34 @@
+ 	texturehandler=0;
+ }
+ 
+-void CFartextureHandler::CreateFarTexture(S3DOModel *model)
++/**
++ * @brief Add the model to the queue of units waiting for their fartexture.
++ * On the next CreateFarTextures() call the fartexture for this model will be
++ * created.
++ */
++void CFartextureHandler::CreateFarTexture(S3DOModel* model)
+ {
++	pending.push_back(model);
++}
++
++/**
++ * @brief Process the queue of pending fartexture creation requests.
++ * This loops through the queue calling ReallyCreateFarTexture() on each entry,
++ * and empties the queue afterwards.
++ */
++void CFartextureHandler::CreateFarTextures()
++{
++	for(std::vector&lt;S3DOModel*&gt;::const_iterator it = pending.begin(); it != pending.end(); ++it) {
++		ReallyCreateFarTexture(*it);
++	}
++	pending.clear();
++}
++
++/**
++ * @brief Really create the far texture for the given model.
++ */
++void CFartextureHandler::ReallyCreateFarTexture(S3DOModel* model)
++{
+ 	//UnitModelGeometry&amp; geometry=*model.geometry;
+ 	PUSH_CODE_MODE;
+ 	ENTER_MIXED;
+@@ -59,7 +85,7 @@
+ 	glViewport(0,0,16,16);
+ 	glLoadIdentity();
+ 	glMatrixMode(GL_PROJECTION);
+-	glLoadIdentity();		
++	glLoadIdentity();
+ 	glOrtho(-model-&gt;radius,model-&gt;radius,-model-&gt;radius,model-&gt;radius,-model-&gt;radius*1.5f,model-&gt;radius*1.5f);
+ 	glMatrixMode(GL_MODELVIEW);
+ 	glClearColor(0.5f,0.5f,0.5f,0);
+@@ -105,7 +131,7 @@
+ 		glRotatef(45,0,1,0);
+ 		glLightfv(GL_LIGHT1, GL_POSITION,gs-&gt;sunVector4);
+ 	}
+-	
++
+ 	glCullFace(GL_BACK);
+ 	glDisable(GL_CULL_FACE);
+ 	glDisable(GL_LIGHTING);
+
+Modified: trunk/rts/Rendering/FartextureHandler.h
+===================================================================
+--- trunk/rts/Rendering/FartextureHandler.h	2008-01-20 22:16:59 UTC (rev 5359)
++++ trunk/rts/Rendering/FartextureHandler.h	2008-01-20 22:59:38 UTC (rev 5360)
+@@ -1,10 +1,14 @@
+ #ifndef __FARTEXTURE_HANDLER_H__
+ #define __FARTEXTURE_HANDLER_H__
+ 
++#include &lt;vector&gt;
+ #include &quot;Rendering/GL/myGL.h&quot;
+ 
+ struct S3DOModel;
+ 
++/**
++ * @brief Cheap unit lodding using imposters.
++ */
+ class CFartextureHandler
+ {
+ public:
+@@ -12,11 +16,15 @@
+ 
+ 	CFartextureHandler(void);
+ 	~CFartextureHandler(void);
+-	void CreateFarTexture(S3DOModel *model);
++	void CreateFarTexture(S3DOModel* model);
++	void CreateFarTextures();
+ 
+ private:
++	void ReallyCreateFarTexture(S3DOModel* model);
++
+ 	unsigned char* farTextureMem;
+ 	int usedFarTextures;
++	std::vector&lt;S3DOModel*&gt; pending;
+ };
+ 
+ extern CFartextureHandler* fartextureHandler;
+
+Modified: trunk/rts/System/LogOutput.h
+===================================================================
+--- trunk/rts/System/LogOutput.h	2008-01-20 22:16:59 UTC (rev 5359)
++++ trunk/rts/System/LogOutput.h	2008-01-20 22:59:38 UTC (rev 5360)
+@@ -6,6 +6,7 @@
+ #ifndef LOGOUTPUT_H
+ #define LOGOUTPUT_H
+ 
++#include &lt;stdarg.h&gt;
+ #include &lt;vector&gt;
+ 
+ // format string error checking
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000166.html">[Taspring-linux-commit] r5359 - trunk/rts/Game
+</A></li>
+	<LI>Next message: <A HREF="000168.html">[Taspring-linux-commit] r5361 -	trunk/installer/builddata/springcontent/gamedata
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#167">[ date ]</a>
+              <a href="thread.html#167">[ thread ]</a>
+              <a href="subject.html#167">[ subject ]</a>
+              <a href="author.html#167">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,450 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5393 - trunk/Lobby/TASServer
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5393%20-%20trunk/Lobby/TASServer&In-Reply-To=%3CE1JIniC-0006Ps-Q7%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000199.html">
+   <LINK REL="Next"  HREF="000201.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5393 - trunk/Lobby/TASServer</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5393%20-%20trunk/Lobby/TASServer&In-Reply-To=%3CE1JIniC-0006Ps-Q7%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5393 - trunk/Lobby/TASServer">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Jan 26 17:16:56 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000199.html">[Taspring-linux-commit] r5392 - trunk/AI/Global/KAIK-0.13
+</A></li>
+        <LI>Next message: <A HREF="000201.html">[Taspring-linux-commit] r5394 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#200">[ date ]</a>
+              <a href="thread.html#200">[ thread ]</a>
+              <a href="subject.html#200">[ subject ]</a>
+              <a href="author.html#200">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: betalord
+Date: 2008-01-26 17:16:56 +0100 (Sat, 26 Jan 2008)
+New Revision: 5393
+
+Added:
+   trunk/Lobby/TASServer/DBConnectionPool.java
+Modified:
+   trunk/Lobby/TASServer/DBInterface.java
+   trunk/Lobby/TASServer/TASServer.java
+Log:
+added simple connection pool for mysql connections (yet another try at fixing ban system)
+
+Added: trunk/Lobby/TASServer/DBConnectionPool.java
+===================================================================
+--- trunk/Lobby/TASServer/DBConnectionPool.java	                        (rev 0)
++++ trunk/Lobby/TASServer/DBConnectionPool.java	2008-01-26 16:16:56 UTC (rev 5393)
+@@ -0,0 +1,155 @@
++/*
++ * Created on 2008.1.26
++ * 
++ */
++
++/**
++ * @author Betalord
++ * 
++ * This class has been copied from the following example/tutorial:
++ * <A HREF="http://www.javareference.com/jrexamples/viewexample.jsp?id=41">http://www.javareference.com/jrexamples/viewexample.jsp?id=41</A>
++ * Which has been copied from this tutorial:
++ * <A HREF="http://www.javareference.com/articles/viewarticle.jsp?id=30">http://www.javareference.com/articles/viewarticle.jsp?id=30</A>
++ * 
++ * I did minor modifications to it (for example eliminating closed connections).
++ * 
++ * WARNING: Make sure you return the Connection object back to the pool or else
++ * there will be more and more ghosted connections over time. In order to do this,
++ * enclose any code that retrieves Connection object in try..finally clause.
++ * 
++ */
++
++import java.util.*;
++import java.sql.*;
++
++public class DBConnectionPool implements Runnable {
++
++	// Number of initial connections to make.
++	private int m_InitialConnectionCount = 5;    
++	// A list of available connections for use.
++	private Vector&lt;Connection&gt; m_AvailableConnections = new Vector&lt;Connection&gt;();
++	// A list of connections being used currently.
++	private Vector&lt;Connection&gt; m_UsedConnections = new Vector&lt;Connection&gt;();
++	// The URL string used to connect to the database
++	private String m_URLString = null;
++	// The username used to connect to the database
++	private String m_UserName = null;    
++	// The password used to connect to the database
++	private String m_Password = null;    
++	// The cleanup thread
++	private Thread m_CleanupThread = null;
++
++
++	//Constructor
++	public DBConnectionPool(String urlString, String user, String passwd) throws SQLException {
++		// Initialize the required parameters
++		m_URLString = urlString;
++		m_UserName = user;
++		m_Password = passwd;
++
++		for (int cnt = 0; cnt &lt; m_InitialConnectionCount; cnt++)
++		{
++			// Add a new connection to the available list.
++			m_AvailableConnections.addElement(getConnection());
++		}
++
++		// Create the cleanup thread
++		m_CleanupThread = new Thread(this);
++		m_CleanupThread.start();
++	}    
++
++	private Connection getConnection() throws SQLException
++	{
++		return DriverManager.getConnection(m_URLString, m_UserName, m_Password);
++	}
++
++	public synchronized Connection checkout() throws SQLException
++	{
++		Connection newConnxn = null;
++
++		if(m_AvailableConnections.size() == 0)
++		{
++			// I'm out of connections. Create one more.
++			newConnxn = getConnection();
++			// Add this connection to the &quot;Used&quot; list.
++			m_UsedConnections.addElement(newConnxn);
++			// We don't have to do anything else since this is
++			// a new connection.
++		}
++		else
++		{
++			// Connections exist !
++			// Get a connection object
++			newConnxn = (Connection)m_AvailableConnections.lastElement();
++			// Remove it from the available list.
++			m_AvailableConnections.removeElement(newConnxn);
++			// Add it to the used list.
++			m_UsedConnections.addElement(newConnxn);            
++		}        
++
++		// Either way, we should have a connection object now.
++		return newConnxn;
++	}
++
++
++	public synchronized void checkin(Connection c)
++	{
++		checkin(c, true);
++	}
++
++	/** Set 'success' to false to tell the pool that the connection object is invalid. Pool will automatically remove such
++	 * connection (and create a new one when needed). This is needed because the connection pool can't figure out itself if
++	 * the connection is valid (it can check isClosed() method, but that won't tell if some fatal error occurred in the connection
++	 * and is now invalid). */
++	public synchronized void checkin(Connection c, boolean success) {
++		if (c == null) return ; // shouldn't really happen!
++		m_UsedConnections.removeElement(c);
++
++		// Remove from used list.
++		m_UsedConnections.removeElement(c);
++		// Add to the available list
++		if (success) {
++			m_AvailableConnections.addElement(c);        
++		}
++	}
++
++	public int availableCount()
++	{
++		return m_AvailableConnections.size();
++	}
++
++	public void run()
++	{
++		try
++		{
++			while(true)
++			{
++				synchronized(this)
++				{
++					while(m_AvailableConnections.size() &gt; m_InitialConnectionCount)
++					{
++						// Clean up extra available connections.
++						Connection c = (Connection)m_AvailableConnections.lastElement();
++						m_AvailableConnections.removeElement(c);
++
++						// Close the connection to the database.
++						c.close();
++					}
++
++					// Clean up is done
++				}
++
++				// Now sleep for 1 minute
++				Thread.sleep(60000 * 1);
++			}    
++		}
++		catch(SQLException sqle)
++		{
++			sqle.printStackTrace();
++		}
++		catch(Exception e)
++		{
++			e.printStackTrace();
++		}
++	} 
++}
+
+Modified: trunk/Lobby/TASServer/DBInterface.java
+===================================================================
+--- trunk/Lobby/TASServer/DBInterface.java	2008-01-26 15:37:28 UTC (rev 5392)
++++ trunk/Lobby/TASServer/DBInterface.java	2008-01-26 16:16:56 UTC (rev 5393)
+@@ -9,11 +9,9 @@
+  */
+ 
+ import java.sql.*;
+-import java.io.*;
+ 
+ public class DBInterface {
+-	private Connection conn;
+-	private Statement stmt;
++	private DBConnectionPool connPool;
+ 
+ 	// database information:
+ 	private String url;
+@@ -24,7 +22,8 @@
+ 		// TODO
+ 	}
+ 	
+-	public boolean loadJDBCDriver() {
++	public boolean initialize(String url, String username, String password) {
++		// load JDBC driver:
+ 		try {
+ 			// The newInstance() call is a work around for some 
+ 			// broken Java implementations
+@@ -35,18 +34,15 @@
+ 			System.out.println(&quot;JDBC driver not found!&quot;);
+ 			return false;
+ 		}
+-		return true;
+-	}
+ 
+-	public boolean connectToDatabase(String url, String username, String password) {
++		// create connection(s) to database, etc.:
+ 		this.url = url;
+ 		this.username = username;
+ 		this.password = password;
+ 		
+ 		System.out.println(&quot;Trying to connect to database ...&quot;);
+ 		try {
+-			conn = DriverManager.getConnection(url, username, password);
+-			stmt = conn.createStatement();
++			connPool = new DBConnectionPool(url, username, password); 
+ 		} catch (SQLException e) {
+ 			printSQLException(e);
+ 			System.out.println(&quot;Unable to connect to database!&quot;);
+@@ -57,21 +53,31 @@
+ 		return true;
+ 	}
+ 	
+-	/** returns null if error occurs */
++	
++	/** returns null if error occurred */
+ 	public ResultSet execQuery(String query) {
++		ResultSet result = execQueryInternal(query);
++		// if it failed, lets retry it one more time (and then give up):
++		if (result == null) {
++			result = execQueryInternal(query);
++		}
++		
++		return result;
++	}
++	
++	/** returns null if error occurred */
++	private ResultSet execQueryInternal(String query) {
++		Connection conn = null;
++		boolean success = true;
+ 		try {
++			conn = connPool.checkout();
++			Statement stmt = conn.createStatement();
+ 			ResultSet rs = stmt.executeQuery(query);
+ 			return rs;
+ 		} catch (SQLException e) {
+-			if (e.getMessage().equals(&quot;No operations allowed after statement closed.&quot;))
+-				try {
+-					stmt = conn.createStatement(); 
+-				} catch (SQLException e2) {
+-					System.out.println(&quot;Unable to recreate stmt object: &quot; + e2.getMessage());
+-				}
+ 			printSQLException(e);
+ 			System.out.println(&quot;SQLException getMessage() string: &quot; + e.getMessage());
+-			
++			success = false;
+ 			return null;
+ 		} catch (Exception e) {
+ 			Clients.sendToAllAdministrators(&quot;SERVERMSG [broadcast to all admins]: Serious problem detected: connection to mysql has been broken. Will now attempt to reconnect ...&quot;);
+@@ -85,53 +91,32 @@
+ 
+ 			e.printStackTrace(); //*** DEBUG
+ 			
+-			try {
+-				long time = System.currentTimeMillis();
+-				conn = DriverManager.getConnection(url, username, password);
+-				stmt = conn.createStatement();
+-				time = System.currentTimeMillis() - time;
+-				
+-				// add server notification:
+-				ServerNotification sn2 = new ServerNotification(&quot;Connection to mysql reestablished&quot;);
+-				sn2.addLine(&quot;Connection to mysql database has been successfully reestablished.&quot;);
+-				sn2.addLine(&quot;Time taken: &quot; + time + &quot; milliseconds.&quot;);
+-				ServerNotifications.addNotification(sn2);
+-
+-				// now try to execute given query again:
+-				try {
+-					ResultSet rs = stmt.executeQuery(query);
+-					return rs;
+-				} catch (Exception ex) {
+-					ex.printStackTrace();
+-					Clients.sendToAllAdministrators(&quot;SERVERMSG [broadcast to all admins]: Serious problem: unable to execute query (1st retry failed). Query is: '&quot; + query + &quot;'. Exception: &quot; + ex.toString());
+-				}
+-				
+-			} catch (Exception ex) {
+-				Clients.sendToAllAdministrators(&quot;SERVERMSG [broadcast to all admins]: Serious problem detected: connection to mysql could not be reestablished. Check the notification log for details.&quot;);				
+-
+-				// add server notification:
+-				ServerNotification sn2 = new ServerNotification(&quot;Connection to mysql cannot be reestablished&quot;);
+-				sn2.addLine(&quot;Serious problem detected: connection to mysql cannot be reestablished.&quot;);
+-				sn2.addLine(&quot;Exception description:&quot;);
+-				sn2.addLine(ex.toString());
+-				ServerNotifications.addNotification(sn2);
+-
+-				ex.printStackTrace(); //*** DEBUG
+-			}
++			success = false;
+ 			
+ 			return null;
+-		}
++		} finally {
++			// always return connection back to pool, no matter what!
++			connPool.checkin(conn, success);
++		}		
+ 	}
+ 	
+-	/** use for only those SQL statements that do not return any result.
++	/** use only for those SQL statements that do not return any result.
+ 	 * Returns false in case of any error. */
+ 	public boolean execUpdate(String query) {
++		Connection conn = null;
++		boolean success = true;
+ 		try {
++			conn = connPool.checkout();
++			Statement stmt = conn.createStatement();
+ 			stmt.executeUpdate(query);
+ 			return true;
+ 		} catch (SQLException e) {
+ 			printSQLException(e);
++			success = false;
+ 			return false;
++		} finally {
++			// always return connection back to pool, no matter what!
++			connPool.checkin(conn, success);
+ 		}
+ 	}
+ 	
+
+Modified: trunk/Lobby/TASServer/TASServer.java
+===================================================================
+--- trunk/Lobby/TASServer/TASServer.java	2008-01-26 15:37:28 UTC (rev 5392)
++++ trunk/Lobby/TASServer/TASServer.java	2008-01-26 16:16:56 UTC (rev 5393)
+@@ -212,7 +212,7 @@
+  *
+  * ---- PROTOCOL ----
+  * 
+- * [this section was moved to a separate file: &quot;LobbyProtocol.txt&quot; in the SVN repository]
++ * [this section was moved to the Documentation folder in SVN]
+  * 
+  */
+ 
+@@ -1216,8 +1216,9 @@
+ 				if (commands.length != 1) return false;
+ 
+ 				client.sendLine(&quot;SERVERMSG Fetching ban entries from the database ...&quot;);
++				long time = System.currentTimeMillis();
+ 				BanSystem.fetchLatestBanList();
+-				client.sendLine(&quot;SERVERMSG Ban entries retrieved.&quot;);
++				client.sendLine(&quot;SERVERMSG Ban entries retrieved (in &quot; + (System.currentTimeMillis() - time) + &quot; milliseconds).&quot;);
+ 			}
+ 			else if (commands[0].equals(&quot;CHANGECHARSET&quot;)) {
+ 				if (client.account.accessLevel() &lt; Account.ADMIN_ACCESS) return false;
+@@ -1509,6 +1510,19 @@
+ 
+ 				client.sendLine(&quot;SERVERMSG Last user ID for &lt;&quot; + commands[1] + &quot;&gt; was &quot; + acc.lastUserID);
+ 			}
++			else if (commands[0].equals(&quot;GENERATEUSERID&quot;)) {
++				if (commands.length != 2) return false;
++				if (client.account.accessLevel() &lt; Account.ADMIN_ACCESS) return false;
++
++				Client targetClient = Clients.getClient(commands[1]);
++				if (targetClient == null) {
++					client.sendLine(&quot;SERVERMSG &lt;&quot; + commands[1] + &quot;&gt; not found or is not currently online!&quot;);
++					return false;
++				}
++				targetClient.sendLine(&quot;ACQUIREUSERID&quot;);
++				
++				client.sendLine(&quot;SERVERMSG ACQUIREUSERID command was dispatched. Server will notify of response via notification system.&quot;);
++			}
+ 			else if (commands[0].equals(&quot;KILLALL&quot;)) {
+ 				if (client.account.accessLevel() &lt; Account.ADMIN_ACCESS) return false;
+ 
+@@ -2916,12 +2930,9 @@
+ 		// establish connection with database:
+ 		if (!LAN_MODE) {
+ 			database = new DBInterface();
+-			if (!database.loadJDBCDriver()) {
++			if (!database.initialize(DB_URL, DB_username, DB_password)) {
+ 				closeServerAndExit();
+ 			}
+-			if (!database.connectToDatabase(DB_URL, DB_username, DB_password)) {
+-				closeServerAndExit();
+-			}
+ 		}
+ 		
+ 		if (!LAN_MODE) {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000199.html">[Taspring-linux-commit] r5392 - trunk/AI/Global/KAIK-0.13
+</A></li>
+	<LI>Next message: <A HREF="000201.html">[Taspring-linux-commit] r5394 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#200">[ date ]</a>
+              <a href="thread.html#200">[ thread ]</a>
+              <a href="subject.html#200">[ subject ]</a>
+              <a href="author.html#200">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

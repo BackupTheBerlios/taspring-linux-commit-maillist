@@ -1,0 +1,1573 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6659 - in trunk/rts: ExternalAI Game	Game/UI Lua Map Rendering Rendering/Env Rendering/UnitModels	Sim/Features Sim/Misc Sim/Path Sim/Projectiles Sim/Units	System System/Platform lib/gml
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6659%20-%20in%20trunk/rts%3A%20ExternalAI%20Game%0A%09Game/UI%20Lua%20Map%20Rendering%20Rendering/Env%20Rendering/UnitModels%0A%09Sim/Features%20Sim/Misc%20Sim/Path%20Sim/Projectiles%20Sim/Units%0A%09System%20System/Platform%20lib/gml&In-Reply-To=%3C20081010201702.DEDB446EC%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001427.html">
+   <LINK REL="Next"  HREF="001429.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6659 - in trunk/rts: ExternalAI Game	Game/UI Lua Map Rendering Rendering/Env Rendering/UnitModels	Sim/Features Sim/Misc Sim/Path Sim/Projectiles Sim/Units	System System/Platform lib/gml</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6659%20-%20in%20trunk/rts%3A%20ExternalAI%20Game%0A%09Game/UI%20Lua%20Map%20Rendering%20Rendering/Env%20Rendering/UnitModels%0A%09Sim/Features%20Sim/Misc%20Sim/Path%20Sim/Projectiles%20Sim/Units%0A%09System%20System/Platform%20lib/gml&In-Reply-To=%3C20081010201702.DEDB446EC%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6659 - in trunk/rts: ExternalAI Game	Game/UI Lua Map Rendering Rendering/Env Rendering/UnitModels	Sim/Features Sim/Misc Sim/Path Sim/Projectiles Sim/Units	System System/Platform lib/gml">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Oct 10 22:17:01 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001427.html">[Taspring-linux-commit] r6658 - trunk/installer/sections
+</A></li>
+        <LI>Next message: <A HREF="001429.html">[Taspring-linux-commit] r6660 - trunk/rts/Rendering/Env
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1428">[ date ]</a>
+              <a href="thread.html#1428">[ thread ]</a>
+              <a href="subject.html#1428">[ subject ]</a>
+              <a href="author.html#1428">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: zerver
+Date: 2008-10-10 22:16:59 +0200 (Fri, 10 Oct 2008)
+New Revision: 6659
+
+Modified:
+   trunk/rts/ExternalAI/AICallback.cpp
+   trunk/rts/Game/Game.cpp
+   trunk/rts/Game/SelectedUnits.cpp
+   trunk/rts/Game/UI/GuiHandler.cpp
+   trunk/rts/Game/UI/MiniMap.cpp
+   trunk/rts/Lua/LuaCallInCheck.h
+   trunk/rts/Lua/LuaHandle.cpp
+   trunk/rts/Map/BaseGroundDrawer.cpp
+   trunk/rts/Rendering/Env/AdvTreeDrawer.cpp
+   trunk/rts/Rendering/Env/BasicTreeDrawer.cpp
+   trunk/rts/Rendering/Env/GrassDrawer.cpp
+   trunk/rts/Rendering/GroundDecalHandler.cpp
+   trunk/rts/Rendering/GroundDecalHandler.h
+   trunk/rts/Rendering/UnitModels/UnitDrawer.cpp
+   trunk/rts/Sim/Features/FeatureHandler.cpp
+   trunk/rts/Sim/Features/FeatureHandler.h
+   trunk/rts/Sim/Misc/QuadField.cpp
+   trunk/rts/Sim/Path/PathEstimator.cpp
+   trunk/rts/Sim/Projectiles/ProjectileHandler.cpp
+   trunk/rts/Sim/Units/UnitHandler.cpp
+   trunk/rts/System/Platform/ConfigHandler.cpp
+   trunk/rts/System/SpringApp.cpp
+   trunk/rts/lib/gml/gmlsrv.h
+Log:
+Started working on parallel SimFrame/Draw
+
+Modified: trunk/rts/ExternalAI/AICallback.cpp
+===================================================================
+--- trunk/rts/ExternalAI/AICallback.cpp	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/ExternalAI/AICallback.cpp	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -49,6 +49,14 @@
+ #include &quot;LogOutput.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
++#ifdef USE_GML
++#include &quot;lib/gml/gmlsrv.h&quot;
++#	if GML_MT_TEST
++#include &lt;boost/thread/recursive_mutex.hpp&gt;
++extern boost::recursive_mutex unitmutex;
++#	endif
++#endif
++
+ /* Cast id to unsigned to catch negative ids in the same operations,
+ cast MAX_* to unsigned to suppress GCC comparison between signed/unsigned warning. */
+ #define CHECK_UNITID(id) ((unsigned)(id) &lt; (unsigned)MAX_UNITS)
+@@ -996,6 +1004,11 @@
+ 	tdu.drawBorder=drawBorder;
+ 	tdu.facing=facing;
+ 	std::pair&lt;int,CUnitDrawer::TempDrawUnit&gt; tp(gs-&gt;frameNum+lifetime,tdu);
++
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock unitlock(unitmutex); // maybe superfluous
++#endif
++
+ 	if(transparent)
+ 		unitDrawer-&gt;tempTransparentDrawUnits.insert(tp);
+ 	else
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/Game/Game.cpp	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -2475,6 +2475,7 @@
+ 	}
+ 
+ 	ClientReadNet();
++
+ 	if (!net-&gt;Active() &amp;&amp; !gameOver) {
+ 		logOutput.Print(&quot;Lost connection to gameserver&quot;);
+ 		gameOver = true;
+@@ -2511,6 +2512,13 @@
+ 	return true;
+ }
+ 
++#ifdef USE_GML
++#include &quot;lib/gml/gmlsrv.h&quot;
++#	if GML_MT_TEST
++#include &lt;boost/thread/recursive_mutex.hpp&gt;
++boost::recursive_mutex luamutex;
++#	endif
++#endif
+ 
+ bool CGame::DrawWorld()
+ {
+@@ -3044,39 +3052,48 @@
+ }
+ 
+ 
+-#if defined(USE_GML) &amp;&amp; GML_MT_TEST
+-int oldgsframe;
+-#endif
+ // This will be run by a separate thread in parallel with the Sim
+ // ONLY 100% THREAD SAFE UNSYNCED STUFF HERE PLEASE
+ void CGame::UnsyncedStuff() {
+ 	if (!skipping) {
+ 		infoConsole-&gt;Update();
+ 	}
+-#if defined(USE_GML) &amp;&amp; GML_MT_TEST
+-	while(oldgsframe==*(volatile int *)&amp;(gs-&gt;frameNum)) {
+-		gmlProcessor.Pump(1);
+-		boost::thread::yield();
+-	}
+-	gu-&gt;drawFrame++;
+-	if (gu-&gt;drawFrame == 0) {
+-		gu-&gt;drawFrame++;
+-	}
+-	Draw();
+-#endif
+ }
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++int numNewFrames=0;
++#endif
+ 
+ #if defined(USE_GML) &amp;&amp; GML_ENABLE_SIM
+ void CGame::SimFrame() {
+-#		if defined(USE_GML) &amp;&amp; GML_MT_TEST
+-	oldgsframe=gs-&gt;frameNum;
+-#		endif
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	if(gmlThreadCount&gt;1) { // if there is more than one cpu, run draw in parallel with sim
++		int oldgsframe=gs-&gt;frameNum;
++		gmlProcessor.AuxWork(&amp;CGame::SimFrameMTcb,this); // start sim thread
++		UnsyncedStuff();
++		while(oldgsframe==*(volatile int *)&amp;(gs-&gt;frameNum)) { // wait until GL calls in script.update() have finished (ugly hack)
++			gmlProcessor.PumpAux();
++			boost::thread::yield();
++		}
++		if(--numNewFrames==0) {
++			gu-&gt;drawFrame++;
++			if (gu-&gt;drawFrame == 0)
++				gu-&gt;drawFrame++;
++			Draw(); // GML will use one thread less for this draw because sim is running
++		}
++		while(!gmlProcessor.PumpAux()) {
++			// could possibly make more calls to Draw here
++			boost::thread::yield(); 
++		}
++	}
++	else
++#	endif
+ 	gmlProcessor.Work(&amp;CGame::SimFrameMTcb,NULL,NULL,this,2,FALSE,NULL,1,2,2,FALSE,&amp;CGame::UnsyncedStuffcb);
+ #else
+ void CGame::SimFrameMT() {
+ #endif
+ }
++
+ #if defined(USE_GML) &amp;&amp; GML_ENABLE_SIM
+ void CGame::SimFrameMT() {
+ #else
+@@ -3101,10 +3118,10 @@
+ 	if (luaUI)    { luaUI-&gt;GameFrame(gs-&gt;frameNum); }
+ 	if (luaGaia)  { luaGaia-&gt;GameFrame(gs-&gt;frameNum); }
+ 	if (luaRules) { luaRules-&gt;GameFrame(gs-&gt;frameNum); }
+-
++/*
+ #if defined(USE_GML) &amp;&amp; GML_MT_TEST
+ 	gmlProcessor.GetQueue();
+-#endif
++#endif*/
+ 	gs-&gt;frameNum++;
+ 
+ 	ENTER_UNSYNCED;
+@@ -3158,6 +3175,7 @@
+ 	mapDamage-&gt;Update();
+ 	pathManager-&gt;Update();
+ 	uh-&gt;Update();
++	groundDecals-&gt;Update();
+ 
+ 	{
+ 		SCOPED_TIMER(&quot;Collisions&quot;);
+@@ -3249,7 +3267,6 @@
+ 	}
+ }
+ 
+-
+ void CGame::ClientReadNet()
+ {
+ 	if (gu-&gt;gameTime - lastCpuUsageTime &gt;= 1) {
+@@ -3263,6 +3280,9 @@
+ 	boost::shared_ptr&lt;const netcode::RawPacket&gt; packet;
+ 
+ 	// compute new timeLeft to &quot;smooth&quot; out SimFrame() calls
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	numNewFrames=0;
++#endif
+ 	if(!gameServer){
+ 		const unsigned int currentFrame = SDL_GetTicks();
+ 
+@@ -3277,8 +3297,11 @@
+ 		// we still have to process (in variable &quot;que&quot;)
+ 		int que = 0; // Number of NETMSG_NEWFRAMEs waiting to be processed.
+ 		unsigned ahead = 0;
+-		while ((packet = net-&gt;Peek(ahead)))
+-		{
++		while ((packet = net-&gt;Peek(ahead))) {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++			if (packet-&gt;data[0] == NETMSG_NEWFRAME)
++				++numNewFrames;
++#endif
+ 			if (packet-&gt;data[0] == NETMSG_NEWFRAME || packet-&gt;data[0] == NETMSG_KEYFRAME)
+ 				++que;
+ 			++ahead;
+@@ -3289,6 +3312,14 @@
+ 	}
+ 	else
+ 	{
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++		unsigned ahead = 0;
++		while ((packet = net-&gt;Peek(ahead))) {
++			if (packet-&gt;data[0] == NETMSG_NEWFRAME)
++				++numNewFrames;
++			++ahead;
++		}
++#endif
+ 		// make sure ClientReadNet returns at least every 15 game frames
+ 		// so CGame can process keyboard input, and render etc.
+ 		timeLeft = 15.0f;
+
+Modified: trunk/rts/Game/SelectedUnits.cpp
+===================================================================
+--- trunk/rts/Game/SelectedUnits.cpp	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/Game/SelectedUnits.cpp	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -39,6 +39,14 @@
+ #include &quot;Sound.h&quot;
+ #include &quot;Util.h&quot;
+ 
++#ifdef USE_GML
++#include &quot;lib/gml/gmlsrv.h&quot;
++#	if GML_MT_TEST
++extern boost::mutex caimutex;
++boost::mutex selmutex;
++#	endif
++#endif
++
+ extern Uint8 *keys;
+ 
+ 
+@@ -367,6 +375,10 @@
+ 		return;
+ 	}
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock sellock(selmutex);
++#endif
++
+ 	selectedUnits.insert(unit);
+ 	AddDeathDependence(unit);
+ 	selectionChanged = true;
+@@ -384,6 +396,10 @@
+ 
+ void CSelectedUnits::RemoveUnit(CUnit* unit)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock sellock(selmutex);
++#endif
++
+ 	selectedUnits.erase(unit);
+ 	DeleteDeathDependence(unit);
+ 	selectionChanged=true;
+@@ -398,6 +414,10 @@
+ 
+ void CSelectedUnits::ClearSelected()
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock sellock(selmutex);
++#endif
++
+ 	CUnitSet::iterator ui;
+ 	ENTER_MIXED;
+ 	for(ui=selectedUnits.begin();ui!=selectedUnits.end();++ui){
+@@ -415,6 +435,10 @@
+ 
+ void CSelectedUnits::SelectGroup(int num)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock sellock(selmutex);
++#endif
++
+ 	ClearSelected();
+ 	selectedGroup=num;
+ 	CGroup* group=grouphandlers[gu-&gt;myTeam]-&gt;groups[num];
+@@ -475,6 +499,9 @@
+ 				 ((guihandler-&gt;inCommand &gt;= 0) &amp;&amp;
+ 					(guihandler-&gt;inCommand &lt; guihandler-&gt;commands.size()) &amp;&amp;
+ 					(guihandler-&gt;commands[guihandler-&gt;inCommand].id &lt; 0)))) {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++			boost::mutex::scoped_lock cailock(caimutex);
++#endif
+ 			bool myColor = true;
+ 			glColor4fv(cmdColors.buildBox);
+ 			std::list&lt;CBuilderCAI*&gt;::const_iterator bi;
+@@ -507,6 +534,10 @@
+ 
+ void CSelectedUnits::DependentDied(CObject *o)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock sellock(selmutex);
++#endif
++
+ 	selectedUnits.erase((CUnit*)o);
+ 	selectionChanged=true;
+ 	possibleCommandsChanged=true;
+@@ -690,6 +721,9 @@
+ 			(*ui)-&gt;commandAI-&gt;DrawCommands();
+ 		}
+ 	} else {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++		boost::mutex::scoped_lock sellock(selmutex);
++#endif
+ 		for(ui = selectedUnits.begin(); ui != selectedUnits.end(); ++ui) {
+ 			(*ui)-&gt;commandAI-&gt;DrawCommands();
+ 		}
+
+Modified: trunk/rts/Game/UI/GuiHandler.cpp
+===================================================================
+--- trunk/rts/Game/UI/GuiHandler.cpp	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/Game/UI/GuiHandler.cpp	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -56,6 +56,16 @@
+ #include &quot;System/Platform/ConfigHandler.h&quot;
+ #include &quot;System/Util.h&quot;
+ 
++#ifdef USE_GML
++#include &quot;lib/gml/gmlsrv.h&quot;
++#	if GML_MT_TEST
++#include &lt;boost/thread/recursive_mutex.hpp&gt;
++extern boost::mutex caimutex;
++extern boost::mutex selmutex;
++extern boost::recursive_mutex quadmutex;
++#	endif
++#endif
++
+ extern Uint8 *keys;
+ 
+ 
+@@ -3568,6 +3578,9 @@
+ 	CUnit* pointedAt = NULL;
+ 	if (GetQueueKeystate()) {
+ 		CUnit* unit = NULL;
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++		boost::recursive_mutex::scoped_lock quadlock(quadmutex); // getselectunit, guitraceray accesses quadfield
++#endif
+ 		if (minimapCoords) {
+ 			unit = minimap-&gt;GetSelectUnit(camera-&gt;pos);
+ 		} else {
+@@ -3662,7 +3675,9 @@
+ 	// draw buildings we are about to build
+ 	if ((inCommand &gt;= 0) &amp;&amp; (inCommand &lt; commands.size()) &amp;&amp;
+ 	    (commands[inCommand].type == CMDTYPE_ICON_BUILDING)) {
+-
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++		boost::mutex::scoped_lock cailock(caimutex);
++#endif
+ 		// draw build distance for all immobile builders during build commands
+ 		std::list&lt;CBuilderCAI*&gt;::const_iterator bi;
+ 		for (bi = uh-&gt;builderCAIs.begin(); bi != uh-&gt;builderCAIs.end(); ++bi) {
+@@ -3690,6 +3705,9 @@
+ 				float3 pos = camera-&gt;pos+mouse-&gt;dir*dist;
+ 				std::vector&lt;BuildInfo&gt; buildPos;
+ 				const CMouseHandler::ButtonPress&amp; bp = mouse-&gt;buttons[SDL_BUTTON_LEFT];
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++			boost::recursive_mutex::scoped_lock quadlock(quadmutex); // getbuildpos accesses quadfield
++#endif
+ 				if (GetQueueKeystate() &amp;&amp; bp.pressed) {
+ 					const float dist = ground-&gt;LineGroundCol(bp.camPos, bp.camPos + bp.dir * gu-&gt;viewRange * 1.4f);
+ 					const float3 pos2 = bp.camPos + bp.dir * dist;
+@@ -3749,6 +3767,9 @@
+ 
+ 					std::vector&lt;Command&gt; cv;
+ 					if (GetQueueKeystate()) {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++						boost::mutex::scoped_lock sellock(selmutex);
++#endif
+ 						Command c;
+ 						bpi-&gt;FillCmd(c);
+ 						std::vector&lt;Command&gt; temp;
+@@ -3782,6 +3803,9 @@
+ 	int defcmd = GetDefaultCommand(mouse-&gt;lastx, mouse-&gt;lasty);
+ 	if ((inCommand&gt;=0 &amp;&amp; inCommand&lt;commands.size() &amp;&amp; commands[inCommand].id==CMD_ATTACK) ||
+ 	    (inCommand==-1 &amp;&amp; defcmd&gt;0 &amp;&amp; commands[defcmd].id==CMD_ATTACK)){
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++		boost::mutex::scoped_lock sellock(selmutex);
++#endif
+ 		for(CUnitSet::iterator si=selectedUnits.selectedUnits.begin(); si!=selectedUnits.selectedUnits.end(); ++si) {
+ 			CUnit* unit = *si;
+ 			if (unit == pointedAt) {
+
+Modified: trunk/rts/Game/UI/MiniMap.cpp
+===================================================================
+--- trunk/rts/Game/UI/MiniMap.cpp	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/Game/UI/MiniMap.cpp	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -60,8 +60,17 @@
+ #include &quot;TimeProfiler.h&quot;
+ #include &quot;TooltipConsole.h&quot;
+ 
++#ifdef USE_GML
++#include &quot;lib/gml/gmlsrv.h&quot;
++#	if GML_MT_TEST
++#include &lt;boost/thread/recursive_mutex.hpp&gt;
++extern boost::recursive_mutex unitmutex;
++extern boost::recursive_mutex quadmutex;
++extern boost::recursive_mutex projmutex;
++extern boost::mutex selmutex;
++#	endif
++#endif
+ 
+-
+ //////////////////////////////////////////////////////////////////////
+ // Construction/Destruction
+ //////////////////////////////////////////////////////////////////////
+@@ -1041,12 +1050,17 @@
+ 	glEnable(GL_ALPHA_TEST);
+ 	glAlphaFunc(GL_GREATER, 0.0f);
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock unitlock(unitmutex);
++#endif
+ 	// draw the units
+ 	std::list&lt;CUnit*&gt;::iterator ui;
+ 	for (ui = uh-&gt;activeUnits.begin(); ui != uh-&gt;activeUnits.end(); ui++) {
+ 		DrawUnit(*ui);
+ 	}
+-
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++		boost::recursive_mutex::scoped_lock quadlock(quadmutex); // getselectunit accesses quadfield
++#endif
+ 	// highlight the selected unit
+ 	CUnit* unit = GetSelectUnit(GetMapPosition(mouse-&gt;lastx, mouse-&gt;lasty));
+ 	if (unit != NULL) {
+@@ -1097,6 +1111,9 @@
+ 
+ 	glRotatef(-90.0f, +1.0f, 0.0f, 0.0f); // real 'world' coordinates
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock projlock(projmutex);
++#endif
+ 	// draw the projectiles
+ 	if (drawProjectiles &amp;&amp; ph-&gt;ps.size()&gt;0) {
+ 		CVertexArray* lines=GetVertexArray();
+@@ -1169,6 +1186,9 @@
+ 		guihandler-&gt;DrawMapStuff(!!drawCommands);
+ 	}
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock sellock(selmutex);
++#endif
+ 	// draw unit ranges
+ 	const float radarSquare = (SQUARE_SIZE * RADAR_SIZE);
+ 	CUnitSet&amp; selUnits = selectedUnits.selectedUnits;
+
+Modified: trunk/rts/Lua/LuaCallInCheck.h
+===================================================================
+--- trunk/rts/Lua/LuaCallInCheck.h	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/Lua/LuaCallInCheck.h	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -26,5 +26,15 @@
+ #  define LUA_CALL_IN_CHECK(L)
+ #endif
+ 
++#ifdef USE_GML
++#include &quot;Rendering/GL/myGL.h&quot;
++#include &quot;lib/gml/gmlsrv.h&quot;
++#	if GML_MT_TEST
++#include &lt;boost/thread/recursive_mutex.hpp&gt;
++extern boost::recursive_mutex luamutex;
++#undef LUA_CALL_IN_CHECK
++#define LUA_CALL_IN_CHECK(L) boost::recursive_mutex::scoped_lock lualock(luamutex);
++#	endif
++#endif
+ 
+ #endif /* LUA_CALL_IN_CHECK_H */
+
+Modified: trunk/rts/Lua/LuaHandle.cpp
+===================================================================
+--- trunk/rts/Lua/LuaHandle.cpp	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/Lua/LuaHandle.cpp	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -169,6 +169,9 @@
+ 
+ void CLuaHandle::CheckStack()
+ {
++#if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	LUA_CALL_IN_CHECK(L);
++#endif
+ 	const int top = lua_gettop(L);
+ 	if (top != 0) {
+ 		logOutput.Print(&quot;WARNING: %s stack check: top = %i\n&quot;, GetName().c_str(), top);
+
+Modified: trunk/rts/Map/BaseGroundDrawer.cpp
+===================================================================
+--- trunk/rts/Map/BaseGroundDrawer.cpp	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/Map/BaseGroundDrawer.cpp	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -21,8 +21,15 @@
+ #include &quot;System/Platform/ConfigHandler.h&quot;
+ #include &quot;System/FastMath.h&quot;
+ 
++#ifdef USE_GML
++#include &quot;lib/gml/gmlsrv.h&quot;
++#	if GML_MT_TEST
++#include &lt;boost/thread/recursive_mutex.hpp&gt;
++extern boost::recursive_mutex featmutex;
++extern boost::mutex selmutex;
++#	endif
++#endif
+ 
+-
+ CBaseGroundDrawer::CBaseGroundDrawer(void)
+ {
+ 	updateFov = true;
+@@ -248,6 +255,9 @@
+ 							} else {
+ 								const UnitDef* unitdef = unitDefHandler-&gt;GetUnitByID(-guihandler-&gt;commands[guihandler-&gt;inCommand].id);
+ 								CFeature* f;
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++								boost::recursive_mutex::scoped_lock featlock(featmutex); // testunitbuildsquare accesses features in the quadfield
++#endif
+ 								if(uh-&gt;TestUnitBuildSquare(BuildInfo(unitdef, float3(x*16+8, 0, y*16+8), guihandler-&gt;buildFacing), f, gu-&gt;myAllyTeam)) {
+ 									if (f) {
+ 										m = 0.5f;
+@@ -267,6 +277,9 @@
+ 				}
+ 				else {
+ 					// use the first selected unit
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++					boost::mutex::scoped_lock sellock(selmutex);
++#endif
+ 					if (selectedUnits.selectedUnits.empty()) {
+ 						return true;
+ 					}
+
+Modified: trunk/rts/Rendering/Env/AdvTreeDrawer.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/AdvTreeDrawer.cpp	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/Rendering/Env/AdvTreeDrawer.cpp	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -19,6 +19,12 @@
+ #include &quot;Matrix44f.h&quot;
+ #include &quot;Rendering/ShadowHandler.h&quot;
+ 
++#ifdef USE_GML
++#include &quot;lib/gml/gmlsrv.h&quot;
++#	if GML_MT_TEST
++boost::mutex treemutex;
++#	endif
++#endif
+ //////////////////////////////////////////////////////////////////////
+ // Construction/Destruction
+ //////////////////////////////////////////////////////////////////////
+@@ -79,6 +85,10 @@
+ 
+ void CAdvTreeDrawer::Update()
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock treelock(treemutex);
++#endif
++
+ 	for(std::list&lt;FallingTree&gt;::iterator fti=fallingTrees.begin();fti!=fallingTrees.end();){
+ 		fti-&gt;fallPos+=fti-&gt;speed*0.1f;
+ 		if(fti-&gt;fallPos&gt;1){		//remove the tree
+@@ -334,6 +344,10 @@
+ 	drawer.treeDistance = treeDistance;
+ 	drawer.drawDetailed = drawDetailed;
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock treelock(treemutex);
++#endif
++
+ 	// draw far away trees using the map dependent grid visibility
+ 	oldTreeDistance=treeDistance;
+ 	readmap-&gt;GridVisibility (camera, TREE_SQUARE_SIZE, treeDistance*2*SQUARE_SIZE*TREE_SQUARE_SIZE, &amp;drawer);
+@@ -640,6 +654,10 @@
+ 	drawer.td = this;
+ 	drawer.treeDistance = treeDistance;
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock treelock(treemutex);
++#endif
++
+ 	// draw with extraSize=1
+ 	readmap-&gt;GridVisibility (camera, TREE_SQUARE_SIZE, treeDistance*2*SQUARE_SIZE*TREE_SQUARE_SIZE, &amp;drawer, 1);
+ 
+@@ -785,6 +803,10 @@
+ 
+ void CAdvTreeDrawer::AddTree(int type, float3 pos, float size)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock treelock(treemutex);
++#endif
++
+ 	TreeStruct ts;
+ 	ts.pos=pos;
+ 	ts.type=type;
+@@ -796,6 +818,10 @@
+ 
+ void CAdvTreeDrawer::DeleteTree(float3 pos)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock treelock(treemutex);
++#endif
++
+ 	int hash=(int)pos.x+((int)(pos.z))*20000;
+ 	int square=((int)pos.x)/(SQUARE_SIZE*TREE_SQUARE_SIZE)+((int)pos.z)/(SQUARE_SIZE*TREE_SQUARE_SIZE)*treesX;
+ 
+@@ -806,6 +832,10 @@
+ 
+ int CAdvTreeDrawer::AddFallingTree(float3 pos, float3 dir, int type)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock treelock(treemutex);
++#endif
++
+ 	FallingTree ft;
+ 
+ 	ft.pos=pos;
+@@ -824,11 +854,19 @@
+ 
+ void CAdvTreeDrawer::AddGrass(float3 pos)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock treelock(treemutex);
++#endif
++
+ 	grassDrawer-&gt;AddGrass(pos);
+ }
+ 
+ void CAdvTreeDrawer::RemoveGrass(int x, int z)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock treelock(treemutex);
++#endif
++
+ 	grassDrawer-&gt;RemoveGrass(x,z);
+ }
+ 
+
+Modified: trunk/rts/Rendering/Env/BasicTreeDrawer.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/BasicTreeDrawer.cpp	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/Rendering/Env/BasicTreeDrawer.cpp	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -16,6 +16,13 @@
+ #include &quot;System/LogOutput.h&quot;
+ #include &quot;System/Exceptions.h&quot;
+ 
++#ifdef USE_GML
++#include &quot;lib/gml/gmlsrv.h&quot;
++#	if GML_MT_TEST
++extern boost::mutex treemutex;
++#	endif
++#endif
++
+ //////////////////////////////////////////////////////////////////////
+ // Construction/Destruction
+ //////////////////////////////////////////////////////////////////////
+@@ -390,6 +397,10 @@
+ 	drawer.cy = cy;
+ 	drawer.treeDistance = treeDistance;
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock treelock(treemutex);
++#endif
++
+ 	readmap-&gt;GridVisibility (camera, TREE_SQUARE_SIZE, treeDistance*2*SQUARE_SIZE*TREE_SQUARE_SIZE, &amp;drawer);
+ 
+ 	int startClean=lastListClean*20%nTrees;
+@@ -435,6 +446,9 @@
+ 
+ void CBasicTreeDrawer::Update()
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock treelock(treemutex);
++#endif
+ 
+ }
+ 
+@@ -464,6 +478,10 @@
+ 
+ void CBasicTreeDrawer::AddTree(int type, float3 pos, float size)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock treelock(treemutex);
++#endif
++
+ 	TreeStruct ts;
+ 	ts.pos=pos;
+ 	ts.type=type;
+@@ -475,6 +493,10 @@
+ 
+ void CBasicTreeDrawer::DeleteTree(float3 pos)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock treelock(treemutex);
++#endif
++
+ 	int hash=(int)pos.x+((int)(pos.z))*20000;
+ 	int square=((int)pos.x)/(SQUARE_SIZE*TREE_SQUARE_SIZE)+((int)pos.z)/(SQUARE_SIZE*TREE_SQUARE_SIZE)*treesX;
+ 
+
+Modified: trunk/rts/Rendering/Env/GrassDrawer.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/GrassDrawer.cpp	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/Rendering/Env/GrassDrawer.cpp	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -22,6 +22,14 @@
+ #include &quot;System/Exceptions.h&quot;
+ //#include &quot;TimeProfiler.h&quot;
+ 
++#ifdef USE_GML
++#include &quot;lib/gml/gmlsrv.h&quot;
++#	if GML_MT_TEST
++#include &lt;boost/thread/recursive_mutex.hpp&gt;
++boost::recursive_mutex grassmutex;
++#	endif
++#endif
++
+ static const float turfSize=20;				//single turf size
+ static const float partTurfSize=turfSize*0.6f;				//single turf size
+ static const int grassSquareSize=4;		//mapsquares per grass square
+@@ -420,6 +428,10 @@
+ 	drawer.cy=(int)(camera-&gt;pos.z/bMSsq);
+ 	drawer.gd = this;
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock grasslock(grassmutex);
++#endif
++
+ 	readmap-&gt;GridVisibility (camera, blockMapSize, maxGrassDist, &amp;drawer);
+ 	CVertexArray *va = drawer.va;
+ 	
+@@ -595,6 +607,11 @@
+ {
+ 	if(grassOff)
+ 		return;
++
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock grasslock(grassmutex);
++#endif
++
+ 	int a=(int(pos.z/bMSsq)&amp;31)*32+(int(pos.x/bMSsq)&amp;31);
+ 	if(grass[a].va){
+ 		delete grass[a].va;
+@@ -785,6 +802,11 @@
+ {
+ 	if(grassOff)
+ 		return;
++
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock grasslock(grassmutex);
++#endif
++
+ 	grassMap[(int(pos.z)/SQUARE_SIZE/grassSquareSize)*gs-&gt;mapx/grassSquareSize+int(pos.x)/SQUARE_SIZE/grassSquareSize]=1;
+ }
+ 
+@@ -792,6 +814,11 @@
+ {
+ 	if(grassOff)
+ 		return;
++
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock grasslock(grassmutex);
++#endif
++
+ 	grassMap[(z/grassSquareSize)*gs-&gt;mapx/grassSquareSize+x/grassSquareSize]=0;
+ 	ResetPos(float3(x*SQUARE_SIZE,0,z*SQUARE_SIZE));
+ }
+
+Modified: trunk/rts/Rendering/GroundDecalHandler.cpp
+===================================================================
+--- trunk/rts/Rendering/GroundDecalHandler.cpp	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/Rendering/GroundDecalHandler.cpp	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -22,6 +22,13 @@
+ #include &quot;System/Util.h&quot;
+ #include &quot;System/Exceptions.h&quot;
+ 
++#ifdef USE_GML
++#include &quot;lib/gml/gmlsrv.h&quot;
++#	if GML_MT_TEST
++boost::mutex decalmutex;
++#	endif
++#endif
++
+ using std::list;
+ using std::min;
+ using std::max;
+@@ -408,6 +415,9 @@
+ 		glMatrixMode(GL_MODELVIEW);
+ 	}
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock decallock(decalmutex);
++#endif
+ 
+ 	// create and draw the quads for each building decal
+ 	for (std::vector&lt;BuildingDecalType*&gt;::iterator bdi = buildingDecalTypes.begin(); bdi != buildingDecalTypes.end(); ++bdi) {
+@@ -554,11 +564,23 @@
+ 
+ void CGroundDecalHandler::Update(void)
+ {
++#if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock decallock(decalmutex);
++#endif
++	for(std::vector&lt;CUnit *&gt;::iterator i=moveUnits.begin(); i!=moveUnits.end(); ++i)
++		UnitMovedNow(*i);
++	moveUnits.clear();
+ }
+ 
+ 
+ void CGroundDecalHandler::UnitMoved(CUnit* unit)
+ {
++	moveUnits.push_back(unit);
++}
++
++
++void CGroundDecalHandler::UnitMovedNow(CUnit* unit)
++{
+ 	if(decalLevel==0)
+ 		return;
+ 
+@@ -629,6 +651,7 @@
+ 
+ int CGroundDecalHandler::GetTrackType(const std::string&amp; name)
+ {
++
+ 	if (decalLevel == 0) {
+ 		return 0;
+ 	}
+@@ -644,6 +667,10 @@
+ 		++a;
+ 	}
+ 
++#if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock decallock(decalmutex);
++#endif
++
+ 	TrackType* tt = SAFE_NEW TrackType;
+ 	tt-&gt;name = lowerName;
+ 	tt-&gt;texture = LoadTexture(lowerName);
+@@ -688,6 +715,10 @@
+ 	if (decalLevel == 0)
+ 		return;
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock decallock(decalmutex);
++#endif
++
+ 	float height = pos.y - ground-&gt;GetHeight2(pos.x, pos.z);
+ 	if (height &gt;= radius)
+ 		return;
+@@ -853,6 +884,10 @@
+ 	if (decalLevel == 0)
+ 		return;
+ 
++#if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock decallock(decalmutex);
++#endif
++
+ 	BuildingDecalType* type = buildingDecalTypes[building-&gt;unitDef-&gt;buildingDecalType];
+ 	BuildingGroundDecal* decal = SAFE_NEW BuildingGroundDecal;
+ 
+@@ -889,6 +924,10 @@
+ 
+ void CGroundDecalHandler::RemoveBuilding(CBuilding* building,CUnitDrawer::GhostBuilding* gb)
+ {
++#if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock decallock(decalmutex);
++#endif
++
+ 	BuildingGroundDecal* decal = building-&gt;buildingDecal;
+ 	if (!decal)
+ 		return;
+@@ -916,6 +955,10 @@
+ 		++a;
+ 	}
+ 
++#if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock decallock(decalmutex);
++#endif
++
+ 	BuildingDecalType* tt = SAFE_NEW BuildingDecalType;
+ 	tt-&gt;name = lowerName;
+ 	const std::string fullName = &quot;unittextures/&quot; + lowerName;
+
+Modified: trunk/rts/Rendering/GroundDecalHandler.h
+===================================================================
+--- trunk/rts/Rendering/GroundDecalHandler.h	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/Rendering/GroundDecalHandler.h	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -59,6 +59,7 @@
+ 	void Update(void);
+ 
+ 	void UnitMoved(CUnit* unit);
++	void UnitMovedNow(CUnit* unit);
+ 	void RemoveUnit(CUnit* unit);
+ 	int GetTrackType(const std::string&amp; name);
+ 
+@@ -112,6 +113,8 @@
+ 
+ 	std::list&lt;Scar*&gt; scars;
+ 
++	std::vector&lt;CUnit *&gt; moveUnits;
++
+ 	int lastTest;
+ 	float maxOverlap;
+ 
+
+Modified: trunk/rts/Rendering/UnitModels/UnitDrawer.cpp
+===================================================================
+--- trunk/rts/Rendering/UnitModels/UnitDrawer.cpp	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/Rendering/UnitModels/UnitDrawer.cpp	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -46,6 +46,10 @@
+ 
+ #ifdef USE_GML
+ #include &quot;lib/gml/gmlsrv.h&quot;
++#	if GML_MT_TEST
++#include &lt;boost/thread/recursive_mutex.hpp&gt;
++extern boost::recursive_mutex unitmutex;
++#	endif
+ extern gmlClientServer&lt;void, int,CUnit*&gt; gmlProcessor;
+ #endif
+ 
+@@ -215,6 +219,10 @@
+ 
+ void CUnitDrawer::Update(void)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock unitlock(unitmutex);
++#endif
++
+ 	while (!tempDrawUnits.empty() &amp;&amp; tempDrawUnits.begin()-&gt;first &lt; gs-&gt;frameNum - 1) {
+ 		tempDrawUnits.erase(tempDrawUnits.begin());
+ 	}
+@@ -406,6 +414,10 @@
+ 	CUnit* excludeUnit = drawReflection ? NULL : gu-&gt;directControl;
+ #endif
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock unitlock(unitmutex);
++#endif
++
+ #ifdef USE_GML
+ 	if(multiThreadDrawUnit) {
+ 		mt_drawReflection=drawReflection; // these member vars will be accessed by DoDrawUnitMT
+@@ -679,6 +691,10 @@
+ 
+ 	CUnit::SetLODFactor(LODScale * LODScaleShadow);
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock unitlock(unitmutex);
++#endif
++
+ #ifdef USE_GML
+ 	if(multiThreadDrawUnitShadow) {
+ 		gmlProcessor.Work(NULL, NULL, &amp;CUnitDrawer::DoDrawUnitShadowMT, this, gmlThreadCount, FALSE,
+@@ -849,6 +865,10 @@
+ 	glColor4f(1, 1, 1, 0.3f);
+ 	glDepthMask(0);
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock unitlock(unitmutex);
++#endif
++
+ 	// units drawn by AI, these aren't really
+ 	// cloaked but the effect is the same
+ 	for (std::multimap&lt;int, TempDrawUnit&gt;::iterator ti = tempTransparentDrawUnits.begin(); ti != tempTransparentDrawUnits.end(); ++ti) {
+
+Modified: trunk/rts/Sim/Features/FeatureHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Features/FeatureHandler.cpp	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/Sim/Features/FeatureHandler.cpp	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -32,6 +32,14 @@
+ #include &quot;creg/STL_Set.h&quot;
+ #include &quot;System/Exceptions.h&quot;
+ 
++#ifdef USE_GML
++#include &quot;lib/gml/gmlsrv.h&quot;
++#	if GML_MT_TEST
++#include &lt;boost/thread/recursive_mutex.hpp&gt;
++boost::recursive_mutex featmutex;
++#	endif
++#endif
++
+ using namespace std;
+ 
+ 
+@@ -390,6 +398,10 @@
+ 
+ int CFeatureHandler::AddFeature(CFeature* feature)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock featlock(featmutex);
++#endif
++
+ 	ASSERT_SYNCED_MODE;
+ 
+ 	// FIXME -- randomize me, pretty please
+@@ -419,6 +431,10 @@
+ 
+ void CFeatureHandler::DeleteFeature(CFeature* feature)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock featlock(featmutex); // maybe superfluous
++#endif
++
+ 	ASSERT_SYNCED_MODE;
+ 	toBeRemoved.push_back(feature-&gt;id);
+ 
+@@ -466,6 +482,10 @@
+ 
+ void CFeatureHandler::Update()
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock featlock(featmutex);
++#endif
++
+ 	ASSERT_SYNCED_MODE;
+ 	SCOPED_TIMER(&quot;Feature::Update&quot;);
+ 
+@@ -520,6 +540,10 @@
+ 
+ void CFeatureHandler::UpdateDrawQuad(CFeature* feature, const float3&amp; newPos)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock featlock(featmutex);
++#endif
++
+ 	const int oldDrawQuad = feature-&gt;drawQuad;
+ 	if (oldDrawQuad &gt;= 0) {
+ 		const int newDrawQuad =
+@@ -578,8 +602,12 @@
+ void CFeatureHandler::Draw()
+ {
+ 	ASSERT_UNSYNCED_MODE;
+-	vector&lt;CFeature*&gt; drawFar;
++	drawFar.clear();
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock featlock(featmutex);
++#endif
++
+ 	unitDrawer-&gt;SetupForUnitDrawing();
+ 	DrawRaw(0, &amp;drawFar);
+ 	unitDrawer-&gt;CleanUpUnitDrawing();
+@@ -611,6 +639,10 @@
+ 	glPolygonOffset(1,1);
+ 	glEnable(GL_POLYGON_OFFSET_FILL);
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock featlock(featmutex);
++#endif
++
+ 	unitDrawer-&gt;SetupForUnitDrawing();
+ 	DrawRaw(1, NULL);
+ 	unitDrawer-&gt;CleanUpUnitDrawing();
+
+Modified: trunk/rts/Sim/Features/FeatureHandler.h
+===================================================================
+--- trunk/rts/Sim/Features/FeatureHandler.h	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/Sim/Features/FeatureHandler.h	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -79,6 +79,8 @@
+ 
+ 	float farDist;
+ 
++	std::vector&lt;CFeature*&gt; drawFar;
++
+ 	void DrawFar(CFeature* feature, CVertexArray* va);
+ 
+ 	void Serialize(creg::ISerializer *s);
+
+Modified: trunk/rts/Sim/Misc/QuadField.cpp
+===================================================================
+--- trunk/rts/Sim/Misc/QuadField.cpp	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/Sim/Misc/QuadField.cpp	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -12,6 +12,14 @@
+ #include &quot;LogOutput.h&quot;
+ #include &quot;creg/STL_List.h&quot;
+ 
++#ifdef USE_GML
++#include &quot;lib/gml/gmlsrv.h&quot;
++#	if GML_MT_TEST
++#include &lt;boost/thread/recursive_mutex.hpp&gt;
++extern boost::recursive_mutex featmutex;
++boost::recursive_mutex quadmutex;
++#	endif
++#endif
+ 
+ CR_BIND(CQuadField, );
+ CR_REG_METADATA(CQuadField, (
+@@ -125,6 +133,11 @@
+ 		if(qi2==newQuads.end())
+ 			return;
+ 	}
++
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock quadlock(quadmutex); // possible performance hog
++#endif
++
+ 	std::vector&lt;int&gt;::iterator qi;
+ 	for (qi = unit-&gt;quads.begin(); qi != unit-&gt;quads.end(); ++qi) {
+ 		std::list&lt;CUnit*&gt;::iterator ui;
+@@ -361,6 +374,9 @@
+ 
+ void CQuadField::RemoveUnit(CUnit* unit)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock quadlock(quadmutex);
++#endif
+ 	std::vector&lt;int&gt;::iterator qi;
+ 	for (qi = unit-&gt;quads.begin(); qi != unit-&gt;quads.end(); ++qi) {
+ 		std::list&lt;CUnit*&gt;::iterator ui;
+@@ -381,6 +397,10 @@
+ 
+ void CQuadField::AddFeature(CFeature* feature)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock featlock(featmutex);
++#endif
++
+ 	vector&lt;int&gt; newQuads=GetQuads(feature-&gt;pos,feature-&gt;radius);
+ 
+ 	vector&lt;int&gt;::iterator qi;
+@@ -391,6 +411,10 @@
+ 
+ void CQuadField::RemoveFeature(CFeature* feature)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock featlock(featmutex);
++#endif
++
+ 	vector&lt;int&gt; quads=GetQuads(feature-&gt;pos,feature-&gt;radius);
+ 
+ 	std::vector&lt;int&gt;::iterator qi;
+
+Modified: trunk/rts/Sim/Path/PathEstimator.cpp
+===================================================================
+--- trunk/rts/Sim/Path/PathEstimator.cpp	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/Sim/Path/PathEstimator.cpp	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -20,6 +20,12 @@
+ #include &quot;FileSystem/ArchiveZip.h&quot;
+ #include &quot;Platform/FileSystem.h&quot;
+ 
++#ifdef USE_GML
++#include &quot;lib/gml/gmlsrv.h&quot;
++#	if GML_MT_TEST
++extern boost::mutex selmutex;
++#	endif
++#endif
+ 
+ #define PATHDEBUG false
+ 
+@@ -912,6 +918,9 @@
+ 
+ void CPathEstimator::Draw(void)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++					boost::mutex::scoped_lock sellock(selmutex);
++#endif
+ 	MoveData* md = moveinfo-&gt;GetMoveDataFromName(&quot;TANKSH2&quot;);
+ 	if (!selectedUnits.selectedUnits.empty() &amp;&amp; (*selectedUnits.selectedUnits.begin())-&gt;unitDef-&gt;movedata)
+ 		md = (*selectedUnits.selectedUnits.begin())-&gt;unitDef-&gt;movedata;
+
+Modified: trunk/rts/Sim/Projectiles/ProjectileHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Projectiles/ProjectileHandler.cpp	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/Sim/Projectiles/ProjectileHandler.cpp	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -40,6 +40,13 @@
+ #include &quot;System/creg/STL_List.h&quot;
+ #include &quot;System/Exceptions.h&quot;
+ 
++#ifdef USE_GML
++#	include &quot;lib/gml/gmlsrv.h&quot;
++#	if GML_MT_TEST
++#include &lt;boost/thread/recursive_mutex.hpp&gt;
++boost::recursive_mutex projmutex;
++#	endif
++#endif
+ 
+ CProjectileHandler* ph;
+ 
+@@ -400,6 +407,10 @@
+ 
+ void CProjectileHandler::Update()
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock projlock(projmutex);
++#endif
++
+ 	SCOPED_TIMER(&quot;Projectile handler&quot;);
+ 
+ 	Projectile_List::iterator psi = ps.begin();
+@@ -482,6 +493,10 @@
+ 	/* 3DO */
+ 	unitDrawer-&gt;SetupForUnitDrawing();
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock projlock(projmutex);
++#endif
++
+ 	va-&gt;Initialize();
+ 	va-&gt;EnlargeArrays(flying3doPieces-&gt;size()*4,0,VA_SIZE_TN);
+ 	numFlyingPieces += flying3doPieces-&gt;size();
+@@ -665,6 +680,10 @@
+ 	glEnable( GL_VERTEX_PROGRAM_ARB );
+ 	glDisable(GL_TEXTURE_2D);
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock projlock(projmutex);
++#endif
++
+ 	for (psi = ps.begin(); psi != ps.end(); ++psi) {
+ 		if ((gu-&gt;spectatingFullView || loshandler-&gt;InLos(*psi, gu-&gt;myAllyTeam) ||
+ 			((*psi)-&gt;owner &amp;&amp; gs-&gt;Ally((*psi)-&gt;owner-&gt;allyteam, gu-&gt;myAllyTeam)))) {
+@@ -706,6 +725,10 @@
+ 
+ void CProjectileHandler::AddProjectile(CProjectile* p)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock projlock(projmutex);
++#endif
++
+ 	ps.push_back(p);
+ 
+ 	if (p-&gt;synced &amp;&amp; p-&gt;weapon) {
+@@ -880,12 +903,20 @@
+ 	fp-&gt;rotSpeed=gu-&gt;usRandFloat()*0.1f;
+ 	fp-&gt;rot=0;
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock projlock(projmutex);
++#endif
++
+ 	flying3doPieces-&gt;push_back(fp);
+ }
+ 
+ void CProjectileHandler::AddFlyingPiece(int textureType, int team, float3 pos, float3 speed, SS3OVertex * verts){
+ 	FlyingPiece_List * pieceList = NULL;
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock projlock(projmutex);
++#endif
++
+ 	while(flyings3oPieces.size()&lt;=textureType)
+ 		flyings3oPieces.push_back(vector&lt;FlyingPiece_List*&gt;());
+ 
+
+Modified: trunk/rts/Sim/Units/UnitHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitHandler.cpp	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/Sim/Units/UnitHandler.cpp	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -41,6 +41,14 @@
+ using std::min;
+ using std::max;
+ 
++#ifdef USE_GML
++#	include &quot;lib/gml/gmlsrv.h&quot;
++#	if GML_MT_TEST
++#include &lt;boost/thread/recursive_mutex.hpp&gt;
++boost::recursive_mutex unitmutex;
++boost::mutex caimutex;
++#	endif
++#endif
+ 
+ BuildInfo::BuildInfo(const std::string&amp; name, const float3&amp; p, int facing)
+ {
+@@ -186,6 +194,9 @@
+ 
+ int CUnitHandler::AddUnit(CUnit *unit)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::recursive_mutex::scoped_lock unitlock(unitmutex);
++#endif
+ 	ASSERT_SYNCED_MODE;
+ 	int num = (int)(gs-&gt;randFloat()) * ((int)activeUnits.size() - 1);
+ 	std::list&lt;CUnit*&gt;::iterator ui = activeUnits.begin();
+@@ -264,6 +275,11 @@
+ 	ASSERT_SYNCED_MODE;
+ 	SCOPED_TIMER(&quot;Unit handler&quot;);
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	{
++		boost::recursive_mutex::scoped_lock unitlock(unitmutex);
++#endif
++
+ 	while (!toBeRemoved.empty()) {
+ 		CUnit* delUnit = toBeRemoved.back();
+ 		toBeRemoved.pop_back();
+@@ -271,6 +287,10 @@
+ 		DeleteUnitNow(delUnit);
+ 	}
+ 
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	}
++#endif
++
+ 	std::list&lt;CUnit*&gt;::iterator usi;
+ 	for (usi = activeUnits.begin(); usi != activeUnits.end(); usi++) {
+ 		(*usi)-&gt;Update();
+@@ -586,12 +606,18 @@
+ 
+ void CUnitHandler::AddBuilderCAI(CBuilderCAI* b)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock cailock(caimutex);
++#endif
+ 	builderCAIs.insert(builderCAIs.end(),b);
+ }
+ 
+ 
+ void CUnitHandler::RemoveBuilderCAI(CBuilderCAI* b)
+ {
++#	if defined(USE_GML) &amp;&amp; GML_MT_TEST
++	boost::mutex::scoped_lock cailock(caimutex);
++#endif
+ 	ListErase&lt;CBuilderCAI*&gt;(builderCAIs, b);
+ }
+ 
+
+Modified: trunk/rts/System/Platform/ConfigHandler.cpp
+===================================================================
+--- trunk/rts/System/Platform/ConfigHandler.cpp	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/System/Platform/ConfigHandler.cpp	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -44,7 +44,7 @@
+ #ifdef _WIN32
+ 			configSource = &quot;Software\\SJ\\Spring&quot;;
+ 			std::string version(VERSION_STRING);
+-			if (*version.end() == '+')
++			if (version.size()&gt;0 &amp;&amp; version[version.size()-1] == '+')
+ 				configSource += &quot; SVN&quot;;
+ #elif defined(__APPLE__)
+ 			configSource = &quot;this string is not currently used&quot;;
+
+Modified: trunk/rts/System/SpringApp.cpp
+===================================================================
+--- trunk/rts/System/SpringApp.cpp	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/System/SpringApp.cpp	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -871,7 +871,7 @@
+ 			ret = 0;
+ 		} else {
+ #if defined(USE_GML) &amp;&amp; GML_MT_TEST
+-			if(frame==gu-&gt;drawFrame) {
++			if(frame==gu-&gt;drawFrame) { // only draw if it was not done in parallel with sim
+ #endif
+ 				gu-&gt;drawFrame++;
+ 				if (gu-&gt;drawFrame == 0) {
+
+Modified: trunk/rts/lib/gml/gmlsrv.h
+===================================================================
+--- trunk/rts/lib/gml/gmlsrv.h	2008-10-10 20:06:50 UTC (rev 6658)
++++ trunk/rts/lib/gml/gmlsrv.h	2008-10-10 20:16:59 UTC (rev 6659)
+@@ -10,7 +10,7 @@
+ #define GMLSRV_H
+ 
+ #ifdef USE_GML
+-#define GML_MT_TEST 0
++#define GML_MT_TEST 0 // run Draw() parallel with SimFrame(). Highly experimental, not fully working yet.
+ 
+ #include &lt;boost/thread/barrier.hpp&gt;
+ #include &lt;boost/bind.hpp&gt;
+@@ -125,7 +125,15 @@
+ 	gmlCount ClientsReady;
+ 	BOOL_ newwork;
+ 
+-	gmlClientServer():threadcnt(0),ClientsReady(0),Barrier(GML_CPU_COUNT),ExecDepth(0),newwork(FALSE),inited(FALSE),dorun(TRUE) {
++	BOOL auxinited;
++	R (*auxworker)(void *);
++	void* auxworkerclass;
++	boost::barrier AuxBarrier; 
++	gmlCount AuxClientsReady;
++
++
++	gmlClientServer():threadcnt(0),ClientsReady(0),Barrier(GML_CPU_COUNT),ExecDepth(0),newwork(FALSE),
++				inited(FALSE),dorun(TRUE),auxinited(FALSE),auxworker(NULL),AuxBarrier(2),AuxClientsReady(0) {
+ 	}
+ 
+ 	~gmlClientServer() {
+@@ -139,6 +147,13 @@
+ 				delete threads[i];
+ 			}
+ 		}
++		if(auxinited) {
++			auxworker=NULL;
++			dorun=FALSE;
++			AuxBarrier.wait();
++			threads[gmlThreadCount]-&gt;join();
++			delete threads[gmlThreadCount];
++		}
+ 	}
+ 
+ 	void gmlServer() {
+@@ -226,6 +241,8 @@
+ 	void Work(R (*wrk)(void *),R (*wrka)(void *,A), R (*wrkit)(void *,U),void *cls,int mt,BOOL_ sm, GML_TYPENAME std::list&lt;U&gt; *it,int nu,int l1,int l2,BOOL_ sw,void (*swf)(void *)=NULL) {
+ 		if(!inited)
+ 			WorkInit();
++		if(auxworker)
++			--mt;
+ 		if(gmlThreadNumber!=0) {
+ 			NewWork(wrk,wrka,wrkit,cls,mt,sm,it,nu,l1,l2,sw,swf);
+ 			return;
+@@ -308,54 +325,99 @@
+ 
+ 	void GetQueue() {
+ 		int thread=gmlThreadNumber;
+-		int processed=1;
++//		int processed=1;
+ 
+-		GML_TYPENAME gmlExecState&lt;R,A,U&gt; *ex=ExecState+ExecDepth;
++//		GML_TYPENAME gmlExecState&lt;R,A,U&gt; *ex=ExecState+ExecDepth;
+ 
+ 		gmlQueue *qd=&amp;gmlQueues[thread];
+ 
+ 		BOOL_ isq1=qd-&gt;Write==qd-&gt;Queue1;
+ 
+-#if GML_ALTERNATE_SYNCMODE
++    qd-&gt;GetWrite(TRUE);
++/*#if GML_ALTERNATE_SYNCMODE
+ 		if(qd-&gt;WasSynced &amp;&amp; qd-&gt;GetWrite(ex-&gt;syncmode?TRUE:2))
+ #else
+ 		if(qd-&gt;WasSynced &amp;&amp; qd-&gt;GetWrite(TRUE))
+ #endif
+ 			processed=0;
+ 		if(processed &amp;&amp; qd-&gt;GetWrite(TRUE))
+-			processed=0;
++			processed=0;*/
+ 
+ 		if(isq1) {
+-			while(qd-&gt;Locked1)
++			while(!qd-&gt;Locked1 &amp;&amp; *(BYTE * volatile *)&amp;qd-&gt;Pos1!=qd-&gt;Queue1)
+ 				boost::thread::yield();
+ 		}
+ 		else {
+-			while(qd-&gt;Locked2)
++			while(!qd-&gt;Locked2 &amp;&amp; *(BYTE * volatile *)&amp;qd-&gt;Pos2!=qd-&gt;Queue2)
+ 				boost::thread::yield();
+ 		}
+ 	}
+ 
+-	void Pump(int thread) {
+-		int updsrv=0;
+-		gmlUpdateServers();
+-		BOOL_ processed=FALSE;
++	BOOL_ PumpAux() {
++		static int updsrvaux=0;
++		if((updsrvaux++%GML_UPDSRV_INTERVAL)==0 || *(volatile int *)&amp;gmlItemsConsumed&gt;=GML_UPDSRV_INTERVAL)
++			gmlUpdateServers();
+ 
+-//		for(int i=1; i&lt;gmlThreadCount; ++i) {
+-			gmlQueue *qd=&amp;gmlQueues[thread];
++		while(AuxClientsReady&lt;=3) {
++			gmlQueue *qd=&amp;gmlQueues[gmlThreadCount];
+ 			if(qd-&gt;Reloc)
+ 				qd-&gt;Realloc();
+ 			if(qd-&gt;GetRead()) {
+ 				qd-&gt;Execute();
+ 				qd-&gt;ReleaseRead();
+-				processed=TRUE;
+ 			}
+ 			if(qd-&gt;Sync) {
+ 				qd-&gt;ExecuteSynced();
+-				processed=TRUE;
+ 			}
+-//		}
++			if(AuxClientsReady==0)
++				return FALSE;
++			else
++				++AuxClientsReady;
++		}
++//		auxworker=NULL; // move to auxsub?
++		return TRUE;
+ 	}
+ 
++	void AuxWork(R (*wrk)(void *),void *cls) {
++		auxworker=wrk;
++		auxworkerclass=cls;
++		AuxClientsReady%=0;
++		if(!auxinited) {
++			if(!inited)
++				WorkInit();
++			threads[gmlThreadCount]=new boost::thread(boost::bind&lt;void, gmlClientServer, gmlClientServer*&gt;(&amp;gmlClientServer::gmlClientAux, this));
++			auxinited=TRUE;
++		}
++		AuxBarrier.wait();
++	}
++
++
++	void gmlClientAuxSub() {
++		AuxBarrier.wait();
++
++		if(!auxworker)
++			return;
++		
++		gmlQueue *qd=&amp;gmlQueues[gmlThreadCount];
++
++		qd-&gt;GetWrite(TRUE); 
++
++		(*auxworker)(auxworkerclass);
++
++		qd-&gt;ReleaseWrite();
++
++		++AuxClientsReady;	
++		auxworker=NULL; // move to auxsub?
++	}
++
++	void gmlClientAux() {
++		set_threadnum(gmlThreadCount);
++		streflop_init&lt;streflop::Simple&gt;();
++		while(dorun) {
++			gmlClientAuxSub();
++		}
++	}
++
+ };
+ 
+ #endif // USE_GML
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001427.html">[Taspring-linux-commit] r6658 - trunk/installer/sections
+</A></li>
+	<LI>Next message: <A HREF="001429.html">[Taspring-linux-commit] r6660 - trunk/rts/Rendering/Env
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1428">[ date ]</a>
+              <a href="thread.html#1428">[ thread ]</a>
+              <a href="subject.html#1428">[ subject ]</a>
+              <a href="author.html#1428">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

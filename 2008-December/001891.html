@@ -1,0 +1,328 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7122 - in Lobby/springie: Springie	Springie/PlanetWars Springie/autohost Springie/spring libs
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7122%20-%20in%20Lobby/springie%3A%20Springie%0A%09Springie/PlanetWars%20Springie/autohost%20Springie/spring%20libs&In-Reply-To=%3C20081204233412.84E58477A%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001890.html">
+   <LINK REL="Next"  HREF="001892.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7122 - in Lobby/springie: Springie	Springie/PlanetWars Springie/autohost Springie/spring libs</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7122%20-%20in%20Lobby/springie%3A%20Springie%0A%09Springie/PlanetWars%20Springie/autohost%20Springie/spring%20libs&In-Reply-To=%3C20081204233412.84E58477A%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r7122 - in Lobby/springie: Springie	Springie/PlanetWars Springie/autohost Springie/spring libs">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Dec  5 00:34:12 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001890.html">[Taspring-linux-commit] r7121 - in branches/caiinterface: .	AI/Interfaces/Java rts/System
+</A></li>
+        <LI>Next message: <A HREF="001892.html">[Taspring-linux-commit] r7123 - in branches/caiinterface: .	rts/System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1891">[ date ]</a>
+              <a href="thread.html#1891">[ thread ]</a>
+              <a href="subject.html#1891">[ subject ]</a>
+              <a href="author.html#1891">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Licho
+Date: 2008-12-05 00:34:11 +0100 (Fri, 05 Dec 2008)
+New Revision: 7122
+
+Modified:
+   Lobby/springie/Springie/Main.cs
+   Lobby/springie/Springie/PlanetWars/PlanetWarsHandler.cs
+   Lobby/springie/Springie/autohost/AutoHost.cs
+   Lobby/springie/Springie/autohost/AutoHostConfig.cs
+   Lobby/springie/Springie/autohost/AutoHost_commands.cs
+   Lobby/springie/Springie/autohost/Polls.cs
+   Lobby/springie/Springie/spring/Spring.cs
+   Lobby/springie/libs/PlanetWarsShared.dll
+Log:
+ * fixes for PW system
+ * !fix now only shuffles people with duplicated id
+ * battle ends notification is sent even if battle fails
+
+
+Modified: Lobby/springie/Springie/Main.cs
+===================================================================
+--- Lobby/springie/Springie/Main.cs	2008-12-04 23:20:57 UTC (rev 7121)
++++ Lobby/springie/Springie/Main.cs	2008-12-04 23:34:11 UTC (rev 7122)
+@@ -124,7 +124,6 @@
+             recon.Enabled = false;
+             spring = new Spring();
+ 
+-            if (config.PlanetWarsEnabled) InitializePlanetWarsServer();
+ 
+             tas = new TasClient();
+             tas.ConnectionLost += tas_ConnectionLost;
+@@ -138,6 +137,7 @@
+             spring.SpringStarted += spring_SpringStarted;
+             spring.PlayerSaid += spring_PlayerSaid;
+             autoHost = new AutoHost(tas, spring, null);
++            if (config.PlanetWarsEnabled) InitializePlanetWarsServer();
+             autoUpdater = new AutoUpdater(spring, tas);
+ 
+             if (config.StatsEnabledReal) stats = new Stats(tas, spring);
+@@ -180,6 +180,7 @@
+         private void spring_SpringExited(object sender, EventArgs e)
+         {
+             if (tas != null) tas.ChangeMyStatus(false, false);
++            if (PlanetWars != null) PlanetWars.SpringExited();
+         }
+ 
+         private void spring_SpringStarted(object sender, EventArgs e)
+
+Modified: Lobby/springie/Springie/PlanetWars/PlanetWarsHandler.cs
+===================================================================
+--- Lobby/springie/Springie/PlanetWars/PlanetWarsHandler.cs	2008-12-04 23:20:57 UTC (rev 7121)
++++ Lobby/springie/Springie/PlanetWars/PlanetWarsHandler.cs	2008-12-04 23:34:11 UTC (rev 7122)
+@@ -2,6 +2,7 @@
+ 
+ using System;
+ using System.Collections.Generic;
++using System.IO;
+ using System.Linq;
+ using PlanetWarsShared;
+ using PlanetWarsShared.Springie;
+@@ -109,8 +110,9 @@
+ 
+                 if (canset) {
+                     if (info.FactionName == fact.Name) {
+-                        autoHost.SayBattle(string.Format(&quot;changing planet to {0} by {1}&quot;, vals[0], e.UserName));
+-                        var planet = server.GetAttackOptions(account).Where(m =&gt; m.Name == vals[0]).Single();
++                        string pname = vals[0].Split('|')[0];
++                        autoHost.SayBattle(string.Format(&quot;changing planet to {0} by {1}&quot;,pname , e.UserName));
++                        var planet = server.GetAttackOptions(account).Where(m =&gt; m.Name == pname).Single();
+                         tas.ChangeMap(Program.main.Spring.UnitSyncWrapper.MapList[planet.MapName]);
+                     } else autoHost.Respond(e, string.Format(&quot;It's currently {0} turn&quot;, fact.Name));
+                 } else autoHost.Respond(e, string.Format(&quot;You are not first in command here, {0} must do it!&quot;, bestPlayer));
+@@ -149,7 +151,7 @@
+                 var temp = new string[options.Count];
+                 int cnt = 0;
+ 
+-                foreach (var planet in options) temp[cnt++] = string.Format(&quot;{0} - {1}&quot;, planet.Name, planet.MapName);
++                foreach (var planet in options) temp[cnt++] = string.Format(&quot;{0}|  {1}&quot;, planet.Name, Path.GetFileNameWithoutExtension(planet.MapName));
+                 return AutoHost.Filter(temp, words, out vals, out indexes);
+             } else {
+                 vals = null;
+@@ -195,8 +197,6 @@
+ 
+                 foreach (var kvp in response.RankNotifications) tas.Say(TasClient.SayPlace.User, kvp.Name, kvp.Text, false);
+ 
+-                var toNotify = server.GetPlayersToNotify(account, battle.Map.Name, ReminderEvent.OnBattleEnded);
+-                foreach (var s in toNotify) tas.Say(TasClient.SayPlace.User, s, &quot;PlanetWars battle has just ended.&quot;, false);
+                 ComListPlanets(TasSayEventArgs.Default, new string[] {});
+             } catch (Exception ex) {
+                 autoHost.SayBattle(string.Format(&quot;Error sending planet battle result :(( {0}&quot;, ex), true);
+@@ -304,7 +304,7 @@
+                 var current = server.GetOffensiveFaction(account);
+ 
+                 var info = server.GetPlayerInfo(account, name);
+-                if (info != null) autoHost.SayBattle(string.Format(&quot;{0} {1} {2}. Attacking faction is {3}. <A HREF="http://planet-wars.eu/player.aspx?name={4">http://planet-wars.eu/player.aspx?name={4</A>}&quot;, info.IsCommanderInChief ? &quot;All hail to&quot; : &quot;Greetings, &quot;, info.RankText, name, current.Name, Uri.EscapeDataString(current.Name)), false);
++                if (info != null) autoHost.SayBattle(string.Format(&quot;{0} {1} {2}. Attacking faction is {3}. <A HREF="http://planet-wars.eu/player.aspx?name={4">http://planet-wars.eu/player.aspx?name={4</A>}&quot;, info.IsCommanderInChief ? &quot;All hail to&quot; : &quot;Greetings, &quot;, info.RankText, name, current.Name, Uri.EscapeDataString(info.Name)), false);
+             } catch (Exception ex) {
+                 autoHost.SayBattle(&quot;PlanetWars error: &quot; + ex);
+             }
+@@ -360,6 +360,7 @@
+         public void UserStatusChanged(UserBattleStatus user)
+         {
+             try {
++                if (user.SyncStatus == SyncStatuses.Unknown) return;
+                 var info = server.GetPlayerInfo(account, user.name);
+                 var factions = new List&lt;IFaction&gt;(server.GetFactions(account));
+                 if (info == null) {
+@@ -395,5 +396,16 @@
+         }
+ 
+         #endregion
++
++        public void SpringExited()
++        {
++            try {
++                var toNotify = server.GetPlayersToNotify(account, tas.GetBattle().Map.Name, ReminderEvent.OnBattleEnded);
++                foreach (var s in toNotify) tas.Say(TasClient.SayPlace.User, s, &quot;PlanetWars battle has just ended.&quot;, false);
++            }catch(Exception ex) {
++                autoHost.SayBattle(&quot;Error notifying game end:&quot; + ex);
++            }
++
++        }
+     }
+ }
+\ No newline at end of file
+
+Modified: Lobby/springie/Springie/autohost/AutoHost.cs
+===================================================================
+--- Lobby/springie/Springie/autohost/AutoHost.cs	2008-12-04 23:20:57 UTC (rev 7121)
++++ Lobby/springie/Springie/autohost/AutoHost.cs	2008-12-04 23:34:11 UTC (rev 7122)
+@@ -905,6 +905,7 @@
+ 
+ 
+                     case &quot;planet&quot;:
++                    case &quot;attack&quot;:
+                         if (Program.main.PlanetWars != null) Program.main.PlanetWars.ComPlanet(e, words);
+                         else Respond(e, &quot;Not a PlanetWars server&quot;);
+                         break;
+@@ -920,6 +921,7 @@
+                         break;
+ 
+                     case &quot;voteplanet&quot;:
++                    case &quot;voteattack&quot;:
+                         if (Program.main.config.PlanetWarsEnabled) StartVote(new VotePlanet(tas, spring, this), e, words);
+                         else Respond(e, &quot;PlanetWars not enabled on this host&quot;);
+                         break;
+
+Modified: Lobby/springie/Springie/autohost/AutoHostConfig.cs
+===================================================================
+--- Lobby/springie/Springie/autohost/AutoHostConfig.cs	2008-12-04 23:20:57 UTC (rev 7121)
++++ Lobby/springie/Springie/autohost/AutoHostConfig.cs	2008-12-04 23:34:11 UTC (rev 7122)
+@@ -224,6 +224,8 @@
+ 			AddMissing(new CommandConfig(&quot;listplanets&quot;, 5, &quot;[&lt;filters&gt;..] - lists planets open for attack !listmaps quantumia&quot;, 1), addedCommands);
+ 			AddMissing(new CommandConfig(&quot;planet&quot;, 5, &quot;[&lt;filters&gt;..] - picks a planet (you must be commander-in-chief)&quot;, 1), addedCommands);
+ 			AddMissing(new CommandConfig(&quot;voteplanet&quot;, 5, &quot;[&lt;filters&gt;..] - starts a vote for new planet&quot;, 1), addedCommands);
++            AddMissing(new CommandConfig(&quot;attack&quot;, 5, &quot;[&lt;filters&gt;..] - picks a planet (you must be commander-in-chief)&quot;, 1), addedCommands);
++            AddMissing(new CommandConfig(&quot;voteattack&quot;, 5, &quot;[&lt;filters&gt;..] - starts a vote for new planet&quot;, 1), addedCommands);
+ 
+ 
+ 			AddMissing(new CommandConfig(&quot;listmods&quot;, 0, &quot;[&lt;filters&gt;..] - lists mods on server, e.g. !listmods absolute 2.23&quot;, 5), addedCommands);
+
+Modified: Lobby/springie/Springie/autohost/AutoHost_commands.cs
+===================================================================
+--- Lobby/springie/Springie/autohost/AutoHost_commands.cs	2008-12-04 23:20:57 UTC (rev 7121)
++++ Lobby/springie/Springie/autohost/AutoHost_commands.cs	2008-12-04 23:34:11 UTC (rev 7122)
+@@ -4,11 +4,8 @@
+ using System.Collections.Generic;
+ using System.Globalization;
+ using System.Linq;
+-using System.Text;
+ using System.Text.RegularExpressions;
+ using System.Threading;
+-using PlanetWarsShared;
+-using PlanetWarsShared.Springie;
+ using Springie.Client;
+ using Springie.SpringNamespace;
+ 
+@@ -406,21 +403,20 @@
+         {
+             var b = tas.GetBattle();
+             int cnt = 0;
+-            var biggest = b.Users.Where(x =&gt; !x.IsSpectator).GroupBy(x =&gt; x.TeamNumber).Select(g =&gt; g.Count()).Max();
+-            if (biggest &gt; 1)
+-            {
+-                foreach (var u in b.Users)
+-                {
+-                    if (!u.IsSpectator)
+-                    {
+-                        tas.ForceTeam(u.name, cnt);
+-                        cnt++;
+-                    }
++            var groups = b.Users.Where(x =&gt; !x.IsSpectator &amp;&amp; x.SyncStatus != SyncStatuses.Unknown).GroupBy(x =&gt; x.TeamNumber).Where(g =&gt; g.Count() &gt; 1);
++            if (groups.Count() &gt; 0) {
++                var used = new bool[Spring.MaxTeams];
++                foreach (var u in b.Users.Where(x =&gt; !x.IsSpectator &amp;&amp; x.SyncStatus != SyncStatuses.Unknown)) used[u.TeamNumber] = true;
++                foreach (var u in groups.SelectMany(x =&gt; x)) {
++                    // groups of users with same team
++                    int freeid = 0;
++                    while (used[freeid]) freeid++;
++                    tas.ForceTeam(u.name, freeid);
++                    used[freeid] = true;
+                 }
+                 if (words == null || words.Length == 0 || words[0] != &quot;silent&quot;) SayBattle(&quot;team numbers fixed&quot;);
+                 return false;
+-            }
+-            else return true;
++            } else return true;
+         }
+ 
+ 
+@@ -922,8 +918,6 @@
+ 
+         #region Other methods
+ 
+-
+-
+         private void ComAdmins(TasSayEventArgs e, string[] words)
+         {
+             tas.Say(TasClient.SayPlace.User, e.UserName, &quot;---&quot;, false);
+@@ -1028,7 +1022,6 @@
+         }
+ 
+ 
+-
+         private void ComSetGameTitle(TasSayEventArgs e, string[] words)
+         {
+             if (words.Length == 0) Respond(e, &quot;this command needs one parameter - new game title&quot;);
+@@ -1211,4 +1204,4 @@
+ 
+         #endregion
+     }
+-}
++}
+\ No newline at end of file
+
+Modified: Lobby/springie/Springie/autohost/Polls.cs
+===================================================================
+--- Lobby/springie/Springie/autohost/Polls.cs	2008-12-04 23:20:57 UTC (rev 7121)
++++ Lobby/springie/Springie/autohost/Polls.cs	2008-12-04 23:34:11 UTC (rev 7122)
+@@ -764,7 +764,7 @@
+ 			string[] vals;
+ 			int[] indexes;
+ 			if (Program.main.PlanetWars.FilterPlanets(words, out vals, out indexes) &gt; 0) {
+-				planet = vals[0];
++				planet = vals[0].Split('|')[0];
+ 				ah.SayBattle(string.Format(&quot;Do you want to change planet to {0}? !vote 1 = yes, !vote 2 = no&quot;, planet));
+ 				return true;
+ 			} else {
+
+Modified: Lobby/springie/Springie/spring/Spring.cs
+===================================================================
+--- Lobby/springie/Springie/spring/Spring.cs	2008-12-04 23:20:57 UTC (rev 7121)
++++ Lobby/springie/Springie/spring/Spring.cs	2008-12-04 23:34:11 UTC (rev 7122)
+@@ -62,7 +62,7 @@
+     {
+         #region Constants
+ 
+-        public const int MaxAllies = 10;
++        public const int MaxAllies = 16;
+         public const int MaxTeams = 32;
+ 
+         #endregion
+
+Modified: Lobby/springie/libs/PlanetWarsShared.dll
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001890.html">[Taspring-linux-commit] r7121 - in branches/caiinterface: .	AI/Interfaces/Java rts/System
+</A></li>
+	<LI>Next message: <A HREF="001892.html">[Taspring-linux-commit] r7123 - in branches/caiinterface: .	rts/System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1891">[ date ]</a>
+              <a href="thread.html#1891">[ thread ]</a>
+              <a href="subject.html#1891">[ subject ]</a>
+              <a href="author.html#1891">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,300 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5803 - in trunk/rts/Sim: Features Units
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5803%20-%20in%20trunk/rts/Sim%3A%20Features%20Units&In-Reply-To=%3C20080429162505.9CC8146D2%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000582.html">
+   <LINK REL="Next"  HREF="000584.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5803 - in trunk/rts/Sim: Features Units</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5803%20-%20in%20trunk/rts/Sim%3A%20Features%20Units&In-Reply-To=%3C20080429162505.9CC8146D2%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5803 - in trunk/rts/Sim: Features Units">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Apr 29 18:25:05 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000582.html">[Taspring-linux-commit] r5802 - in trunk/rts/Sim: MoveTypes Units
+</A></li>
+        <LI>Next message: <A HREF="000584.html">[Taspring-linux-commit] r5804 - trunk/rts/Sim/Units
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#583">[ date ]</a>
+              <a href="thread.html#583">[ thread ]</a>
+              <a href="subject.html#583">[ subject ]</a>
+              <a href="author.html#583">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-04-29 18:25:03 +0200 (Tue, 29 Apr 2008)
+New Revision: 5803
+
+Modified:
+   trunk/rts/Sim/Features/Feature.cpp
+   trunk/rts/Sim/Features/Feature.h
+   trunk/rts/Sim/Features/FeatureHandler.cpp
+   trunk/rts/Sim/Units/Unit.cpp
+   trunk/rts/Sim/Units/Unit.h
+Log:
+follow-up on r5797 (smooth out the transition from unit to wreck)
+
+Modified: trunk/rts/Sim/Features/Feature.cpp
+===================================================================
+--- trunk/rts/Sim/Features/Feature.cpp	2008-04-29 14:23:02 UTC (rev 5802)
++++ trunk/rts/Sim/Features/Feature.cpp	2008-04-29 16:25:03 UTC (rev 5803)
+@@ -389,7 +389,7 @@
+ 
+ void CFeature::Kill(float3&amp; impulse) {
+ 	DamageArray damage;
+-	DoDamage(damage*(health+1), 0, impulse);
++	DoDamage(damage * (health + 1), 0, impulse);
+ }
+ 
+ 
+@@ -468,14 +468,9 @@
+ 	if (createdFromUnit.size() &gt; 0) {
+ 		// we are a wreck of a dead unit
+ 		if (!reachedFinalPos) {
+-			featureHandler-&gt;UpdateDrawQuad(this, pos);
+-
+ 			bool haveForwardSpeed = false;
+ 			bool haveVerticalSpeed = false;
+ 
+-			// FIXME: apparent &quot;delay&quot; between wreck creation
+-			// and visual position update (appears like wreck
+-			// instantly accelerates from standstill)
+ 			if (deathSpeed.SqLength2D() &gt; 0.01f) {
+ 				UnBlock();
+ 				qf-&gt;RemoveFeature(this);
+@@ -519,6 +514,8 @@
+ 			}
+ 
+ 			reachedFinalPos = (!haveForwardSpeed &amp;&amp; !haveVerticalSpeed);
++
++			featureHandler-&gt;UpdateDrawQuad(this, pos);
+ 			CalculateTransform();
+ 		}
+ 	} else {
+
+Modified: trunk/rts/Sim/Features/Feature.h
+===================================================================
+--- trunk/rts/Sim/Features/Feature.h	2008-04-29 14:23:02 UTC (rev 5802)
++++ trunk/rts/Sim/Features/Feature.h	2008-04-29 16:25:03 UTC (rev 5803)
+@@ -91,7 +91,7 @@
+ 	/// the solid object that is on top of the geothermal
+ 	CSolidObject* solidOnTop;
+ 
+-	// initially a copy of CUnit::deathSpeed
++	// initially a copy of CUnit::speed
+ 	float3 deathSpeed;
+ 
+ private:
+
+Modified: trunk/rts/Sim/Features/FeatureHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Features/FeatureHandler.cpp	2008-04-29 14:23:02 UTC (rev 5802)
++++ trunk/rts/Sim/Features/FeatureHandler.cpp	2008-04-29 16:25:03 UTC (rev 5803)
+@@ -455,9 +455,10 @@
+ 	ASSERT_SYNCED_MODE;
+ 	SCOPED_TIMER(&quot;Feature::Update&quot;);
+ 
+-	if ((gs-&gt;frameNum &amp; 31) == 0) {	// let all areareclaimers choose a target with a different id
++	if ((gs-&gt;frameNum &amp; 31) == 0) {
++		// let all areareclaimers choose a target with a different id
+ 		bool dontClear = false;
+-		for (list&lt;int&gt;::iterator it = toBeFreedIDs.begin(); it != toBeFreedIDs.end(); ++it) {
++		for (std::list&lt;int&gt;::iterator it = toBeFreedIDs.begin(); it != toBeFreedIDs.end(); ++it) {
+ 			if (CBuilderCAI::IsFeatureBeingReclaimed(*it)) {
+ 				// postpone recycling
+ 				dontClear = true;
+@@ -619,24 +620,24 @@
+ 
+ void CFeatureDrawer::DrawQuad(int x, int y)
+ {
+-	CFeatureHandler::DrawQuad* dq=&amp;(*drawQuads)[y*drawQuadsX+x];
++	CFeatureHandler::DrawQuad* dq = &amp;(*drawQuads)[y * drawQuadsX + x];
+ 
+ 	for (CFeatureSet::iterator fi = dq-&gt;features.begin(); fi != dq-&gt;features.end(); ++fi) {
+ 		CFeature* f = (*fi);
+ 		const FeatureDef* def = f-&gt;def;
+ 
+-		if((f-&gt;allyteam==-1 || f-&gt;allyteam==gu-&gt;myAllyTeam ||
+-		    loshandler-&gt;InLos(f-&gt;pos,gu-&gt;myAllyTeam) || gu-&gt;spectatingFullView)
+-		   &amp;&amp; def-&gt;drawType==DRAWTYPE_3DO){
+-			if(drawReflection){
++		if ((f-&gt;allyteam == -1 || f-&gt;allyteam == gu-&gt;myAllyTeam ||
++		    loshandler-&gt;InLos(f-&gt;pos, gu-&gt;myAllyTeam) || gu-&gt;spectatingFullView)
++		   &amp;&amp; def-&gt;drawType == DRAWTYPE_3DO) {
++			if (drawReflection) {
+ 				float3 zeroPos;
+-				if(f-&gt;midPos.y&lt;0){
+-					zeroPos=f-&gt;midPos;
+-				}else{
+-					float dif=f-&gt;midPos.y-camera-&gt;pos.y;
+-					zeroPos=camera-&gt;pos*(f-&gt;midPos.y/dif) + f-&gt;midPos*(-camera-&gt;pos.y/dif);
++				if (f-&gt;midPos.y &lt; 0) {
++					zeroPos = f-&gt;midPos;
++				} else {
++					float dif = f-&gt;midPos.y - camera-&gt;pos.y;
++					zeroPos = camera-&gt;pos * (f-&gt;midPos.y / dif) + f-&gt;midPos * (-camera-&gt;pos.y / dif);
+ 				}
+-				if(ground-&gt;GetApproximateHeight(zeroPos.x,zeroPos.z)&gt;f-&gt;radius){
++				if (ground-&gt;GetApproximateHeight(zeroPos.x, zeroPos.z) &gt; f-&gt;radius) {
+ 					continue;
+ 				}
+ 			}
+@@ -645,7 +646,7 @@
+ 					continue;
+ 			}
+ 
+-			float sqDist = (f-&gt;pos-camera-&gt;pos).SqLength2D();
++			float sqDist = (f-&gt;pos - camera-&gt;pos).SqLength2D();
+ 			float farLength = f-&gt;sqRadius * unitDrawDist * unitDrawDist;
+ 
+ 			if (sqDist&lt;farLength) {
+@@ -665,9 +666,9 @@
+ 
+ void CFeatureHandler::DrawRaw(int extraSize, std::vector&lt;CFeature*&gt;* farFeatures)
+ {
+-	float featureDist=3000;
++	float featureDist = 3000;
+ 	if (!extraSize) {
+-		featureDist=6000; //farfeatures wont be drawn for shadowpass anyway
++		featureDist = 6000; //farfeatures wont be drawn for shadowpass anyway
+ 	}
+ 	CFeatureDrawer drawer;
+ 	drawer.drawQuads = &drawQuads;
+
+Modified: trunk/rts/Sim/Units/Unit.cpp
+===================================================================
+--- trunk/rts/Sim/Units/Unit.cpp	2008-04-29 14:23:02 UTC (rev 5802)
++++ trunk/rts/Sim/Units/Unit.cpp	2008-04-29 16:25:03 UTC (rev 5803)
+@@ -237,7 +237,7 @@
+ CUnit::~CUnit()
+ {
+ 	if (delayedWreckLevel &gt;= 0) {
+-		featureHandler-&gt;CreateWreckage(pos, wreckName, heading, buildFacing, delayedWreckLevel, team, -1, true, unitDef-&gt;name, deathSpeed);
++		featureHandler-&gt;CreateWreckage(pos, wreckName, heading, buildFacing, delayedWreckLevel, team, -1, true, unitDef-&gt;name);
+ 	}
+ 
+ 	if (unitDef-&gt;isAirBase) {
+@@ -1604,10 +1604,12 @@
+ 	}
+ }
+ 
++
++
+ // Called when a unit's Killed script finishes executing
+ static void CUnitKilledCB(int retCode, void* p1, void* p2)
+ {
+-	CUnit* self = (CUnit *)p1;
++	CUnit* self = (CUnit *) p1;
+ 	self-&gt;deathScriptFinished = true;
+ 	self-&gt;delayedWreckLevel = retCode;
+ }
+@@ -1620,14 +1622,13 @@
+ 
+ 	if (dynamic_cast&lt;CAirMoveType*&gt;(moveType) &amp;&amp; !beingBuilt) {
+ 		if (unitDef-&gt;canCrash &amp;&amp; !selfDestruct &amp;&amp; !reclaimed &amp;&amp; gs-&gt;randFloat() &gt; recentDamage * 0.7f / maxHealth + 0.2f) {
+-			((CAirMoveType*)moveType)-&gt;SetState(AAirMoveType::AIRCRAFT_CRASHING);
++			((CAirMoveType*) moveType)-&gt;SetState(AAirMoveType::AIRCRAFT_CRASHING);
+ 			health = maxHealth * 0.5f;
+ 			return;
+ 		}
+ 	}
+ 
+ 	isDead = true;
+-	deathSpeed = speed;
+ 
+ 	luaCallIns.UnitDestroyed(this, attacker);
+ 	globalAI-&gt;UnitDestroyed(this, attacker);
+@@ -1676,16 +1677,27 @@
+ 
+ 		UnBlock();
+ 		delayedWreckLevel = args[1];
++
++		if (delayedWreckLevel &gt;= 0 &amp;&amp; speed.SqLength() &gt; 0.01f) {
++			// do this here rather than in ~CUnit to negate the delay
++			// between a unit's end-of-killscript and the creation of
++			// its wreck (since the delay is visually jarring when we
++			// want the wreck to move), also set delayedWreckLevel to
++			// -1 to make sure ~CUnit won't create a second wreck
++			featureHandler-&gt;CreateWreckage(pos, wreckName, heading, buildFacing, delayedWreckLevel, team, -1, true, unitDef-&gt;name, speed);
++			delayedWreckLevel = -1;
++		}
+ 	}
+ 	else {
+-		deathScriptFinished=true;
++		deathScriptFinished = true;
+ 	}
+ 
+ 	if (beingBuilt || dynamic_cast&lt;CAirMoveType*&gt;(moveType) || reclaimed) {
+ 		uh-&gt;DeleteUnit(this);
+-	}
+-	else {
++	} else {
+ 		speed = ZeroVector;
++		// wait at least 5 more frames before
++		// permanently deleting this unit obj
+ 		deathCountdown = 5;
+ 		stunned = true;
+ 		paralyzeDamage = 1000000;
+@@ -1695,6 +1707,8 @@
+ 	}
+ }
+ 
++
++
+ bool CUnit::UseMetal(float metal)
+ {
+ 	if(metal&lt;0){
+
+Modified: trunk/rts/Sim/Units/Unit.h
+===================================================================
+--- trunk/rts/Sim/Units/Unit.h	2008-04-29 14:23:02 UTC (rev 5802)
++++ trunk/rts/Sim/Units/Unit.h	2008-04-29 16:25:03 UTC (rev 5803)
+@@ -149,9 +149,6 @@
+ 	bool upright;						// if the updir is straight up or align to the ground vector
+ 	SyncedFloat3 relMidPos;				// = (midPos - pos)
+ 
+-	float3 deathSpeed;					// speed the unit had at moment of death
+-
+-
+ 	float travel; // total distance the unit has moved
+ 	float travelPeriod; // 0.0f disables travel accumulation
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000582.html">[Taspring-linux-commit] r5802 - in trunk/rts/Sim: MoveTypes Units
+</A></li>
+	<LI>Next message: <A HREF="000584.html">[Taspring-linux-commit] r5804 - trunk/rts/Sim/Units
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#583">[ date ]</a>
+              <a href="thread.html#583">[ thread ]</a>
+              <a href="subject.html#583">[ subject ]</a>
+              <a href="author.html#583">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

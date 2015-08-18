@@ -1,0 +1,1779 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7149 - in trunk/rts: Game/UI Lua Sim/Misc	System
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-December/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7149%20-%20in%20trunk/rts%3A%20Game/UI%20Lua%20Sim/Misc%0A%09System&In-Reply-To=%3C20081207191224.7B1F64768%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001917.html">
+   <LINK REL="Next"  HREF="001919.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7149 - in trunk/rts: Game/UI Lua Sim/Misc	System</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7149%20-%20in%20trunk/rts%3A%20Game/UI%20Lua%20Sim/Misc%0A%09System&In-Reply-To=%3C20081207191224.7B1F64768%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r7149 - in trunk/rts: Game/UI Lua Sim/Misc	System">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Dec  7 20:12:23 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001917.html">[Taspring-linux-commit] r7148 - trunk/rts/Game
+</A></li>
+        <LI>Next message: <A HREF="001919.html">[Taspring-linux-commit] r7150 - in Lobby/springie:	Springie/PlanetWars libs
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1918">[ date ]</a>
+              <a href="thread.html#1918">[ thread ]</a>
+              <a href="subject.html#1918">[ subject ]</a>
+              <a href="author.html#1918">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-12-07 20:12:21 +0100 (Sun, 07 Dec 2008)
+New Revision: 7149
+
+Added:
+   trunk/rts/Sim/Misc/LosMap.cpp
+   trunk/rts/Sim/Misc/LosMap.h
+Modified:
+   trunk/rts/Game/UI/GuiHandler.cpp
+   trunk/rts/Game/UI/MiniMap.cpp
+   trunk/rts/Lua/LuaSyncedCtrl.cpp
+   trunk/rts/Lua/LuaSyncedRead.cpp
+   trunk/rts/Sim/Misc/LosHandler.cpp
+   trunk/rts/Sim/Misc/LosHandler.h
+   trunk/rts/Sim/Misc/RadarHandler.cpp
+   trunk/rts/Sim/Misc/RadarHandler.h
+   trunk/rts/System/Vec2.h
+   trunk/rts/System/float3.cpp
+Log:
+LosHandler &amp; RadarHandler refactor:
+* added CLosMap class that abstracts the vector&lt;ushort&gt; that's used as LOS map everywhere
+  and that implements some code previously duplicated between CLosHandler and CRadarHandler.
+* added CLosAlgorithm that implements the terrain-raycasting LOS algo which was
+  duplicated between CLosHandler and CRadarHandler with slightly different parameters.
+
+(Hint: this makes it easier to implement circular/rectangular/raycasted
+los/airLos/radar/jammer/...)
+
+
+
+
+Modified: trunk/rts/Game/UI/GuiHandler.cpp
+===================================================================
+--- trunk/rts/Game/UI/GuiHandler.cpp	2008-12-07 18:08:03 UTC (rev 7148)
++++ trunk/rts/Game/UI/GuiHandler.cpp	2008-12-07 19:12:21 UTC (rev 7149)
+@@ -1503,7 +1503,7 @@
+ 	return (minV + (factor * (maxV - minV)));
+ }
+ 
+-// CALLINFO: 
++// CALLINFO:
+ // DrawMapStuff --&gt; GetDefaultCommand
+ // CMouseHandler::DrawCursor --&gt; DrawCentroidCursor --&gt; GetDefaultCommand
+ // LuaUnsyncedRead::GetDefaultCommand --&gt; GetDefaultCommand
+@@ -3374,7 +3374,7 @@
+ static inline void DrawSensorRange(int radius,
+                                    const float* color, const float3&amp; pos)
+ {
+-	const int sensorScale = (SQUARE_SIZE * RADAR_SIZE);
++	const int sensorScale = radarhandler-&gt;radarDiv;
+ 	const int realRadius = ((radius / sensorScale) * sensorScale);
+ 	if (realRadius &gt; 0) {
+ 		glColor4fv(color);
+@@ -3479,7 +3479,7 @@
+ 		glDisable(GL_ALPHA_TEST);
+ 	}
+ 
+-	float3 camerapos=camera-&gt;pos; 
++	float3 camerapos=camera-&gt;pos;
+ 	//CCamera tmpcam(*camera);
+ 	//	CCamera *camera=&tmpcam;
+ 	float3 mousedir=mouse-&gt;dir;
+
+Modified: trunk/rts/Game/UI/MiniMap.cpp
+===================================================================
+--- trunk/rts/Game/UI/MiniMap.cpp	2008-12-07 18:08:03 UTC (rev 7148)
++++ trunk/rts/Game/UI/MiniMap.cpp	2008-12-07 19:12:21 UTC (rev 7149)
+@@ -1178,7 +1178,7 @@
+ 
+ 	GML_RECMUTEX_LOCK(sel); // DrawForReal
+ 	// draw unit ranges
+-	const float radarSquare = (SQUARE_SIZE * RADAR_SIZE);
++	const float radarSquare = radarhandler-&gt;radarDiv;
+ 	CUnitSet&amp; selUnits = selectedUnits.selectedUnits;
+ 	for(CUnitSet::iterator si = selUnits.begin(); si != selUnits.end(); ++si) {
+ 		CUnit* unit = *si;
+
+Modified: trunk/rts/Lua/LuaSyncedCtrl.cpp
+===================================================================
+--- trunk/rts/Lua/LuaSyncedCtrl.cpp	2008-12-07 18:08:03 UTC (rev 7148)
++++ trunk/rts/Lua/LuaSyncedCtrl.cpp	2008-12-07 19:12:21 UTC (rev 7149)
+@@ -1714,8 +1714,8 @@
+ 	const string key = luaL_checkstring(L, 2);
+ 	const float radius = luaL_checkfloat(L, 3);
+ 
+-	const int radarDiv    = (SQUARE_SIZE * RADAR_SIZE);
+-	const int radarRadius = (int)(radius / (float)radarDiv);
++	const int radarDiv    = radarhandler-&gt;radarDiv;
++	const int radarRadius = (int)(radius * radarhandler-&gt;invRadarDiv);
+ 
+ 	if (key == &quot;los&quot;) {
+ 		const int losRange = (int)(radius * loshandler-&gt;invLosDiv);
+
+Modified: trunk/rts/Lua/LuaSyncedRead.cpp
+===================================================================
+--- trunk/rts/Lua/LuaSyncedRead.cpp	2008-12-07 18:08:03 UTC (rev 7148)
++++ trunk/rts/Lua/LuaSyncedRead.cpp	2008-12-07 19:12:21 UTC (rev 7149)
+@@ -2311,7 +2311,7 @@
+ 	}
+ 	const string key = luaL_checkstring(L, 2);
+ 
+-	const int radarDiv = (SQUARE_SIZE * RADAR_SIZE);
++	const int radarDiv = radarhandler-&gt;radarDiv;
+ 
+ 	if (key == &quot;los&quot;) {
+ 		lua_pushnumber(L, unit-&gt;losRadius * loshandler-&gt;losDiv);
+
+Modified: trunk/rts/Sim/Misc/LosHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Misc/LosHandler.cpp	2008-12-07 18:08:03 UTC (rev 7148)
++++ trunk/rts/Sim/Misc/LosHandler.cpp	2008-12-07 19:12:21 UTC (rev 7149)
+@@ -25,7 +25,6 @@
+ CR_BIND(LosInstance, );
+ CR_BIND(CLosHandler, );
+ CR_BIND(CLosHandler::DelayedInstance, );
+-CR_BIND(CLosHandler::CPoint, );
+ 
+ CR_REG_METADATA(LosInstance,(
+ //		CR_MEMBER(losSquares),
+@@ -33,10 +32,9 @@
+ 		CR_MEMBER(airLosSize),
+ 		CR_MEMBER(refCount),
+ 		CR_MEMBER(allyteam),
+-		CR_MEMBER(baseX),
+-		CR_MEMBER(baseY),
++		CR_MEMBER(basePos),
+ 		CR_MEMBER(baseSquare),
+-		CR_MEMBER(baseAirSquare),
++		CR_MEMBER(baseAirPos),
+ 		CR_MEMBER(hashNum),
+ 		CR_MEMBER(baseHeight),
+ 		CR_MEMBER(toBeDeleted),
+@@ -48,11 +46,7 @@
+ 	for (int a = 0; a &lt; 2309; ++a)
+ 		for (std::list&lt;LosInstance*&gt;::iterator li = instanceHash[a].begin(); li != instanceHash[a].end(); ++li)
+ 			if ((*li)-&gt;refCount) {
+-				if ((*li)-&gt;baseX-(*li)-&gt;losSize&lt;0 || (*li)-&gt;baseX+(*li)-&gt;losSize&gt;=losSizeX ||
+-				    (*li)-&gt;baseY-(*li)-&gt;losSize&lt;0 || (*li)-&gt;baseY+(*li)-&gt;losSize&gt;=losSizeY)
+-					SafeLosAdd(*li,(*li)-&gt;baseX,(*li)-&gt;baseY);
+-				else
+-					LosAdd(*li);
++				LosAdd(*li);
+ 			}
+ }
+ 
+@@ -61,8 +55,6 @@
+ 		CR_MEMBER(instanceHash),
+ 		CR_MEMBER(toBeDeleted),
+ 		CR_MEMBER(delayQue),
+-//		CR_MEMBER(Points),
+-//		CR_MEMBER(lostables)
+ 		CR_RESERVED(31),
+ 		CR_POSTLOAD(PostLoad)
+ 		));
+@@ -75,6 +67,8 @@
+ 		CR_MEMBER(x),
+ 		CR_MEMBER(y)));
+ */
++
++
+ //////////////////////////////////////////////////////////////////////
+ // Construction/Destruction
+ //////////////////////////////////////////////////////////////////////
+@@ -94,16 +88,14 @@
+ 	airSizeY(std::max(1, gs-&gt;mapy &gt;&gt; airMipLevel)),
+ 	losSizeX(std::max(1, gs-&gt;mapx &gt;&gt; losMipLevel)),
+ 	losSizeY(std::max(1, gs-&gt;mapy &gt;&gt; losMipLevel)),
+-	requireSonarUnderWater(modInfo.requireSonarUnderWater)
++	requireSonarUnderWater(modInfo.requireSonarUnderWater),
++	losAlgo(int2(losSizeX, losSizeY), -1e6f, 15, readmap-&gt;mipHeightmap[losMipLevel])
++	//airAlgo(int2(airSizeX, airSizeY), -1e6f, 15, readmap-&gt;mipHeightmap[airMipLevel])
+ {
+ 	for (int a = 0; a &lt; teamHandler-&gt;ActiveAllyTeams(); ++a) {
+-		losMap[a].resize(losSizeX * losSizeY, 0);
+-		airLosMap[a].resize(airSizeX * airSizeY, 0);
++		losMap[a].SetSize(losSizeX, losSizeY);
++		airLosMap[a].SetSize(airSizeX, airSizeY);
+ 	}
+-
+-	for (int a=1;a&lt;=MAX_LOS_TABLE;++a) {
+-		OutputTable(a);
+-	}
+ }
+ 
+ 
+@@ -124,8 +116,7 @@
+ void CLosHandler::MoveUnit(CUnit *unit, bool redoCurrent)
+ {
+ 	SCOPED_TIMER(&quot;Los&quot;);
+-	float3 losPos = unit-&gt;pos;
+-	losPos.CheckInBounds();
++	const float3&amp; losPos = unit-&gt;pos;
+ 
+ 	const int allyteam = unit-&gt;allyteam;
+ 	unit-&gt;lastLosUpdate = gs-&gt;frameNum;
+@@ -133,12 +124,13 @@
+ 	if (unit-&gt;losRadius &lt;= 0) {
+ 		return;
+ 	}
+-	const int xmap = (int)(losPos.x*invLosDiv);
+-	const int ymap = (int)(losPos.z*invLosDiv);
+-	const int baseSquare = max(0,min(losSizeY-1,(ymap)))*losSizeX + max(0,min(losSizeX-1,xmap));
+-	const int baseX = max(0,min(losSizeX-1,xmap));
+-	const int baseY = max(0,min(losSizeY-1,(ymap)));
+ 
++	const int baseX = max(0, min(losSizeX - 1, (int)(losPos.x * invLosDiv)));
++	const int baseY = max(0, min(losSizeY - 1, (int)(losPos.z * invLosDiv)));
++	const int baseSquare = baseY * losSizeX + baseX;
++	const int baseAirX = max(0, min(airSizeX - 1, (int)(losPos.x * invAirDiv)));
++	const int baseAirY = max(0, min(airSizeY - 1, (int)(losPos.z * invAirDiv)));
++
+ 	LosInstance* instance;
+ 	if (redoCurrent) {
+ 		if (!unit-&gt;los) {
+@@ -147,11 +139,11 @@
+ 		instance = unit-&gt;los;
+ 		CleanupInstance(instance);
+ 		instance-&gt;losSquares.clear();
+-		instance-&gt;baseX = baseX;
+-		instance-&gt;baseY = baseY;
+-		instance-&gt;baseSquare = baseSquare;	//this could be a problem if several units are sharing the same instance
+-		int baseAirSquare = max(0,min(airSizeY-1,((int)(losPos.z*invAirDiv))))*airSizeX + max(0,min(airSizeX-1,(int)(losPos.x*invAirDiv)));
+-		instance-&gt;baseAirSquare = baseAirSquare;
++		instance-&gt;basePos.x = baseX;
++		instance-&gt;basePos.y = baseY;
++		instance-&gt;baseSquare = baseSquare; //this could be a problem if several units are sharing the same instance
++		instance-&gt;baseAirPos.x = baseAirX;
++		instance-&gt;baseAirPos.y = baseAirY;
+ 	} else {
+ 		if (unit-&gt;los &amp;&amp; (unit-&gt;los-&gt;baseSquare == baseSquare)) {
+ 			return;
+@@ -170,17 +162,12 @@
+ 				return;
+ 			}
+ 		}
+-		int baseAirSquare=max(0,min(airSizeY-1,((int)(losPos.z*invAirDiv))))*airSizeX + max(0,min(airSizeX-1,(int)(losPos.x*invAirDiv)));
+-		instance=new(mempool.Alloc(sizeof(LosInstance))) LosInstance(unit-&gt;losRadius,allyteam,baseX,baseY,baseSquare,baseAirSquare,hash,unit-&gt;losHeight,unit-&gt;airLosRadius);
++		instance=new(mempool.Alloc(sizeof(LosInstance))) LosInstance(unit-&gt;losRadius, unit-&gt;airLosRadius, allyteam, int2(baseX,baseY), baseSquare, int2(baseAirX, baseAirY), hash, unit-&gt;losHeight);
+ 		instanceHash[hash].push_back(instance);
+ 		unit-&gt;los=instance;
+ 	}
+-	if (xmap-unit-&gt;losRadius &lt; 0 || xmap+unit-&gt;losRadius &gt;= losSizeX ||
+-	    ymap-unit-&gt;losRadius &lt; 0 || ymap+unit-&gt;losRadius &gt;= losSizeY) {
+-		SafeLosAdd(instance, xmap, ymap);
+-	} else {
+-		LosAdd(instance);
+-	}
++
++	LosAdd(instance);
+ }
+ 
+ 
+@@ -190,320 +177,13 @@
+ 	assert(instance-&gt;allyteam &lt; teamHandler-&gt;ActiveAllyTeams());
+ 	assert(instance-&gt;allyteam &gt;= 0);
+ 
+-	const int allyteam  = instance-&gt;allyteam;
+-	const int mapSquare = instance-&gt;baseSquare;
++	losAlgo.LosAdd(instance-&gt;basePos, instance-&gt;losSize, instance-&gt;baseHeight, instance-&gt;losSquares);
+ 
+-	float* heightmap = readmap-&gt;mipHeightmap[losMipLevel];
+-	vector&lt;unsigned short&gt;* allyLosMap = &amp;losMap[allyteam];
+-
+-	LosAddAir(instance);
+-
+-	const int tablenum = std::min(instance-&gt;losSize, MAX_LOS_TABLE);
+-	LosTable&amp; table = lostables[tablenum - 1];
+-
+-	instance-&gt;losSquares.push_back(mapSquare);
+-	(*allyLosMap)[mapSquare]++;
+-
+-	const float baseHeight = heightmap[mapSquare] + instance-&gt;baseHeight-15;
+-
+-	for(LosTable::iterator li=table.begin();li!=table.end();++li){
+-		LosLine&amp; line=*li;
+-		float maxAng1 = -1e6f;
+-		float maxAng2 = -1e6f;
+-		float maxAng3 = -1e6f;
+-		float maxAng4 = -1e6f;
+-		float r = 1;
+-		for(LosLine::iterator linei=line.begin();linei!=line.end();++linei){
+-			float invR=1.0f/r;
+-			int square=mapSquare + linei-&gt;x + linei-&gt;y*losSizeX;
+-			float dh=heightmap[square] - baseHeight;
+-			float ang=dh*invR;
+-			if(ang&gt;maxAng1){
+-				instance-&gt;losSquares.push_back(square);
+-				(*allyLosMap)[square]++;
+-			}
+-			dh-=15;
+-			ang=dh*invR;
+-			if(ang&gt;maxAng1){
+-				maxAng1=ang;
+-			}
+-
+-			square=mapSquare - linei-&gt;x - linei-&gt;y*losSizeX;
+-			dh=heightmap[square] - baseHeight;
+-			ang=dh*invR;
+-			if(ang&gt;maxAng2){
+-				instance-&gt;losSquares.push_back(square);
+-				(*allyLosMap)[square]++;
+-			}
+-			dh-=15;
+-			ang=dh*invR;
+-			if(ang&gt;maxAng2){
+-				maxAng2=ang;
+-			}
+-
+-			square=mapSquare - linei-&gt;x*losSizeX + linei-&gt;y;
+-			dh=heightmap[square] - baseHeight;
+-			ang=dh*invR;
+-			if(ang&gt;maxAng3){
+-				instance-&gt;losSquares.push_back(square);
+-				(*allyLosMap)[square]++;
+-			}
+-			dh-=15;
+-			ang=dh*invR;
+-			if(ang&gt;maxAng3){
+-				maxAng3=ang;
+-			}
+-
+-			square=mapSquare + linei-&gt;x*losSizeX - linei-&gt;y;
+-			dh=heightmap[square] - baseHeight;
+-			ang=dh*invR;
+-			if(ang&gt;maxAng4){
+-				instance-&gt;losSquares.push_back(square);
+-				(*allyLosMap)[square]++;
+-			}
+-			dh-=15;
+-			ang=dh*invR;
+-			if(ang&gt;maxAng4){
+-				maxAng4=ang;
+-			}
+-			r++;
+-		}
+-	}
++	losMap[instance-&gt;allyteam].AddMapSquares(instance-&gt;losSquares, 1);
++	airLosMap[instance-&gt;allyteam].AddMapArea(instance-&gt;baseAirPos, instance-&gt;airLosSize, 1);
+ }
+ 
+ 
+-void CLosHandler::SafeLosAdd(LosInstance* instance,int xm,int ym)
+-{
+-	int xmap=xm;
+-	int ymap=ym;
+-	const int allyteam=instance-&gt;allyteam;
+-
+-	const int mapSquare=instance-&gt;baseSquare;
+-
+-	float* heightmap = readmap-&gt;mipHeightmap[losMipLevel];
+-	vector&lt;unsigned short&gt;* allyLosMap = &amp;losMap[allyteam];
+-
+-	LosAddAir(instance);
+-
+-	int tablenum=instance-&gt;losSize;
+-	if(tablenum&gt;MAX_LOS_TABLE){
+-		tablenum=MAX_LOS_TABLE;
+-	}
+-	LosTable&amp; table=lostables[tablenum-1];
+-
+-	const float baseHeight = heightmap[mapSquare] + instance-&gt;baseHeight-15;
+-
+-	for (LosTable::iterator li = table.begin(); li != table.end(); ++li) {
+-		LosLine&amp; line = *li;
+-		float maxAng1 = -1e6f;
+-		float maxAng2 = -1e6f;
+-		float maxAng3 = -1e6f;
+-		float maxAng4 = -1e6f;
+-		float r = 1;
+-		instance-&gt;losSquares.push_back(mapSquare);
+-		(*allyLosMap)[mapSquare]++;
+-
+-		for(LosLine::iterator linei=line.begin();linei!=line.end();++linei){
+-			if(xmap+linei-&gt;x&lt;losSizeX &amp;&amp; ymap+linei-&gt;y&lt;losSizeY){
+-				int square=mapSquare+linei-&gt;x+linei-&gt;y*losSizeX;
+-				float dh=heightmap[square] - baseHeight;
+-				float ang=dh/r;
+-				if(ang&gt;maxAng1){
+-					instance-&gt;losSquares.push_back(square);
+-					(*allyLosMap)[square]++;
+-				}
+-				dh-=15;
+-				ang=dh/r;
+-				if(ang&gt;maxAng1){
+-					maxAng1=ang;
+-				}
+-			}
+-			if(xmap-linei-&gt;x&gt;=0 &amp;&amp; ymap-linei-&gt;y&gt;=0){
+-				int square=mapSquare-linei-&gt;x-linei-&gt;y*losSizeX;
+-				float dh=heightmap[square] - baseHeight;
+-				float ang=dh/r;
+-				if(ang&gt;maxAng2){
+-					instance-&gt;losSquares.push_back(square);
+-					(*allyLosMap)[square]++;
+-				}
+-				dh-=15;
+-				ang=dh/r;
+-				if(ang&gt;maxAng2){
+-					maxAng2=ang;
+-				}
+-			}
+-			if(xmap+linei-&gt;y&lt;losSizeX &amp;&amp; ymap-linei-&gt;x&gt;=0){
+-				int square=mapSquare-linei-&gt;x*losSizeX+linei-&gt;y;
+-				float dh=heightmap[square] - baseHeight;
+-				float ang=dh/r;
+-				if(ang&gt;maxAng3){
+-					instance-&gt;losSquares.push_back(square);
+-					(*allyLosMap)[square]++;
+-				}
+-				dh-=15;
+-				ang=dh/r;
+-				if(ang&gt;maxAng3){
+-					maxAng3=ang;
+-				}
+-			}
+-			if(xmap-linei-&gt;y&gt;=0 &amp;&amp; ymap+linei-&gt;x&lt;losSizeY){
+-				int square=mapSquare+linei-&gt;x*losSizeX-linei-&gt;y;
+-				float dh=heightmap[square] - baseHeight;
+-				float ang=dh/r;
+-				if(ang&gt;maxAng4){
+-					instance-&gt;losSquares.push_back(square);
+-					(*allyLosMap)[square]++;
+-				}
+-				dh-=15;
+-				ang=dh/r;
+-				if(ang&gt;maxAng4){
+-					maxAng4=ang;
+-				}
+-			}
+-			r++;
+-		}
+-	}
+-}
+-
+-
+-void CLosHandler::OutputTable(int Table)
+-{
+-	LosTable lostable;
+-
+-	int Radius = Table;
+-	char* PaintTable = SAFE_NEW char[(Radius+1)*Radius];
+-	memset(PaintTable, 0 , (Radius+1)*Radius);
+-	CPoint P;
+-
+-	int x, y, r2;
+-
+-	P.x = 0;
+-	P.y = Radius;
+-	Points.push_front(P);
+-//  DrawLine(0, Radius, Radius);
+-	for(float i=Radius; i&gt;=1; i-=0.5f)
+-	{
+-		r2 = (int)(i * i);
+-
+-		y = (int)i;
+-		x = 1;
+-		y = (int) (sqrt((float)r2 - 1) + 0.5f);
+-		while (x &lt; y) {
+-			if(!PaintTable[x+y*Radius])
+-			{
+-				DrawLine(PaintTable, x, y, Radius);
+-				P.x = x;
+-				P.y = y;
+-				Points.push_back(P);
+-			}
+-			if(!PaintTable[y+x*Radius])
+-			{
+-				DrawLine(PaintTable, y, x, Radius);
+-				P.x = y;
+-				P.y = x;
+-				Points.push_back(P);
+-			}
+-
+-			x += 1;
+-			y = (int) (sqrt((float)r2 - x*x) + 0.5f);
+-		}
+-		if (x == y) {
+-			if(!PaintTable[x+y*Radius])
+-			{
+-				DrawLine(PaintTable, x, y, Radius);
+-				P.x = x;
+-				P.y = y;
+-				Points.push_back(P);
+-			}
+-		}
+-	}
+-
+-	Points.sort();
+-
+-	int Line = 1;
+-	int Size = Points.size();
+-	for(int j=0; j&lt;Size; j++)
+-	{
+-		lostable.push_back(OutputLine(Points.back().x, Points.back().y, Line));
+-		Points.pop_back();
+-		Line++;
+-	}
+-
+-	lostables.push_back(lostable);
+-
+-	delete[] PaintTable;
+-}
+-
+-
+-CLosHandler::LosLine CLosHandler::OutputLine(int x, int y, int Line)
+-{
+-	LosLine losline;
+-
+-	int x0 = 0;
+-	int y0 = 0;
+-	int dx = x;
+-	int dy = y;
+-
+-	if (abs(dx) &gt; abs(dy)) {          // slope &lt;1
+-		float m = (float) dy / (float) dx;      // compute slope
+-		float b = y0 - m*x0;
+-		dx = (dx &lt; 0) ? -1 : 1;
+-		while (x0 != x) {
+-			x0 += dx;
+-			losline.push_back(CPoint(x0,Round(m*x0 + b)));
+-		}
+-	} else
+-		if (dy != 0) {                              // slope = 1
+-			float m = (float) dx / (float) dy;      // compute slope
+-			float b = x0 - m*y0;
+-			dy = (dy &lt; 0) ? -1 : 1;
+-			while (y0 != y) {
+-				y0 += dy;
+-				losline.push_back(CPoint(Round(m*y0 + b),y0));
+-			}
+-		}
+-	return losline;
+-}
+-
+-
+-void CLosHandler::DrawLine(char* PaintTable, int x, int y, int Size)
+-{
+-	int x0 = 0;
+-	int y0 = 0;
+-	int dx = x;
+-	int dy = y;
+-
+-	if (abs(dx) &gt; abs(dy)) {          // slope &lt;1
+-		float m = (float) dy / (float) dx;      // compute slope
+-		float b = y0 - m*x0;
+-		dx = (dx &lt; 0) ? -1 : 1;
+-		while (x0 != x) {
+-			x0 += dx;
+-			PaintTable[x0+Round(m*x0 + b)*Size] = 1;
+-		}
+-	} else {
+-		if (dy != 0) {                              // slope = 1
+-			float m = (float) dx / (float) dy;      // compute slope
+-			float b = x0 - m*y0;
+-			dy = (dy &lt; 0) ? -1 : 1;
+-			while (y0 != y) {
+-				y0 += dy;
+-				PaintTable[Round(m*y0 + b)+y0*Size] = 1;
+-			}
+-		}
+-	}
+-}
+-
+-
+-int CLosHandler::Round(float Num)
+-{
+-  if((Num - (int)Num) &lt;0.5f)
+-    return (int)Num;
+-  else
+-    return (int)Num+1;
+-}
+-
+-
+ void CLosHandler::FreeInstance(LosInstance* instance)
+ {
+ 	if(instance==0)
+@@ -553,12 +233,8 @@
+ 
+ void CLosHandler::AllocInstance(LosInstance* instance)
+ {
+-	if(instance-&gt;refCount==0){
+-		std::vector&lt;int&gt;::iterator lsi;
+-		for(lsi=instance-&gt;losSquares.begin();lsi!=instance-&gt;losSquares.end();++lsi){
+-			++losMap[instance-&gt;allyteam][*lsi];
+-		}
+-		LosAddAir(instance);
++	if (instance-&gt;refCount == 0) {
++		LosAdd(instance);
+ 	}
+ 	instance-&gt;refCount++;
+ }
+@@ -566,60 +242,11 @@
+ 
+ void CLosHandler::CleanupInstance(LosInstance* instance)
+ {
+-	vector&lt;unsigned short&gt;&amp; allyLosMap = losMap[instance-&gt;allyteam];
+-	for(std::vector&lt;int&gt;::iterator lsi=instance-&gt;losSquares.begin();lsi!=instance-&gt;losSquares.end();++lsi){
+-		--allyLosMap[*lsi];
+-	}
+-
+-	int by=(instance-&gt;baseAirSquare/airSizeX);
+-	int bx=(instance-&gt;baseAirSquare-by*airSizeX);
+-
+-	int sx=max(0,bx-instance-&gt;airLosSize);
+-	int ex=min(airSizeX-1,bx+instance-&gt;airLosSize);
+-	int sy=max(0,by-instance-&gt;airLosSize);
+-	int ey=min(airSizeY-1,by+instance-&gt;airLosSize);
+-
+-	int rr=instance-&gt;airLosSize*instance-&gt;airLosSize;
+-	for(int y=sy;y&lt;=ey;++y){
+-		int rrx=rr-(by-y)*(by-y);
+-		for(int x=sx;x&lt;=ex;++x){
+-			if((bx-x)*(bx-x)&lt;=rrx){
+-				--allyLosMap[y*airSizeX+x];
+-			}
+-		}
+-	}
++	losMap[instance-&gt;allyteam].AddMapSquares(instance-&gt;losSquares, -1);
++	airLosMap[instance-&gt;allyteam].AddMapArea(instance-&gt;baseAirPos, instance-&gt;airLosSize, -1);
+ }
+ 
+ 
+-void CLosHandler::LosAddAir(LosInstance* instance)
+-{
+-	/*int by=(instance-&gt;baseSquare/gs-&gt;hmapx);
+-	int bx=(instance-&gt;baseSquare-by*gs-&gt;hmapx)/2;
+-	by/=2;*/
+-	int by=(instance-&gt;baseAirSquare/airSizeX);
+-	int bx=(instance-&gt;baseAirSquare-by*airSizeX);
+-
+-	int sx=max(0,bx-instance-&gt;airLosSize);
+-	int ex=min(airSizeX-1,bx+instance-&gt;airLosSize);
+-	int sy=max(0,by-instance-&gt;airLosSize);
+-	int ey=min(airSizeY-1,by+instance-&gt;airLosSize);
+-
+-	int rr=instance-&gt;airLosSize*instance-&gt;airLosSize;
+-
+-	if (instance-&gt;allyteam &lt; 0)
+-		return;
+-
+-	for(int y=sy;y&lt;=ey;++y){
+-		int rrx=rr-(by-y)*(by-y);
+-		for(int x=sx;x&lt;=ex;++x){
+-			if((bx-x)*(bx-x)&lt;=rrx){
+-				++airLosMap[instance-&gt;allyteam][y*airSizeX+x];
+-			}
+-		}
+-	}
+-}
+-
+-
+ void CLosHandler::Update(void)
+ {
+ 	while(!delayQue.empty() &amp;&amp; delayQue.front().timeoutTime&lt;gs-&gt;frameNum){
+
+Modified: trunk/rts/Sim/Misc/LosHandler.h
+===================================================================
+--- trunk/rts/Sim/Misc/LosHandler.h	2008-12-07 18:08:03 UTC (rev 7148)
++++ trunk/rts/Sim/Misc/LosHandler.h	2008-12-07 19:12:21 UTC (rev 7149)
+@@ -12,27 +12,24 @@
+ #include &quot;Map/Ground.h&quot;
+ #include &quot;Sim/Objects/WorldObject.h&quot;
+ #include &quot;Sim/Units/Unit.h&quot;
+-#include &quot;RadarHandler.h&quot;
++#include &quot;Sim/Misc/RadarHandler.h&quot;
+ #include &lt;assert.h&gt;
+ 
+-#define MAX_LOS_TABLE 110
+ 
+ struct LosInstance : public boost::noncopyable
+ {
+ 	CR_DECLARE_STRUCT(LosInstance);
+  	std::vector&lt;int&gt; losSquares;
+ 	LosInstance() {} // default constructor for creg
+-	LosInstance(int lossize, int allyteam, int baseX, int baseY,
+-	            int baseSquare, int baseAirSquare, int hashNum,
+-	            float baseHeight, int airLosSize)
++	LosInstance(int lossize, int airLosSize, int allyteam, int2 basePos,
++	            int baseSquare, int2 baseAirPos, int hashNum, float baseHeight)
+ 		: losSize(lossize),
+ 			airLosSize(airLosSize),
+ 			refCount(1),
+ 			allyteam(allyteam),
+-			baseX(baseX),
+-			baseY(baseY),
++			basePos(basePos),
+ 			baseSquare(baseSquare),
+-			baseAirSquare(baseAirSquare),
++			baseAirPos(baseAirPos),
+ 			hashNum(hashNum),
+ 			baseHeight(baseHeight),
+ 			toBeDeleted(false) {}
+@@ -40,10 +37,9 @@
+ 	int airLosSize;
+ 	int refCount;
+ 	int allyteam;
+-	int baseX;
+-	int baseY;
++	int2 basePos;
+ 	int baseSquare;
+-	int baseAirSquare;
++	int2 baseAirPos;
+ 	int hashNum;
+ 	float baseHeight;
+ 	bool toBeDeleted;
+@@ -67,20 +63,12 @@
+ 		else if (object-&gt;useAirLos) {
+ 			const int gx = (int)(object-&gt;pos.x * invAirDiv);
+ 			const int gz = (int)(object-&gt;pos.z * invAirDiv);
+-			const int rowIdx = std::max(0, std::min(airSizeY - 1, gz));
+-			const int colIdx = std::max(0, std::min(airSizeX - 1, gx));
+-			const int square = (rowIdx * airSizeX) + colIdx;
+-			assert(static_cast&lt;unsigned&gt;(square) &lt; airLosMap[allyTeam].size());
+-			return !!airLosMap[allyTeam][square];
++			return !!airLosMap[allyTeam].At(gx, gz);
+ 		}
+ 		else {
+ 			const int gx = (int)(object-&gt;pos.x * invLosDiv);
+ 			const int gz = (int)(object-&gt;pos.z * invLosDiv);
+-			const int rowIdx = std::max(0, std::min(losSizeY - 1, gz));
+-			const int colIdx = std::max(0, std::min(losSizeX - 1, gx));
+-			const int square = (rowIdx * losSizeX) + colIdx;
+-			assert(static_cast&lt;unsigned&gt;(square) &lt; losMap[allyTeam].size());
+-			return !!losMap[allyTeam][square];
++			return !!losMap[allyTeam].At(gx, gz);
+ 		}
+ 	}
+ 
+@@ -98,11 +86,7 @@
+ 		else if (unit-&gt;useAirLos) {
+ 			const int gx = (int)(unit-&gt;pos.x * invAirDiv);
+ 			const int gz = (int)(unit-&gt;pos.z * invAirDiv);
+-			const int rowIdx = std::max(0, std::min(airSizeY - 1, gz));
+-			const int colIdx = std::max(0, std::min(airSizeX - 1, gx));
+-			const int square = (rowIdx * airSizeX) + colIdx;
+-			assert(static_cast&lt;unsigned&gt;(square) &lt; airLosMap[allyTeam].size());
+-			return !!airLosMap[allyTeam][square];
++			return !!airLosMap[allyTeam].At(gx, gz);
+ 		}
+ 		else {
+ 			if (unit-&gt;isUnderWater &amp;&amp; requireSonarUnderWater &amp;&amp;
+@@ -111,11 +95,7 @@
+ 			}
+ 			const int gx = (int)(unit-&gt;pos.x * invLosDiv);
+ 			const int gz = (int)(unit-&gt;pos.z * invLosDiv);
+-			const int rowIdx = std::max(0, std::min(losSizeY - 1, gz));
+-			const int colIdx = std::max(0, std::min(losSizeX - 1, gx));
+-			const int square = (rowIdx * losSizeX) + colIdx;
+-			assert(static_cast&lt;unsigned&gt;(square) &lt; losMap[allyTeam].size());
+-			return !!losMap[allyTeam][square];
++			return !!losMap[allyTeam].At(gx, gz);
+ 		}
+ 	}
+ 
+@@ -123,32 +103,26 @@
+ 		if (gs-&gt;globalLOS) {
+ 			return true;
+ 		}
+-		pos.CheckInBounds();
+-		const int square = ((int)(pos.z * invLosDiv)) * losSizeX
+-		                 + ((int)(pos.x * invLosDiv));
+-		assert(static_cast&lt;unsigned&gt;(square) &lt; losMap[allyTeam].size());
+-		return !!losMap[allyTeam][square];
++		const int gx = (int)(pos.x * invLosDiv);
++		const int gz = (int)(pos.z * invLosDiv);
++		return !!losMap[allyTeam].At(gx, gz);
+ 	}
+ 
+ 	bool InAirLos(float3 pos, int allyTeam) {
+ 		if (gs-&gt;globalLOS) {
+ 			return true;
+ 		}
+-		pos.CheckInBounds();
+-		const int square = ((int)(pos.z * invAirDiv)) * airSizeX
+-		                 + ((int)(pos.x * invAirDiv));
+-		assert(static_cast&lt;unsigned&gt;(square) &lt; airLosMap[allyTeam].size());
+-		return !!airLosMap[allyTeam][square];
++		const int gx = (int)(pos.x * invAirDiv);
++		const int gz = (int)(pos.z * invAirDiv);
++		return !!airLosMap[allyTeam].At(gx, gz);
+ 	}
+ 
+ 	CLosHandler();
+ 	~CLosHandler();
+ 
+-	vector&lt;unsigned short&gt; losMap[MAX_TEAMS];
+-	vector&lt;unsigned short&gt; airLosMap[MAX_TEAMS];
++	CLosMap losMap[MAX_TEAMS];
++	CLosMap airLosMap[MAX_TEAMS];
+ 
+-	friend class CRadarHandler;
+-
+ 	const int losMipLevel;
+ 	const int airMipLevel;
+ 	const int losDiv;
+@@ -163,15 +137,14 @@
+ 	const bool requireSonarUnderWater;
+ 
+ private:
+-
+ 	void PostLoad();
+-	void SafeLosAdd(LosInstance* instance,int xm,int ym);
+ 	void LosAdd(LosInstance* instance);
+ 	int GetHashNum(CUnit* unit);
+ 	void AllocInstance(LosInstance* instance);
+ 	void CleanupInstance(LosInstance* instance);
+-	void LosAddAir(LosInstance* instance);
+ 
++	CLosAlgorithm losAlgo;
++
+ 	std::list&lt;LosInstance*&gt; instanceHash[2309+1];
+ 
+ 	std::deque&lt;LosInstance*&gt; toBeDeleted;
+@@ -184,35 +157,6 @@
+ 
+ 	std::deque&lt;DelayedInstance&gt; delayQue;
+ 
+-	struct CPoint {
+-		CR_DECLARE_STRUCT(CPoint);
+-
+-		CPoint(){};
+-		CPoint(int x,int y):x(x),y(y){};
+-
+-		int x;
+-		int y;
+-
+-		int operator &lt; (const CPoint &amp;a) const
+-		{
+-			if(x!=a.x)
+-				return x&lt;a.x;
+-			else
+-				return y&lt;a.y;
+-		}
+-	};
+-	typedef std::list&lt;CPoint&gt; TPoints;
+-	TPoints Points;
+-
+-	typedef std::vector&lt;CPoint&gt; LosLine;
+-	typedef std::vector&lt;LosLine&gt; LosTable;
+-
+-	std::vector&lt;LosTable&gt; lostables;
+-
+-	int Round(float num);
+-	void DrawLine(char* PaintTable, int x,int y,int Size);
+-	LosLine OutputLine(int x,int y,int line);
+-	void OutputTable(int table);
+ public:
+ 	void Update(void);
+ 	void DelayedFreeInstance(LosInstance* instance);
+
+Added: trunk/rts/Sim/Misc/LosMap.cpp
+===================================================================
+--- trunk/rts/Sim/Misc/LosMap.cpp	                        (rev 0)
++++ trunk/rts/Sim/Misc/LosMap.cpp	2008-12-07 19:12:21 UTC (rev 7149)
+@@ -0,0 +1,335 @@
++/* Author: Tobi Vollebregt */
++/* based on original los code in LosHandler.{cpp,h} and RadarHandler.{cpp,h} */
++
++#include &quot;StdAfx.h&quot;
++#include &quot;LosMap.h&quot;
++#include &quot;float3.h&quot;
++#include &lt;algorithm&gt;
++
++
++//////////////////////////////////////////////////////////////////////
++
++
++void CLosMap::SetSize(int2 newSize)
++{
++	size = newSize;
++	map.clear();
++	map.resize(size.x * size.y, 0);
++}
++
++
++void CLosMap::AddMapArea(int2 pos, int radius, int amount)
++{
++	const int sx = std::max(0, pos.x - radius);
++	const int ex = std::min(size.x - 1, pos.x + radius);
++	const int sy = std::max(0, pos.y - radius);
++	const int ey = std::min(size.y - 1, pos.y + radius);
++
++	const int rr = (radius * radius);
++
++	for (int y = sy; y &lt;= ey; ++y) {
++		const int rrx = rr - ((pos.y - y) * (pos.y - y));
++		for (int x = sx; x &lt;= ex; ++x) {
++			if (((pos.x - x) * (pos.x - x)) &lt;= rrx) {
++				map[(y * size.x) + x] += amount;
++			}
++		}
++	}
++}
++
++
++void CLosMap::AddMapSquares(const std::vector&lt;int&gt;&amp; squares, int amount)
++{
++	std::vector&lt;int&gt;::const_iterator lsi;
++	for (lsi = squares.begin(); lsi != squares.end(); ++lsi) {
++		map[*lsi] += amount;
++	}
++}
++
++
++//////////////////////////////////////////////////////////////////////
++namespace {
++//////////////////////////////////////////////////////////////////////
++
++
++#define MAX_LOS_TABLE 110
++
++typedef std::vector&lt;int2&gt; TPoints;
++typedef std::vector&lt;int2&gt; LosLine;
++typedef std::vector&lt;LosLine&gt; LosTable;
++
++
++class CLosTables
++{
++public:
++	static const LosTable&amp; GetForLosSize(int losSize) {
++		static CLosTables instance;
++		const int tablenum = std::min(MAX_LOS_TABLE, losSize);
++		return instance.lostables[tablenum - 1];
++	}
++
++private:
++	std::vector&lt;LosTable&gt; lostables;
++
++	CLosTables();
++	int Round(float num);
++	void DrawLine(char* PaintTable, int x,int y,int Size);
++	LosLine OutputLine(int x,int y,int line);
++	void OutputTable(int table);
++};
++
++
++CLosTables::CLosTables()
++{
++	for (int a = 1; a &lt;= MAX_LOS_TABLE; ++a) {
++		OutputTable(a);
++	}
++}
++
++
++struct int2_comparer
++{
++	bool operator () (const int2&amp; a, const int2&amp; b) const
++	{
++		if (a.x != b.x)
++			return a.x &lt; b.x;
++		else
++			return a.y &lt; b.y;
++	}
++};
++
++
++void CLosTables::OutputTable(int Table)
++{
++	TPoints Points;
++	LosTable lostable;
++
++	int Radius = Table;
++	char* PaintTable = SAFE_NEW char[(Radius+1)*Radius];
++	memset(PaintTable, 0 , (Radius+1)*Radius);
++	int2 P;
++
++	int x, y, r2;
++
++	P.x = 0;
++	P.y = Radius;
++	Points.push_back(P);
++//  DrawLine(0, Radius, Radius);
++	for(float i=Radius; i&gt;=1; i-=0.5f) {
++		r2 = (int)(i * i);
++
++		y = (int)i;
++		x = 1;
++		y = (int) (sqrt((float)r2 - 1) + 0.5f);
++		while (x &lt; y) {
++			if(!PaintTable[x+y*Radius]) {
++				DrawLine(PaintTable, x, y, Radius);
++				P.x = x;
++				P.y = y;
++				Points.push_back(P);
++			}
++			if(!PaintTable[y+x*Radius]) {
++				DrawLine(PaintTable, y, x, Radius);
++				P.x = y;
++				P.y = x;
++				Points.push_back(P);
++			}
++
++			x += 1;
++			y = (int) (sqrt((float)r2 - x*x) + 0.5f);
++		}
++		if (x == y) {
++			if(!PaintTable[x+y*Radius]) {
++				DrawLine(PaintTable, x, y, Radius);
++				P.x = x;
++				P.y = y;
++				Points.push_back(P);
++			}
++		}
++	}
++
++	std::sort(Points.begin(), Points.end(), int2_comparer());
++
++	int Line = 1;
++	int Size = Points.size();
++	for(int j=0; j&lt;Size; j++) {
++		lostable.push_back(OutputLine(Points.back().x, Points.back().y, Line));
++		Points.pop_back();
++		Line++;
++	}
++
++	lostables.push_back(lostable);
++
++	delete[] PaintTable;
++}
++
++
++LosLine CLosTables::OutputLine(int x, int y, int Line)
++{
++	LosLine losline;
++
++	int x0 = 0;
++	int y0 = 0;
++	int dx = x;
++	int dy = y;
++
++	if (abs(dx) &gt; abs(dy)) {                    // slope &lt;1
++		float m = (float) dy / (float) dx;      // compute slope
++		float b = y0 - m*x0;
++		dx = (dx &lt; 0) ? -1 : 1;
++		while (x0 != x) {
++			x0 += dx;
++			losline.push_back(int2(x0, Round(m*x0 + b)));
++		}
++	} else if (dy != 0) {                       // slope = 1
++		float m = (float) dx / (float) dy;      // compute slope
++		float b = x0 - m*y0;
++		dy = (dy &lt; 0) ? -1 : 1;
++		while (y0 != y) {
++			y0 += dy;
++			losline.push_back(int2(Round(m*y0 + b), y0));
++		}
++	}
++	return losline;
++}
++
++
++void CLosTables::DrawLine(char* PaintTable, int x, int y, int Size)
++{
++	int x0 = 0;
++	int y0 = 0;
++	int dx = x;
++	int dy = y;
++
++	if (abs(dx) &gt; abs(dy)) {                    // slope &lt;1
++		float m = (float) dy / (float) dx;      // compute slope
++		float b = y0 - m*x0;
++		dx = (dx &lt; 0) ? -1 : 1;
++		while (x0 != x) {
++			x0 += dx;
++			PaintTable[x0+Round(m*x0 + b)*Size] = 1;
++		}
++	} else if (dy != 0) {                       // slope = 1
++		float m = (float) dx / (float) dy;      // compute slope
++		float b = x0 - m*y0;
++		dy = (dy &lt; 0) ? -1 : 1;
++		while (y0 != y) {
++			y0 += dy;
++			PaintTable[Round(m*y0 + b)+y0*Size] = 1;
++		}
++	}
++}
++
++
++int CLosTables::Round(float Num)
++{
++	if ((Num - (int)Num) &lt; 0.5f)
++		return (int)Num;
++	else
++		return (int)Num+1;
++}
++
++
++//////////////////////////////////////////////////////////////////////
++}; // end of anon namespace
++//////////////////////////////////////////////////////////////////////
++
++
++void CLosAlgorithm::LosAdd(int2 pos, int radius, float baseHeight, std::vector&lt;int&gt;&amp; squares)
++{
++	pos.x = std::max(0, std::min(size.x - 1, pos.x));
++	pos.y = std::max(0, std::min(size.y - 1, pos.y));
++
++	if ((pos.x - radius &lt; 0) || (pos.x + radius &gt;= size.x) ||
++	    (pos.y - radius &lt; 0) || (pos.y + radius &gt;= size.y)) {
++		SafeLosAdd(pos, radius, baseHeight, squares);
++	} else {
++		UnsafeLosAdd(pos, radius, baseHeight, squares);
++	}
++}
++
++
++#define MAP_SQUARE(pos) \
++	((pos).y * size.x + (pos).x)
++
++#define LOS_ADD(_square, _maxAng) \
++	{ \
++		const int square = _square; \
++		const float dh = heightmap[square] - baseHeight; \
++		float ang = (dh + extraHeight) * invR; \
++		if(ang &gt; _maxAng) { \
++			squares.push_back(square); \
++			ang = dh * invR; \
++			if(ang &gt; _maxAng) _maxAng = ang; \
++		} \
++	}
++
++
++void CLosAlgorithm::UnsafeLosAdd(int2 pos, int radius, float baseHeight, std::vector&lt;int&gt;&amp; squares)
++{
++	const int mapSquare = MAP_SQUARE(pos);
++	const LosTable&amp; table = CLosTables::GetForLosSize(radius);
++
++	baseHeight += heightmap[mapSquare];
++
++	squares.push_back(mapSquare);
++
++	for(LosTable::const_iterator li = table.begin(); li != table.end(); ++li) {
++		const LosLine&amp; line = *li;
++		float maxAng1 = minMaxAng;
++		float maxAng2 = minMaxAng;
++		float maxAng3 = minMaxAng;
++		float maxAng4 = minMaxAng;
++		float r = 1;
++
++		for(LosLine::const_iterator linei = line.begin(); linei != line.end(); ++linei) {
++			const float invR = 1.0f / r;
++
++			LOS_ADD(mapSquare + linei-&gt;x + linei-&gt;y * size.x, maxAng1);
++			LOS_ADD(mapSquare - linei-&gt;x - linei-&gt;y * size.x, maxAng2);
++			LOS_ADD(mapSquare - linei-&gt;x * size.x + linei-&gt;y, maxAng3);
++			LOS_ADD(mapSquare + linei-&gt;x * size.x - linei-&gt;y, maxAng4);
++
++			r++;
++		}
++	}
++}
++
++
++void CLosAlgorithm::SafeLosAdd(int2 pos, int radius, float baseHeight, std::vector&lt;int&gt;&amp; squares)
++{
++	const int mapSquare = MAP_SQUARE(pos);
++	const LosTable&amp; table = CLosTables::GetForLosSize(radius);
++
++	baseHeight += heightmap[mapSquare];
++
++	squares.push_back(mapSquare);
++
++	for (LosTable::const_iterator li = table.begin(); li != table.end(); ++li) {
++		const LosLine&amp; line = *li;
++		float maxAng1 = minMaxAng;
++		float maxAng2 = minMaxAng;
++		float maxAng3 = minMaxAng;
++		float maxAng4 = minMaxAng;
++		float r = 1;
++
++		for(LosLine::const_iterator linei = line.begin(); linei != line.end(); ++linei) {
++			const float invR = 1.0f / r;
++
++			if ((pos.x + linei-&gt;x &lt; size.x) &amp;&amp; (pos.y + linei-&gt;y &lt; size.y)) {
++				LOS_ADD(mapSquare + linei-&gt;x + linei-&gt;y * size.x, maxAng1);
++			}
++			if ((pos.x - linei-&gt;x &gt;= 0) &amp;&amp; (pos.y - linei-&gt;y &gt;= 0)) {
++				LOS_ADD(mapSquare - linei-&gt;x - linei-&gt;y * size.x, maxAng2);
++			}
++			if ((pos.x + linei-&gt;y &lt; size.x) &amp;&amp; (pos.y - linei-&gt;x &gt;= 0)) {
++				LOS_ADD(mapSquare - linei-&gt;x * size.x + linei-&gt;y, maxAng3);
++			}
++			if ((pos.x - linei-&gt;y &gt;= 0) &amp;&amp; (pos.y + linei-&gt;x &lt; size.y)) {
++				LOS_ADD(mapSquare + linei-&gt;x * size.x - linei-&gt;y, maxAng4);
++			}
++
++			r++;
++		}
++	}
++}
+
+Added: trunk/rts/Sim/Misc/LosMap.h
+===================================================================
+--- trunk/rts/Sim/Misc/LosMap.h	                        (rev 0)
++++ trunk/rts/Sim/Misc/LosMap.h	2008-12-07 19:12:21 UTC (rev 7149)
+@@ -0,0 +1,63 @@
++/* Author: Tobi Vollebregt */
++/* based on original los code in LosHandler.{cpp,h} and RadarHandler.{cpp,h} */
++
++#ifndef LOSMAP_H
++#define LOSMAP_H
++
++#include &lt;vector&gt;
++#include &quot;Vec2.h&quot;
++
++
++/// map containing counts of how many units have Line Of Sight (LOS) to each square
++class CLosMap
++{
++public:
++	CLosMap() : size(0, 0) {}
++
++	void SetSize(int2 size);
++	void SetSize(int w, int h) { SetSize(int2(w, h)); }
++
++	/// circular area, for airLosMap, circular radar maps, jammer maps, ...
++	void AddMapArea(int2 pos, int radius, int amount);
++
++	/// arbitrary area, for losMap, non-circular radar maps, ...
++	void AddMapSquares(const std::vector&lt;int&gt;&amp; squares, int amount);
++
++	int operator[] (int square) const { return map[square]; }
++
++	int At(int x, int y) const {
++		x = std::max(0, std::min(size.x - 1, x));
++		y = std::max(0, std::min(size.y - 1, y));
++		return map[y * size.x + x];
++	}
++
++	// temp fix for CBaseGroundDrawer and AI interface, which need raw data
++	unsigned short&amp; front() { return map.front(); }
++
++protected:
++
++	int2 size;
++	std::vector&lt;unsigned short&gt; map;
++};
++
++
++/// algorithm to calculate LOS squares using raycasting, taking terrain into account
++class CLosAlgorithm
++{
++public:
++	CLosAlgorithm(int2 size, float minMaxAng, float extraHeight, const float* heightmap)
++	: size(size), minMaxAng(minMaxAng), extraHeight(extraHeight), heightmap(heightmap) {}
++
++	void LosAdd(int2 pos, int radius, float baseHeight, std::vector&lt;int&gt;&amp; squares);
++
++private:
++	void UnsafeLosAdd(int2 pos, int radius, float baseHeight, std::vector&lt;int&gt;&amp; squares);
++	void SafeLosAdd(int2 pos, int radius, float baseHeight, std::vector&lt;int&gt;&amp; squares);
++
++	const int2 size;
++	const float minMaxAng;
++	const float extraHeight;
++	const float* const heightmap;
++};
++
++#endif
+
+Modified: trunk/rts/Sim/Misc/RadarHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Misc/RadarHandler.cpp	2008-12-07 18:08:03 UTC (rev 7148)
++++ trunk/rts/Sim/Misc/RadarHandler.cpp	2008-12-07 19:12:21 UTC (rev 7149)
+@@ -15,7 +15,7 @@
+ 	CR_SERIALIZER(Serialize),
+ 	// radarMaps, airRadarMaps, sonarMaps, jammerMaps, sonarJammerMaps,
+ 	// seismicMaps, commonJammerMap, commonSonarJammerMap
+-	CR_MEMBER(circularRadar),
++	//CR_MEMBER(circularRadar),
+ 	CR_MEMBER(radarErrorSize),
+ 	CR_MEMBER(baseRadarErrorSize),
+ 	CR_MEMBER(xsize),
+@@ -32,7 +32,7 @@
+ {
+ 	const int size = xsize*zsize*2;
+ 
+-	// NOTE This could be tricky if gs is serialized after radarHandler.
++	// NOTE This could be tricky if teamHandler is serialized after radarHandler.
+ 	for (int a = 0; a &lt; teamHandler-&gt;ActiveAllyTeams(); ++a) {
+ 		s.Serialize(&amp;radarMaps[a].front(), size);
+ 		if (!circularRadar) {
+@@ -51,25 +51,27 @@
+ 
+ 
+ CRadarHandler::CRadarHandler(bool circularRadar)
+-: circularRadar(circularRadar),
++: radarMipLevel(3),
++  radarDiv(SQUARE_SIZE * (1 &lt;&lt; radarMipLevel)),
++  invRadarDiv(1.0f / radarDiv),
++  circularRadar(circularRadar),
+   baseRadarErrorSize(96),
+-  xsize(gs-&gt;mapx / RADAR_SIZE),
+-  zsize(gs-&gt;mapy / RADAR_SIZE),
+-  targFacEffect(2)
++  xsize(std::max(1, gs-&gt;mapx &gt;&gt; radarMipLevel)),
++  zsize(std::max(1, gs-&gt;mapy &gt;&gt; radarMipLevel)),
++  targFacEffect(2),
++  radarAlgo(int2(xsize, zsize), -1000, 20, readmap-&gt;mipHeightmap[radarMipLevel])
+ {
+-	const int size = xsize * zsize;
++	commonJammerMap.SetSize(xsize, zsize);
++	commonSonarJammerMap.SetSize(xsize, zsize);
+ 
+-	commonJammerMap.resize(size, 0);
+-	commonSonarJammerMap.resize(size, 0);
+-
+ 	for (int a = 0; a &lt; teamHandler-&gt;ActiveAllyTeams(); ++a) {
+-		radarMaps[a].resize(size, 0);
+-		sonarMaps[a].resize(size, 0);
+-		seismicMaps[a].resize(size, 0);
+-		airRadarMaps[a].resize(size, 0);
+-		jammerMaps[a].resize(size, 0);
++		radarMaps[a].SetSize(xsize, zsize);
++		sonarMaps[a].SetSize(xsize, zsize);
++		seismicMaps[a].SetSize(xsize, zsize);
++		airRadarMaps[a].SetSize(xsize, zsize);
++		jammerMaps[a].SetSize(xsize, zsize);
+ #ifdef SONAR_JAMMER_MAPS
+-		sonarJammerMaps[a].resize(size, 0);
++		sonarJammerMaps[a].SetSize(xsize, zsize);
+ #endif
+ 		radarErrorSize[a] = 96;
+ 	}
+@@ -85,34 +87,35 @@
+ void CRadarHandler::MoveUnit(CUnit* unit)
+ {
+ 	int2 newPos;
+-	newPos.x = (int) (unit-&gt;pos.x / (SQUARE_SIZE * RADAR_SIZE));
+-	newPos.y = (int) (unit-&gt;pos.z / (SQUARE_SIZE * RADAR_SIZE));
++	newPos.x = (int) (unit-&gt;pos.x * invRadarDiv);
++	newPos.y = (int) (unit-&gt;pos.z * invRadarDiv);
+ 
+ 	if ((newPos.x != unit-&gt;oldRadarPos.x) ||
+ 	    (newPos.y != unit-&gt;oldRadarPos.y)) {
+ 		RemoveUnit(unit);
+ 		SCOPED_TIMER(&quot;Radar&quot;);
+ 		if (unit-&gt;jammerRadius) {
+-			AddMapArea(newPos, unit-&gt;jammerRadius, jammerMaps[unit-&gt;allyteam], 1);
+-			AddMapArea(newPos, unit-&gt;jammerRadius, commonJammerMap, 1);
++			jammerMaps[unit-&gt;allyteam].AddMapArea(newPos, unit-&gt;jammerRadius, 1);
++			commonJammerMap.AddMapArea(newPos, unit-&gt;jammerRadius, 1);
+ 		}
+ 		if (unit-&gt;sonarJamRadius) {
+ #ifdef SONAR_JAMMER_MAPS
+-			AddMapArea(newPos, unit-&gt;sonarJamRadius, sonarJammerMaps[unit-&gt;allyteam], 1);
++			sonarJammerMaps[unit-&gt;allyteam].AddMapArea(newPos, unit-&gt;sonarJamRadius, 1);
+ #endif
+-			AddMapArea(newPos, unit-&gt;sonarJamRadius, commonSonarJammerMap, 1);
++			commonSonarJammerMap.AddMapArea(newPos, unit-&gt;sonarJamRadius, 1);
+ 		}
+ 		if (unit-&gt;radarRadius) {
+-			AddMapArea(newPos, unit-&gt;radarRadius, airRadarMaps[unit-&gt;allyteam], 1);
++			airRadarMaps[unit-&gt;allyteam].AddMapArea(newPos, unit-&gt;radarRadius, 1);
+ 			if (!circularRadar) {
+-				SafeLosRadarAdd(unit);
++				radarAlgo.LosAdd(newPos, unit-&gt;radarRadius, unit-&gt;model-&gt;height, unit-&gt;radarSquares);
++				radarMaps[unit-&gt;allyteam].AddMapSquares(unit-&gt;radarSquares, 1);
+ 			}
+ 		}
+ 		if (unit-&gt;sonarRadius) {
+-			AddMapArea(newPos, unit-&gt;sonarRadius, sonarMaps[unit-&gt;allyteam], 1);
++			sonarMaps[unit-&gt;allyteam].AddMapArea(newPos, unit-&gt;sonarRadius, 1);
+ 		}
+ 		if (unit-&gt;seismicRadius) {
+-			AddMapArea(newPos, unit-&gt;seismicRadius, seismicMaps[unit-&gt;allyteam], 1);
++			seismicMaps[unit-&gt;allyteam].AddMapArea(newPos, unit-&gt;seismicRadius, 1);
+ 		}
+ 		unit-&gt;oldRadarPos = newPos;
+ 	}
+@@ -125,150 +128,28 @@
+ 
+ 	if (unit-&gt;oldRadarPos.x &gt;= 0) {
+ 		if (unit-&gt;jammerRadius) {
+-			AddMapArea(unit-&gt;oldRadarPos, unit-&gt;jammerRadius, jammerMaps[unit-&gt;allyteam], -1);
+-			AddMapArea(unit-&gt;oldRadarPos, unit-&gt;jammerRadius, commonJammerMap, -1);
++			jammerMaps[unit-&gt;allyteam].AddMapArea(unit-&gt;oldRadarPos, unit-&gt;jammerRadius, -1);
++			commonJammerMap.AddMapArea(unit-&gt;oldRadarPos, unit-&gt;jammerRadius, -1);
+ 		}
+ 		if (unit-&gt;sonarJamRadius) {
+ #ifdef SONAR_JAMMER_MAPS
+-			AddMapArea(unit-&gt;oldRadarPos, unit-&gt;sonarJamRadius, sonarJammerMaps[unit-&gt;allyteam], -1);
++			sonarJammerMaps[unit-&gt;allyteam].AddMapArea(unit-&gt;oldRadarPos, unit-&gt;sonarJamRadius, -1);
+ #endif
+-			AddMapArea(unit-&gt;oldRadarPos, unit-&gt;sonarJamRadius, commonSonarJammerMap, -1);
++			commonSonarJammerMap.AddMapArea(unit-&gt;oldRadarPos, unit-&gt;sonarJamRadius, -1);
+ 		}
+ 		if (unit-&gt;radarRadius) {
+-			AddMapArea(unit-&gt;oldRadarPos, unit-&gt;radarRadius, airRadarMaps[unit-&gt;allyteam], -1);
++			airRadarMaps[unit-&gt;allyteam].AddMapArea(unit-&gt;oldRadarPos, unit-&gt;radarRadius, -1);
+ 			if (!circularRadar) {
+-				for(std::vector&lt;int&gt;::iterator ri = unit-&gt;radarSquares.begin(); ri != unit-&gt;radarSquares.end(); ++ri) {
+-					--radarMaps[unit-&gt;allyteam][*ri];
+-				}
++				radarMaps[unit-&gt;allyteam].AddMapSquares(unit-&gt;radarSquares, -1);
+ 				unit-&gt;radarSquares.clear();
+ 			}
+ 		}
+ 		if (unit-&gt;sonarRadius) {
+-			AddMapArea(unit-&gt;oldRadarPos, unit-&gt;sonarRadius, sonarMaps[unit-&gt;allyteam], -1);
++			sonarMaps[unit-&gt;allyteam].AddMapArea(unit-&gt;oldRadarPos, unit-&gt;sonarRadius, -1);
+ 		}
+ 		if (unit-&gt;seismicRadius) {
+-			AddMapArea(unit-&gt;oldRadarPos, unit-&gt;seismicRadius, seismicMaps[unit-&gt;allyteam], -1);
++			seismicMaps[unit-&gt;allyteam].AddMapArea(unit-&gt;oldRadarPos, unit-&gt;seismicRadius, -1);
+ 		}
+ 		unit-&gt;oldRadarPos.x = -1;
+ 	}
+ }
+-
+-
+-void CRadarHandler::AddMapArea(int2 pos, int radius, std::vector&lt;unsigned short&gt;&amp; map, int amount)
+-{
+-	const int sx = std::max(0, pos.x - radius);
+-	const int ex = std::min(xsize - 1, pos.x + radius);
+-	const int sy = std::max(0, pos.y - radius);
+-	const int ey = std::min(zsize - 1, pos.y + radius);
+-
+-	const int rr = (radius * radius);
+-
+-	for (int y = sy; y &lt;= ey; ++y) {
+-		const int rrx = rr - ((pos.y - y) * (pos.y - y));
+-		for (int x = sx; x &lt;= ex; ++x) {
+-			if (((pos.x - x) * (pos.x - x)) &lt;= rrx) {
+-				map[(y * xsize) + x] += amount;
+-			}
+-		}
+-	}
+-}
+-
+-
+-void CRadarHandler::SafeLosRadarAdd(CUnit* unit)
+-{
+-	float3 pos = unit-&gt;pos;
+-	pos.CheckInBounds();
+-	int xradar = (int) (pos.x / (SQUARE_SIZE * RADAR_SIZE));
+-	int yradar = (int) (pos.z / (SQUARE_SIZE * RADAR_SIZE));
+-	int xmap = (int) (pos.x / (SQUARE_SIZE * 2));
+-	int ymap = (int) (pos.z / (SQUARE_SIZE * 2));
+-	int allyteam = unit-&gt;allyteam;
+-
+-	int tablenum = unit-&gt;radarRadius;
+-	if (tablenum &gt; MAX_LOS_TABLE) {
+-		tablenum = MAX_LOS_TABLE;
+-	}
+-	CLosHandler::LosTable&amp; table = loshandler-&gt;lostables[tablenum-1];
+-
+-	CLosHandler::LosTable::iterator li;
+-	for (li = table.begin(); li != table.end(); ++li) {
+-		CLosHandler::LosLine&amp; line = *li;
+-		CLosHandler::LosLine::iterator linei;
+-		float baseHeight = pos.y + unit-&gt;model-&gt;height - 20;
+-		float maxAng1 = -1000;
+-		float maxAng2 = -1000;
+-		float maxAng3 = -1000;
+-		float maxAng4 = -1000;
+-		float r = 1;
+-		unit-&gt;radarSquares.push_back(yradar * xsize + xradar);
+-		radarMaps[allyteam][yradar * xsize + xradar]++;
+-
+-		for (linei = line.begin(); linei != line.end(); ++linei) {
+-			if (((xradar + linei-&gt;x) &lt; xsize) &amp;&amp;
+-			    ((yradar + linei-&gt;y) &lt; zsize)) {
+-				int rsquare = (xradar + linei-&gt;x) + (yradar + linei-&gt;y) * xsize;
+-				int msquare = (xmap + linei-&gt;x * 4) + (ymap + linei-&gt;y * 4) * gs-&gt;hmapx;
+-				float dh = readmap-&gt;mipHeightmap[1][msquare] - baseHeight;
+-				float ang = dh / r;
+-				if (ang &gt; maxAng1) {
+-					unit-&gt;radarSquares.push_back(rsquare);
+-					radarMaps[allyteam][rsquare]++;
+-				}
+-				dh -= 20;
+-				ang = dh / r;
+-				if (ang &gt; maxAng1) {
+-					maxAng1 = ang;
+-				}
+-			}
+-			if (((xradar - linei-&gt;x) &gt;= 0) &amp;&amp;
+-			    ((yradar - linei-&gt;y) &gt;= 0)) {
+-				int rsquare = (xradar - linei-&gt;x) + (yradar - linei-&gt;y) * xsize;
+-				int msquare = (xmap - linei-&gt;x*4) + (ymap - linei-&gt;y * 4) * gs-&gt;hmapx;
+-				float dh = readmap-&gt;mipHeightmap[1][msquare] - baseHeight;
+-				float ang = dh / r;
+-				if (ang &gt; maxAng2) {
+-					unit-&gt;radarSquares.push_back(rsquare);
+-					radarMaps[allyteam][rsquare]++;
+-				}
+-				dh -= 20;
+-				ang = dh / r;
+-				if (ang &gt; maxAng2) {
+-					maxAng2 = ang;
+-				}
+-			}
+-			if (((xradar + linei-&gt;y) &lt; xsize) &amp;&amp;
+-			    ((yradar - linei-&gt;x) &gt;= 0)) {
+-				int rsquare = (xradar + linei-&gt;y) + (yradar - linei-&gt;x) * xsize;
+-				int msquare = (xmap + linei-&gt;y * 4) + (ymap - linei-&gt;x * 4) * gs-&gt;hmapx;
+-				float dh = readmap-&gt;mipHeightmap[1][msquare] - baseHeight;
+-				float ang = dh / r;
+-				if (ang &gt; maxAng3) {
+-					unit-&gt;radarSquares.push_back(rsquare);
+-					radarMaps[allyteam][rsquare]++;
+-				}
+-				dh -= 20;
+-				ang = dh / r;
+-				if (ang &gt; maxAng3) {
+-					maxAng3 = ang;
+-				}
+-			}
+-			if (((xradar - linei-&gt;y) &gt;= 0) &amp;&amp;
+-			    ((yradar + linei-&gt;x) &lt; zsize)) {
+-				int rsquare = (xradar - linei-&gt;y) + (yradar + linei-&gt;x) * xsize;
+-				int msquare = (xmap - linei-&gt;y * 4) + (ymap + linei-&gt;x * 4) * gs-&gt;hmapx;
+-				float dh = readmap-&gt;mipHeightmap[1][msquare] - baseHeight;
+-				float ang = dh / r;
+-				if (ang&gt;maxAng4) {
+-					unit-&gt;radarSquares.push_back(rsquare);
+-					radarMaps[allyteam][rsquare]++;
+-				}
+-				dh -= 20;
+-				ang = dh / r;
+-				if (ang &gt; maxAng4) {
+-					maxAng4 = ang;
+-				}
+-			}
+-			r++;
+-		}
+-	}
+-}
+
+Modified: trunk/rts/Sim/Misc/RadarHandler.h
+===================================================================
+--- trunk/rts/Sim/Misc/RadarHandler.h	2008-12-07 18:08:03 UTC (rev 7148)
++++ trunk/rts/Sim/Misc/RadarHandler.h	2008-12-07 19:12:21 UTC (rev 7149)
+@@ -4,12 +4,10 @@
+ #include &lt;boost/noncopyable.hpp&gt;
+ 
+ #include &quot;Object.h&quot;
++#include &quot;Sim/Misc/LosMap.h&quot;
+ #include &quot;Sim/Units/Unit.h&quot;
+ #include &lt;assert.h&gt;
+ 
+-#define RADAR_SIZE 8
+-
+-
+ // Because submerged units are only given LOS if they are also
+ // in sonar range (see LosHandler.h), sonar stealth and sonar
+ // jammed units can not be detected (probably why those 2 features
+@@ -34,8 +32,8 @@
+ 
+ 	inline int GetSquare(const float3&amp; pos) const
+ 	{
+-		const int gx = (int)pos.x / (SQUARE_SIZE * RADAR_SIZE);
+-		const int gz = (int)pos.z / (SQUARE_SIZE * RADAR_SIZE);
++		const int gx = (int)(pos.x * invRadarDiv);
++		const int gz = (int)(pos.z * invRadarDiv);
+ 		const int rowIdx = std::max(0, std::min(zsize - 1, gz));
+ 		const int colIdx = std::max(0, std::min(xsize - 1, gx));
+ 		return (rowIdx * xsize) + colIdx;
+@@ -44,27 +42,22 @@
+ 	bool InRadar(const float3&amp; pos, int allyTeam) {
+ 		const int square = GetSquare(pos);
+ 		if (pos.y &lt; -0.5f) {
+-			assert(static_cast&lt;unsigned&gt;(square) &lt; sonarMaps[allyTeam].size());
+ 			return (sonarMaps[allyTeam][square] &amp;&amp; !commonSonarJammerMap[square]);
+ 		}
+ 		else if (!circularRadar &amp;&amp; (pos.y &gt; 0.5f)) {
+-			assert(static_cast&lt;unsigned&gt;(square) &lt; airRadarMaps[allyTeam].size());
+ 			return (airRadarMaps[allyTeam][square] &amp;&amp; !commonJammerMap[square]);
+ 		}
+ 		else {
+-			assert(static_cast&lt;unsigned&gt;(square) &lt; radarMaps[allyTeam].size());
+ 			return (radarMaps[allyTeam][square] &amp;&amp; !commonJammerMap[square]);
+ 		}
+ 	}
+ 
+ 	bool InRadar(const CUnit* unit, int allyTeam) {
+-
+ 		if (unit-&gt;isUnderWater) {
+ 			if (unit-&gt;sonarStealth) {
+ 				return false;
+ 			}
+ 			const int square = GetSquare(unit-&gt;pos);
+-			assert(static_cast&lt;unsigned&gt;(square) &lt; sonarMaps[allyTeam].size());
+ 			return !!sonarMaps[allyTeam][square] &amp;&amp; !commonSonarJammerMap[square];
+ 		}
+ 		else if (!circularRadar &amp;&amp; unit-&gt;useAirLos) {
+@@ -72,13 +65,10 @@
+ 				return false;
+ 			}
+ 			const int square = GetSquare(unit-&gt;pos);
+-			assert(static_cast&lt;unsigned&gt;(square) &lt; airRadarMaps[allyTeam].size());
+ 			return airRadarMaps[allyTeam][square] &amp;&amp; !commonJammerMap[square];
+ 		}
+ 		else {
+ 			const int square = GetSquare(unit-&gt;pos);
+-			assert((static_cast&lt;unsigned&gt;(square) &lt; radarMaps[allyTeam].size()) &amp;&amp;
+-					(static_cast&lt;unsigned&gt;(square) &lt; sonarMaps[allyTeam].size()));
+ 			return (radarMaps[allyTeam][square]
+ 			        &amp;&amp; !unit-&gt;stealth
+ 			        &amp;&amp; !commonJammerMap[square])
+@@ -92,22 +82,24 @@
+ 
+ 	bool InSeismicDistance(const CUnit* unit, int allyTeam) {
+ 		const int square = GetSquare(unit-&gt;pos);
+-		assert(static_cast&lt;unsigned&gt;(square) &lt; seismicMaps[allyTeam].size());
+ 		return !!seismicMaps[allyTeam][square];
+ 	}
+ 
+-	bool circularRadar;
++	const int radarMipLevel;
++	const int radarDiv;
++	const float invRadarDiv;
++	const bool circularRadar;
+ 
+-	std::vector&lt;unsigned short&gt; radarMaps[MAX_TEAMS];
+-	std::vector&lt;unsigned short&gt; airRadarMaps[MAX_TEAMS];
+-	std::vector&lt;unsigned short&gt; sonarMaps[MAX_TEAMS];
+-	std::vector&lt;unsigned short&gt; jammerMaps[MAX_TEAMS];
++	CLosMap radarMaps[MAX_TEAMS];
++	CLosMap airRadarMaps[MAX_TEAMS];
++	CLosMap sonarMaps[MAX_TEAMS];
++	CLosMap jammerMaps[MAX_TEAMS];
+ #ifdef SONAR_JAMMER_MAPS
+-	std::vector&lt;unsigned short&gt; sonarJammerMaps[MAX_TEAMS];
++	CLosMap sonarJammerMaps[MAX_TEAMS];
+ #endif
+-	std::vector&lt;unsigned short&gt; seismicMaps[MAX_TEAMS];
+-	std::vector&lt;unsigned short&gt; commonJammerMap;
+-	std::vector&lt;unsigned short&gt; commonSonarJammerMap;
++	CLosMap seismicMaps[MAX_TEAMS];
++	CLosMap commonJammerMap;
++	CLosMap commonSonarJammerMap;
+ 	float radarErrorSize[MAX_TEAMS];
+ 	float baseRadarErrorSize;
+ 
+@@ -116,12 +108,9 @@
+ 
+ 	float targFacEffect;
+ 
+-protected:
+-	void AddMapArea(int2 pos, int radius, std::vector&lt;unsigned short&gt;&amp; map, int amount);
+-
+-	void SafeLosRadarAdd(CUnit* unit);
+-
+ private:
++	CLosAlgorithm radarAlgo;
++
+ 	void Serialize(creg::ISerializer&amp; s);
+ };
+ 
+
+Modified: trunk/rts/System/Vec2.h
+===================================================================
+--- trunk/rts/System/Vec2.h	2008-12-07 18:08:03 UTC (rev 7148)
++++ trunk/rts/System/Vec2.h	2008-12-07 19:12:21 UTC (rev 7149)
+@@ -1,19 +1,30 @@
+ #ifndef VEC2_H
+ #define VEC2_H
+ 
++#include &quot;creg/creg.h&quot;
+ 
+-template&lt;typename T&gt;
+-class Vec2
++// can't easily use templates because of creg
++
++struct int2
+ {
+-public:
+-	Vec2() {};
+-	Vec2(const T nx, const T ny) : x(nx), y(ny) {};
++	CR_DECLARE_STRUCT(int2);
+ 
+-	T x;
+-	T y;
++	int2() {};
++	int2(const int nx, const int ny) : x(nx), y(ny) {};
++
++	int x;
++	int y;
+ };
+ 
+-typedef Vec2&lt;int&gt; int2;
+-typedef Vec2&lt;float&gt; float2;
++struct float2
++{
++	CR_DECLARE_STRUCT(float2);
+ 
++	float2() {};
++	float2(const float nx, const float ny) : x(nx), y(ny) {};
++
++	float x;
++	float y;
++};
++
+ #endif
+
+Modified: trunk/rts/System/float3.cpp
+===================================================================
+--- trunk/rts/System/float3.cpp	2008-12-07 18:08:03 UTC (rev 7148)
++++ trunk/rts/System/float3.cpp	2008-12-07 19:12:21 UTC (rev 7149)
+@@ -6,8 +6,15 @@
+  */
+ 
+ #include &quot;float3.h&quot;
++#include &quot;Vec2.h&quot;
+ #include &quot;FastMath.h&quot;
+ 
++// TODO: this should go in Vec2.cpp if that is ever created
++CR_BIND(int2, );
++CR_REG_METADATA(int2, (CR_MEMBER(x), CR_MEMBER(y)));
++CR_BIND(float2, );
++CR_REG_METADATA(float2, (CR_MEMBER(x), CR_MEMBER(y)));
++
+ CR_BIND(float3, );
+ CR_REG_METADATA(float3, (CR_MEMBER(x), CR_MEMBER(y), CR_MEMBER(z)));
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001917.html">[Taspring-linux-commit] r7148 - trunk/rts/Game
+</A></li>
+	<LI>Next message: <A HREF="001919.html">[Taspring-linux-commit] r7150 - in Lobby/springie:	Springie/PlanetWars libs
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1918">[ date ]</a>
+              <a href="thread.html#1918">[ thread ]</a>
+              <a href="subject.html#1918">[ subject ]</a>
+              <a href="author.html#1918">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

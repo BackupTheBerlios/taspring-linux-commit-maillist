@@ -1,0 +1,450 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5617 - trunk/AI/Global/KAIK-0.13
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-March/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5617%20-%20trunk/AI/Global/KAIK-0.13&In-Reply-To=%3C20080328174923.2685646A3%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000397.html">
+   <LINK REL="Next"  HREF="000399.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5617 - trunk/AI/Global/KAIK-0.13</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5617%20-%20trunk/AI/Global/KAIK-0.13&In-Reply-To=%3C20080328174923.2685646A3%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5617 - trunk/AI/Global/KAIK-0.13">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Mar 28 18:49:22 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000397.html">[Taspring-linux-commit] r5616 - trunk/Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="000399.html">[Taspring-linux-commit] r5618 - in trunk/AI/Global/NTai/AI: .	NTai/Agents NTai/Core NTai/Engine NTai/Helpers	NTai/Helpers/Terrain NTai/Helpers/Units NTai/Tasks NTai/Units	NTai/Units/Behaviours
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#398">[ date ]</a>
+              <a href="thread.html#398">[ thread ]</a>
+              <a href="subject.html#398">[ subject ]</a>
+              <a href="author.html#398">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-03-28 18:49:21 +0100 (Fri, 28 Mar 2008)
+New Revision: 5617
+
+Modified:
+   trunk/AI/Global/KAIK-0.13/BuildUp.cpp
+   trunk/AI/Global/KAIK-0.13/BuildUp.h
+   trunk/AI/Global/KAIK-0.13/Defines.h
+   trunk/AI/Global/KAIK-0.13/Unit.cpp
+   trunk/AI/Global/KAIK-0.13/UnitHandler.cpp
+   trunk/AI/Global/KAIK-0.13/UnitTable.cpp
+Log:
+make KAIK expand more aggressively
+
+Modified: trunk/AI/Global/KAIK-0.13/BuildUp.cpp
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/BuildUp.cpp	2008-03-28 17:39:11 UTC (rev 5616)
++++ trunk/AI/Global/KAIK-0.13/BuildUp.cpp	2008-03-28 17:49:21 UTC (rev 5617)
+@@ -50,6 +50,7 @@
+ 			// of M and E used (meaning we have excess M
+ 			// and are over-producing M and E)
+ 			builderTimer--;
++			factoryTimer--;
+ 		}
+ 
+ 		if (storageTimer &gt; 0)
+@@ -108,6 +109,7 @@
+ 		// if this builder cannot build any factories, pretend it's feasible
+ 		bool factFeasM = (factoryDef? ai-&gt;math-&gt;MFeasibleConstruction(builderDef, factoryDef): true);
+ 		bool factFeasE = (factoryDef? ai-&gt;math-&gt;EFeasibleConstruction(builderDef, factoryDef): true);
++		bool factFeas = (factoryDef &amp;&amp; factFeasM &amp;&amp; factFeasE);
+ 		bool eLevelMed = (eLevel50 &amp;&amp; makersOn);
+ 		bool mLevelLow = (mLevel50 || (((RANDINT % 3) == 0) &amp;&amp; mStall &amp;&amp; eLevel80) || (!factFeasM &amp;&amp; factoryTimer &lt;= 0));
+ 
+@@ -121,19 +123,31 @@
+ 		}
+ 
+ 		else {
+-			if (builderDef-&gt;isCommander &amp;&amp; builderDef-&gt;canDGun &amp;&amp; ai-&gt;dgunController-&gt;isBusy()) {
+-				// don't start building solars etc. while dgun-controller is doing stuff
+-				return;
+-			}
++			if (builderDef-&gt;isCommander) {
++				if (builderDef-&gt;canDGun &amp;&amp; ai-&gt;dgunController-&gt;isBusy()) {
++					// don't start building solars etc. while dgun-controller is doing stuff
++					return;
++				} else {
++					int numM = ai-&gt;uh-&gt;AllUnitsByCat[CAT_MEX].size();
++					int numE = ai-&gt;uh-&gt;AllUnitsByCat[CAT_ENERGY].size();
++					int numF = ai-&gt;uh-&gt;AllUnitsByCat[CAT_FACTORY].size();
+ 
+-			else if (builderDef-&gt;isCommander &amp;&amp; (frame &gt; 9000) &amp;&amp; ai-&gt;uh-&gt;FactoryBuilderAdd(builder)) {
+-				// add commander to factory so it doesn't wander around too much (works best if
+-				// AI given bonus, otherwise initial expansion still mostly done by commander)
+-				// note: 5 minutes should be enough to get the resource income needed for this,
+-				// don't use hardcoded metal- and energy-values
+-				builderTimer = 0;
++					// note: in EE metal processors belong to CAT_ENERGY
++					if ((numM &lt; 3 &amp;&amp; numE &lt;= 3) &amp;&amp; BuildUpgradeExtractor(builder)) { return; }
++					if ((numE &lt; 3 &amp;&amp; numM &lt;= 3) &amp;&amp; BuildUpgradeReactor(builder)) { return; }
++					if ((numF &lt; 1 &amp;&amp; factFeas) &amp;&amp; BuildNow(builder, CAT_FACTORY, factoryDef)) { return; }
++
++					if (ai-&gt;uh-&gt;FactoryBuilderAdd(builder)) {
++						// add commander to factory so it doesn't wander around too much (works best if
++						// AI given bonus, otherwise initial expansion still mostly done by commander)
++						// note: 5 minutes should be enough to get the resource income needed for this,
++						// don't use hardcoded metal- and energy-values
++						builderTimer = 0;
++					}
++				}
+ 			}
+ 
++
+ 			else if (buildNukeSilo &amp;&amp; nukeSiloTimer &lt;= 0) {
+ 				if (!ai-&gt;uh-&gt;BuildTaskAddBuilder(builder, CAT_NUKE)) {
+ 					// always favor building one silo at a time rather than
+@@ -185,7 +199,7 @@
+ 			else if (eStall || !factFeasE) {
+ 				// build energy generator
+ 				if (!ai-&gt;uh-&gt;BuildTaskAddBuilder(builder, CAT_ENERGY)) {
+-					BuildNow(builder, CAT_ENERGY);
++					BuildUpgradeReactor(builder);
+ 				}
+ 			}
+ 
+@@ -195,16 +209,15 @@
+ 				int numDefenses = ai-&gt;uh-&gt;AllUnitsByCat[CAT_DEFENCE].size();
+ 				int numFactories = ai-&gt;uh-&gt;AllUnitsByCat[CAT_FACTORY].size();
+ 
+-				// do we have more factories than defense?
+-				if (numFactories &gt; (numDefenses / DEFENSEFACTORYRATIO)) {
++				// do we have more factories than defense (and have at least 10 minutes passed)?
++				if (numFactories &gt; (numDefenses / DEFENSEFACTORYRATIO) &amp;&amp; frame &gt; 18000) {
+ 					if (mOverflow &amp;&amp; numMStorage &gt; 0 &amp;&amp; storageTimer &lt;= 0 &amp;&amp; (numFactories &gt; 0)) {
+ 						if (!ai-&gt;uh-&gt;BuildTaskAddBuilder(builder, CAT_MSTOR)) {
+ 							// build metal storage
+ 							if (BuildNow(builder, CAT_MSTOR))
+ 								storageTimer += 90;
+ 						}
+-					}
+-					else {
++					} else {
+ 						if (!ai-&gt;uh-&gt;BuildTaskAddBuilder(builder, CAT_DEFENCE)) {
+ 							// if we can't add this builder to some defense
+ 							// task then build something in CAT_DEFENCE
+@@ -228,7 +241,10 @@
+ 						if (!ai-&gt;uh-&gt;FactoryBuilderAdd(builder)) {
+ 							// if we can't add this builder to some
+ 							// other factory then construct new one
+-							BuildNow(builder, CAT_FACTORY, factoryDef);
++							if (ai-&gt;uh-&gt;AllUnitsByCat[CAT_FACTORY].size() &lt; 1 || frame &gt; 9000) {
++								// one factory for the first 5 minutes
++								BuildNow(builder, CAT_FACTORY, factoryDef);
++							}
+ 						}
+ 					}
+ 				}
+@@ -257,7 +273,7 @@
+ 
+ 	for (int i = 0; i &lt; numIdleFactories; i++) {
+ 		// pick the i-th idle factory we have
+-		int producedCat = 0;
++		int producedCat = LASTCATEGORY;
+ 		int factoryUnitID = ai-&gt;uh-&gt;GetIU(CAT_FACTORY);
+ 		bool isHub = (ai-&gt;MyUnits[factoryUnitID]-&gt;isHub());
+ 		const UnitDef* factDef = ai-&gt;MyUnits[factoryUnitID]-&gt;def();
+@@ -279,19 +295,18 @@
+ 				// (starting factory unit) can construct mobile units!
+ 				if (factDef-&gt;isCommander) {
+ 					producedCat = CAT_BUILDER;
++					builderTimer = 0;
+ 				} else {
+ 					producedCat = CAT_FACTORY;
++					factoryTimer = 0;
+ 				}
+-				builderTimer = 0;
+ 			}
+ 			else {
+ 				if ((builderTimer &gt; 0) || (ai-&gt;uh-&gt;NumIdleUnits(CAT_BUILDER) &gt; 2)) {
+ 					// if we have more than two idle builders
+ 					// then compensate with an offensive unit
+ 					producedCat = CAT_G_ATTACK;
+-
+-					if (builderTimer &gt; 0)
+-						builderTimer--;
++					builderTimer = std::max(0, builderTimer - 1);
+ 				}
+ 
+ 				else {
+@@ -302,13 +317,10 @@
+ 						// if this factory makes the builder that we are short of
+ 						producedCat = CAT_BUILDER;
+ 						builderTimer += 4;
+-					}
+-					else {
++					} else {
+ 						// build some offensive unit
+ 						producedCat = CAT_G_ATTACK;
+-
+-						if (builderTimer &gt; 0)
+-							builderTimer--;
++						builderTimer = std::max(0, builderTimer - 1);
+ 					}
+ 				}
+ 			}
+@@ -318,7 +330,12 @@
+ 
+ 			if (udef) {
+ 				if (isHub) {
+-					(ai-&gt;MyUnits[factoryUnitID])-&gt;HubBuild(udef);
++					bool factFeasM = ai-&gt;math-&gt;MFeasibleConstruction(factDef, udef);
++					bool factFeasE = ai-&gt;math-&gt;EFeasibleConstruction(factDef, udef);
++					bool factFeas = factFeasM &amp;&amp; factFeasE;
++					if (factFeas) {
++						(ai-&gt;MyUnits[factoryUnitID])-&gt;HubBuild(udef);
++					}
+ 				} else {
+ 					(ai-&gt;MyUnits[factoryUnitID])-&gt;FactoryBuild(udef);
+ 				}
+@@ -461,15 +478,15 @@
+ 
+ 
+ bool CBuildUp::BuildUpgradeExtractor(int builder) {
+-	const UnitDef* mex = ai-&gt;ut-&gt;GetUnitByScore(builder, CAT_MEX);
++	const UnitDef* mexDef = ai-&gt;ut-&gt;GetUnitByScore(builder, CAT_MEX);
+ 
+-	if (mex) {
+-		float3 mexPos = ai-&gt;mm-&gt;GetNearestMetalSpot(builder, mex);
++	if (mexDef) {
++		float3 mexPos = ai-&gt;mm-&gt;GetNearestMetalSpot(builder, mexDef);
+ 
+ 		if (mexPos != ERRORVECTOR) {
+ 			if (!ai-&gt;uh-&gt;BuildTaskAddBuilder(builder, CAT_MEX)) {
+ 				// build metal extractor
+-				return (ai-&gt;MyUnits[builder]-&gt;Build(mexPos, mex, -1));
++				return (ai-&gt;MyUnits[builder]-&gt;Build(mexPos, mexDef, -1));
+ 			}
+ 		} else {
+ 			// upgrade existing mex (NOTE: GetNearestMetalSpot()
+@@ -479,8 +496,8 @@
+ 			const UnitDef* oldMex = ai-&gt;cb-&gt;GetUnitDef(oldMexID);
+ 
+ 			if (oldMex) {
+-				if ((mex-&gt;extractsMetal / oldMex-&gt;extractsMetal) &gt;= 2.0f) {
+-					return (ai-&gt;MyUnits[builder]-&gt;Upgrade(oldMexID, mex));
++				if ((mexDef-&gt;extractsMetal / oldMex-&gt;extractsMetal) &gt;= 2.0f) {
++					return (ai-&gt;MyUnits[builder]-&gt;Upgrade(oldMexID, mexDef));
+ 				}
+ 			}
+ 		}
+@@ -489,3 +506,52 @@
+ 	// can't build or upgrade
+ 	return false;
+ }
++
++
++
++bool CBuildUp::BuildUpgradeReactor(int builder) {
++	const UnitDef* reactorDef = ai-&gt;ut-&gt;GetUnitByScore(builder, CAT_ENERGY);
++
++	if (reactorDef) {
++		const float3 builderPos = ai-&gt;cb-&gt;GetUnitPos(builder);
++		float netEnergy = reactorDef-&gt;energyMake - reactorDef-&gt;energyUpkeep;
++
++		float closestDstSq = 999999999999999.0f;
++		int bestItReactor = -1;
++		const UnitDef* bestItReactorDef = 0x0;
++
++		std::list&lt;int&gt; lst = ai-&gt;uh-&gt;AllUnitsByCat[CAT_ENERGY];
++
++		for (std::list&lt;int&gt;::iterator it = lst.begin(); it != lst.end(); it++) {
++			const float3 itReactorPos = ai-&gt;cb-&gt;GetUnitPos(*it);
++			const UnitDef* itReactorDef = ai-&gt;cb-&gt;GetUnitDef(*it);
++
++			if (itReactorDef-&gt;energyMake &lt;= 0.0f || itReactorDef-&gt;windGenerator) {
++				// only look at solars and windmills which produce energy through
++				// negative upkeep (something of a hack for OTA-style mods)
++				const float itNetEnergy = itReactorDef-&gt;energyMake - itReactorDef-&gt;energyUpkeep;
++				const float distanceSq = (itReactorPos - builderPos).SqLength();
++
++				// find the closest CAT_ENERGY structure we have
++				if (distanceSq &lt; closestDstSq) {
++					// check if it is worth upgrading
++					if ((netEnergy / itNetEnergy) &gt;= 2.0f) {
++						bestItReactor = *it;
++						bestItReactorDef = itReactorDef;
++					}
++				}
++			}
++		}
++
++		if (bestItReactor != -1) {
++			// upgrade
++			return (ai-&gt;MyUnits[builder]-&gt;Upgrade(bestItReactor, reactorDef));
++		} else {
++			// nothing to upgrade
++			return BuildNow(builder, 0, reactorDef);
++		}
++	}
++
++	// can't build or upgrade
++	return false;
++}
+
+Modified: trunk/AI/Global/KAIK-0.13/BuildUp.h
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/BuildUp.h	2008-03-28 17:39:11 UTC (rev 5616)
++++ trunk/AI/Global/KAIK-0.13/BuildUp.h	2008-03-28 17:49:21 UTC (rev 5617)
+@@ -22,6 +22,7 @@
+ 		bool BuildNow(int, int, const UnitDef*);
+ 		const UnitDef* GetLeastBuiltBuilder(void);
+ 		bool BuildUpgradeExtractor(int);
++		bool BuildUpgradeReactor(int);
+ 
+ 		int factoryTimer;
+ 		int builderTimer;
+
+Modified: trunk/AI/Global/KAIK-0.13/Defines.h
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/Defines.h	2008-03-28 17:39:11 UTC (rev 5616)
++++ trunk/AI/Global/KAIK-0.13/Defines.h	2008-03-28 17:49:21 UTC (rev 5617)
+@@ -2,7 +2,7 @@
+ #define DEFINES_H
+ 
+ #define AI_NAME			&quot;KAIK 0.13 Unofficial&quot;
+-#define AI_DATE			&quot;01/03/2008&quot;
++#define AI_DATE			&quot;28/03/2008&quot;
+ #define AI_VERSION		AI_NAME &quot; (rev. &quot; AI_DATE &quot;)&quot;
+ #define AI_CREDITS		&quot;(original developer: Krogothe, current maintainer: Kloot)&quot;
+ 
+
+Modified: trunk/AI/Global/KAIK-0.13/Unit.cpp
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/Unit.cpp	2008-03-28 17:39:11 UTC (rev 5616)
++++ trunk/AI/Global/KAIK-0.13/Unit.cpp	2008-03-28 17:49:21 UTC (rev 5617)
+@@ -208,9 +208,9 @@
+ 	// a hub to stay idle if the area
+ 	// around it is too crowded
+ 	int friends[MAX_UNITS];
+-	int numFriends = ai-&gt;cb-&gt;GetFriendlyUnits(friends, hubPos, maxRadius);
++	int numFriends = ai-&gt;cb-&gt;GetFriendlyUnits(friends, hubPos, maxRadius * 0.5f);
+ 
+-	if (numFriends &gt; 16)
++	if (numFriends &gt; 8)
+ 		return false;
+ 
+ 	// note: this can still go wrong if there is another
+
+Modified: trunk/AI/Global/KAIK-0.13/UnitHandler.cpp
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/UnitHandler.cpp	2008-03-28 17:39:11 UTC (rev 5616)
++++ trunk/AI/Global/KAIK-0.13/UnitHandler.cpp	2008-03-28 17:49:21 UTC (rev 5617)
+@@ -1194,7 +1194,10 @@
+ 	assert(builderTracker-&gt;customOrderId == 0);
+ 
+ 	for (list&lt;Factory&gt;::iterator i = Factories.begin(); i != Factories.end(); i++) {
+-		if ((ai-&gt;MyUnits[i-&gt;id]-&gt;def())-&gt;canBeAssisted) {
++		CUNIT* u = ai-&gt;MyUnits[i-&gt;id];
++
++		// don't assist hubs (or factories that cannot be assisted)
++		if ((u-&gt;def())-&gt;canBeAssisted &amp;&amp; !u-&gt;isHub()) {
+ 			float totalbuildercost = 0.0f;
+ 
+ 			// HACK
+
+Modified: trunk/AI/Global/KAIK-0.13/UnitTable.cpp
+===================================================================
+--- trunk/AI/Global/KAIK-0.13/UnitTable.cpp	2008-03-28 17:39:11 UTC (rev 5616)
++++ trunk/AI/Global/KAIK-0.13/UnitTable.cpp	2008-03-28 17:49:21 UTC (rev 5617)
+@@ -299,7 +299,7 @@
+ 				unsigned int a = victim-&gt;category;
+ 				unsigned int b = unit-&gt;weapons[i].def-&gt;onlyTargetCategory;	// what the weapon can target
+ 				unsigned int c = unit-&gt;weapons[i].onlyTargetCat;			// what the unit accepts as this weapons target
+-//				unsigned int d = unit-&gt;weapons[i].badTargetCat;				// what the unit thinks this weapon must be used for (hmm ?)
++//				unsigned int d = unit-&gt;weapons[i].badTargetCat;				// what the unit thinks this weapon must be used for (?)
+ 				bool canWeaponTarget = (a &amp; b) &gt; 0;
+ 				bool canUnitTarget = (a &amp; c) &gt; 0;							// how is this used?
+ //				bool badUnitTarget = (a &amp; d) &gt; 0;							// probably means that it has low priority
+@@ -521,15 +521,18 @@
+ 			benefit = ((udef-&gt;energyMake - udef-&gt;energyUpkeep) / buildTime) * randMult;
+ 
+ 			if (udef-&gt;windGenerator) {
+-				benefit += ai-&gt;cb-&gt;GetMinWind();
++				if (ai-&gt;cb-&gt;GetMinWind() &gt; 1.0f) {
++					benefit += (ai-&gt;cb-&gt;GetMinWind() + ai-&gt;cb-&gt;GetMaxWind()) / 2.0f;
++				}
+ 			}
+ 			if (udef-&gt;tidalGenerator) {
+ 				benefit += ai-&gt;cb-&gt;GetTidalStrength();
+ 			}
+ 
+ 			// filter geothermals
+-			if (udef-&gt;needGeo)
++			if (udef-&gt;needGeo) {
+ 				benefit = 0.0f;
++			}
+ 
+ 			// KLOOTNOTE: dividing by cost here as well means
+ 			// benefit is inversely proportional to square of
+@@ -667,6 +670,9 @@
+ 
+ // operates in terms of GetScore() (which is recursive for factories)
+ const UnitDef* CUnitTable::GetUnitByScore(int builderUnitID, int category) {
++	if (category == LASTCATEGORY)
++		return 0x0;
++
+ 	vector&lt;int&gt;* tempList = 0;
+ 	const UnitDef* builderDef = ai-&gt;cb-&gt;GetUnitDef(builderUnitID);
+ 	const UnitDef* tempUnitDef = 0;
+@@ -866,7 +872,8 @@
+ 					else {
+ 						const WeaponDef* weapon = (me-&gt;def-&gt;weapons.empty())? 0: me-&gt;def-&gt;weapons.begin()-&gt;def;
+ 
+-						if (weapon &amp;&amp; !weapon-&gt;stockpile) {
++						if (weapon &amp;&amp; !weapon-&gt;stockpile &amp;&amp; me-&gt;def-&gt;extractsMetal == 0.0f) {
++							// we don't want armed extractors to be seen as general-purpose defense
+ 							if (!weapon-&gt;waterweapon) {
+ 								// filter out depth-charge launchers etc
+ 								ground_defences[mySide].push_back(i);
+@@ -898,7 +905,7 @@
+ 							metal_extractors[mySide].push_back(i);
+ 							me-&gt;category = CAT_MEX;
+ 						}
+-						if ((me-&gt;def-&gt;energyMake - me-&gt;def-&gt;energyUpkeep) / UnitCost &gt; 0.002 || me-&gt;def-&gt;tidalGenerator || me-&gt;def-&gt;windGenerator) {
++						if (((me-&gt;def-&gt;energyMake - me-&gt;def-&gt;energyUpkeep) / UnitCost) &gt; 0.002 || me-&gt;def-&gt;tidalGenerator || me-&gt;def-&gt;windGenerator) {
+ 							if (/* me-&gt;def-&gt;minWaterDepth &lt;= 0 &amp;&amp; */ !me-&gt;def-&gt;needGeo) {
+ 								// filter tidals and geothermals
+ 								ground_energy[mySide].push_back(i);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000397.html">[Taspring-linux-commit] r5616 - trunk/Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="000399.html">[Taspring-linux-commit] r5618 - in trunk/AI/Global/NTai/AI: .	NTai/Agents NTai/Core NTai/Engine NTai/Helpers	NTai/Helpers/Terrain NTai/Helpers/Units NTai/Tasks NTai/Units	NTai/Units/Behaviours
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#398">[ date ]</a>
+              <a href="thread.html#398">[ thread ]</a>
+              <a href="subject.html#398">[ subject ]</a>
+              <a href="author.html#398">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

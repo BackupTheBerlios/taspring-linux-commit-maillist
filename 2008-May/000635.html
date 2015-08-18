@@ -1,0 +1,1267 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5855 - in trunk: AI/Global/AAI game/AI/AAI
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5855%20-%20in%20trunk%3A%20AI/Global/AAI%20game/AI/AAI&In-Reply-To=%3C20080508201751.9E01A46D2%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000634.html">
+   <LINK REL="Next"  HREF="000636.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5855 - in trunk: AI/Global/AAI game/AI/AAI</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5855%20-%20in%20trunk%3A%20AI/Global/AAI%20game/AI/AAI&In-Reply-To=%3C20080508201751.9E01A46D2%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5855 - in trunk: AI/Global/AAI game/AI/AAI">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu May  8 22:17:51 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000634.html">[Taspring-linux-commit] r5854 - trunk/Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="000636.html">[Taspring-linux-commit] r5856 - in trunk/Lobby/TASClient: . Graphics
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#635">[ date ]</a>
+              <a href="thread.html#635">[ thread ]</a>
+              <a href="subject.html#635">[ subject ]</a>
+              <a href="author.html#635">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: submarine
+Date: 2008-05-08 22:17:50 +0200 (Thu, 08 May 2008)
+New Revision: 5855
+
+Modified:
+   trunk/AI/Global/AAI/AAI ReadMe.txt
+   trunk/AI/Global/AAI/AAI.cpp
+   trunk/AI/Global/AAI/AAIBuildTable.cpp
+   trunk/AI/Global/AAI/AAIBuildTable.h
+   trunk/AI/Global/AAI/AAIBuildTask.cpp
+   trunk/AI/Global/AAI/AAIConstructor.cpp
+   trunk/AI/Global/AAI/AAIExecute.cpp
+   trunk/AI/Global/AAI/AAIGroup.cpp
+   trunk/AI/Global/AAI/AAIUnitTable.cpp
+   trunk/AI/Global/AAI/AAIUnitTable.h
+   trunk/AI/Global/AAI/aidef.h
+   trunk/game/AI/AAI/AAI ReadMe.txt
+Log:
+AAI v0.867:
+
+AAI now takes continents into account when sending builder/assistant builders to positions (e.g. it does not try send  ground builders to positions on other islands/continents anymore (unless they are amphibious))
+
+
+Modified: trunk/AI/Global/AAI/AAI ReadMe.txt
+===================================================================
+--- trunk/AI/Global/AAI/AAI ReadMe.txt	2008-05-08 14:35:22 UTC (rev 5854)
++++ trunk/AI/Global/AAI/AAI ReadMe.txt	2008-05-08 20:17:50 UTC (rev 5855)
+@@ -105,6 +105,11 @@
+ 		- Brandon Potter for his TBT 12 cfg file
+ 
+ 
++
++AAI v0.867	- AAI now takes continents into account when sending builder/assistant builders to positions (e.g. it does not try send 
++		  ground builders to positions on other islands/continents anymore (unless they are amphibious))
++
++
+ AAI v0.866	- Fixed a bug that caused builders to leave the buildsite during construction 
+ 
+ 		- Various changes to issued orders; temporarily removed reclaiming. Reclaim orders were given multiple times per frame 
+@@ -118,8 +123,7 @@
+ 		  
+ 		  MIN_FALLBACK_RANGE 500  - units with lower weapons' range will not try fall back at all 
+ 
+-
+-AAI v0.862	- Added submarine defence map -&gt; AAI will now store its defence capabilities vs submarines separately from other 
++		- Added submarine defence map -&gt; AAI will now store its defence capabilities vs submarines separately from other 
+ 		  naval units
+ 
+ 		- AAI now takes continents into account when sending scouts to positions (e.g. it does not try send ground scouts to 
+
+Modified: trunk/AI/Global/AAI/AAI.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAI.cpp	2008-05-08 14:35:22 UTC (rev 5854)
++++ trunk/AI/Global/AAI/AAI.cpp	2008-05-08 20:17:50 UTC (rev 5855)
+@@ -258,9 +258,8 @@
+ 	if(!cfg-&gt;initialized)
+ 		return;
+ 
+-	// get unit&#180;s id and side
++	// get unit&#180;s id
+ 	const UnitDef *def = cb-&gt;GetUnitDef(unit);
+-	int side = bt-&gt;GetSideByID(def-&gt;id)-1;
+ 	UnitCategory category = bt-&gt;units_static[def-&gt;id].category;
+ 
+ 	// add to unittable 
+@@ -272,6 +271,7 @@
+ 		++futureUnits[COMMANDER];
+ 
+ 		// set side
++		int side = bt-&gt;GetSideByID(def-&gt;id)-1;
+ 		this-&gt;side = side+1;
+ 
+ 		//debug
+@@ -390,14 +390,7 @@
+ {
+ 	// get unit&#180;s id 
+ 	const UnitDef *def = cb-&gt;GetUnitDef(unit);
+-	int side = bt-&gt;GetSideByID(def-&gt;id)-1;
+ 
+-	if(!def)
+-	{
+-		fprintf(file, &quot;Error: UnitDestroyed() called with invalid unit id&quot;); 
+-		return;
+-	}
+-
+ 	// get unit's category
+ 	UnitCategory category = bt-&gt;units_static[def-&gt;id].category;
+ 	// and position
+@@ -511,7 +504,6 @@
+ 			}
+ 
+ 			// check if building belongs to one of this groups
+-			// side -1 because sides start with 1; array of sides with 0
+ 			if(category == STATIONARY_DEF)
+ 			{
+ 				if(validSector)
+@@ -683,9 +675,8 @@
+ 	if(!initialized)
+ 		return;
+ 
+-	// get unit&#180;s id and side
++	// get unit&#180;s id
+ 	const UnitDef *def = cb-&gt;GetUnitDef(unit);
+-	int side = bt-&gt;GetSideByID(def-&gt;id)-1;
+ 
+ 	UnitCategory category = bt-&gt;units_static[def-&gt;id].category;
+ 	futureUnits[category] -= 1;
+@@ -694,6 +685,15 @@
+ 	bt-&gt;units_dynamic[def-&gt;id].requested -= 1;
+ 	bt-&gt;units_dynamic[def-&gt;id].active += 1;
+ 
++	// check if unit has been resurrected
++	float health = cb-&gt;GetUnitHealth(unit);
++	float max_health = cb-&gt;GetUnitMaxHealth(unit);
++	
++	/*if( health / max_health &lt; 0.1f)
++	{
++		cb-&gt;SendTextMsg(&quot;ressurected&quot;, 0);
++	}*/
++
+ 	// building was completed
+ 	if(!def-&gt;movedata &amp;&amp; !def-&gt;canfly)
+ 	{
+@@ -801,15 +801,13 @@
+ 			ut-&gt;units[unit].cons-&gt;Idle();
+ 
+ 			if(ut-&gt;constructors.size() &lt; 4)
+-				execute-&gt;CheckConstruction();
+-
+-			
++				execute-&gt;CheckConstruction();	
+ 		}
+ 	}
+ 	// idle combat units will report to their groups
+ 	else if(ut-&gt;units[unit].group)
+-	{
+-		ut-&gt;SetUnitStatus(unit, UNIT_IDLE);
++	{	
++		//ut-&gt;SetUnitStatus(unit, UNIT_IDLE);
+ 		ut-&gt;units[unit].group-&gt;UnitIdle(unit);
+ 	}
+ 	else
+
+Modified: trunk/AI/Global/AAI/AAIBuildTable.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIBuildTable.cpp	2008-05-08 14:35:22 UTC (rev 5854)
++++ trunk/AI/Global/AAI/AAIBuildTable.cpp	2008-05-08 20:17:50 UTC (rev 5855)
+@@ -7,8 +7,8 @@
+ // Released under GPL license: see LICENSE.html for more information.
+ // -------------------------------------------------------------------------
+ 
++#include &quot;System/FastMath.h&quot;
+ #include &quot;AAIBuildTable.h&quot;
+-
+ #include &quot;AAI.h&quot;
+ 
+ // all the static vars
+@@ -3332,7 +3332,7 @@
+ 	else
+ 	{
+ 		// calculate rating and cache result
+-		int buildings = 5;
++		int buildings = 10;
+ 
+ 		// only cout buildings that are likely to be built on that type of map
+ 		if(ai-&gt;map-&gt;mapType == LAND_MAP)
+@@ -3357,6 +3357,7 @@
+ 		}
+ 
+ 		units_static[def_id].efficiency[5] = sqrt((double)buildings);
++
+ 		return units_static[def_id].efficiency[5];
+ 	}
+ }
+@@ -3450,41 +3451,37 @@
+ 	int builder = 0;
+ 	float best_rating = -100000, my_rating; 
+ 
+-	float cost = ai-&gt;brain-&gt;Affordable()/4.0f; 
++	float cost = 1.0f;
+ 	float buildspeed = 0.5f;
+-	float urgency = 4.0f;
++	float urgency = 2.0f;
+ 
+ 	float max_buildtime = max_builder_buildtime[ai-&gt;side-1]/256.0f;
+ 	
+ 	// look for best builder to do the job
+ 	for(list&lt;int&gt;::iterator unit = units_static[building_id].builtByList.begin();  unit != units_static[building_id].builtByList.end(); ++unit)
+ 	{
+-		if(units_dynamic[*unit].requested &lt;= 0)
+-		{
+-			my_rating = buildspeed * (unitList[*unit-1]-&gt;buildSpeed / max_builder_buildspeed[ai-&gt;side-1]) 
+-						- urgency * (unitList[*unit-1]-&gt;buildTime / max_buildtime) 
+-						- cost * (units_static[*unit].cost / max_builder_cost[ai-&gt;side-1]);
++		my_rating = buildspeed * (unitList[*unit-1]-&gt;buildSpeed / max_builder_buildspeed[ai-&gt;side-1]) 
++					- urgency * (unitList[*unit-1]-&gt;buildTime / max_buildtime) 
++					- cost * (units_static[*unit].cost / max_builder_cost[ai-&gt;side-1]);
+ 
+-			my_rating += GetBuilderRating(*unit);
++		my_rating += GetBuilderRating(*unit);
+ 
+-			// prefer builders that can be built atm
+-			if(units_dynamic[*unit].buildersAvailable &gt; 0)
+-				my_rating += 50.0f;
++		// prefer builders that can be built atm
++		if(units_dynamic[*unit].buildersAvailable &gt; 0)
++			my_rating += 20.0f;
+ 
+-			if(my_rating &gt; best_rating)
+-			{	
+-				best_rating = my_rating;
+-				builder = *unit;
+-			}	
+-		}
++		if(my_rating &gt; best_rating)
++		{	
++			best_rating = my_rating;
++			builder = *unit;
++		}	
+ 	}
+ 
+-	if(builder)
++	if(builder &amp;&amp; units_dynamic[builder].requested &lt;= 0)
+ 	{
+ 		// build factory if necessary
+ 		if(units_dynamic[builder].buildersAvailable &lt;= 0)
+ 			BuildFactoryFor(builder);
+-		
+ 
+ 		if(ai-&gt;execute-&gt;AddUnitToBuildque(builder))
+ 		{
+@@ -3507,8 +3504,8 @@
+ 	float best_rating = -10000, my_rating; 
+ 
+ 	float cost = ai-&gt;brain-&gt;Affordable()/2.0; 
+-	float buildspeed = sqrt((float) (1.0 + units_dynamic[building_id].buildersAvailable + units_dynamic[building_id].buildersRequested))/2.0;
+-	float urgency = 4.0 / (units_dynamic[building_id].buildersAvailable + units_dynamic[building_id].buildersRequested + 0.5);
++	float buildspeed = fastmath::sqrt((float) (1.0 + units_dynamic[building_id].buildersAvailable + units_dynamic[building_id].buildersRequested))/2.0;
++	float urgency = 12.0 / (units_dynamic[building_id].buildersAvailable +  2.0);
+ 
+ 	float max_buildtime = max_builder_buildtime[ai-&gt;side-1]/256.0;
+ 
+@@ -3516,14 +3513,14 @@
+ 	for(list&lt;int&gt;::iterator unit = units_static[building_id].builtByList.begin();  unit != units_static[building_id].builtByList.end(); ++unit)
+ 	{
+ 		// prevent ai from ordering too many builders of the same type/commanders/builders that cant be built atm
+-		if(units_dynamic[*unit].active &lt; cfg-&gt;MAX_BUILDERS_PER_TYPE &amp;&amp; !units_dynamic[*unit].requested &amp;&amp; units_dynamic[*unit].buildersAvailable &gt; 0)
++		if(units_dynamic[*unit].active &lt; cfg-&gt;MAX_BUILDERS_PER_TYPE &amp;&amp; units_dynamic[*unit].buildersAvailable &gt; 0)
+ 		{
+ 			my_rating = buildspeed * (unitList[*unit-1]-&gt;buildSpeed / max_builder_buildspeed[ai-&gt;side-1]) 
+ 						- cost * (units_static[*unit].cost / max_builder_cost[ai-&gt;side-1]) 
+ 						- urgency * (unitList[*unit-1]-&gt;buildTime / max_buildtime);
+ 
+ 			my_rating += GetBuilderRating(*unit);
+-			my_rating -=  0.5 * ((float)(units_dynamic[*unit].requested + units_dynamic[*unit].active)) / (float)cfg-&gt;MAX_BUILDERS_PER_TYPE;
++			//my_rating -=  0.5 * ((float)(units_dynamic[*unit].requested + units_dynamic[*unit].active)) / (float)cfg-&gt;MAX_BUILDERS_PER_TYPE;
+ 
+ 			if(my_rating &gt; best_rating)
+ 			{	
+@@ -3533,7 +3530,7 @@
+ 		}
+ 	}
+ 	
+-	if(builder)
++	if(builder &amp;&amp; units_dynamic[builder].requested &lt;= 0)
+ 	{
+ 		// build factory if necessary
+ 		if(units_dynamic[builder].buildersAvailable &lt;= 0)
+@@ -3549,22 +3546,22 @@
+ 				units_dynamic[*j].buildersRequested += 1;
+ 	
+ 			// debug
+-			fprintf(ai-&gt;file, &quot;AddBuilder() requested: %s %i \n&quot;, unitList[builder-1]-&gt;humanName.c_str(), units_dynamic[builder].requested);
++			//fprintf(ai-&gt;file, &quot;AddBuilder() requested: %s %i \n&quot;, unitList[builder-1]-&gt;humanName.c_str(), units_dynamic[builder].requested);
+ 		}
+ 	}
+ }
+ 
+ 
+-void AAIBuildTable::AddAssister(unsigned int allowed_movement_types, bool canBuild)
++void AAIBuildTable::AddAssistant(unsigned int allowed_movement_types, bool canBuild)
+ {
+ 	int builder = 0;
+ 	float best_rating = -10000, my_rating; 
+ 
+ 	int side = ai-&gt;side-1;
+ 
+-	float cost = ai-&gt;brain-&gt;Affordable()/2.0; 
+-	float buildspeed = 3.0;
+-	float urgency = 9.0 / (ai-&gt;activeBuilders + ai-&gt;futureBuilders + 3);
++	float cost = ai-&gt;brain-&gt;Affordable()/2.0f; 
++	float buildspeed = 3.0f;
++	float urgency = 12.0f / (ai-&gt;activeBuilders + ai-&gt;futureBuilders + 3);
+ 
+ 	float max_buildtime = max_builder_buildtime[ai-&gt;side-1]/256.0;
+ 		
+@@ -3573,16 +3570,13 @@
+ 		if(units_static[*unit].movement_type &amp; allowed_movement_types)
+ 		{
+ 			if( (!canBuild || units_dynamic[*unit].buildersAvailable &gt; 0)
+-				&amp;&amp; units_dynamic[*unit].active &lt; cfg-&gt;MAX_BUILDERS_PER_TYPE
+-				&amp;&amp; units_dynamic[*unit].requested &lt;= 0)
++				&amp;&amp; units_dynamic[*unit].active &lt; cfg-&gt;MAX_BUILDERS_PER_TYPE)
+ 			{
+ 				if( unitList[*unit-1]-&gt;buildSpeed &gt;= (float)cfg-&gt;MIN_ASSISTANCE_BUILDTIME &amp;&amp; unitList[*unit-1]-&gt;canAssist)
+ 				{
+ 					my_rating = cost * (units_static[*unit].cost / max_builder_cost[side]) 
+ 								+ buildspeed * (unitList[*unit-1]-&gt;buildSpeed / max_builder_buildspeed[side]) 
+ 								- urgency * (unitList[*unit-1]-&gt;buildTime / max_buildtime);
+-
+-					my_rating -=  0.5 * ((float)(units_dynamic[*unit].requested + units_dynamic[*unit].active)) / (float)cfg-&gt;MAX_BUILDERS_PER_TYPE;
+ 	
+ 					if(my_rating &gt; best_rating)
+ 					{	
+@@ -3594,7 +3588,7 @@
+ 		}
+ 	}
+ 
+-	if(builder)
++	if(builder &amp;&amp; units_dynamic[builder].requested &lt; 1)
+ 	{
+ 		// build factory if necessary
+ 		if(units_dynamic[builder].buildersAvailable &lt;= 0)
+
+Modified: trunk/AI/Global/AAI/AAIBuildTable.h
+===================================================================
+--- trunk/AI/Global/AAI/AAIBuildTable.h	2008-05-08 14:35:22 UTC (rev 5854)
++++ trunk/AI/Global/AAI/AAIBuildTable.h	2008-05-08 20:17:50 UTC (rev 5855)
+@@ -98,7 +98,7 @@
+ 	void AddBuilder(int building_id);
+ 	// tries to build an assistant for the specified kind of unit
+ 	//void AddAssitantBuilder(bool water, bool floater, bool canBuild);
+-	void AddAssister(unsigned int allowed_movement_types, bool canBuild);
++	void AddAssistant(unsigned int allowed_movement_types, bool canBuild);
+ 
+ 	// returns the allowed movement types for an assisters to assist constrcution of a specified building
+ 	unsigned int GetAllowedMovementTypesForAssister(int building);
+
+Modified: trunk/AI/Global/AAI/AAIBuildTask.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIBuildTask.cpp	2008-05-08 14:35:22 UTC (rev 5854)
++++ trunk/AI/Global/AAI/AAIBuildTask.cpp	2008-05-08 20:17:50 UTC (rev 5855)
+@@ -45,7 +45,7 @@
+ 	}
+ 	
+ 	// look for new builder 
+-	AAIConstructor* new_builder = ai-&gt;ut-&gt;FindClosestAssister(build_pos, 10, commander, ai-&gt;bt-&gt;GetAllowedMovementTypesForAssister(def_id) );
++	AAIConstructor* new_builder = ai-&gt;ut-&gt;FindClosestAssistant(build_pos, 10, commander);
+ 	
+ 	if(new_builder)
+ 	{
+
+Modified: trunk/AI/Global/AAI/AAIConstructor.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIConstructor.cpp	2008-05-08 14:35:22 UTC (rev 5854)
++++ trunk/AI/Global/AAI/AAIConstructor.cpp	2008-05-08 20:17:50 UTC (rev 5855)
+@@ -108,7 +108,7 @@
+ 					c.id = -def_id;
+ 					ai-&gt;cb-&gt;GiveOrder(unit_id, &amp;c);
+ 					construction_def_id = def_id;
+-					task == BUILDING;
++					task = BUILDING;
+ 
+ 					++ai-&gt;futureUnits[cat];
+ 
+@@ -134,7 +134,7 @@
+ 
+ 						ai-&gt;cb-&gt;GiveOrder(unit_id, &amp;c);
+ 						construction_def_id = def_id;
+-						task == BUILDING;
++						task = BUILDING;
+ 
+ 						++ai-&gt;futureUnits[cat];
+ 
+@@ -255,7 +255,7 @@
+ 		
+ 			if(assist)
+ 			{
+-				AAIConstructor* assistant = ai-&gt;ut-&gt;FindClosestAssister(ai-&gt;cb-&gt;GetUnitPos(unit_id), 5, true, bt-&gt;GetAllowedMovementTypesForAssister(def_id) );
++				AAIConstructor* assistant = ai-&gt;ut-&gt;FindClosestAssistant(ai-&gt;cb-&gt;GetUnitPos(unit_id), 5, true);
+ 
+ 				if(assistant)
+ 				{
+@@ -303,7 +303,7 @@
+ 					commander = true;
+ 			}
+ 
+-			AAIConstructor* assistant = ai-&gt;ut-&gt;FindClosestAssister(build_pos, 5, commander, bt-&gt;GetAllowedMovementTypesForAssister(construction_def_id) );
++			AAIConstructor* assistant = ai-&gt;ut-&gt;FindClosestAssistant(build_pos, 5, commander);
+ 			
+ 			if(assistant)
+ 			{
+
+Modified: trunk/AI/Global/AAI/AAIExecute.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIExecute.cpp	2008-05-08 14:35:22 UTC (rev 5854)
++++ trunk/AI/Global/AAI/AAIExecute.cpp	2008-05-08 20:17:50 UTC (rev 5855)
+@@ -363,9 +363,9 @@
+ 					if(!(*spot)-&gt;occupied)	
+ 					{
+ 						if((*spot)-&gt;pos.y &gt; 0)
+-							builder = ut-&gt;FindClosestBuilder(land_mex, (*spot)-&gt;pos, true, 10);
++							builder = ut-&gt;FindClosestBuilder(land_mex, (*spot)-&gt;pos, true);
+ 						else
+-							builder = ut-&gt;FindClosestBuilder(water_mex, (*spot)-&gt;pos, true, 10);
++							builder = ut-&gt;FindClosestBuilder(water_mex, (*spot)-&gt;pos, true);
+ 
+ 						if(builder)
+ 						{
+@@ -709,7 +709,7 @@
+ 			land_mex = bt-&gt;GetMex(ai-&gt;side, cost, efficiency, false, false, true);
+ 		}
+ 
+-		builder = ut-&gt;FindBuilder(land_mex, true, 10);
++		builder = ut-&gt;FindBuilder(land_mex, true);
+ 
+ 		if(builder)
+ 		{
+@@ -730,7 +730,7 @@
+ 	else // normal map
+ 	{
+ 		// different behaviour dependent on number of builders (to save time in late game)
+-		if(ut-&gt;constructors.size() &lt; 5)
++		if(ut-&gt;constructors.size() &lt; 4)
+ 		{
+ 			// get id of an extractor and look for suitable builder
+ 			land_mex = bt-&gt;GetMex(ai-&gt;side, cost, efficiency, false, false, false);
+@@ -771,9 +771,9 @@
+ 
+ 				// only allow commander if spot is close to own base
+ 				if(map-&gt;sector[x][y].distance_to_base &lt;= 0 || (brain-&gt;sectors[0].size() &lt; 3 &amp;&amp; map-&gt;sector[x][y].distance_to_base &lt;= 1) )
+-					builder = ut-&gt;FindClosestBuilder(land_mex, spot-&gt;pos, true, 10);
++					builder = ut-&gt;FindClosestBuilder(land_mex, spot-&gt;pos, true);
+ 				else
+-					builder = ut-&gt;FindClosestBuilder(land_mex, spot-&gt;pos, false, 10);
++					builder = ut-&gt;FindClosestBuilder(land_mex, spot-&gt;pos, false);
+ 		
+ 				if(builder)
+ 				{
+@@ -788,12 +788,11 @@
+ 			}
+ 			else
+ 			{	
+-
+ 				// request metal makers if no spot found (only if spot was not found due to no buidlers available)
+-				builder = ut-&gt;FindClosestBuilder(land_mex, brain-&gt;base_center, true, 10);
++				builder = ut-&gt;FindClosestBuilder(land_mex, brain-&gt;base_center, true);
+ 
+ 				if(!builder)	
+-					builder = ut-&gt;FindClosestBuilder(water_mex, brain-&gt;base_center, true, 10);
++					builder = ut-&gt;FindClosestBuilder(water_mex, brain-&gt;base_center, true);
+ 		
+ 				if(!builder)
+ 				{
+@@ -823,7 +822,7 @@
+ 				int x = spot-&gt;pos.x/map-&gt;xSectorSize;
+ 				int y = spot-&gt;pos.z/map-&gt;ySectorSize;
+ 
+-				if(cb-&gt;GetElevation(spot-&gt;pos.x, spot-&gt;pos.z) &gt; 0) 
++				if(cb-&gt;GetElevation(spot-&gt;pos.x, spot-&gt;pos.z) &gt;= 0) 
+ 					water = false;	
+ 				else
+ 					water = true;
+@@ -837,10 +836,6 @@
+ 					cost = 6.0f;
+ 					armed = true;
+ 					efficiency = 1.0f;
+-
+-					// check mex upgrade
+-					if(ai-&gt;futureUnits[EXTRACTOR] &lt; 2)
+-						CheckMexUpgrade();
+ 				}
+ 
+ 				int mex = bt-&gt;GetMex(ai-&gt;side, cost, efficiency, armed, water, false);
+@@ -855,9 +850,9 @@
+ 				if(mex)
+ 				{
+ 					if(map-&gt;sector[x][y].distance_to_base &lt;= 0 || (brain-&gt;sectors[0].size() &lt; 3 &amp;&amp; map-&gt;sector[x][y].distance_to_base &lt;= 1) )
+-						builder = ut-&gt;FindClosestBuilder(mex, brain-&gt;base_center, true, 10);
++						builder = ut-&gt;FindClosestBuilder(mex, spot-&gt;pos, true);
+ 					else
+-						builder = ut-&gt;FindClosestBuilder(mex, brain-&gt;base_center, false, 10);
++						builder = ut-&gt;FindClosestBuilder(mex, spot-&gt;pos, false);
+ 
+ 					if(builder)
+ 					{
+@@ -869,7 +864,7 @@
+ 			else
+ 			{	
+ 				// check mex upgrade
+-				if(ai-&gt;futureUnits[EXTRACTOR] &lt; 2)
++				if(ai-&gt;futureUnits[EXTRACTOR] &lt; 1)
+ 					CheckMexUpgrade();
+ 
+ 				// request metal makers if no spot found
+@@ -908,7 +903,7 @@
+ 				// try to assist
+ 				if(builder-&gt;assistants.size() &lt; cfg-&gt;MAX_ASSISTANTS)
+ 				{
+-					AAIConstructor *assistant = ut-&gt;FindClosestAssister(builder-&gt;build_pos, 5, true, bt-&gt;GetAllowedMovementTypesForAssister(builder-&gt;construction_def_id));
++					AAIConstructor *assistant = ut-&gt;FindClosestAssistant(builder-&gt;build_pos, 5, true);
+ 
+ 					if(assistant)
+ 					{
+@@ -1016,7 +1011,7 @@
+ 
+ 			if(pos.x &gt; 0)
+ 			{
+-				builder = ut-&gt;FindClosestBuilder(ground_plant, pos, true, 10);
++				builder = ut-&gt;FindClosestBuilder(ground_plant, pos, true);
+ 
+ 				if(builder)
+ 				{
+@@ -1043,7 +1038,7 @@
+ 				pos = (*sector)-&gt;GetBuildsite(water_plant, true);
+ 			else 
+ 			{
+-				builder = ut-&gt;FindBuilder(water_plant, true, 10);
++				builder = ut-&gt;FindBuilder(water_plant, true);
+ 				
+ 				if(builder)
+ 				{
+@@ -1058,7 +1053,7 @@
+ 
+ 			if(pos.x &gt; 0)
+ 			{
+-				builder = ut-&gt;FindClosestBuilder(water_plant, pos, true, 10);
++				builder = ut-&gt;FindClosestBuilder(water_plant, pos, true);
+ 
+ 				if(builder)
+ 				{
+@@ -1148,7 +1143,7 @@
+ 
+ 				if(pos.x &gt; 0)
+ 				{
+-					builder = ut-&gt;FindClosestBuilder(maker, pos, true, 10);
++					builder = ut-&gt;FindClosestBuilder(maker, pos, true);
+ 
+ 					if(builder)
+ 					{
+@@ -1189,7 +1184,7 @@
+ 	
+ 				if(pos.x &gt; 0)
+ 				{
+-					builder = ut-&gt;FindClosestBuilder(maker, pos, true, 10);
++					builder = ut-&gt;FindClosestBuilder(maker, pos, true);
+ 
+ 					if(builder)
+ 					{
+@@ -1268,7 +1263,7 @@
+ 
+ 				if(pos.x &gt; 0)
+ 				{
+-					builder = ut-&gt;FindClosestBuilder(storage, pos, true, 10);
++					builder = ut-&gt;FindClosestBuilder(storage, pos, true);
+ 	
+ 					if(builder)
+ 					{
+@@ -1305,7 +1300,7 @@
+ 
+ 				if(pos.x &gt; 0)
+ 				{
+-					builder = ut-&gt;FindClosestBuilder(storage, pos, true, 10);
++					builder = ut-&gt;FindClosestBuilder(storage, pos, true);
+ 
+ 					if(builder)
+ 					{
+@@ -1377,7 +1372,7 @@
+ 
+ 				if(pos.x &gt; 0)
+ 				{
+-					builder = ut-&gt;FindClosestBuilder(airbase, pos, true, 10);
++					builder = ut-&gt;FindClosestBuilder(airbase, pos, true);
+ 	
+ 					if(builder)
+ 					{
+@@ -1416,7 +1411,7 @@
+ 
+ 				if(pos.x &gt; 0)
+ 				{
+-					builder = ut-&gt;FindClosestBuilder(airbase, pos, true, 10);
++					builder = ut-&gt;FindClosestBuilder(airbase, pos, true);
+ 
+ 					if(builder)
+ 					{
+@@ -1590,7 +1585,7 @@
+ 				
+ 			if(pos.x &gt; 0)
+ 			{
+-				builder = ut-&gt;FindClosestBuilder(building, pos, true, 10);	
++				builder = ut-&gt;FindClosestBuilder(building, pos, true);	
+ 
+ 				if(builder)
+ 				{
+@@ -1647,7 +1642,7 @@
+ 				
+ 			if(pos.x &gt; 0)
+ 			{
+-				builder = ut-&gt;FindClosestBuilder(building, pos, true, 10);
++				builder = ut-&gt;FindClosestBuilder(building, pos, true);
+ 
+ 				if(builder)
+ 				{
+@@ -1720,7 +1715,7 @@
+ 
+ 				if(pos.x &gt; 0)
+ 				{
+-					builder = ut-&gt;FindClosestBuilder(arty, pos, true, 10);
++					builder = ut-&gt;FindClosestBuilder(arty, pos, true);
+ 
+ 					if(builder)
+ 					{
+@@ -1754,7 +1749,7 @@
+ 
+ 				if(pos.x &gt; 0)
+ 				{
+-					builder = ut-&gt;FindClosestBuilder(arty, pos, true, 10);
++					builder = ut-&gt;FindClosestBuilder(arty, pos, true);
+ 
+ 					if(builder)
+ 					{
+@@ -1805,7 +1800,7 @@
+ 			if(my_rating &gt; best_rating)
+ 			{
+ 				// only check building if a suitable builder is available
+-				temp_builder = ut-&gt;FindBuilder(*fac, true, 10);
++				temp_builder = ut-&gt;FindBuilder(*fac, true);
+ 					
+ 				if(temp_builder)
+ 				{
+@@ -1885,7 +1880,7 @@
+ 			
+ 		if(pos.x &gt; 0)
+ 		{
+-			builder = ut-&gt;FindClosestBuilder(building, pos, true, 10);
++			builder = ut-&gt;FindClosestBuilder(building, pos, true);
+ 			
+ 			if(builder)
+ 			{
+@@ -2091,7 +2086,7 @@
+ 
+ 				if(pos.x &gt; 0)
+ 				{
+-					builder = ut-&gt;FindClosestBuilder(radar, pos, true, 10);
++					builder = ut-&gt;FindClosestBuilder(radar, pos, true);
+ 
+ 					if(builder)
+ 					{
+@@ -2124,7 +2119,7 @@
+ 
+ 				if(pos.x &gt; 0)
+ 				{
+-					builder = ut-&gt;FindClosestBuilder(radar, pos, true, 10);
++					builder = ut-&gt;FindClosestBuilder(radar, pos, true);
+ 
+ 					if(builder)
+ 					{
+@@ -2146,58 +2141,105 @@
+ 
+ bool AAIExecute::BuildJammer()
+ {
++	if(ai-&gt;futureUnits[STATIONARY_JAMMER])
++		return true;
++
+ 	int jammer = 0;
++	AAIConstructor *builder;
++	float3 pos;
++	bool checkWater, checkGround;
+ 
+ 	float cost = brain-&gt;Affordable();
+ 	float range = 10.0 / (cost + 1);
+-
+-	jammer = bt-&gt;GetJammer(ai-&gt;side, cost, range, false, false);
+-
+-	if(jammer &amp;&amp; bt-&gt;units_dynamic[jammer].buildersAvailable &lt;= 0)
+-	{
+-		if(bt-&gt;units_dynamic[jammer].buildersRequested &lt;= 0)
+-			bt-&gt;BuildBuilderFor(jammer);
+-
+-		jammer = bt-&gt;GetJammer(ai-&gt;side, cost, range, false, true);
+-	}
+ 	
+-	if(jammer)
++	for(list&lt;AAISector*&gt;::iterator sector = brain-&gt;sectors[0].begin(); sector != brain-&gt;sectors[0].end(); ++sector)
+ 	{
+-		AAIConstructor *builder = ut-&gt;FindBuilder(jammer, true, 10);
++		if((*sector)-&gt;unitsOfType[STATIONARY_JAMMER] &gt; 0)
++		{
++			checkWater = false;
++			checkGround = false;
++		}
++		else if((*sector)-&gt;water_ratio &lt; 0.15)
++		{
++			checkWater = false;
++			checkGround = true;	
++		}
++		else if((*sector)-&gt;water_ratio &lt; 0.85)
++		{
++			checkWater = true;
++			checkGround = true;
++		}
++		else
++		{
++			checkWater = true;
++			checkGround = false;
++		}
+ 
+-		if(builder)
++		if(checkGround)
+ 		{
+-			AAISector *best_sector = 0;
+-			float best_rating = 0, my_rating;
+-			
+-			for(list&lt;AAISector*&gt;::iterator sector = brain-&gt;sectors[0].begin(); sector != brain-&gt;sectors[0].end(); sector++)
++			// find jammer
++			jammer = bt-&gt;GetJammer(ai-&gt;side, cost, range, false, false);
++
++			if(jammer &amp;&amp; bt-&gt;units_dynamic[jammer].buildersAvailable &lt;= 0 &amp;&amp; bt-&gt;units_dynamic[jammer].buildersRequested &lt;= 0)
+ 			{
+-				if((*sector)-&gt;unitsOfType[STATIONARY_JAMMER] == 0 &amp;&amp; ((*sector)-&gt;unitsOfType[STATIONARY_CONSTRUCTOR] &gt; 0 || (*sector)-&gt;unitsOfType[POWER_PLANT] &gt; 0) )
+-					my_rating = (*sector)-&gt;GetOverallThreat(1, 1);
+-				else 
+-					my_rating = 0;
++				bt-&gt;BuildBuilderFor(jammer);
++				jammer = bt-&gt;GetRadar(ai-&gt;side, cost, range, false, true);
++			}
++		
++			if(jammer)
++			{
++				pos = (*sector)-&gt;GetHighestBuildsite(jammer);
+ 
+-				if(my_rating &gt; best_rating)
++				if(pos.x &gt; 0)
+ 				{
+-					best_rating = my_rating;
+-					best_sector = *sector;
++					builder = ut-&gt;FindClosestBuilder(jammer, pos, true);
++
++					if(builder)
++					{
++						builder-&gt;GiveConstructionOrder(jammer, pos, false);
++						return true;
++					}
++					else
++					{
++						bt-&gt;AddBuilder(jammer);
++						return false;
++					}
+ 				}
+ 			}
++		}
+ 
+-			// find centered spot in that sector
+-			if(best_sector)
++		if(checkWater)
++		{
++			// find radar
++			jammer = bt-&gt;GetJammer(ai-&gt;side, cost, range, true, false);
++
++			if(jammer &amp;&amp; bt-&gt;units_dynamic[jammer].buildersAvailable &lt;= 0 &amp;&amp; bt-&gt;units_dynamic[jammer].buildersRequested &lt;= 0)
+ 			{
+-				float3 pos = best_sector-&gt;GetCenterBuildsite(jammer, false);
++				bt-&gt;BuildBuilderFor(jammer);
++				jammer = bt-&gt;GetJammer(ai-&gt;side, cost, range, true, true);
++			}
++		
++			if(jammer)
++			{
++				pos = (*sector)-&gt;GetBuildsite(jammer, true);
+ 
+ 				if(pos.x &gt; 0)
+ 				{
+-					builder-&gt;GiveConstructionOrder(jammer, pos, false);
+-					futureRequestedEnergy += (bt-&gt;unitList[jammer-1]-&gt;energyUpkeep - bt-&gt;unitList[jammer-1]-&gt;energyMake);
++					builder = ut-&gt;FindClosestBuilder(jammer, pos, true);
++
++					if(builder)
++					{
++						builder-&gt;GiveConstructionOrder(jammer, pos, true);
++						return true;
++					}
++					else
++					{
++						bt-&gt;AddBuilder(jammer);
++						return false;
++					}
+ 				}
+ 			}
+ 		}
+-		else
+-			return false;
+ 	}
+ 
+ 	return true;
+@@ -2278,9 +2320,9 @@
+ 					AAIConstructor *builder;
+ 
+ 					if(brain-&gt;sectors[0].size() &gt; 2)
+-						builder = ut-&gt;FindClosestBuilder(defence, pos, false, 10);
++						builder = ut-&gt;FindClosestBuilder(defence, pos, false);
+ 					else
+-						builder = ut-&gt;FindClosestBuilder(defence, pos, true, 10);
++						builder = ut-&gt;FindClosestBuilder(defence, pos, true);
+ 
+ 					if(builder)
+ 						builder-&gt;GiveConstructionOrder(defence, pos, water);	
+@@ -2433,7 +2475,7 @@
+ 
+ 		if(status == BUILDORDER_NOBUILDER)
+ 		{
+-			float temp = 0.3 + 6.0 / ( (float) first-&gt;defences.size() + 1.0f); 
++			float temp = 0.05 + 3.0 / ( (float) first-&gt;defences.size() + 0.5f); 
+ 
+ 			if(urgency[STATIONARY_DEF] &lt; temp)
+ 				urgency[STATIONARY_DEF] = temp;
+@@ -2442,9 +2484,7 @@
+ 			def_category = cat1;
+ 		}
+ 		else if(status == BUILDORDER_NOBUILDPOS)
+-		{
+ 			++first-&gt;failed_defences;
+-		}
+ 	}
+ 	
+ 	if(second)
+@@ -2622,7 +2662,7 @@
+ 
+ 	if(best_spot)
+ 	{
+-		AAIConstructor *builder = ut-&gt;FindClosestAssister(best_spot-&gt;pos, 10, true, bt-&gt;GetAllowedMovementTypesForAssister(best_spot-&gt;extractor_def) ); 
++		AAIConstructor *builder = ut-&gt;FindClosestAssistant(best_spot-&gt;pos, 10, true); 
+ 
+ 		if(builder)
+ 			builder-&gt;GiveReclaimOrder(best_spot-&gt;extractor);
+@@ -2665,7 +2705,7 @@
+ 					if(land_def &amp;&amp; my_def-&gt;radarRadius &lt; land_def-&gt;radarRadius)
+ 					{
+ 						// better radar found, clear buildpos
+-						AAIConstructor *builder = ut-&gt;FindClosestAssister(cb-&gt;GetUnitPos(*recon), 10, true, bt-&gt;GetAllowedMovementTypesForAssister(my_def-&gt;id) );
++						AAIConstructor *builder = ut-&gt;FindClosestAssistant(cb-&gt;GetUnitPos(*recon), 10, true);
+ 
+ 						if(builder)
+ 						{
+@@ -2679,7 +2719,7 @@
+ 					if(water_def &amp;&amp; my_def-&gt;radarRadius &lt; water_def-&gt;radarRadius)
+ 					{
+ 						// better radar found, clear buildpos
+-						AAIConstructor *builder = ut-&gt;FindClosestAssister(cb-&gt;GetUnitPos(*recon), 10, true, bt-&gt;GetAllowedMovementTypesForAssister(my_def-&gt;id) );
++						AAIConstructor *builder = ut-&gt;FindClosestAssistant(cb-&gt;GetUnitPos(*recon), 10, true );
+ 
+ 						if(builder)
+ 						{
+@@ -2726,7 +2766,7 @@
+ 				if(land_def &amp;&amp; my_def-&gt;jammerRadius &lt; land_def-&gt;jammerRadius)
+ 				{
+ 					// better jammer found, clear buildpos
+-					AAIConstructor *builder = ut-&gt;FindClosestAssister(cb-&gt;GetUnitPos(*jammer), 10, true, bt-&gt;GetAllowedMovementTypesForAssister(my_def-&gt;id) );
++					AAIConstructor *builder = ut-&gt;FindClosestAssistant(cb-&gt;GetUnitPos(*jammer), 10, true);
+ 
+ 					if(builder)
+ 					{
+@@ -2740,7 +2780,7 @@
+ 				if(water_def &amp;&amp; my_def-&gt;jammerRadius &lt; water_def-&gt;jammerRadius)
+ 				{
+ 					// better radar found, clear buildpos
+-					AAIConstructor *builder = ut-&gt;FindClosestAssister(cb-&gt;GetUnitPos(*jammer), 10, true, bt-&gt;GetAllowedMovementTypesForAssister(my_def-&gt;id) );
++					AAIConstructor *builder = ut-&gt;FindClosestAssistant(cb-&gt;GetUnitPos(*jammer), 10, true);
+ 				
+ 					if(builder)
+ 					{
+@@ -2959,7 +2999,7 @@
+ 
+ 		if(builder &amp;&amp; builder-&gt;construction_category == category &amp;&amp; builder-&gt;assistants.size() &lt; cfg-&gt;MAX_ASSISTANTS)
+ 		{
+-			assistant = ut-&gt;FindClosestAssister(builder-&gt;build_pos, 5, true, bt-&gt;GetAllowedMovementTypesForAssister(builder-&gt;construction_def_id));
++			assistant = ut-&gt;FindClosestAssistant(builder-&gt;build_pos, 5, true);
+ 
+ 			if(assistant)
+ 			{
+
+Modified: trunk/AI/Global/AAI/AAIGroup.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIGroup.cpp	2008-05-08 14:35:22 UTC (rev 5854)
++++ trunk/AI/Global/AAI/AAIGroup.cpp	2008-05-08 20:17:50 UTC (rev 5855)
+@@ -482,7 +482,7 @@
+ 				ai-&gt;am-&gt;GetNextDest(attack);
+ 				return;
+ 			}
+-			// unit the aa groups was guarding has been killed
++			// unit the aa group was guarding has been killed
+ 			else if(group_unit_type == ANTI_AIR_UNIT)
+ 			{
+ 				if(!attack-&gt;combat_groups.empty())
+@@ -502,6 +502,45 @@
+ 					attack-&gt;StopAttack();
+ 			}
+ 		}
++		else
++		{
++			// idle assault units are ordered to attack the current target sector
++			if(group_unit_type == ASSAULT_UNIT)
++			{
++				Command c;
++				c.id = CMD_FIGHT;
++				c.params.resize(3);
++
++				// get position of the group
++				pos = ai-&gt;cb-&gt;GetUnitPos(unit);
++
++				int pos_x = pos.x/ai-&gt;map-&gt;xSectorSize;
++				int pos_y = pos.z/ai-&gt;map-&gt;ySectorSize;
++				
++				c.params[0] = (target_sector-&gt;left + target_sector-&gt;right)/2;
++				c.params[2] = (target_sector-&gt;bottom + target_sector-&gt;top)/2;
++							
++				// choose location that way that attacking units must cross the entire sector
++				if(target_sector-&gt;x &gt; pos_x)
++					c.params[0] = (target_sector-&gt;left + 7 * target_sector-&gt;right)/8;
++				else if(target_sector-&gt;x &lt; pos_x)
++					c.params[0] = (7 * target_sector-&gt;left + target_sector-&gt;right)/8;
++				else
++					c.params[0] = (target_sector-&gt;left + target_sector-&gt;right)/2;
++
++				if(target_sector-&gt;y &gt; pos_y)
++					c.params[2] = (7 * target_sector-&gt;bottom + target_sector-&gt;top)/8;
++				else if(target_sector-&gt;y &lt; pos_y)
++					c.params[2] = (target_sector-&gt;bottom + 7 * target_sector-&gt;top)/8;
++				else
++					c.params[2] = (target_sector-&gt;bottom + target_sector-&gt;top)/2;
++
++				c.params[1] = cb-&gt;GetElevation(c.params[0], c.params[2]);
++
++				// move group to that sector
++				GiveOrder(&amp;c, 110, UNIT_ATTACKING);	
++			}
++		}
+ 	}
+ 	else if(task == GROUP_RETREATING)
+ 	{
+
+Modified: trunk/AI/Global/AAI/AAIUnitTable.cpp
+===================================================================
+--- trunk/AI/Global/AAI/AAIUnitTable.cpp	2008-05-08 14:35:22 UTC (rev 5854)
++++ trunk/AI/Global/AAI/AAIUnitTable.cpp	2008-05-08 20:17:50 UTC (rev 5855)
+@@ -9,6 +9,8 @@
+ 
+ #include &quot;AAIUnitTable.h&quot;
+ #include &quot;AAI.h&quot;
++#include &quot;AAIExecute.h&quot;
++#include &quot;System/FastMath.h&quot;
+ 
+ AAIUnitTable::AAIUnitTable(AAI *ai, AAIBuildTable *bt)
+ {
+@@ -288,7 +290,7 @@
+ 	stationary_arty.erase(unit_id);
+ }
+ 
+-AAIConstructor* AAIUnitTable::FindBuilder(int building, bool commander, int importance)
++AAIConstructor* AAIUnitTable::FindBuilder(int building, bool commander)
+ {	
+ 	//fprintf(ai-&gt;file, &quot;constructor for %s\n&quot;, bt-&gt;GetCategoryString(building));
+ 	AAIConstructor *builder;
+@@ -318,12 +320,15 @@
+ 	return 0;
+ }
+ 
+-AAIConstructor* AAIUnitTable::FindClosestBuilder(int building, float3 pos, bool commander, int importance)
++AAIConstructor* AAIUnitTable::FindClosestBuilder(int building, float3 pos, bool commander)
+ {	
+ 	float min_dist = 1000000, my_dist;
+ 	AAIConstructor *best_builder = 0, *builder;
+ 	float3 builder_pos;
++	bool suitable;
+ 
++	int continent = ai-&gt;map-&gt;GetContinentID(&amp;pos);
++
+ 	// look for idle builder
+ 	for(set&lt;int&gt;::iterator i = constructors.begin(); i != constructors.end(); ++i)
+ 	{
+@@ -335,29 +340,33 @@
+ 			// find idle or assisting builder, who can build this building
+ 			if(  builder-&gt;task != BUILDING &amp;&amp; bt-&gt;CanBuildUnit(builder-&gt;def_id, building)) 
+ 			{
++				builder_pos = cb-&gt;GetUnitPos(builder-&gt;unit_id);
++
++				// check continent if necessary
++				if(bt-&gt;units_static[builder-&gt;def_id].movement_type &amp; MOVE_TYPE_CONTINENT_BOUND) 
++				{
++					if(ai-&gt;map-&gt;GetContinentID(&amp;builder_pos) == continent)
++						suitable = true;
++					else 
++						suitable = false;
++				}
++				else
++					suitable = true;
++
+ 				// filter out commander
+-				if(!commander &amp;&amp;  bt-&gt;IsCommander(builder-&gt;def_id))
+-					my_dist = 1000000;
+-				else
++				if(suitable &amp;&amp; ( commander || !bt-&gt;IsCommander(builder-&gt;def_id) ) )
+ 				{
+-					builder_pos = cb-&gt;GetUnitPos(builder-&gt;unit_id);
++					my_dist = fastmath::sqrt( (builder_pos.x - pos.x) * (builder_pos.x - pos.x) + (builder_pos.z - pos.z) * (builder_pos.z - pos.z) );
++					
++					if(bt-&gt;unitList[builder-&gt;def_id-1]-&gt;speed &gt; 0)
++						my_dist /= bt-&gt;unitList[builder-&gt;def_id-1]-&gt;speed;
+ 
+-					if(pos.x &gt; 0)
++					if(my_dist &lt; min_dist)
+ 					{
+-						my_dist = sqrt(pow(builder_pos.x - pos.x, 2)+pow(builder_pos.z - pos.z, 2));
+-					
+-						if(bt-&gt;unitList[builder-&gt;def_id-1]-&gt;speed &gt; 0)
+-							my_dist /= bt-&gt;unitList[builder-&gt;def_id-1]-&gt;speed;
++						best_builder = builder;
++						min_dist = my_dist;
+ 					}
+-					else
+-						my_dist = 1000000;	
+ 				}
+-			
+-				if(my_dist &lt; min_dist)
+-				{
+-					best_builder = builder;
+-					min_dist = my_dist;
+-				}
+ 			}
+ 		}
+ 	}
+@@ -365,41 +374,53 @@
+ 	return best_builder;
+ }
+ 
+-AAIConstructor* AAIUnitTable::FindClosestAssister(float3 pos, int importance, bool commander, unsigned int allowed_movement_types)
++AAIConstructor* AAIUnitTable::FindClosestAssistant(float3 pos, int importance, bool commander)
+ {
+-	AAIConstructor *best_assister = 0, *assister;
+-	float best_rating = 0, my_rating;
+-	float3 builder_pos;
+-	float temp;
++	AAIConstructor *best_assistant = 0, *assistant;
++	float best_rating = 0, my_rating, dist;
++	float3 assistant_pos;
++	bool suitable;
+ 
++	int continent = ai-&gt;map-&gt;GetContinentID(&amp;pos);
++
+ 	// find idle builder
+ 	for(set&lt;int&gt;::iterator i = constructors.begin(); i != constructors.end(); ++i)
+ 	{
+ 		// check all assisters
+ 		if(units[*i].cons-&gt;assistant)
+ 		{
+-			assister = units[*i].cons;
++			assistant = units[*i].cons;
++				
++			// find idle assister
++			if(assistant-&gt;task == UNIT_IDLE)
++			{
++				assistant_pos = cb-&gt;GetUnitPos(assistant-&gt;unit_id);
+ 
+-			if(assister-&gt;task == UNIT_IDLE)
+-			{
+-				if(bt-&gt;units_static[assister-&gt;def_id].movement_type &amp; allowed_movement_types)
++				// check continent if necessary
++				if(bt-&gt;units_static[assistant-&gt;def_id].movement_type &amp; MOVE_TYPE_CONTINENT_BOUND) 
+ 				{
+-					if(!commander || bt-&gt;units_static[assister-&gt;def_id].category != COMMANDER)
+-					{
+-						builder_pos = cb-&gt;GetUnitPos(assister-&gt;unit_id);
+-						temp = pow(pos.x - builder_pos.x, 2) + pow(pos.z - builder_pos.z, 2);
++					if(ai-&gt;map-&gt;GetContinentID(&amp;assistant_pos) == continent)
++						suitable = true;
++					else 
++						suitable = false;
++				}
++				else
++					suitable = true;
++
++				// filter out commander
++				if(suitable &amp;&amp; ( commander || !bt-&gt;IsCommander(assistant-&gt;def_id) ) )
++				{
++					dist = (pos.x - assistant_pos.x) * (pos.x - assistant_pos.x) + (pos.z - assistant_pos.z) * (pos.z - assistant_pos.z);
+ 				
+-						if(temp &gt; 0)
+-							//my_rating = assister-&gt;buildspeed * bt-&gt;unitList[assister-&gt;def_id-1]-&gt;speed / sqrt(temp);
+-							my_rating = assister-&gt;buildspeed / sqrt(temp);
+-						else
+-							my_rating = 10;
++					if(dist &gt; 0)	
++						my_rating = assistant-&gt;buildspeed / fastmath::sqrt(dist);
++					else
++						my_rating = 1;
+ 		
+-						if(my_rating &gt; best_rating)
+-						{
+-							best_rating = my_rating;
+-							best_assister = assister;
+-						}
++					if(my_rating &gt; best_rating)
++					{
++						best_rating = my_rating;
++						best_assistant = assistant;
+ 					}
+ 				}
+ 			}
+@@ -407,10 +428,19 @@
+ 	}
+ 		
+ 	// no assister found -&gt; request one 
+-	if(!best_assister)
+-		bt-&gt;AddAssister(allowed_movement_types, true);	
++	if(!best_assistant)
++	{
++		unsigned int allowed_movement_types = 22;
++		
++		if(cb-&gt;GetElevation(pos.x, pos.z) &lt; 0)
++			allowed_movement_types |= MOVE_TYPE_SEA;
++		else 
++			allowed_movement_types |= MOVE_TYPE_GROUND;
+ 
+-	return best_assister;
++		bt-&gt;AddAssistant(allowed_movement_types, true);	
++	}
++
++	return best_assistant;
+ }
+ 
+ bool AAIUnitTable::IsUnitCommander(int unit_id)
+
+Modified: trunk/AI/Global/AAI/AAIUnitTable.h
+===================================================================
+--- trunk/AI/Global/AAI/AAIUnitTable.h	2008-05-08 14:35:22 UTC (rev 5854)
++++ trunk/AI/Global/AAI/AAIUnitTable.h	2008-05-08 20:17:50 UTC (rev 5855)
+@@ -7,6 +7,7 @@
+ 
+ class AAI;
+ class AAIBuildTable;
++class AAIExecute;
+ 
+ class AAIUnitTable
+ {
+@@ -41,9 +42,9 @@
+ 	void AddStationaryArty(int unit_id, int def_id);
+ 	void RemoveStationaryArty(int unit_id);
+ 
+-	AAIConstructor* FindBuilder(int building, bool commander, int importance);
+-	AAIConstructor* FindClosestBuilder(int building, float3 pos, bool commander, int importance);
+-	AAIConstructor* FindClosestAssister(float3 pos, int importance, bool commander, unsigned int allowed_movement_types);
++	AAIConstructor* FindBuilder(int building, bool commander);
++	AAIConstructor* FindClosestBuilder(int building, float3 pos, bool commander);
++	AAIConstructor* FindClosestAssistant(float3 pos, int importance, bool commander);
+ 
+ 	void EnemyKilled(int unit);
+ 
+@@ -57,6 +58,7 @@
+ 	bool IsBuilder(int unit_id);
+ 
+ 	AAI *ai;
++	AAIExecute *execute;
+ 	AAIBuildTable *bt;
+ 	IAICallback* cb;
+ 
+
+Modified: trunk/AI/Global/AAI/aidef.h
+===================================================================
+--- trunk/AI/Global/AAI/aidef.h	2008-05-08 14:35:22 UTC (rev 5854)
++++ trunk/AI/Global/AAI/aidef.h	2008-05-08 20:17:50 UTC (rev 5855)
+@@ -32,7 +32,7 @@
+ #ifndef AIDEF_H
+ #define AIDEF_H
+ 
+-#define AAI_VERSION &quot;0.866&quot;
++#define AAI_VERSION &quot;0.867&quot;
+ #define MAP_FILE_VERSION &quot;MAP_LEARN_0_80&quot;
+ #define TABLE_FILE_VERSION &quot;MOD_LEARN_0_86&quot;
+ #define MAP_DATA_VERSION &quot;MAP_DATA_0_86&quot;
+
+Modified: trunk/game/AI/AAI/AAI ReadMe.txt
+===================================================================
+--- trunk/game/AI/AAI/AAI ReadMe.txt	2008-05-08 14:35:22 UTC (rev 5854)
++++ trunk/game/AI/AAI/AAI ReadMe.txt	2008-05-08 20:17:50 UTC (rev 5855)
+@@ -105,6 +105,11 @@
+ 		- Brandon Potter for his TBT 12 cfg file
+ 
+ 
++
++AAI v0.867	- AAI now takes continents into account when sending builder/assistant builders to positions (e.g. it does not try send 
++		  ground builders to positions on other islands/continents anymore (unless they are amphibious))
++
++
+ AAI v0.866	- Fixed a bug that caused builders to leave the buildsite during construction 
+ 
+ 		- Various changes to issued orders; temporarily removed reclaiming. Reclaim orders were given multiple times per frame 
+@@ -118,8 +123,7 @@
+ 		  
+ 		  MIN_FALLBACK_RANGE 500  - units with lower weapons' range will not try fall back at all 
+ 
+-
+-AAI v0.862	- Added submarine defence map -&gt; AAI will now store its defence capabilities vs submarines separately from other 
++		- Added submarine defence map -&gt; AAI will now store its defence capabilities vs submarines separately from other 
+ 		  naval units
+ 
+ 		- AAI now takes continents into account when sending scouts to positions (e.g. it does not try send ground scouts to 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000634.html">[Taspring-linux-commit] r5854 - trunk/Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="000636.html">[Taspring-linux-commit] r5856 - in trunk/Lobby/TASClient: . Graphics
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#635">[ date ]</a>
+              <a href="thread.html#635">[ thread ]</a>
+              <a href="subject.html#635">[ subject ]</a>
+              <a href="author.html#635">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

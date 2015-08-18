@@ -1,0 +1,395 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7573 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2011-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7573%20-%20Lobby/TASClient&In-Reply-To=%3C20110112165024.58EBD2FBB7%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002342.html">
+   <LINK REL="Next"  HREF="002344.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7573 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7573%20-%20Lobby/TASClient&In-Reply-To=%3C20110112165024.58EBD2FBB7%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7573 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Jan 12 17:50:24 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002342.html">[Taspring-linux-commit] r7572 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002344.html">[Taspring-linux-commit] r7574 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2343">[ date ]</a>
+              <a href="thread.html#2343">[ thread ]</a>
+              <a href="subject.html#2343">[ subject ]</a>
+              <a href="author.html#2343">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2011-01-12 17:50:23 +0100 (Wed, 12 Jan 2011)
+New Revision: 7573
+
+Modified:
+   Lobby/TASClient/BattleFormUnit.pas
+   Lobby/TASClient/DisableUnitsFormUnit.dfm
+   Lobby/TASClient/MapListFormUnit.pas
+   Lobby/TASClient/Minimap3DPreviewUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* a bit more refactoring of the zoomed and 3d minimap
+
+Modified: Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.pas	2011-01-11 23:10:08 UTC (rev 7572)
++++ Lobby/TASClient/BattleFormUnit.pas	2011-01-12 16:50:23 UTC (rev 7573)
+@@ -3154,7 +3154,9 @@
+     Application.CreateForm(TMinimap3DPreview, Minimap3DPreview);
+     if SkinManager.GetSkinType &lt;&gt; sknSkin then
+       Minimap3DPreview.SpTBXTitleBar1.Active := False;
+-    Minimap3DPreview.UpdateMiniMap(Sender = MetalMapImage);
++    Minimap3DPreview.UpdateMiniMap(GetMapItem(CurrentMapIndex),HeightMapImage.Picture.Bitmap,MinimapZoomedForm.Image1.Picture.Bitmap,MetalMapImage.Picture.Bitmap,Sender = MetalMapImage);
++    Minimap3DPreview.Caption := MinimapZoomedForm.Caption;
++    Minimap3DPreview.SpTBXTitleBar1.Caption := Minimap3DPreview.Caption;
+     Minimap3DPreview.ShowModal;
+     Minimap3DPreview.Free;
+     Minimap3DPreview := nil;
+
+Modified: Lobby/TASClient/DisableUnitsFormUnit.dfm
+===================================================================
+--- Lobby/TASClient/DisableUnitsFormUnit.dfm	2011-01-11 23:10:08 UTC (rev 7572)
++++ Lobby/TASClient/DisableUnitsFormUnit.dfm	2011-01-12 16:50:23 UTC (rev 7573)
+@@ -32,7 +32,7 @@
+       Caption = 'pnlMain'
+       Align = alClient
+       TabOrder = 1
+-      Borders = False
++      BorderType = pbrFramed
+       TBXStyleBackground = True
+       DesignSize = (
+         662
+
+Modified: Lobby/TASClient/MapListFormUnit.pas
+===================================================================
+--- Lobby/TASClient/MapListFormUnit.pas	2011-01-11 23:10:08 UTC (rev 7572)
++++ Lobby/TASClient/MapListFormUnit.pas	2011-01-12 16:50:23 UTC (rev 7573)
+@@ -94,12 +94,18 @@
+     FMyGrade: Integer;
+     FVisible: Boolean;
+     FMinimalDisplay: Boolean;
++    FMinHeightLoaded: Boolean;
++    FMaxHeightLoaded: Boolean;
++    FMinHeight: Float;
++    FMaxHeight: Float;
+ 
+     function TryToReadInfoFromCache: Boolean; // if successful, it will write info to MapInfo record but not change any visual information
+     function TryToWriteInfoToCache: Boolean;
+     function TryToReadMapImageFromCache: Boolean;
+     function TryToWriteMapImageToCache: Boolean;
+     procedure SetVisible(v: boolean);
++    function GetMinHeight: Float;
++    function GetMaxHeight: Float;
+   public
+     Index: Integer; // index of this map in Utility.pas' MapList list
+ 
+@@ -109,9 +115,8 @@
+     MapInfoLoaded: Boolean;
+     MapImageLoaded: Boolean;
+     MapInfo: TMapInfo; // valid only if MapInfoLoaded is True!
+-    MinHeight: Float;
+-    MaxHeight: Float;
+-    HeightBoundsLoaded: Boolean;
++
++
+     Boxes: TScript;
+ 
+     MyGrade: Integer; // 0 if not graded yet, and 1 to 10 for the actual grade otherwise
+@@ -164,6 +169,9 @@
+     procedure Repaint;
+ 
+     property Visible: Boolean read FVisible write SetVisible;
++
++    property MinHeight: Float read GetMinHeight;
++    property MaxHeight: Float read GetMaxHeight;
+   end;
+ 
+   function CompareMapItems(Item1, Item2: Pointer): Integer;
+@@ -250,7 +258,8 @@
+   Self.MapName := Utility.MapList[Index];
+   Self.MapHash := Utility.MapChecksums.Items[Index];
+ 
+-  HeightBoundsLoaded := False;
++  FMinHeightLoaded := False;
++  FMaxHeightLoaded := False;
+ 
+   MapInfoLoaded := False;
+   MapImageLoaded := False;
+@@ -835,6 +844,27 @@
+   //*** not done yet! (should be used with dragging elements when using custom sorting style, if it gets implemented at all)
+ end;
+ 
++function TMapItem.GetMinHeight: Float;
++begin
++  if not FMinHeightLoaded then
++  begin
++    FMinHeight := GetMapMinHeight(PChar(MapName));
++    MainForm.PrintUnitsyncErrors;
++    FMinHeightLoaded := True;
++  end;
++  Result := FMinHeight;
++end;
++function TMapItem.GetMaxHeight: Float;
++begin
++  if not FMaxHeightLoaded then
++  begin
++    FMaxHeight := GetMapMaxHeight(PChar(MapName));
++    MainForm.PrintUnitsyncErrors;
++    FMaxHeightLoaded := True;
++  end;
++  Result := FMaxHeight;
++end;
++
+ procedure TMapListForm.FormCreate(Sender: TObject);
+ begin
+   TranslateComponent(self);
+
+Modified: Lobby/TASClient/Minimap3DPreviewUnit.pas
+===================================================================
+--- Lobby/TASClient/Minimap3DPreviewUnit.pas	2011-01-11 23:10:08 UTC (rev 7572)
++++ Lobby/TASClient/Minimap3DPreviewUnit.pas	2011-01-12 16:50:23 UTC (rev 7573)
+@@ -7,7 +7,7 @@
+   Dialogs, GLCadencer, GLTexture, jpeg, GLHeightData, GLScene,OpenGL1x,
+   GLTerrainRenderer, GLObjects, GLMisc, GLWin32Viewer, GLVectorFileObjects,
+   GLPortal,VectorTypes,VectorGeometry, SpTBXItem,SpTBXSkins, Math,GIFImage,
+-  GpIFF;
++  GpIFF,MapListFormUnit;
+ 
+ type
+   TMinimap3DPreview = class(TForm)
+@@ -40,7 +40,7 @@
+     buttonDown: boolean;
+ 
+     procedure SwitchMetalMap;
+-    procedure UpdateMiniMap(displayMetalMap: Boolean);
++    procedure UpdateMiniMap(currentMap: TMapItem;heightBitmap: TBitmap; textureBitmap: TBitmap; metalBitmap: TBitmap;displayMetalMap: Boolean);
+   end;
+ 
+ var
+@@ -48,7 +48,7 @@
+ 
+ implementation
+ 
+-uses BattleFormUnit, MapListFormUnit, PreferencesFormUnit,
++uses BattleFormUnit, PreferencesFormUnit,
+   MinimapZoomedFormUnit, Misc, MainUnit, Utility;
+ 
+ {$R *.dfm}
+@@ -165,26 +165,15 @@
+     Minimap.Material.LibMaterialName := 'GroundMetalTexture';
+ end;
+ 
+-procedure TMinimap3DPreview.UpdateMiniMap(displayMetalMap: Boolean);
++procedure TMinimap3DPreview.UpdateMiniMap(currentMap: TMapItem;heightBitmap: TBitmap; textureBitmap: TBitmap; metalBitmap: TBitmap;displayMetalMap: Boolean);
+ var
+   hMap: TBitmap;
+   texture: TBitmap;
+   textureMetal: TBitmap;
+-  currentMap: TMapItem;
+   i,j: integer;
+   linePixels1,linePixels2 : pColorData;
+ begin
+-  currentMap := GetMapItem(BattleForm.CurrentMapIndex);
+ 
+-  if not currentMap.HeightBoundsLoaded then
+-  begin
+-    currentMap.MinHeight := GetMapMinHeight(PChar(MapList[BattleForm.CurrentMapIndex]));
+-    currentMap.MaxHeight := GetMapMaxHeight(PChar(MapList[BattleForm.CurrentMapIndex]));
+-    currentMap.HeightBoundsLoaded := True;
+-
+-    MainForm.PrintUnitsyncErrors;
+-  end;
+-
+   Camera.Position.X := -100;
+   Camera.Position.Y := 100;
+   Camera.Position.Z := 100;
+@@ -194,52 +183,43 @@
+   if Minimap.Scale.Z = 0 then
+     Minimap.Scale.Z := -0.03;
+ 
+-  if Caption &lt;&gt; MinimapZoomedForm.Caption then
+-    hMap := TBitmap.Create;
+-
++  hMap := TBitmap.Create;
+   texture := TBitmap.Create;
+ 
+-  if Caption &lt;&gt; MinimapZoomedForm.Caption then
+-    with currentMap do
+-      if MapInfo.Width &gt; MapInfo.Height then
+-      begin
+-        Minimap.Scale.X := 0.1;
+-        Minimap.Scale.Y := 0.1*MapInfo.Height/MapInfo.Width;
+-      end
+-      else
+-      begin
+-        Minimap.Scale.X := 0.1*MapInfo.Width/MapInfo.Height;
+-        Minimap.Scale.Y := 0.1;
+-      end;
+-      
+-  if Caption &lt;&gt; MinimapZoomedForm.Caption then
+-  begin
+-    hMap.Width := 1024;
+-    hMap.Height := 1024;
+-    hMap.PixelFormat := pf24bit;
+-  end;
++  with currentMap do
++    if MapInfo.Width &gt; MapInfo.Height then
++    begin
++      Minimap.Scale.X := 0.1;
++      Minimap.Scale.Y := 0.1*MapInfo.Height/MapInfo.Width;
++    end
++    else
++    begin
++      Minimap.Scale.X := 0.1*MapInfo.Width/MapInfo.Height;
++      Minimap.Scale.Y := 0.1;
++    end;
++
++  hMap.Width := 1024;
++  hMap.Height := 1024;
++  hMap.PixelFormat := pf24bit;
++
+   texture.Width := 1024;
+   texture.Height := 1024;
+   texture.PixelFormat := pf24bit;
+ 
+-  if Caption &lt;&gt; MinimapZoomedForm.Caption then
+-  begin
+-    hMap.Canvas.Brush.Color := clBlack;
+-    hMap.Canvas.FillRect(hMap.Canvas.ClipRect);
+-  end;
++  hMap.Canvas.Brush.Color := clBlack;
++  hMap.Canvas.FillRect(hMap.Canvas.ClipRect);
+ 
+   texture.Canvas.Brush.Color := clBlack;
+   texture.Canvas.FillRect(texture.Canvas.ClipRect);
+ 
+-  if Caption &lt;&gt; MinimapZoomedForm.Caption then
+-    hMap.Canvas.StretchDraw(Rect(1,1,hMap.Width,hMap.Height),BattleForm.HeightMapImage.Picture.Graphic);
+-  texture.Canvas.StretchDraw(Rect(1,1,texture.Width,texture.Height),MinimapZoomedForm.Image1.Picture.Graphic);
++  hMap.Canvas.StretchDraw(Rect(1,1,hMap.Width,hMap.Height),heightBitmap);
++  texture.Canvas.StretchDraw(Rect(1,1,texture.Width,texture.Height),textureBitmap);
+ 
+   textureMetal := TBitmap.Create;
+   textureMetal.Width := 1024;
+   textureMetal.Height := 1024;
+   textureMetal.PixelFormat := pf24bit;
+-  textureMetal.Canvas.StretchDraw(Rect(1,1,texture.Width,texture.Height),BattleForm.MetalMapImage.Picture.Graphic);
++  textureMetal.Canvas.StretchDraw(Rect(1,1,texture.Width,texture.Height),metalBitmap);
+   for i:=0 to textureMetal.Height-1 do
+   begin
+     linePixels1 := textureMetal.ScanLine[i];
+@@ -253,24 +233,19 @@
+     end;
+   end;
+ 
+-  if Caption &lt;&gt; MinimapZoomedForm.Caption then
+-  begin
+-    HeightMap.Picture.Bitmap.Width := texture.Width;
+-    HeightMap.Picture.Bitmap.Height := texture.Height;
+-    HeightMap.Picture.Bitmap.Assign(ReduceColors(hMap,rmGrayScale,dmFloydSteinberg,0,0));
+-  end;
++  HeightMap.Picture.Bitmap.Width := texture.Width;
++  HeightMap.Picture.Bitmap.Height := texture.Height;
++  HeightMap.Picture.Bitmap.Assign(ReduceColors(hMap,rmGrayScale,dmFloydSteinberg,0,0));
++
+   TextureLib.LibMaterialByName('GroundTexture').Material.Texture.Image.GetBitmap32(GL_TEXTURE_2D).Assign(texture);
+   TextureLib.LibMaterialByName('GroundMetalTexture').Material.Texture.Image.GetBitmap32(GL_TEXTURE_2D).Assign(textureMetal);
+ 
+-  if Caption &lt;&gt; MinimapZoomedForm.Caption then
+-  begin
+-    Minimap.HeightDataSource := nil;
+-    Minimap.HeightDataSource := HeightMap;
++  Minimap.HeightDataSource := nil;
++  Minimap.HeightDataSource := HeightMap;
+ 
+-    Minimap.Position.X := 51*Minimap.Scale.X*10;
+-    Minimap.Position.Y := -47.5*Minimap.Scale.Y*10;
+-    Minimap.Position.Z := 0;
+-  end;
++  Minimap.Position.X := 51*Minimap.Scale.X*10;
++  Minimap.Position.Y := -47.5*Minimap.Scale.Y*10;
++  Minimap.Position.Z := 0;
+ 
+   TextureLib.LibMaterialByName('GroundTexture').Material.Texture.Image.NotifyChange(TextureLib.LibMaterialByName('GroundTexture').Material.Texture.Image);
+   TextureLib.LibMaterialByName('GroundMetalTexture').Material.Texture.Image.NotifyChange(TextureLib.LibMaterialByName('GroundMetalTexture').Material.Texture.Image);
+@@ -296,9 +271,6 @@
+ 
+   Water.Visible := currentMap.MinHeight &lt; 0;
+ 
+-  Minimap3DPreview.Caption := MinimapZoomedForm.Caption;
+-  Minimap3DPreview.SpTBXTitleBar1.Caption := Minimap3DPreview.Caption;
+-
+   texture.Free;
+   textureMetal.Free;
+   hMap.Free;
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2011-01-11 23:10:08 UTC (rev 7572)
++++ Lobby/TASClient/TASClient.dof	2011-01-12 16:50:23 UTC (rev 7573)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=84
+ Release=0
+-Build=1224
++Build=1227
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.84.0.1224
++FileVersion=0.84.0.1227
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002342.html">[Taspring-linux-commit] r7572 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002344.html">[Taspring-linux-commit] r7574 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2343">[ date ]</a>
+              <a href="thread.html#2343">[ thread ]</a>
+              <a href="subject.html#2343">[ subject ]</a>
+              <a href="author.html#2343">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

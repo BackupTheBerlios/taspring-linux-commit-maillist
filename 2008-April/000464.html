@@ -1,0 +1,381 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5683 - trunk/Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5683%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080408182434.BA9854682%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000463.html">
+   <LINK REL="Next"  HREF="000465.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5683 - trunk/Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5683%20-%20trunk/Lobby/TASClient&In-Reply-To=%3C20080408182434.BA9854682%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5683 - trunk/Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Apr  8 20:24:34 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000463.html">[Taspring-linux-commit] r5682 - trunk/rts/build/vstudio8
+</A></li>
+        <LI>Next message: <A HREF="000465.html">[Taspring-linux-commit] r5684 - in trunk/rts/System: . Platform	Platform/Linux Platform/Win
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#464">[ date ]</a>
+              <a href="thread.html#464">[ thread ]</a>
+              <a href="subject.html#464">[ subject ]</a>
+              <a href="author.html#464">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2008-04-08 20:24:33 +0200 (Tue, 08 Apr 2008)
+New Revision: 5683
+
+Modified:
+   trunk/Lobby/TASClient/HttpGetUnit.dfm
+   trunk/Lobby/TASClient/HttpGetUnit.pas
+   trunk/Lobby/TASClient/MainUnit.pas
+   trunk/Lobby/TASClient/ReplaysUnit.dfm
+   trunk/Lobby/TASClient/ReplaysUnit.pas
+   trunk/Lobby/TASClient/SevenZip.pas
+   trunk/Lobby/TASClient/TASClient.dof
+   trunk/Lobby/TASClient/TASClient.res
+Log:
+- autoupdate now display the dll error msg if it fails at extracting, it also show the 7zip errors if you switch to debug mode
+- replayform filters fixed
+
+Modified: trunk/Lobby/TASClient/HttpGetUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/HttpGetUnit.dfm	2008-04-08 14:39:25 UTC (rev 5682)
++++ trunk/Lobby/TASClient/HttpGetUnit.dfm	2008-04-08 18:24:33 UTC (rev 5683)
+@@ -133,6 +133,7 @@
+       Font.Name = 'MS Sans Serif'
+       Font.Style = [fsBold]
+       ParentFont = False
++      CaptionGlow = gldBottomRight
+       CaptionGlowColor = clWhite
+       Smooth = True
+     end
+
+Modified: trunk/Lobby/TASClient/HttpGetUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/HttpGetUnit.pas	2008-04-08 14:39:25 UTC (rev 5682)
++++ trunk/Lobby/TASClient/HttpGetUnit.pas	2008-04-08 18:24:33 UTC (rev 5683)
+@@ -5,7 +5,7 @@
+ uses
+   Windows, Messages, SysUtils, Variants, Classes, Graphics, Controls, Forms,
+   Dialogs, HttpProt, StdCtrls, Buttons, ComCtrls, MainUnit, Misc, ShellAPI,
+-  SpTBXControls, TBXDkPanels, SpTBXItem,SevenZip;
++  SpTBXControls, TBXDkPanels, SpTBXItem,SevenZip,StrUtils;
+ 
+ type
+   THttpGetForm = class(TForm)
+@@ -90,6 +90,8 @@
+   i:integer;
+   paramList: TStringList;
+   appExePath: string;
++  e: integer;
++  errorList: TStringList;
+ begin
+   Result := False;
+ 
+@@ -167,17 +169,37 @@
+         appExePath := Application.ExeName;
+         RenameFile(Application.ExeName,Application.ExeName+'.old');
+         LoadSevenZipDLL;
+-        SevenZipExtractArchive(Application.Handle,DownloadFile.FileName,'',false,'',true,'.',false);
++        e := SevenZipExtractArchive(Application.Handle,DownloadFile.FileName,'',false,'',true,'.',false);
+         UnloadSevenZipDLL;
+         DeleteFile(DownloadFile.FileName);
++
+         paramList := TStringList.Create;
+         for i:=1 to ParamCount do
+           paramList.Add(ParamStr(i));
+-        ShellExecute(0,'open',PChar(appExePath),PChar(JoinStringList(paramList,' ')),PChar(ExtractFilePath(appExePath)), SW_SHOWNORMAL);
+-        MainForm.Close;
++
++        if e=SZ_OK then
++        begin
++          ShellExecute(0,'open',PChar(appExePath),PChar(JoinStringList(paramList,' ')),PChar(ExtractFilePath(appExePath)), SW_SHOWNORMAL);
++          MainForm.Close;
++        end
++        else
++        begin
++          if e=SZ_ERROR then
++          begin
++            if Debug.Enabled then
++              MessageDlg(SevenZip.LastError, mtError, [mbOK], 0)
++            else
++            begin
++              ShellExecute(0,'open',PChar(appExePath),PChar(JoinStringList(paramList,' ')),PChar(ExtractFilePath(appExePath)), SW_SHOWNORMAL);
++              MainForm.Close;
++            end;
++          end
++          else
++            MessageDlg('Error '+IntToStr(e)+': '+SevenZipErrNbToMsg(e), mtError, [mbOK], 0)
++        end;
+       end
+       else
+-      MessageDlg('Download complete!', mtInformation, [mbOK], 0);
++        MessageDlg('Download complete!', mtInformation, [mbOK], 0);
+   end;
+ 
+   Result := True;
+
+Modified: trunk/Lobby/TASClient/MainUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/MainUnit.pas	2008-04-08 14:39:25 UTC (rev 5682)
++++ trunk/Lobby/TASClient/MainUnit.pas	2008-04-08 18:24:33 UTC (rev 5683)
+@@ -509,7 +509,7 @@
+ 
+ const
+   VERSION_NUMBER = '0.37'; // Must be float value! (with a period as a decimal seperator)
+-  BETA_NUMBER = 272;
++  BETA_NUMBER = 273;
+   CHECK_BETA_LOBBY_URL = '<A HREF="http://tasclient.no-ip.org/TASClient.txt">http://tasclient.no-ip.org/TASClient.txt</A>';
+   PROGRAM_VERSION = 'TASClient ' + VERSION_NUMBER + ' beta';
+   KEEP_ALIVE_INTERVAL = 10000; // in milliseconds. Tells us what should be the maximum &quot;silence&quot; time before we send a ping to the server.
+
+Modified: trunk/Lobby/TASClient/ReplaysUnit.dfm
+===================================================================
+--- trunk/Lobby/TASClient/ReplaysUnit.dfm	2008-04-08 14:39:25 UTC (rev 5682)
++++ trunk/Lobby/TASClient/ReplaysUnit.dfm	2008-04-08 18:24:33 UTC (rev 5683)
+@@ -1,6 +1,6 @@
+ object ReplaysForm: TReplaysForm
+-  Left = 538
+-  Top = 134
++  Left = 889
++  Top = 190
+   Width = 809
+   Height = 640
+   Caption = 'Replays'
+
+Modified: trunk/Lobby/TASClient/ReplaysUnit.pas
+===================================================================
+--- trunk/Lobby/TASClient/ReplaysUnit.pas	2008-04-08 14:39:25 UTC (rev 5682)
++++ trunk/Lobby/TASClient/ReplaysUnit.pas	2008-04-08 18:24:33 UTC (rev 5683)
+@@ -1570,7 +1570,7 @@
+       if enabled then
+       begin
+         if filterType = HostName then
+-          tmpStr := TReplayPlayer(Replay.PlayerList[0]).UserName
++          tmpStr := TReplayPlayer(Replay.PlayerList[0]^).UserName
+         else if filterType = MapName then
+           tmpStr := LeftStr(Replay.Script.ReadMapName,Length(Replay.Script.ReadMapName)-4) // left to remove the .smf (or whatever the extension is)
+         else if filterType = ModName then
+@@ -1583,7 +1583,7 @@
+           tmpStr := Replay.FileName
+         else if filterType = Players then
+           for k:=0 to Replay.PlayerList.Count-1 do
+-            tmpStr := tmpStr + TReplayPlayer(Replay.PlayerList[k]).UserName + ' '
++            tmpStr := tmpStr + TReplayPlayer(Replay.PlayerList[k]^).UserName + ' '
+         else
+           raise Exception.Create('Filter type not handled.');
+ 
+@@ -1655,7 +1655,7 @@
+   i:integer;
+ begin
+   VDTReplays.Clear;
+-  InitVDTForRefresh;
++  VDTReplays.TreeOptions.AutoOptions := [toAutoDropExpand,toAutoScrollOnExpand,toAutoTristateTracking,toAutoDeleteMovedNodes];
+   for i:=0 to ReplayList.Count-1 do
+   begin
+     if isReplayVisible(ReplayList[i]) then
+@@ -1666,7 +1666,22 @@
+     else
+       TReplay(ReplayList[i]).Node := nil;
+   end;
+-  TerminateVDTRefresh;
++  if VDTReplays.RootNodeCount = 0 then
++  begin
++    VDTPlayers.Refresh;
++    Exit;
++  end;
++  VDTReplays.TreeOptions.AutoOptions := [toAutoDropExpand,toAutoScrollOnExpand,toAutoSort,toAutoTristateTracking,toAutoDeleteMovedNodes];
++  VDTReplays.SortTree(VDTReplays.Header.SortColumn,VDTReplays.Header.SortDirection);
++
++  RenameButton.Enabled := ReplayList.Count &gt; 0;
++  DeleteButton.Enabled := ReplayList.Count &gt; 0;
++  GradeComboBox.Enabled := ReplayList.Count &gt; 0;
++
++  ReplaysForm.VDTReplays.FocusedNode := ReplaysForm.VDTReplays.GetFirst;
++  ReplaysForm.VDTReplays.Selected[ReplaysForm.VDTReplays.FocusedNode] := true;
++
++  ReplaysForm.VDTReplaysClick;
+ end;
+ 
+ procedure TReplaysForm.chkEnableFiltersClick(Sender: TObject);
+
+Modified: trunk/Lobby/TASClient/SevenZip.pas
+===================================================================
+--- trunk/Lobby/TASClient/SevenZip.pas	2008-04-08 14:39:25 UTC (rev 5682)
++++ trunk/Lobby/TASClient/SevenZip.pas	2008-04-08 18:24:33 UTC (rev 5683)
+@@ -371,6 +371,7 @@
+                                  ShowProgress   : Boolean;     // if true uses dll's internal progress indicator (callback func ignored)
+                                  Callback       : TSevenZipCallbackProc = nil ) // optional callback (ShowProgress must be false)
+                                  : integer; // 0 = success
++function SevenZipErrNbToMsg(errNb: integer):string;
+ 
+ 
+ var
+@@ -431,7 +432,7 @@
+   SevenZipGetSubVersion         : TSevenZipGetSubVersion        = nil; 
+   SevenZipGetArchiveType        : TSevenZipGetArchiveType       = nil;
+   SevenZipSetUnicodeMode        : TSevenZipSetUnicodeMode       = nil;
+-
++  LastError : String;
+ implementation
+ uses classes, sysutils, dialogs;
+ 
+@@ -622,7 +623,10 @@
+         Result := SZ_CANCELLED
+       else
+       if Pos('error:', LowerCase(S7ResultOutput)) &gt; 0 then
++      begin
++        LastError := S7ResultOutput;
+         Result := SZ_ERROR
++      end
+       else
+         Result := SZ_OK;
+     except
+@@ -711,7 +715,10 @@
+         Result := SZ_CANCELLED
+       else
+       if Pos('error:', LowerCase(S7ResultOutput)) &gt; 0 then
+-        Result := SZ_ERROR
++      begin
++        LastError := S7ResultOutput;
++        Result := SZ_ERROR;
++      end
+       else
+         Result := SZ_OK;
+     except
+@@ -726,5 +733,68 @@
+   end;
+ end;
+ 
++function SevenZipErrNbToMsg(errNb: integer):string;
++begin
++  case errNb of
++    $8012:Result := 'MAKEDIRECTORY';
++		$8013:Result := 'CANNOT_WRITE';
++		$8014:Result := 'HUFFMAN_CODE';
++		$8015:Result := 'COMMENT_HEADER';
++		$8016:Result := 'HEADER_CRC';
++		$8017:Result := 'HEADER_BROKEN';
++		$8018:Result := 'ARC_FILE_OPEN';
++		$8019:Result := 'NOT_ARC_FILE';
++		$801A:Result := 'CANNOT_READ';
++		$801B:Result := 'FILE_STYLE';
++		$801C:Result := 'COMMAND_NAME';
++		$801D:Result := 'MORE_HEAP_MEMORY';
++		$801E:Result := 'ENOUGH_MEMORY';
++		$801F:Result := 'ALREADY_RUNNING';
++		$8020:Result := 'USER_CANCEL';
++		$8021:Result := 'HARC_ISNOT_OPENED';
++		$8022:Result := 'NOT_SEARCH_MODE';
++		$8023:Result := 'NOT_SUPPORT';
++		$8024:Result := 'TIME_STAMP';
++		$8025:Result := 'TMP_OPEN';
++		$8026:Result := 'LONG_FILE_NAME';
++		$8027:Result := 'ARC_READ_ONLY';
++		$8028:Result := 'SAME_NAME_FILE';
++		$8029:Result := 'NOT_FIND_ARC_FILE';
++		$802A:Result := 'RESPONSE_READ';
++		$802B:Result := 'NOT_FILENAME';
++		$802C:Result := 'TMP_COPY';
++		$802D:Result := 'EOF';
++		$802E:Result := 'ADD_TO_LARC';
++		$802F:Result := 'TMP_BACK_SPACE';
++		$8030:Result := 'SHARING';
++		$8031:Result := 'NOT_FIND_FILE';
++		$8032:Result := 'LOG_FILE';
++		$8033:Result := 'NO_DEVICE';
++		$8034:Result := 'GET_ATTRIBUTES';
++		$8035:Result := 'SET_ATTRIBUTES';
++		$8036:Result := 'GET_INFORMATION';
++		$8037:Result := 'GET_POINT';
++		$8038:Result := 'SET_POINT';
++		$8039:Result := 'CONVERT_TIME';
++		$803a:Result := 'GET_TIME';
++		$803b:Result := 'SET_TIME';
++		$803c:Result := 'CLOSE_FILE';
++		$803d:Result := 'HEAP_MEMORY';
++		$803e:Result := 'HANDLE';
++		$803f:Result := 'TIME_STAMP_RANGE';
++		$8040:Result := 'MAKE_ARCHIVE';
++		$8041:Result := 'NOT_CONFIRM_NAME';
++		$8042:Result := 'UNEXPECTED_EOF';
++		$8043:Result := 'INVALID_END_MARK';
++		$8044:Result := 'INVOLVED_LZH';
++		$8045:Result := 'NO_END_MARK';
++		$8046:Result := 'HDR_INVALID_SIZE';
++		$8047:Result := 'UNKNOWN_LEVEL';
++		$8048:Result := 'BROKEN_DATA';
++  else
++    Result := 'UNKNOWN';
++  end;
++end;
+ 
++
+ end.
+
+Modified: trunk/Lobby/TASClient/TASClient.dof
+===================================================================
+--- trunk/Lobby/TASClient/TASClient.dof	2008-04-08 14:39:25 UTC (rev 5682)
++++ trunk/Lobby/TASClient/TASClient.dof	2008-04-08 18:24:33 UTC (rev 5683)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=3
+ Release=0
+-Build=272
++Build=273
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=TA Spring lobby client
+-FileVersion=0.3.0.272
++FileVersion=0.3.0.273
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: trunk/Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000463.html">[Taspring-linux-commit] r5682 - trunk/rts/build/vstudio8
+</A></li>
+	<LI>Next message: <A HREF="000465.html">[Taspring-linux-commit] r5684 - in trunk/rts/System: . Platform	Platform/Linux Platform/Win
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#464">[ date ]</a>
+              <a href="thread.html#464">[ thread ]</a>
+              <a href="subject.html#464">[ subject ]</a>
+              <a href="author.html#464">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

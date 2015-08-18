@@ -1,0 +1,231 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6161 - trunk/rts/Lua
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6161%20-%20trunk/rts/Lua&In-Reply-To=%3C20080713055131.5DE654878%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000940.html">
+   <LINK REL="Next"  HREF="000942.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6161 - trunk/rts/Lua</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6161%20-%20trunk/rts/Lua&In-Reply-To=%3C20080713055131.5DE654878%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6161 - trunk/rts/Lua">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Jul 13 07:51:31 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000940.html">[Taspring-linux-commit] r6160 - trunk/installer
+</A></li>
+        <LI>Next message: <A HREF="000942.html">[Taspring-linux-commit] r6162 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#941">[ date ]</a>
+              <a href="thread.html#941">[ thread ]</a>
+              <a href="subject.html#941">[ subject ]</a>
+              <a href="author.html#941">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: trepan
+Date: 2008-07-13 07:51:30 +0200 (Sun, 13 Jul 2008)
+New Revision: 6161
+
+Modified:
+   trunk/rts/Lua/LuaOpenGL.cpp
+   trunk/rts/Lua/LuaOpenGL.h
+Log:
+
+- added glSelectBuffer() support
+
+
+
+Modified: trunk/rts/Lua/LuaOpenGL.cpp
+===================================================================
+--- trunk/rts/Lua/LuaOpenGL.cpp	2008-07-12 23:08:52 UTC (rev 6160)
++++ trunk/rts/Lua/LuaOpenGL.cpp	2008-07-13 05:51:30 UTC (rev 6161)
+@@ -322,6 +322,14 @@
+ 
+ //FIXME		LuaVBOs::PushEntries(L);
+ 
++	REGISTER_LUA_CFUNC(RenderMode);
++	REGISTER_LUA_CFUNC(SelectBuffer);
++	REGISTER_LUA_CFUNC(SelectBufferData);
++	REGISTER_LUA_CFUNC(InitNames);
++	REGISTER_LUA_CFUNC(PushName);
++	REGISTER_LUA_CFUNC(PopName);
++	REGISTER_LUA_CFUNC(LoadName);
++
+ 	return true;
+ }
+ 
+@@ -4971,3 +4979,116 @@
+ 
+ /******************************************************************************/
+ /******************************************************************************/
++
++class SelectBuffer {
++	public:
++		static const GLsizei maxSize = (1 &lt;&lt; 24); // float integer range
++		static const GLsizei defSize = (256 * 1024);
++
++		SelectBuffer() : size(0), count(0), buffer(NULL) {}
++		~SelectBuffer() { delete[] buffer; }
++
++		inline GLuint* GetBuffer() const { return buffer; }
++
++		inline GLsizei GetCount() const { return count; }
++
++		inline bool ValidIndex(int index) const {
++			return ((index &gt;= 0) &amp;&amp; (index &lt; count));
++		}
++
++		inline GLuint operator[](int index) const {
++			return ValidIndex(index) ? buffer[index] : 0;
++		}
++
++		inline bool Resize(GLsizei c) {
++			c = (c &lt; maxSize) ? c : maxSize;
++			if (c &gt; count) {
++				size = c;
++				delete[] buffer;
++				buffer = SAFE_NEW GLuint(size);
++			}
++			count = c;
++			return true;
++		}
++
++	private:
++		GLsizei size;
++		GLsizei count;
++		GLuint* buffer;
++};
++
++static SelectBuffer selectBuffer;
++
++
++/******************************************************************************/
++
++int LuaOpenGL::RenderMode(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	const GLenum mode = (GLenum)luaL_checkint(L, 1);
++	const GLint count = glRenderMode(mode);
++	lua_pushnumber(L, count);
++	return 1;
++}
++
++
++int LuaOpenGL::SelectBuffer(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	GLsizei selCount = (GLsizei)luaL_optint(L, 1, SelectBuffer::defSize);
++	selectBuffer.Resize(selCount);
++	GLsizei count = selectBuffer.GetCount();
++	glSelectBuffer(count, selectBuffer.GetBuffer());
++	lua_pushnumber(L, count);
++	return 1;
++}
++
++
++int LuaOpenGL::SelectBufferData(lua_State* L)
++{
++	const int index = luaL_checkint(L, 1);
++	bool error = false;
++	if (!selectBuffer.ValidIndex(index)) {
++		return 0;
++	}
++	lua_pushnumber(L, selectBuffer[index]);
++	return 1;
++}
++
++
++int LuaOpenGL::InitNames(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	glInitNames();
++	return 0;
++}
++
++
++int LuaOpenGL::LoadName(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	const GLuint name = (GLenum)luaL_checkint(L, 1);
++	glLoadName(name);
++	return 0;
++}
++
++
++int LuaOpenGL::PushName(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	const GLuint name = (GLenum)luaL_checkint(L, 1);
++	glPushName(name);
++	return 0;
++}
++
++
++int LuaOpenGL::PopName(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	glPopName();
++	return 0;
++}
++
++
++/******************************************************************************/
++/******************************************************************************/
+
+Modified: trunk/rts/Lua/LuaOpenGL.h
+===================================================================
+--- trunk/rts/Lua/LuaOpenGL.h	2008-07-12 23:08:52 UTC (rev 6160)
++++ trunk/rts/Lua/LuaOpenGL.h	2008-07-13 05:51:30 UTC (rev 6161)
+@@ -269,6 +269,14 @@
+ 		static int GetShadowMapParams(lua_State* L);
+ 
+ 		static int GetSun(lua_State* L);
++
++		static int RenderMode(lua_State* L);
++		static int SelectBuffer(lua_State* L);
++		static int SelectBufferData(lua_State* L);
++		static int InitNames(lua_State* L);
++		static int LoadName(lua_State* L);
++		static int PushName(lua_State* L);
++		static int PopName(lua_State* L);
+ };
+ 
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000940.html">[Taspring-linux-commit] r6160 - trunk/installer
+</A></li>
+	<LI>Next message: <A HREF="000942.html">[Taspring-linux-commit] r6162 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#941">[ date ]</a>
+              <a href="thread.html#941">[ thread ]</a>
+              <a href="subject.html#941">[ subject ]</a>
+              <a href="author.html#941">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

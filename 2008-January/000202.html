@@ -1,0 +1,282 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5395 - trunk/rts/Lua
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5395%20-%20trunk/rts/Lua&In-Reply-To=%3CE1JInuy-0006eS-R5%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000201.html">
+   <LINK REL="Next"  HREF="000203.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5395 - trunk/rts/Lua</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5395%20-%20trunk/rts/Lua&In-Reply-To=%3CE1JInuy-0006eS-R5%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5395 - trunk/rts/Lua">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Jan 26 17:30:08 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000201.html">[Taspring-linux-commit] r5394 - trunk/rts/Lua
+</A></li>
+        <LI>Next message: <A HREF="000203.html">[Taspring-linux-commit] r5396 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#202">[ date ]</a>
+              <a href="thread.html#202">[ thread ]</a>
+              <a href="subject.html#202">[ subject ]</a>
+              <a href="author.html#202">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: trepan
+Date: 2008-01-26 17:30:08 +0100 (Sat, 26 Jan 2008)
+New Revision: 5395
+
+Modified:
+   trunk/rts/Lua/LuaOpenGL.cpp
+   trunk/rts/Lua/LuaOpenGL.h
+Log:
+* Added the  gl.DepthClamp(bool)      call-out  (not always available)
+* Added the  gl.StencilTwoSide(bool)  call-out  (not always available)
+* Added the  gl.StencilFace(bool)     call-out  (not always available)
+* Added the  gl.UnsafeState(number, [bool reverse, ] function, ...)  call-out
+  (glEnable() / glDisable() for unknown states; considered 'unsafe')
+
+
+Modified: trunk/rts/Lua/LuaOpenGL.cpp
+===================================================================
+--- trunk/rts/Lua/LuaOpenGL.cpp	2008-01-26 16:27:08 UTC (rev 5394)
++++ trunk/rts/Lua/LuaOpenGL.cpp	2008-01-26 16:30:08 UTC (rev 5395)
+@@ -175,6 +175,9 @@
+ 	REGISTER_LUA_CFUNC(ColorMask);
+ 	REGISTER_LUA_CFUNC(DepthMask);
+ 	REGISTER_LUA_CFUNC(DepthTest);
++	if (GLEW_NV_depth_clamp) {
++		REGISTER_LUA_CFUNC(DepthClamp);
++	}
+ 	REGISTER_LUA_CFUNC(Culling);
+ 	REGISTER_LUA_CFUNC(LogicOp);
+ 	REGISTER_LUA_CFUNC(Fog);
+@@ -182,16 +185,22 @@
+ 	REGISTER_LUA_CFUNC(Smoothing);
+ 	REGISTER_LUA_CFUNC(AlphaTest);
+ 	REGISTER_LUA_CFUNC(LineStipple);
++
++	REGISTER_LUA_CFUNC(Material);
++	REGISTER_LUA_CFUNC(Color);
++
+ 	REGISTER_LUA_CFUNC(PolygonMode);
+ 	REGISTER_LUA_CFUNC(PolygonOffset);
++
+ 	REGISTER_LUA_CFUNC(StencilTest);
+ 	REGISTER_LUA_CFUNC(StencilMask);
+ 	REGISTER_LUA_CFUNC(StencilFunc);
+ 	REGISTER_LUA_CFUNC(StencilOp);
++	if (GLEW_EXT_stencil_two_side) {
++		REGISTER_LUA_CFUNC(StencilTwoSide);
++		REGISTER_LUA_CFUNC(StencilFace);
++	}
+ 
+-	REGISTER_LUA_CFUNC(Material);
+-	REGISTER_LUA_CFUNC(Color);
+-
+ 	REGISTER_LUA_CFUNC(LineWidth);
+ 	REGISTER_LUA_CFUNC(PointSize);
+ 	if (haveGL20) {
+@@ -267,6 +276,7 @@
+ 
+ 	REGISTER_LUA_CFUNC(PushAttrib);
+ 	REGISTER_LUA_CFUNC(PopAttrib);
++	REGISTER_LUA_CFUNC(UnsafeState);
+ 
+ 	REGISTER_LUA_CFUNC(CreateList);
+ 	REGISTER_LUA_CFUNC(CallList);
+@@ -325,6 +335,9 @@
+ 	glDisable(GL_DEPTH_TEST);
+ 	glDepthFunc(GL_LEQUAL);
+ 	glDepthMask(GL_FALSE);
++	if (GLEW_NV_depth_clamp) {
++		glDisable(GL_DEPTH_CLAMP_NV);
++	}
+ 	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+ 
+ 	glEnable(GL_BLEND);
+@@ -349,6 +362,9 @@
+ 
+ 	glDisable(GL_STENCIL_TEST);
+ 	glStencilMask(~0);
++	if (GLEW_EXT_stencil_two_side) {
++		glDisable(GL_STENCIL_TEST_TWO_SIDE_EXT);
++	}
+ 
+ 	// FIXME -- multitexturing
+ 	glDisable(GL_TEXTURE_2D);
+@@ -2698,6 +2714,19 @@
+ }
+ 
+ 
++int LuaOpenGL::DepthClamp(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	luaL_checktype(L, 1, LUA_TBOOLEAN);
++	if (lua_toboolean(L, 1)) {
++		glEnable(GL_DEPTH_CLAMP_NV);
++	} else {
++		glDisable(GL_DEPTH_CLAMP_NV);
++	}
++	return 0;
++}
++
++
+ int LuaOpenGL::Culling(lua_State* L)
+ {
+ 	CheckDrawingEnabled(L, __FUNCTION__);
+@@ -2918,6 +2947,8 @@
+ }
+ 
+ 
++/******************************************************************************/
++
+ int LuaOpenGL::StencilTest(lua_State* L)
+ {
+ 	CheckDrawingEnabled(L, __FUNCTION__);
+@@ -2964,6 +2995,30 @@
+ }
+ 
+ 
++int LuaOpenGL::StencilTwoSide(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	luaL_checktype(L, 1, LUA_TBOOLEAN);
++	if (lua_toboolean(L, 1)) {
++		glEnable(GL_STENCIL_TEST_TWO_SIDE_EXT);
++	} else {
++		glDisable(GL_STENCIL_TEST_TWO_SIDE_EXT);
++	}
++	return 0;
++}
++
++
++int LuaOpenGL::StencilFace(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	const GLenum face = (GLenum)luaL_checkint(L, 1);
++	glActiveStencilFaceEXT(face);
++	return 0;
++}
++
++
++/******************************************************************************/
++
+ int LuaOpenGL::LineStipple(lua_State* L)
+ {
+ 	CheckDrawingEnabled(L, __FUNCTION__);
+@@ -4274,6 +4329,33 @@
+ }
+ 
+ 
++int LuaOpenGL::UnsafeState(lua_State* L)
++{
++	CheckDrawingEnabled(L, __FUNCTION__);
++	const GLenum state = (GLenum)luaL_checkint(L, 1);
++	int funcLoc = 2;
++	bool reverse = false;
++	if (lua_isboolean(L, 2)) {
++		funcLoc++;
++		reverse = lua_toboolean(L, 2);
++	}
++	if (!lua_isfunction(L, funcLoc)) {
++		luaL_error(L, &quot;expecting a function&quot;);
++	}
++
++	reverse ? glDisable(state) : glEnable(state);
++	const int error = lua_pcall(L, lua_gettop(L) - funcLoc, 0, 0);
++	reverse ? glEnable(state) : glDisable(state);
++
++	if (error != 0) {
++		logOutput.Print(&quot;gl.UnsafeState: error(%i) = %s\n&quot;,
++		                error, lua_tostring(L, -1));
++		lua_pushnumber(L, 0);
++	}
++	return 0;
++}
++
++
+ /******************************************************************************/
+ 
+ int LuaOpenGL::CreateList(lua_State* L)
+
+Modified: trunk/rts/Lua/LuaOpenGL.h
+===================================================================
+--- trunk/rts/Lua/LuaOpenGL.h	2008-01-26 16:27:08 UTC (rev 5394)
++++ trunk/rts/Lua/LuaOpenGL.h	2008-01-26 16:30:08 UTC (rev 5395)
+@@ -139,6 +139,7 @@
+ 		static int ColorMask(lua_State* L);
+ 		static int DepthMask(lua_State* L);
+ 		static int DepthTest(lua_State* L);
++		static int DepthClamp(lua_State* L);
+ 		static int Culling(lua_State* L);
+ 		static int LogicOp(lua_State* L);
+ 		static int Fog(lua_State* L);
+@@ -146,14 +147,19 @@
+ 		static int Smoothing(lua_State* L);
+ 		static int AlphaTest(lua_State* L);
+ 		static int LineStipple(lua_State* L);
++
++		static int Material(lua_State* L);
++		static int Color(lua_State* L);
++
+ 		static int PolygonMode(lua_State* L);
+ 		static int PolygonOffset(lua_State* L);
++
+ 		static int StencilTest(lua_State* L);
+ 		static int StencilMask(lua_State* L);
+ 		static int StencilFunc(lua_State* L);
+ 		static int StencilOp(lua_State* L);
+-		static int Material(lua_State* L);
+-		static int Color(lua_State* L);
++		static int StencilTwoSide(lua_State* L);
++		static int StencilFace(lua_State* L);
+ 
+ 		static int LineWidth(lua_State* L);
+ 		static int PointSize(lua_State* L);
+@@ -235,6 +241,7 @@
+ 
+ 		static int PushAttrib(lua_State* L);
+ 		static int PopAttrib(lua_State* L);
++		static int UnsafeState(lua_State* L);
+ 
+ 		static int CreateList(lua_State* L);
+ 		static int CallList(lua_State* L);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000201.html">[Taspring-linux-commit] r5394 - trunk/rts/Lua
+</A></li>
+	<LI>Next message: <A HREF="000203.html">[Taspring-linux-commit] r5396 - trunk/rts/Lua
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#202">[ date ]</a>
+              <a href="thread.html#202">[ thread ]</a>
+              <a href="subject.html#202">[ subject ]</a>
+              <a href="author.html#202">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,173 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6729 - in trunk/rts: Game Lua Sim/Units
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6729%20-%20in%20trunk/rts%3A%20Game%20Lua%20Sim/Units&In-Reply-To=%3C20081014175825.73A9A4730%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001497.html">
+   <LINK REL="Next"  HREF="001499.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6729 - in trunk/rts: Game Lua Sim/Units</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6729%20-%20in%20trunk/rts%3A%20Game%20Lua%20Sim/Units&In-Reply-To=%3C20081014175825.73A9A4730%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6729 - in trunk/rts: Game Lua Sim/Units">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Oct 14 19:58:25 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001497.html">[Taspring-linux-commit] r6728 - trunk/rts/Lua
+</A></li>
+        <LI>Next message: <A HREF="001499.html">[Taspring-linux-commit] r6730 - in trunk/rts/Sim/Units: . UnitTypes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1498">[ date ]</a>
+              <a href="thread.html#1498">[ thread ]</a>
+              <a href="subject.html#1498">[ subject ]</a>
+              <a href="author.html#1498">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: imbaczek
+Date: 2008-10-14 19:58:24 +0200 (Tue, 14 Oct 2008)
+New Revision: 6729
+
+Modified:
+   trunk/rts/Game/GameHelper.cpp
+   trunk/rts/Game/GameHelper.h
+   trunk/rts/Lua/LuaSyncedRead.cpp
+   trunk/rts/Sim/Units/Unit.cpp
+Log:
+lurker's patch for not uncloaking units when the detector has zero LOS
+
+Modified: trunk/rts/Game/GameHelper.cpp
+===================================================================
+--- trunk/rts/Game/GameHelper.cpp	2008-10-14 17:56:25 UTC (rev 6728)
++++ trunk/rts/Game/GameHelper.cpp	2008-10-14 17:58:24 UTC (rev 6729)
+@@ -24,6 +24,7 @@
+ #include &quot;Sim/Misc/LosHandler.h&quot;
+ #include &quot;Sim/Misc/QuadField.h&quot;
+ #include &quot;Sim/Misc/RadarHandler.h&quot;
++#include &quot;Sim/ModInfo.h&quot;
+ #include &quot;Sim/Projectiles/ExplosionGenerator.h&quot;
+ #include &quot;Sim/Projectiles/Projectile.h&quot;
+ #include &quot;Sim/Units/CommandAI/CommandAI.h&quot;
+@@ -531,12 +532,14 @@
+ }
+ 
+ CUnit* CGameHelper::GetClosestEnemyUnitNoLosTest(const float3 &amp;pos, float radius,
+-                                                 int searchAllyteam, bool sphere)
++                                                 int searchAllyteam, bool sphere, bool canBeBlind)
+ {
+ 	const int tempNum = gs-&gt;tempNum++;
+ 
+ 	CUnit* closeUnit = NULL;
+ 
++	float losFactor = (SQUARE_SIZE * (1 &lt;&lt; modInfo.losMipLevel));
++
+ 	if (sphere) {  // includes target radius
+ 		float closeDist = radius;
+ 		std::vector&lt;int&gt; quads = qf-&gt;GetQuads(pos, radius + uh-&gt;maxUnitRadius);
+@@ -550,7 +553,8 @@
+ 				    !gs-&gt;Ally(searchAllyteam, unit-&gt;allyteam)) {
+ 					unit-&gt;tempNum = tempNum;
+ 					const float dist = (pos - unit-&gt;midPos).Length() - unit-&gt;radius;
+-					if (dist &lt;= closeDist){
++					if (dist &lt;= closeDist &amp;&amp;
++						(canBeBlind || unit-&gt;losRadius * losFactor &gt; dist)){
+ 						closeDist = dist;
+ 						closeUnit = unit;
+ 					}
+@@ -571,7 +575,8 @@
+ 				    !gs-&gt;Ally(searchAllyteam, unit-&gt;allyteam)) {
+ 					unit-&gt;tempNum = tempNum;
+ 					const float sqDist = (pos - unit-&gt;midPos).SqLength2D();
+-					if (sqDist &lt;= closeDistSq){
++					if (sqDist &lt;= closeDistSq &amp;&amp;
++						(canBeBlind || unit-&gt;losRadius * losFactor &gt; sqDist)){
+ 						closeDistSq = sqDist;
+ 						closeUnit = unit;
+ 					}
+
+Modified: trunk/rts/Game/GameHelper.h
+===================================================================
+--- trunk/rts/Game/GameHelper.h	2008-10-14 17:56:25 UTC (rev 6728)
++++ trunk/rts/Game/GameHelper.h	2008-10-14 17:58:24 UTC (rev 6729)
+@@ -36,7 +36,7 @@
+ 	void GetEnemyUnits(const float3&amp; pos,float radius,int searchAllyteam,std::vector&lt;int&gt;&amp; found);
+ 	CUnit* GetClosestUnit(const float3&amp; pos,float radius);
+ 	CUnit* GetClosestEnemyUnit(const float3&amp; pos,float radius,int searchAllyteam);
+-	CUnit* GetClosestEnemyUnitNoLosTest(const float3&amp; pos,float radius,int searchAllyteam,bool sphere);
++	CUnit* GetClosestEnemyUnitNoLosTest(const float3&amp; pos,float radius,int searchAllyteam,bool sphere,bool canBeBlind);
+ 	CUnit* GetClosestFriendlyUnit(const float3&amp; pos,float radius,int searchAllyteam);
+ 	CUnit* GetClosestEnemyAircraft(const float3&amp; pos,float radius,int searchAllyteam);
+ 	void GenerateTargets(const CWeapon *attacker, CUnit* lastTarget,std::map&lt;float,CUnit*&gt; &amp;targets);
+
+Modified: trunk/rts/Lua/LuaSyncedRead.cpp
+===================================================================
+--- trunk/rts/Lua/LuaSyncedRead.cpp	2008-10-14 17:56:25 UTC (rev 6728)
++++ trunk/rts/Lua/LuaSyncedRead.cpp	2008-10-14 17:58:24 UTC (rev 6729)
+@@ -2137,7 +2137,7 @@
+ 		target = helper-&gt;GetClosestEnemyUnit(unit-&gt;pos, range, unit-&gt;allyteam);
+ 	} else {
+ 		target = helper-&gt;GetClosestEnemyUnitNoLosTest(unit-&gt;pos, range,
+-		                                              unit-&gt;allyteam, false);
++		                                              unit-&gt;allyteam, false, true);
+ 	}
+ 	if (target) {
+ 		lua_pushnumber(L, target-&gt;id);
+
+Modified: trunk/rts/Sim/Units/Unit.cpp
+===================================================================
+--- trunk/rts/Sim/Units/Unit.cpp	2008-10-14 17:56:25 UTC (rev 6728)
++++ trunk/rts/Sim/Units/Unit.cpp	2008-10-14 17:58:24 UTC (rev 6729)
+@@ -811,7 +811,7 @@
+ 	else if (wantCloak || (scriptCloak &gt;= 1)) {
+ 		if ((decloakDistance &gt; 0.0f) &amp;&amp;
+ 		    helper-&gt;GetClosestEnemyUnitNoLosTest(midPos, decloakDistance,
+-		                                         allyteam, unitDef-&gt;decloakSpherical)) {
++		                                         allyteam, unitDef-&gt;decloakSpherical, false)) {
+ 			curCloakTimeout = gs-&gt;frameNum + cloakTimeout;
+ 			isCloaked = false;
+ 		}
+@@ -862,7 +862,7 @@
+ 
+ 	if (unitDef-&gt;canKamikaze) {
+ 		if (fireState &gt;= 2) {
+-			CUnit* u = helper-&gt;GetClosestEnemyUnitNoLosTest(pos, unitDef-&gt;kamikazeDist, allyteam, false);
++			CUnit* u = helper-&gt;GetClosestEnemyUnitNoLosTest(pos, unitDef-&gt;kamikazeDist, allyteam, false, true);
+ 			if (u &amp;&amp; u-&gt;physicalState != CSolidObject::Flying &amp;&amp; u-&gt;speed.dot(pos - u-&gt;pos) &lt;= 0) {
+ 				// self destruct when unit start moving away from mine, should maximize damage
+ 				KillUnit(true, false, NULL);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001497.html">[Taspring-linux-commit] r6728 - trunk/rts/Lua
+</A></li>
+	<LI>Next message: <A HREF="001499.html">[Taspring-linux-commit] r6730 - in trunk/rts/Sim/Units: . UnitTypes
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1498">[ date ]</a>
+              <a href="thread.html#1498">[ thread ]</a>
+              <a href="subject.html#1498">[ subject ]</a>
+              <a href="author.html#1498">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,164 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6419 - in trunk/rts: Game System/Sync
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6419%20-%20in%20trunk/rts%3A%20Game%20System/Sync&In-Reply-To=%3C20080914113256.5F4DF497F%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001188.html">
+   <LINK REL="Next"  HREF="001190.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6419 - in trunk/rts: Game System/Sync</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6419%20-%20in%20trunk/rts%3A%20Game%20System/Sync&In-Reply-To=%3C20080914113256.5F4DF497F%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6419 - in trunk/rts: Game System/Sync">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Sep 14 13:32:56 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001188.html">[Taspring-linux-commit] r6418 - in trunk: . rts/System	rts/System/Sync
+</A></li>
+        <LI>Next message: <A HREF="001190.html">[Taspring-linux-commit] r6420 - in trunk/Lobby/TASClient: . Python
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1189">[ date ]</a>
+              <a href="thread.html#1189">[ thread ]</a>
+              <a href="subject.html#1189">[ subject ]</a>
+              <a href="author.html#1189">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-09-14 13:32:55 +0200 (Sun, 14 Sep 2008)
+New Revision: 6419
+
+Modified:
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/System/Sync/SyncDebugger.cpp
+Log:
+* finally fix syncdebugger
+
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-09-14 11:08:51 UTC (rev 6418)
++++ trunk/rts/Game/GameServer.cpp	2008-09-14 11:32:55 UTC (rev 6419)
+@@ -362,6 +362,8 @@
+ 				//serverNet-&gt;SendPause(SERVER_PLAYER, true);
+ #ifdef SYNCDEBUG
+ 				CSyncDebugger::GetInstance()-&gt;ServerTriggerSyncErrorHandling(serverframenum);
++				Broadcast(CBaseNetProtocol::Get().SendPause(gu-&gt;myPlayerNum, true));
++				Broadcast(CBaseNetProtocol::Get().SendSdCheckrequest(serverframenum));
+ #endif
+ 				//For each group, output a message with list of playernames in it.
+ 				// TODO this should be linked to the resync system so it can roundrobin
+
+Modified: trunk/rts/System/Sync/SyncDebugger.cpp
+===================================================================
+--- trunk/rts/System/Sync/SyncDebugger.cpp	2008-09-14 11:08:51 UTC (rev 6418)
++++ trunk/rts/System/Sync/SyncDebugger.cpp	2008-09-14 11:32:55 UTC (rev 6419)
+@@ -213,7 +213,7 @@
+ 				logger.AddLine(&quot;Server: received checksum response of %d instead of %d bytes&quot;, *(short*)&amp;inbuf[1], HISTORY_SIZE * 4 + 12);
+ 			} else {
+ 				int player = inbuf[3];
+-				if(player &gt;= gs-&gt;activeTeams || player &lt; 0) {
++				if(player &gt;= gs-&gt;activePlayers || player &lt; 0) {
+ 					logger.AddLine(&quot;Server: got invalid playernum %d in checksum response&quot;, player);
+ 				} else {
+ 					logger.AddLine(&quot;Server: got checksum response from %d&quot;, player);
+@@ -229,8 +229,6 @@
+ 						ServerQueueBlockRequests();
+ 						logger.AddLine(&quot;Server: checksum responses received; %d block requests queued&quot;, pendingBlocksToRequest.size());
+ 					}
+-					else
+-						logger.AddLine(&quot;Left at %d active: %d&quot;, i, gs-&gt;activePlayers);
+ 				}
+ 			}
+ 			syncDebugPacket = true;
+@@ -240,7 +238,7 @@
+ 				logger.AddLine(&quot;Server: received block response of %d instead of %d bytes&quot;, *(short*)&amp;inbuf[1], BLOCK_SIZE * 4 + 4);
+ 			} else {
+ 				int player = inbuf[3];
+-				if(player &gt;= gs-&gt;activeTeams || player &lt; 0) {
++				if(player &gt;= gs-&gt;activePlayers || player &lt; 0) {
+ 					logger.AddLine(&quot;Server: got invalid playernum %d in block response&quot;, player);
+ 				} else {
+ 					const unsigned* begin = (unsigned*)&amp;inbuf[4];
+@@ -250,8 +248,8 @@
+ 					std::copy(begin, end, remoteHistory[player].begin() + size);
+ 					int i = 0;
+ 					size += BLOCK_SIZE;
+-					while (i &lt; gs-&gt;activeTeams &amp;&amp; size == remoteHistory[i].size()) ++i;
+-					if (i == gs-&gt;activeTeams) {
++					while (i &lt; gs-&gt;activePlayers &amp;&amp; size == remoteHistory[i].size()) ++i;
++					if (i == gs-&gt;activePlayers) {
+ 						logger.AddLine(&quot;Server: block responses received&quot;);
+ 						ServerReceivedBlockResponses();
+ 					}
+@@ -320,15 +318,12 @@
+ /**
+  * @brief first step after desync
+  *
+- * Called by server to trigger sync error handling.
+- * It pauses the game and sends a checksum request to all clients.
++ * Does nothing
+  */
+ void CSyncDebugger::ServerTriggerSyncErrorHandling(int serverframenum)
+ {
+ 	if (!disable_history) {
+ 		//this will set disable_history = true once received so only one sync errors is handled at a time.
+-		net-&gt;Send(CBaseNetProtocol::Get().SendPause(gu-&gt;myPlayerNum, true));
+-		net-&gt;Send(CBaseNetProtocol::Get().SendSdCheckrequest(serverframenum));
+ 	}
+ }
+ 
+@@ -379,7 +374,7 @@
+ 	for (; c &lt; HISTORY_SIZE; ++i, ++c) {
+ 		unsigned correctChecksum = 0;
+ 		if (i == HISTORY_SIZE) i = 0;
+-		for (int j = 0; j &lt; gs-&gt;activeTeams; ++j) {
++		for (int j = 0; j &lt; gs-&gt;activePlayers; ++j) {
+ 			if (correctChecksum &amp;&amp; checksumResponses[j][i] != correctChecksum) {
+ 				pendingBlocksToRequest.push_back(i);
+ 				break;
+@@ -486,7 +481,7 @@
+ 		unsigned correctChecksum = 0;
+ 		if (i == virtualHistorySize) i = 0;
+ 		bool err = false;
+-		for (int j = 0; j &lt; gs-&gt;activeTeams; ++j) {
++		for (int j = 0; j &lt; gs-&gt;activePlayers; ++j) {
+ 			if (correctChecksum &amp;&amp; remoteHistory[j][i] != correctChecksum) {
+ 				if (historybt) {
+ 					virtualBlockNr = i / BLOCK_SIZE;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001188.html">[Taspring-linux-commit] r6418 - in trunk: . rts/System	rts/System/Sync
+</A></li>
+	<LI>Next message: <A HREF="001190.html">[Taspring-linux-commit] r6420 - in trunk/Lobby/TASClient: . Python
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1189">[ date ]</a>
+              <a href="thread.html#1189">[ thread ]</a>
+              <a href="subject.html#1189">[ subject ]</a>
+              <a href="author.html#1189">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

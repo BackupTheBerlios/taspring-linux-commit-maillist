@@ -1,0 +1,336 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6285 - in trunk:	installer/builddata/springcontent/shaders rts/Rendering/GL	rts/Rendering/Textures rts/Sim/Units rts/System
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6285%20-%20in%20trunk%3A%0A%09installer/builddata/springcontent/shaders%20rts/Rendering/GL%0A%09rts/Rendering/Textures%20rts/Sim/Units%20rts/System&In-Reply-To=%3C20080821024804.6886A498E%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001054.html">
+   <LINK REL="Next"  HREF="001056.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6285 - in trunk:	installer/builddata/springcontent/shaders rts/Rendering/GL	rts/Rendering/Textures rts/Sim/Units rts/System</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6285%20-%20in%20trunk%3A%0A%09installer/builddata/springcontent/shaders%20rts/Rendering/GL%0A%09rts/Rendering/Textures%20rts/Sim/Units%20rts/System&In-Reply-To=%3C20080821024804.6886A498E%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6285 - in trunk:	installer/builddata/springcontent/shaders rts/Rendering/GL	rts/Rendering/Textures rts/Sim/Units rts/System">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Aug 21 04:48:04 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001054.html">[Taspring-linux-commit] r6284 - trunk/rts/Game
+</A></li>
+        <LI>Next message: <A HREF="001056.html">[Taspring-linux-commit] r6286 - in trunk:	installer/builddata/springcontent/shaders rts/Game rts/Rendering/Env
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1055">[ date ]</a>
+              <a href="thread.html#1055">[ thread ]</a>
+              <a href="subject.html#1055">[ subject ]</a>
+              <a href="author.html#1055">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: jk
+Date: 2008-08-21 04:48:03 +0200 (Thu, 21 Aug 2008)
+New Revision: 6285
+
+Modified:
+   trunk/installer/builddata/springcontent/shaders/bumpWaterCoastBlurFS.glsl
+   trunk/rts/Rendering/GL/myGL.cpp
+   trunk/rts/Rendering/Textures/NamedTextures.cpp
+   trunk/rts/Rendering/Textures/TextureHandler.cpp
+   trunk/rts/Sim/Units/UnitLoader.cpp
+   trunk/rts/System/GlobalStuff.cpp
+   trunk/rts/System/GlobalStuff.h
+   trunk/rts/System/SpringApp.cpp
+Log:
+ * final npot texture fix (uses AtiHack tag to solve NPOT+nearest bug on ATIs)
+ * removed uneeded creation of mipmaps for lua textures
+ * fixed an ATI bug in shorewaves shader
+
+Modified: trunk/installer/builddata/springcontent/shaders/bumpWaterCoastBlurFS.glsl
+===================================================================
+--- trunk/installer/builddata/springcontent/shaders/bumpWaterCoastBlurFS.glsl	2008-08-20 23:07:33 UTC (rev 6284)
++++ trunk/installer/builddata/springcontent/shaders/bumpWaterCoastBlurFS.glsl	2008-08-21 02:48:03 UTC (rev 6285)
+@@ -22,7 +22,7 @@
+ 
+   vec2 texCoord = gl_TexCoord[0].st;
+ 
+-  const vec2 texel = vec2(dFdx(gl_TexCoord[0].s),dFdy(gl_TexCoord[0].t));
++  vec2 texel = vec2(dFdx(gl_TexCoord[0].s),dFdy(gl_TexCoord[0].t));
+ 
+   // 0 distance
+   gl_FragColor  = texture2D(texture, texCoord );
+
+Modified: trunk/rts/Rendering/GL/myGL.cpp
+===================================================================
+--- trunk/rts/Rendering/GL/myGL.cpp	2008-08-20 23:07:33 UTC (rev 6284)
++++ trunk/rts/Rendering/GL/myGL.cpp	2008-08-21 02:48:03 UTC (rev 6285)
+@@ -131,24 +131,26 @@
+ {
+ 	if (gu-&gt;compressTextures) {
+ 		switch ( internalFormat ) {
++			case 4:
++			case GL_RGBA8 :
++			case GL_RGBA :  internalFormat = GL_COMPRESSED_RGBA_ARB; break;
++
+ 			case 3:
+ 			case GL_RGB8 :
+ 			case GL_RGB :   internalFormat = GL_COMPRESSED_RGB_ARB; break;
+ 
+-			case 4:
+-			case GL_RGBA8 :
+-			case GL_RGBA : internalFormat = GL_COMPRESSED_RGBA_ARB; break;
+-
+ 			case GL_LUMINANCE: internalFormat = GL_COMPRESSED_LUMINANCE_ARB; break;
+ 		}
+ 	}
+ 
+ 	// create mipmapped texture
+-	if (configHandler.GetInt(&quot;AtiHacks&quot;, 0) == 0 &amp;&amp; glGenerateMipmapEXT) {
++
++/*	if (configHandler.GetInt(&quot;AtiHacks&quot;, 0) == 0 &amp;&amp; glGenerateMipmapEXT) { // broken on ATIs and NVs (wait for their OpenGL3.0 drivers :/)
+ 		// newest method
+ 		glTexImage2D(target, 0, internalFormat, width, height, 0, format, type, data);
+ 		glGenerateMipmapEXT(target);
+-	}else if (GLEW_VERSION_1_4) {
++	}else*/
++	if (GLEW_VERSION_1_4) {
+ 		// This required GL-1.4
+ 		// instead of using glu, we rely on glTexImage2D to create the Mipmaps.
+ 		glTexParameteri(target, GL_GENERATE_MIPMAP, GL_TRUE);
+
+Modified: trunk/rts/Rendering/Textures/NamedTextures.cpp
+===================================================================
+--- trunk/rts/Rendering/Textures/NamedTextures.cpp	2008-08-20 23:07:33 UTC (rev 6284)
++++ trunk/rts/Rendering/Textures/NamedTextures.cpp	2008-08-21 02:48:03 UTC (rev 6285)
+@@ -3,6 +3,7 @@
+ //////////////////////////////////////////////////////////////////////
+ 
+ #include &quot;StdAfx.h&quot;
++#include &quot;bitops.h&quot;
+ #include &quot;NamedTextures.h&quot;
+ #include &quot;Rendering/GL/myGL.h&quot;
+ #include &quot;Rendering/Textures/Bitmap.h&quot;
+@@ -48,7 +49,7 @@
+ 		}
+ 	}
+ 
+-	// strip off the qualifiers
++	//! strip off the qualifiers
+ 	string filename = texName;
+ 	bool border  = false;
+ 	bool clamped = false;
+@@ -98,7 +99,7 @@
+ 		}
+ 	}
+ 
+-	// get the image
++	//! get the image
+ 	CBitmap bitmap;
+ 	TexInfo texInfo;
+ 	if (!bitmap.Load(filename)) {
+@@ -117,42 +118,54 @@
+ 		bitmap.Tint(tintColor);
+ 	}
+ 
+-	// make the texture
++	//! make the texture
+ 	GLuint texID;
+ 	glGenTextures(1, &amp;texID);
+ 	glBindTexture(GL_TEXTURE_2D, texID);
++
+ 	if (clamped) {
+ 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+ 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+ 	}
+-	if (nearest) {
++
++	if (nearest || linear) {
+ 		if (border) {
+ 			GLfloat white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+ 			glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, white);
+ 		}
+-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+-		if (GLEW_ARB_texture_non_power_of_two) {
+-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
+-			             bitmap.xsize, bitmap.ysize, border ? 1 : 0,
+-			             GL_RGBA, GL_UNSIGNED_BYTE, bitmap.mem);
++
++		if (nearest) {
++			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+ 		} else {
+-			gluBuild2DMipmaps(GL_TEXTURE_2D, GL_RGBA8, bitmap.xsize, bitmap.ysize,
+-			                  GL_RGBA, GL_UNSIGNED_BYTE, bitmap.mem);
++			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+ 		}
+-	}
+-	else {
++
++		//! Note: NPOTs + nearest filtering seems broken on ATIs
++		if ( !(count_bits_set(bitmap.xsize)==1 &amp;&amp; count_bits_set(bitmap.ysize)==1) &amp;&amp;
++		     (!GLEW_ARB_texture_non_power_of_two || (gu-&gt;atiHacks &amp;&amp; nearest)) )
++		{
++			bitmap = bitmap.CreateRescaled(next_power_of_2(bitmap.xsize),next_power_of_2(bitmap.ysize));
++		}
++
++		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
++		             bitmap.xsize, bitmap.ysize, border ? 1 : 0,
++		             GL_RGBA, GL_UNSIGNED_BYTE, bitmap.mem);
++	} else {
++		//! MIPMAPPING (default)
+ 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+-		if (linear) {
+-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
++		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
++
++		if ((count_bits_set(bitmap.xsize)==1 &amp;&amp; count_bits_set(bitmap.ysize)==1) ||
++		    GLEW_ARB_texture_non_power_of_two)
++		{
++			glBuildMipmaps(GL_TEXTURE_2D, GL_RGBA8, bitmap.xsize, bitmap.ysize,
++			               GL_RGBA, GL_UNSIGNED_BYTE, bitmap.mem);
+ 		} else {
+-			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
++			gluBuild2DMipmaps(GL_TEXTURE_2D, GL_RGBA8, bitmap.xsize, bitmap.ysize,
++		      	            GL_RGBA, GL_UNSIGNED_BYTE, bitmap.mem);
+ 		}
+-
+-//		glBuildMipmaps(GL_TEXTURE_2D, GL_RGBA8, bitmap.xsize, bitmap.ysize,
+-//									 GL_RGBA, GL_UNSIGNED_BYTE, bitmap.mem);
+-		gluBuild2DMipmaps(GL_TEXTURE_2D, GL_RGBA8, bitmap.xsize, bitmap.ysize,
+-		                  GL_RGBA, GL_UNSIGNED_BYTE, bitmap.mem);
+ 	}
+ 
+ 	if (aniso &amp;&amp; GLEW_EXT_texture_filter_anisotropic) {
+
+Modified: trunk/rts/Rendering/Textures/TextureHandler.cpp
+===================================================================
+--- trunk/rts/Rendering/Textures/TextureHandler.cpp	2008-08-20 23:07:33 UTC (rev 6284)
++++ trunk/rts/Rendering/Textures/TextureHandler.cpp	2008-08-21 02:48:03 UTC (rev 6285)
+@@ -297,7 +297,8 @@
+ 	tex.tex2=0;
+ 	tex.tex2SizeX = 0;
+ 	tex.tex2SizeY = 0;
+-	if(unitDrawer-&gt;advShading){
++	//if(unitDrawer-&gt;advShading)
++{
+ 		CBitmap bm;
+ 		// No error checking here... other code relies on an empty texture
+ 		// being generated if it couldn't be loaded.
+@@ -310,7 +311,7 @@
+ 		tex.tex2 = bm.CreateTexture(true);
+ 		tex.tex2SizeX = bm.xsize;
+ 		tex.tex2SizeY = bm.ysize;
+-	}
++}
+ 	s3oTextures.push_back(tex);
+ 	s3oTextureNames[totalName]=newNum;
+ 	return newNum;
+@@ -322,11 +323,11 @@
+ 		glBindTexture(GL_TEXTURE_2D, s3oTextures[num].tex2);
+ 	} else {
+ 		glBindTexture(GL_TEXTURE_2D, s3oTextures[num].tex1);
+-		if(unitDrawer-&gt;advShading){
++		//if(unitDrawer-&gt;advShading){
+ 			glActiveTextureARB(GL_TEXTURE1_ARB);
+ 			glBindTexture(GL_TEXTURE_2D, s3oTextures[num].tex2);
+ 			glActiveTextureARB(GL_TEXTURE0_ARB);
+-		}
++		//}
+ 	}
+ }
+ 
+
+Modified: trunk/rts/Sim/Units/UnitLoader.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitLoader.cpp	2008-08-20 23:07:33 UTC (rev 6284)
++++ trunk/rts/Sim/Units/UnitLoader.cpp	2008-08-21 02:48:03 UTC (rev 6285)
+@@ -329,7 +329,7 @@
+ 		unit-&gt;pos.y = ground-&gt;GetHeight2(unit-&gt;pos.x, unit-&gt;pos.z);
+ 	}
+ 
+-
++//FIXME: add unitdef tag cob/cobscript/cobfilename
+ 	unit-&gt;cob = SAFE_NEW CCobInstance(GCobEngine.GetCobFile(&quot;scripts/&quot; + name + &quot;.cob&quot;), unit);
+ 	unit-&gt;localmodel = modelParser-&gt;CreateLocalModel(unit-&gt;model, &amp;unit-&gt;cob-&gt;pieces);
+ 
+
+Modified: trunk/rts/System/GlobalStuff.cpp
+===================================================================
+--- trunk/rts/System/GlobalStuff.cpp	2008-08-20 23:07:33 UTC (rev 6284)
++++ trunk/rts/System/GlobalStuff.cpp	2008-08-21 02:48:03 UTC (rev 6285)
+@@ -304,6 +304,7 @@
+ 	timeOffset = 0;
+ 	drawFog = true;
+ 	compressTextures = false;
++	atiHacks = false;
+ 	teamNanospray = false;
+ 	autoQuit = false;
+ 	quitTime = 0;
+
+Modified: trunk/rts/System/GlobalStuff.h
+===================================================================
+--- trunk/rts/System/GlobalStuff.h	2008-08-20 23:07:33 UTC (rev 6284)
++++ trunk/rts/System/GlobalStuff.h	2008-08-21 02:48:03 UTC (rev 6285)
+@@ -629,6 +629,13 @@
+ 	bool compressTextures;
+ 
+ 	/**
++	 * @brief collection of some ATI bugfixes
++	 *
++	 * enables some ATI bugfixes
++	 */
++	bool atiHacks;
++
++	/**
+ 	 * @brief quit automatically?
+ 	 *
+ 	 * If set, quit immediately on game over or if gameTime &gt; quitTime,
+
+Modified: trunk/rts/System/SpringApp.cpp
+===================================================================
+--- trunk/rts/System/SpringApp.cpp	2008-08-20 23:07:33 UTC (rev 6284)
++++ trunk/rts/System/SpringApp.cpp	2008-08-21 02:48:03 UTC (rev 6285)
+@@ -240,6 +240,9 @@
+ 		gu-&gt;compressTextures = !!configHandler.GetInt(&quot;CompressTextures&quot;, 0);
+ 	}
+ 
++	// use some ATI bugfixes?
++	gu-&gt;atiHacks = !!configHandler.GetInt(&quot;AtiHacks&quot;, 0);
++
+ 	// Initialize named texture handler
+ 	CNamedTextures::Init();
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001054.html">[Taspring-linux-commit] r6284 - trunk/rts/Game
+</A></li>
+	<LI>Next message: <A HREF="001056.html">[Taspring-linux-commit] r6286 - in trunk:	installer/builddata/springcontent/shaders rts/Game rts/Rendering/Env
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1055">[ date ]</a>
+              <a href="thread.html#1055">[ thread ]</a>
+              <a href="subject.html#1055">[ subject ]</a>
+              <a href="author.html#1055">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

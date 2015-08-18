@@ -1,0 +1,3436 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5499 - in trunk/rts/Sim: Features Misc
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-February/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5499%20-%20in%20trunk/rts/Sim%3A%20Features%20Misc&In-Reply-To=%3CE1JPOVf-00033X-15%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000305.html">
+   <LINK REL="Next"  HREF="000307.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5499 - in trunk/rts/Sim: Features Misc</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5499%20-%20in%20trunk/rts/Sim%3A%20Features%20Misc&In-Reply-To=%3CE1JPOVf-00033X-15%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5499 - in trunk/rts/Sim: Features Misc">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Feb 13 21:47:15 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000305.html">[Taspring-linux-commit] r5498 - in trunk/rts: ExternalAI Game	Game/StartScripts Game/UI Lua Map Map/SMF Rendering	Rendering/Env Sim Sim/Misc Sim/MoveTypes	Sim/MoveTypes/MoveMath Sim/Projectiles	Sim/Projectiles/Unsynced Sim/Projectiles/WeaponProjectiles	Sim/Units Sim/Units/CommandAI Sim/Units/UnitTypes System	System/Script
+</A></li>
+        <LI>Next message: <A HREF="000307.html">[Taspring-linux-commit] r5500 - in trunk/AI/Global:	CSAI/ABICompatibilityLayer CSAI/CSAILoader JCAI KAI-0.2	KAIK-0.13 NTai/AI/NTai/SDK
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#306">[ date ]</a>
+              <a href="thread.html#306">[ thread ]</a>
+              <a href="subject.html#306">[ subject ]</a>
+              <a href="author.html#306">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-02-13 21:47:13 +0100 (Wed, 13 Feb 2008)
+New Revision: 5499
+
+Added:
+   trunk/rts/Sim/Features/Feature.cpp
+   trunk/rts/Sim/Features/Feature.h
+   trunk/rts/Sim/Features/FeatureDef.h
+   trunk/rts/Sim/Features/FeatureHandler.cpp
+   trunk/rts/Sim/Features/FeatureHandler.h
+   trunk/rts/Sim/Features/FeatureSet.cpp
+   trunk/rts/Sim/Features/FeatureSet.h
+Removed:
+   trunk/rts/Sim/Misc/Feature.cpp
+   trunk/rts/Sim/Misc/Feature.h
+   trunk/rts/Sim/Misc/FeatureDef.h
+   trunk/rts/Sim/Misc/FeatureHandler.cpp
+   trunk/rts/Sim/Misc/FeatureHandler.h
+   trunk/rts/Sim/Misc/FeatureSet.cpp
+   trunk/rts/Sim/Misc/FeatureSet.h
+Log:
+
+
+Added: trunk/rts/Sim/Features/Feature.cpp
+===================================================================
+--- trunk/rts/Sim/Features/Feature.cpp	                        (rev 0)
++++ trunk/rts/Sim/Features/Feature.cpp	2008-02-13 20:47:13 UTC (rev 5499)
+@@ -0,0 +1,590 @@
++#include &quot;StdAfx.h&quot;
++#include &quot;Feature.h&quot;
++#include &quot;FeatureHandler.h&quot;
++#include &quot;Game/Team.h&quot;
++#include &quot;LogOutput.h&quot;
++#include &quot;Lua/LuaRules.h&quot;
++#include &quot;Map/Ground.h&quot;
++#include &quot;Map/ReadMap.h&quot;
++#include &quot;myMath.h&quot;
++#include &quot;Sim/Misc/DamageArray.h&quot;
++#include &quot;Sim/Misc/QuadField.h&quot;
++#include &quot;Rendering/Env/BaseTreeDrawer.h&quot;
++#include &quot;Rendering/GL/myGL.h&quot;
++#include &quot;Rendering/UnitModels/3DOParser.h&quot;
++#include &quot;Rendering/UnitModels/UnitDrawer.h&quot;
++#include &quot;Sim/ModInfo.h&quot;
++#include &quot;Sim/Projectiles/FireProjectile.h&quot;
++#include &quot;Sim/Projectiles/ProjectileHandler.h&quot;
++#include &quot;Sim/Projectiles/Unsynced/GeoThermSmokeProjectile.h&quot;
++#include &quot;Sim/Projectiles/Unsynced/SmokeProjectile.h&quot;
++#include &quot;Sim/Units/UnitDef.h&quot;
++#include &quot;Sim/Units/Unit.h&quot;
++#include &quot;mmgr.h&quot;
++
++CR_BIND_DERIVED(CFeature, CSolidObject, )
++
++CR_REG_METADATA(CFeature, (
++				//CR_MEMBER(model),
++				CR_MEMBER(createdFromUnit),
++				CR_MEMBER(isRepairingBeforeResurrect),
++				CR_MEMBER(resurrectProgress),
++				CR_MEMBER(health),
++				CR_MEMBER(reclaimLeft),
++				CR_MEMBER(id),
++				CR_MEMBER(allyteam),
++				CR_MEMBER(team),
++				CR_MEMBER(noSelect),
++				CR_MEMBER(tempNum),
++				CR_MEMBER(lastReclaim),
++//				CR_MEMBER(def),
++				CR_MEMBER(defName),
++				CR_MEMBER(transMatrix),
++				CR_MEMBER(inUpdateQue),
++				CR_MEMBER(drawQuad),
++				CR_MEMBER(finalHeight),
++				CR_MEMBER(myFire),
++				CR_MEMBER(fireTime),
++				CR_MEMBER(emitSmokeTime),
++				CR_RESERVED(64),
++				CR_POSTLOAD(PostLoad)
++				));
++
++
++#define TREE_RADIUS 20
++
++
++CFeature::CFeature()
++:	def(0),
++	inUpdateQue(false),
++	reclaimLeft(1),
++	fireTime(0),
++	myFire(0),
++	drawQuad(-1),
++	team(0),
++	allyteam(0),
++	noSelect(false),
++	tempNum(0),
++	emitSmokeTime(0),
++	lastReclaim(0),
++	isRepairingBeforeResurrect(false),
++	resurrectProgress(0),
++	health(0),
++	id(0),
++	finalHeight(0),
++	solidOnTop(0),
++	model(NULL)
++{
++	immobile=true;
++	physicalState = OnGround;
++}
++
++
++CFeature::~CFeature(void)
++{
++	if(blocking){
++		UnBlock();
++	}
++	qf-&gt;RemoveFeature(this);
++	if(def-&gt;drawType==DRAWTYPE_TREE)
++		treeDrawer-&gt;DeleteTree(pos);
++
++	if(myFire){
++		myFire-&gt;StopFire();
++		myFire=0;
++	}
++
++	if (def-&gt;geoThermal) {
++		CGeoThermSmokeProjectile::GeoThermDestroyed(this);
++	}
++}
++
++void CFeature::PostLoad()
++{
++	def = featureHandler-&gt;GetFeatureDef(defName);
++	if (def-&gt;drawType == DRAWTYPE_3DO) {
++		model = def-&gt;LoadModel(team);
++		height = model-&gt;height;
++		SetRadius(model-&gt;radius);
++		midPos = pos + model-&gt;relMidPos;
++	}
++	else if (def-&gt;drawType == DRAWTYPE_TREE){
++		midPos = pos + (UpVector * TREE_RADIUS);
++		height = 2 * TREE_RADIUS;
++	}
++	else {
++		midPos = pos;
++	}
++	if (def-&gt;drawType == DRAWTYPE_TREE) {
++		treeDrawer-&gt;AddTree(def-&gt;modelType, pos, 1);
++	}
++}
++
++void CFeature::ChangeTeam(int newTeam)
++{
++	if (newTeam &lt; 0) {
++		team = 0; // NOTE: this should probably be -1, would need work
++		allyteam = -1;
++	} else {
++		team = newTeam;
++		allyteam = gs-&gt;AllyTeam(newTeam);
++	}
++
++	if (def-&gt;drawType == DRAWTYPE_3DO){
++		model = def-&gt;LoadModel(team);
++	}
++}
++
++
++void CFeature::Initialize(const float3&amp; _pos, const FeatureDef* _def, short int _heading,
++                          int facing, int _team, std::string fromUnit)
++{
++	pos = _pos;
++	def = _def;
++	defName = def-&gt;myName;
++	heading = _heading;
++	buildFacing = facing;
++	team = _team;
++	createdFromUnit = fromUnit;
++
++	ChangeTeam(team);
++
++	pos.CheckInBounds();
++
++	health   = def-&gt;maxHealth;
++	blocking = def-&gt;blocking;
++	xsize    = def-&gt;xsize;
++	ysize    = def-&gt;ysize;
++	mass     = def-&gt;mass;
++	noSelect = def-&gt;noSelect;
++
++	if (def-&gt;drawType == DRAWTYPE_3DO) {
++		model = def-&gt;LoadModel(team);
++		height = model-&gt;height;
++		SetRadius(model-&gt;radius);
++		midPos = pos + model-&gt;relMidPos;
++	}
++	else if (def-&gt;drawType == DRAWTYPE_TREE){
++		SetRadius(TREE_RADIUS);
++		midPos = pos + (UpVector * TREE_RADIUS);
++		height = 2 * TREE_RADIUS;
++	}
++	else {
++		SetRadius(0.0f);
++		midPos = pos;
++	}
++
++	featureHandler-&gt;AddFeature(this);
++
++	qf-&gt;AddFeature(this);
++
++	CalculateTransform ();
++//	this-&gt;pos.y=ground-&gt;GetHeight(pos.x,pos.z);
++
++	if (blocking) {
++		Block();
++	}
++
++	if (def-&gt;floating) {
++		finalHeight = ground-&gt;GetHeight(pos.x, pos.z);
++	} else {
++		finalHeight = ground-&gt;GetHeight2(pos.x, pos.z);
++	}
++
++	if (def-&gt;drawType == DRAWTYPE_TREE) {
++		treeDrawer-&gt;AddTree(def-&gt;modelType, pos, 1);
++	}
++}
++
++
++void CFeature::CalculateTransform()
++{
++	float3 frontDir=GetVectorFromHeading(heading);
++	float3 upDir;
++
++	if (def-&gt;upright) upDir = float3(0.0f,1.0f,0.0f);
++	else upDir = ground-&gt;GetNormal(pos.x,pos.z);
++
++	float3 rightDir=frontDir.cross(upDir);
++	rightDir.Normalize();
++	frontDir=upDir.cross(rightDir);
++	frontDir.Normalize ();
++
++	transMatrix = CMatrix44f (pos,-rightDir,upDir,frontDir);
++}
++
++
++bool CFeature::AddBuildPower(float amount, CUnit* builder)
++{
++	const float oldReclaimLeft = reclaimLeft;
++
++	if (amount &gt; 0.0f) {
++		// Check they are trying to repair a feature that can be resurrected
++		if (createdFromUnit == &quot;&quot;) {
++			return false;
++		}
++
++		// 'Repairing' previously-sucked features prior to resurrection
++		// This is reclaim-option independant - repairing features should always
++		// be like other repairing - gradual and multi-unit
++		// Lots of this code is stolen from unit-&gt;AddBuildPower
++
++		isRepairingBeforeResurrect = true; // Stop them exploiting chunk reclaiming
++
++		if (reclaimLeft &gt;= 1) {
++			return false; // cant repair a 'fresh' feature
++		}
++
++		// Work out how much to try to put back, based on the speed this unit would reclaim at.
++		const float part = (100 - amount) * 0.02f / max(10.0f, (def-&gt;metal + def-&gt;energy));
++
++		// Work out how much that will cost
++		const float metalUse  = part * def-&gt;metal;
++		const float energyUse = part * def-&gt;energy;
++		if ((gs-&gt;Team(builder-&gt;team)-&gt;metal  &gt;= metalUse)  &amp;&amp;
++		    (gs-&gt;Team(builder-&gt;team)-&gt;energy &gt;= energyUse) &amp;&amp;
++				(!luaRules || luaRules-&gt;AllowFeatureBuildStep(builder, this, part))) {
++			builder-&gt;UseMetal(metalUse);
++			builder-&gt;UseEnergy(energyUse);
++			reclaimLeft+=part;
++			if (reclaimLeft &gt;= 1) {
++				isRepairingBeforeResurrect = false; // They can start reclaiming it again if they so wish
++				reclaimLeft = 1;
++			}
++			return true;
++		}
++		else {
++			// update the energy and metal required counts
++			gs-&gt;Team(builder-&gt;team)-&gt;energyPull += energyUse;
++			gs-&gt;Team(builder-&gt;team)-&gt;metalPull  += metalUse;
++		}
++		return false;
++	}
++	else { // Reclaiming
++		// avoid multisuck when reclaim has already completed during this frame
++		if (reclaimLeft &lt;= 0) {
++			return false;
++		}
++
++		// don't let them exploit chunk reclaim
++		if (isRepairingBeforeResurrect &amp;&amp; (modInfo.reclaimMethod &gt; 1)) {
++			return false;
++		}
++
++		// make sure several units cant reclaim at once on a single feature
++		if ((modInfo.multiReclaim == 0) &amp;&amp; (lastReclaim == gs-&gt;frameNum)) {
++			return true;
++		}
++
++		const float part = ((100 - amount) * 0.02f / max(10.0f, (def-&gt;reclaimTime)));
++
++		if (luaRules &amp;&amp; !luaRules-&gt;AllowFeatureBuildStep(builder, this, part)) {
++			return false;
++		}
++
++		reclaimLeft -= part;
++
++		// stop the last bit giving too much resource
++		if (reclaimLeft &lt; 0) {
++			reclaimLeft = 0;
++		}
++
++		const float fractionReclaimed = oldReclaimLeft - reclaimLeft;
++
++		if ((modInfo.reclaimMethod == 1) &amp;&amp; (reclaimLeft == 0)) {
++			// All-at-end method
++			builder-&gt;AddMetal(def-&gt;metal);
++			builder-&gt;AddEnergy(def-&gt;energy);
++		}
++		else if (modInfo.reclaimMethod == 0) {
++			// Gradual reclaim
++			builder-&gt;AddMetal(def-&gt;metal * fractionReclaimed);
++			builder-&gt;AddEnergy(def-&gt;energy * fractionReclaimed);
++		}
++		else {
++			// Chunky reclaiming, work out how many chunk boundaries we crossed
++			const float chunkSize = 1.0f / modInfo.reclaimMethod;
++			const int oldChunk = ChunkNumber(oldReclaimLeft);
++			const int newChunk = ChunkNumber(reclaimLeft);
++			if (oldChunk != newChunk) {
++				const float noChunks = (float)oldChunk - (float)newChunk;
++				builder-&gt;AddMetal(noChunks * def-&gt;metal * chunkSize);
++				builder-&gt;AddEnergy(noChunks * def-&gt;energy * chunkSize);
++			}
++		}
++
++		// Has the reclaim finished?
++		if (reclaimLeft &lt;= 0) {
++			featureHandler-&gt;DeleteFeature(this);
++			return false;
++		}
++
++		lastReclaim = gs-&gt;frameNum;
++		return true;
++	}
++
++	// Should never get here
++	assert(false);
++	return false;
++}
++
++
++void CFeature::DoDamage(const DamageArray&amp; damages, CUnit* attacker,const float3&amp; impulse)
++{
++	if (damages.paralyzeDamageTime) {
++		return; // paralyzers do not damage features
++	}
++
++	residualImpulse = impulse;
++	health -= damages[0];
++
++	if (health &lt;= 0 &amp;&amp; def-&gt;destructable) {
++		CFeature* deathFeature = featureHandler-&gt;CreateWreckage(
++			pos, def-&gt;deathFeature, heading,
++			buildFacing, 1, team, -1, false, &quot;&quot;
++		);
++
++		if (deathFeature) {
++			// if a partially reclaimed corpse got blasted,
++			// ensure its wreck is not worth the full amount
++			// (which might be more than the amount remaining)
++			deathFeature-&gt;reclaimLeft = reclaimLeft;
++		}
++
++		featureHandler-&gt;DeleteFeature(this);
++		blockHeightChanges = false;
++
++		if (def-&gt;drawType == DRAWTYPE_TREE) {
++			if (impulse.Length2D() &gt; 0.5f) {
++				treeDrawer-&gt;AddFallingTree(pos, impulse, def-&gt;modelType);
++			}
++		}
++	}
++}
++
++
++void CFeature::Kill(float3&amp; impulse) {
++	DamageArray damage;
++	DoDamage(damage*(health+1), 0, impulse);
++}
++
++
++void CFeature::DependentDied(CObject *o)
++{
++	if (o == solidOnTop)
++		solidOnTop = 0;
++
++	CSolidObject::DependentDied(o);
++}
++
++
++void CFeature::ForcedMove(const float3&amp; newPos)
++{
++	featureHandler-&gt;UpdateDrawQuad(this, newPos);
++
++	// remove from managers
++	qf-&gt;RemoveFeature(this);
++	if (def-&gt;drawType == DRAWTYPE_TREE) {
++		treeDrawer-&gt;DeleteTree(pos);
++	}
++	UnBlock();
++
++	pos = newPos;
++
++	// setup finalHeight
++	if (def-&gt;floating) {
++		finalHeight = ground-&gt;GetHeight(pos.x, pos.z);
++	} else {
++		finalHeight = ground-&gt;GetHeight2(pos.x, pos.z);
++	}
++
++	// setup midPos
++	if (def-&gt;drawType == DRAWTYPE_3DO) {
++		midPos = pos + model-&gt;relMidPos;
++	} else if (def-&gt;drawType == DRAWTYPE_TREE){
++		midPos = pos + (UpVector * TREE_RADIUS);
++	} else {
++		midPos = pos;
++	}
++
++	// insert into managers
++	qf-&gt;AddFeature(this);
++	if (def-&gt;drawType == DRAWTYPE_TREE) {
++		treeDrawer-&gt;AddTree(def-&gt;modelType, pos, 1.0f);
++	}
++	Block();
++}
++
++
++void CFeature::ForcedSpin(const float3&amp; newDir)
++{
++/*
++	heading = GetHeadingFromVector(newDir.x, newDir.z);
++	CalculateTransform();
++	if (def-&gt;drawType == DRAWTYPE_TREE) {
++		treeDrawer-&gt;DeleteTree(pos);
++		treeDrawer-&gt;AddTree(def-&gt;modelType, pos, 1.0f);
++	}
++*/
++
++	CMatrix44f tmp;
++	tmp.RotateZ(newDir.z);
++	tmp.RotateX(newDir.x);
++	tmp.RotateY(newDir.y);
++	tmp.Translate(pos);
++	transMatrix = tmp;
++
++//	const float clamped = fmod(newDir.y, PI * 2.0);
++//	heading = (short int)(clamped * 65536);
++}
++
++
++bool CFeature::Update(void)
++{
++	bool retValue=false;
++
++	if(pos.y&gt;finalHeight){
++		const float3 oldPos = pos;
++		if(pos.y&gt;0){	//fall faster when above water
++			pos.y-=0.8f;
++			midPos.y-=0.8f;
++			transMatrix[13]-=0.8f;
++		} else {
++			pos.y-=0.4f;
++			midPos.y-=0.4f;
++			transMatrix[13]-=0.4f;
++		}
++//		logOutput.Print(&quot;feature sinking&quot;);
++		if (def-&gt;drawType == DRAWTYPE_TREE) {
++			treeDrawer-&gt;DeleteTree(oldPos);
++			treeDrawer-&gt;AddTree(def-&gt;modelType, pos, 1.0f);
++		}
++		retValue=true;
++	}
++	if(emitSmokeTime!=0){
++		--emitSmokeTime;
++		PUSH_CODE_MODE;
++		ENTER_MIXED;
++		if(!(gs-&gt;frameNum+id &amp; 3) &amp;&amp; ph-&gt;particleSaturation&lt;0.7f){
++			SAFE_NEW CSmokeProjectile(midPos+gu-&gt;usRandVector()*radius*0.3f,gu-&gt;usRandVector()*0.3f+UpVector,emitSmokeTime/6+20,6,0.4f,0,0.5f);
++		}
++		POP_CODE_MODE;
++		retValue=true;
++	}
++
++	if(fireTime&gt;0){
++		fireTime--;
++		if(fireTime==1)
++			featureHandler-&gt;DeleteFeature(this);
++		retValue=true;
++	}
++
++	if(def-&gt;geoThermal){
++		PUSH_CODE_MODE;
++		ENTER_MIXED;
++
++		if ((gs-&gt;frameNum+id % 5) % 5 == 0)
++		{
++			// Find the unit closest to the geothermal
++			vector&lt;CSolidObject*&gt; objs = qf-&gt;GetSolidsExact(pos, 0.0f);
++			float bestDist2 = 0;
++			CSolidObject *so = NULL;
++			for (vector&lt;CSolidObject*&gt;::iterator oi=objs.begin();oi!=objs.end();++oi) {
++				float dist2 = ((*oi)-&gt;pos-pos).SqLength();
++				if (!so || dist2 &lt; bestDist2)  {
++					bestDist2 = dist2;
++					so = *oi;
++				}
++			}
++
++			if (so!=solidOnTop) {
++				if (solidOnTop)
++					DeleteDeathDependence(solidOnTop);
++				if (so)
++					AddDeathDependence(so);
++			}
++			solidOnTop = so;
++		}
++
++		// Hide the smoke if there is a geothermal unit on the vent
++		CUnit *u = dynamic_cast&lt;CUnit*&gt;(solidOnTop);
++		if (!u || !u-&gt;unitDef-&gt;needGeo) {
++			if((ph-&gt;particleSaturation&lt;0.7f) || (ph-&gt;particleSaturation&lt;1 &amp;&amp; !(gs-&gt;frameNum&amp;3))){
++				float3 speed=gu-&gt;usRandVector()*0.5f;
++				speed.y+=2.0f;
++
++				SAFE_NEW CGeoThermSmokeProjectile(gu-&gt;usRandVector() * 10 +
++				                                  float3(pos.x, pos.y-10, pos.z),
++				                                  speed, int(50+gu-&gt;usRandFloat()*7),
++				                                  this);
++			}
++		}
++
++		POP_CODE_MODE;
++		retValue=true;
++	}
++
++
++	return retValue;
++}
++
++
++void CFeature::StartFire(void)
++{
++	if(fireTime || !def-&gt;burnable)
++		return;
++
++	fireTime=200+(int)(gs-&gt;randFloat()*30);
++	featureHandler-&gt;SetFeatureUpdateable(this);
++
++	myFire=SAFE_NEW CFireProjectile(midPos,UpVector,0,300,radius*0.8f,70,20);
++}
++
++
++void CFeature::DrawS3O()
++{
++	glPushMatrix();
++	glMultMatrixf(transMatrix.m);
++	if (model-&gt;textureType) {
++		unitDrawer-&gt;SetS3OTeamColour(team);
++	}
++	model-&gt;DrawStatic();
++	glPopMatrix();
++}
++
++
++int CFeature::ChunkNumber(float f)
++{
++	return (int) ceil(f * modInfo.reclaimMethod);
++}
++
++
++float CFeature::RemainingResource(float res) const
++{
++	// Gradual reclaim
++	if (modInfo.reclaimMethod == 0) {
++		return res * reclaimLeft;
++	}
++
++	// Old style - all reclaimed at the end
++	if (modInfo.reclaimMethod == 1) {
++		return res;
++	}
++
++	// Otherwise we are doing chunk reclaiming
++	float chunkSize = res / modInfo.reclaimMethod; // resource/no_chunks
++	float chunksLeft = ceil(reclaimLeft * modInfo.reclaimMethod);
++	return chunkSize * chunksLeft;
++}
++
++
++float CFeature::RemainingMetal() const
++{
++	return RemainingResource(def-&gt;metal);
++}
++
++
++float CFeature::RemainingEnergy() const
++{
++	return RemainingResource(def-&gt;energy);
++}
+
+Added: trunk/rts/Sim/Features/Feature.h
+===================================================================
+--- trunk/rts/Sim/Features/Feature.h	                        (rev 0)
++++ trunk/rts/Sim/Features/Feature.h	2008-02-13 20:47:13 UTC (rev 5499)
+@@ -0,0 +1,89 @@
++#ifndef __FEATURE_H__
++#define __FEATURE_H__
++
++#include &quot;Sim/Objects/SolidObject.h&quot;
++#include &quot;Rendering/UnitModels/3DModelParser.h&quot;
++#include &quot;Matrix44f.h&quot;
++#include &lt;vector&gt;
++#include &lt;list&gt;
++#include &lt;string&gt;
++#include &lt;boost/noncopyable.hpp&gt;
++
++struct FeatureDef;
++class CUnit;
++struct DamageArray;
++class CFireProjectile;
++
++class CFeature : public CSolidObject, public boost::noncopyable
++{
++	CR_DECLARE(CFeature);
++
++public:
++	CFeature();
++	~CFeature();
++
++	/** Pos of quad must not change after this. */
++	void Initialize(const float3&amp; pos, const FeatureDef* def, short int heading, int facing, int allyteam, std::string fromUnit);
++	/** Negative amount = reclaim
++	    @return true if reclaimed */
++	bool AddBuildPower(float amount, CUnit* builder);
++	void DoDamage(const DamageArray&amp; damages, CUnit* attacker,const float3&amp; impulse);
++	void Kill(float3&amp; impulse);
++	void ForcedMove(const float3&amp; newPos);
++	void ForcedSpin(const float3&amp; newDir);
++	virtual bool Update(void);
++	void StartFire(void);
++	float RemainingResource(float res) const;
++	float RemainingMetal(void) const;
++	float RemainingEnergy(void) const;
++	int ChunkNumber(float f);
++	void DrawS3O();
++	void CalculateTransform();
++	void DependentDied(CObject *o);
++	void ChangeTeam(int newTeam);
++
++	S3DOModel* model;
++
++	std::string createdFromUnit;
++	/** This flag is used to stop a potential exploit involving tripping a unit back and forth
++	across a chunk boundary to get unlimited resources. Basically, once a corspe has been a little bit
++	reclaimed, if they start rezzing then they cannot reclaim again until the corpse has been fully
++	'repaired'. */
++	bool isRepairingBeforeResurrect;
++	float resurrectProgress;
++
++	float health;
++	float reclaimLeft;
++	int id;
++	int allyteam;
++	int team;
++
++	bool noSelect;
++
++	int tempNum;
++	int lastReclaim;
++
++	const FeatureDef* def;
++	std::string defName;
++
++	CMatrix44f transMatrix;
++//	float3 residualImpulse;	//impulse energy that havent been acted on
++
++	bool inUpdateQue;
++	/// which drawQuad we are part of
++	int drawQuad;
++
++	float finalHeight;
++
++	CFireProjectile* myFire;
++	int fireTime;
++	int emitSmokeTime;
++
++	/// the solid object that is on top of the geothermal
++	CSolidObject *solidOnTop;
++
++private:
++	void PostLoad();
++};
++
++#endif // __FEATURE_H__
+
+Added: trunk/rts/Sim/Features/FeatureDef.h
+===================================================================
+--- trunk/rts/Sim/Features/FeatureDef.h	                        (rev 0)
++++ trunk/rts/Sim/Features/FeatureDef.h	2008-02-13 20:47:13 UTC (rev 5499)
+@@ -0,0 +1,65 @@
++#ifndef FEATURE_DEF_H
++#define FEATURE_DEF_H
++
++#define DRAWTYPE_3DO 0
++#define DRAWTYPE_TREE 1
++#define DRAWTYPE_NONE -1
++
++struct S3DOModel;
++
++struct FeatureDef
++{
++	CR_DECLARE(FeatureDef);
++
++	FeatureDef():
++		metal(0), energy(0), maxHealth(0), mass(0),
++		upright(false), drawType(0), modelType(0),
++		destructable(false), reclaimable(true), blocking(false),
++		burnable(false), floating(false), geoThermal(false), noSelect(false),
++		xsize(0), ysize(0), reclaimTime(0) {}
++
++	S3DOModel* LoadModel(int team) const;
++
++	std::string myName;
++	std::string description;
++	std::string filename;
++
++	int id;
++
++	float metal;
++	float energy;
++	float maxHealth;
++	float reclaimTime;
++
++	/// used to see if the object can be overrun
++	float mass;
++	float collisionSphereScale;
++	float3 collisionSphereOffset;
++	bool useCSOffset;
++
++	bool upright;
++	int drawType;
++	/// used by 3do obects
++	std::string modelname;
++	/// used by tree etc
++	int modelType;
++
++	bool destructable;
++	bool reclaimable;
++	bool blocking;
++	bool burnable;
++	bool floating;
++	bool noSelect;
++
++	bool geoThermal;
++
++	/// name of feature that this turn into when killed (not reclaimed)
++	std::string deathFeature;
++
++	/// each size is 8 units
++	int xsize;
++	/// each size is 8 units
++	int ysize;
++};
++
++#endif
+
+Added: trunk/rts/Sim/Features/FeatureHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Features/FeatureHandler.cpp	                        (rev 0)
++++ trunk/rts/Sim/Features/FeatureHandler.cpp	2008-02-13 20:47:13 UTC (rev 5499)
+@@ -0,0 +1,671 @@
++#include &quot;StdAfx.h&quot;
++#include &quot;FeatureHandler.h&quot;
++#include &quot;Feature.h&quot;
++#include &quot;FileSystem/FileHandler.h&quot;
++#include &quot;Game/Camera.h&quot;
++#include &quot;Game/Game.h&quot;
++#include &quot;LoadSaveInterface.h&quot;
++#include &quot;LogOutput.h&quot;
++#include &quot;Sim/Misc/LosHandler.h&quot;
++#include &quot;Sim/Misc/QuadField.h&quot;
++#include &quot;Lua/LuaCallInHandler.h&quot;
++#include &quot;Lua/LuaParser.h&quot;
++#include &quot;Lua/LuaRules.h&quot;
++#include &quot;Map/Ground.h&quot;
++#include &quot;myMath.h&quot;
++#include &quot;Rendering/Env/BaseTreeDrawer.h&quot;
++#include &quot;Rendering/Env/BaseWater.h&quot;
++#include &quot;Rendering/FartextureHandler.h&quot;
++#include &quot;Rendering/GL/myGL.h&quot;
++#include &quot;Rendering/GL/VertexArray.h&quot;
++#include &quot;Rendering/ShadowHandler.h&quot;
++#include &quot;Rendering/UnitModels/3DOParser.h&quot;
++#include &quot;Rendering/UnitModels/UnitDrawer.h&quot;
++#include &quot;Sim/Units/UnitHandler.h&quot;
++#include &quot;Sim/Units/CommandAI/BuilderCAI.h&quot;
++#include &quot;System/TimeProfiler.h&quot;
++#include &quot;System/Platform/ConfigHandler.h&quot;
++#include &lt;GL/glu.h&gt; // after myGL.h
++#include &quot;mmgr.h&quot;
++#include &quot;creg/STL_List.h&quot;
++#include &quot;creg/STL_Set.h&quot;
++
++using namespace std;
++
++
++CFeatureHandler* featureHandler = NULL;
++
++
++/******************************************************************************/
++
++CR_BIND(FeatureDef, );
++
++CR_REG_METADATA(FeatureDef, (
++		CR_MEMBER(myName),
++		CR_MEMBER(description),
++		CR_MEMBER(metal),
++		CR_MEMBER(id),
++		CR_MEMBER(energy),
++		CR_MEMBER(maxHealth),
++		CR_MEMBER(reclaimTime),
++		CR_MEMBER(mass),
++		CR_MEMBER(upright),
++		CR_MEMBER(drawType),
++		//CR_MEMBER(model), FIXME
++		CR_MEMBER(modelname),
++		CR_MEMBER(modelType),
++		CR_MEMBER(destructable),
++		CR_MEMBER(blocking),
++		CR_MEMBER(burnable),
++		CR_MEMBER(floating),
++		CR_MEMBER(geoThermal),
++		CR_MEMBER(deathFeature),
++		CR_MEMBER(xsize),
++		CR_MEMBER(ysize)
++		));
++
++
++CR_BIND_DERIVED(CFeatureHandler,CObject, );
++
++CR_REG_METADATA(CFeatureHandler, (
++
++//	CR_MEMBER(featureDefs),
++//	CR_MEMBER(featureDefsVector),
++
++	CR_MEMBER(nextFreeID),
++	CR_MEMBER(freeIDs),
++	CR_MEMBER(toBeFreedIDs),
++	CR_MEMBER(activeFeatures),
++
++	CR_MEMBER(toBeRemoved),
++	CR_MEMBER(updateFeatures),
++
++//	CR_MEMBER(drawQuads),
++//	CR_MEMBER(drawQuadsX),
++//	CR_MEMBER(drawQuadsY),
++
++	CR_RESERVED(128),
++	CR_SERIALIZER(Serialize),
++	CR_POSTLOAD(PostLoad)
++));
++
++CR_BIND(CFeatureHandler::DrawQuad, );
++
++CR_REG_METADATA_SUB(CFeatureHandler,DrawQuad,(
++	CR_MEMBER(features)
++));
++
++
++/******************************************************************************/
++
++CFeatureHandler::CFeatureHandler() : nextFreeID(0)
++{
++	PrintLoadMsg(&quot;Loading feature definitions&quot;);
++
++	drawQuadsX = gs-&gt;mapx/DRAW_QUAD_SIZE;
++	drawQuadsY = gs-&gt;mapy/DRAW_QUAD_SIZE;
++	drawQuads.resize(drawQuadsX * drawQuadsY);
++
++	treeDrawer = CBaseTreeDrawer::GetTreeDrawer();
++
++	const LuaTable rootTable = game-&gt;defsParser-&gt;GetRoot().SubTable(&quot;FeatureDefs&quot;);
++	if (!rootTable.IsValid()) {
++		throw content_error(&quot;Error loading FeatureDefs&quot;);
++	}
++
++	// get most of the feature defs (missing trees and geovent from the map)
++	vector&lt;string&gt; keys;
++	rootTable.GetKeys(keys);
++	for (int i = 0; i &lt; (int)keys.size(); i++) {
++		const string&amp; name = keys[i];
++		const LuaTable fdTable = rootTable.SubTable(name);
++		CreateFeatureDef(fdTable, name);
++	}
++}
++
++
++CFeatureHandler::~CFeatureHandler()
++{
++	for(CFeatureSet::iterator fi=activeFeatures.begin(); fi != activeFeatures.end(); ++fi)
++		delete *fi;
++	activeFeatures.clear();
++
++	while(!featureDefs.empty()){
++		std::map&lt;std::string, const FeatureDef*&gt;::iterator fi=featureDefs.begin();
++		delete fi-&gt;second;
++		featureDefs.erase(fi);
++	}
++	delete treeDrawer;
++}
++
++void CFeatureHandler::Serialize(creg::ISerializer *s)
++{
++}
++
++void CFeatureHandler::PostLoad()
++{
++	drawQuadsX=gs-&gt;mapx/DRAW_QUAD_SIZE;
++	drawQuadsY=gs-&gt;mapy/DRAW_QUAD_SIZE;
++	drawQuads.clear();
++	drawQuads.resize(drawQuadsX * drawQuadsY);
++
++	for (CFeatureSet::const_iterator it = activeFeatures.begin(); it != activeFeatures.end(); ++it)
++		if ((*it)-&gt;drawQuad &gt;= 0)
++			drawQuads[(*it)-&gt;drawQuad].features.insert(*it);
++}
++
++void CFeatureHandler::AddFeatureDef(const std::string&amp; name, FeatureDef* fd)
++{
++	std::map&lt;std::string, const FeatureDef*&gt;::const_iterator it = featureDefs.find(name);
++
++	if (it != featureDefs.end()) {
++		featureDefsVector[it-&gt;second-&gt;id] = fd;
++	} else {
++		fd-&gt;id = featureDefsVector.size();
++		featureDefsVector.push_back(fd);
++	}
++	featureDefs[name] = fd;
++}
++
++
++const FeatureDef* CFeatureHandler::CreateFeatureDef(const LuaTable&amp; fdTable,
++                                                    const string&amp; mixedCase)
++{
++	const string name = StringToLower(mixedCase);
++	std::map&lt;std::string, const FeatureDef*&gt;::iterator fi = featureDefs.find(name);
++
++	if (fi != featureDefs.end()) {
++		return fi-&gt;second;
++	}
++
++	FeatureDef* fd = SAFE_NEW FeatureDef;
++
++	fd-&gt;myName = name;
++
++	fd-&gt;filename = fdTable.GetString(&quot;filename&quot;, &quot;unknown&quot;);
++
++	fd-&gt;description = fdTable.GetString(&quot;description&quot;, &quot;&quot;);
++
++	fd-&gt;blocking     = fdTable.GetBool(&quot;blocking&quot;,       true);
++	fd-&gt;burnable     = fdTable.GetBool(&quot;flammable&quot;,      false);
++	fd-&gt;destructable = !fdTable.GetBool(&quot;indestructible&quot;, false);
++	fd-&gt;reclaimable  = fdTable.GetBool(&quot;reclaimable&quot;, fd-&gt;destructable);
++
++	//this seem to be the closest thing to floating that ta wreckage contains
++	fd-&gt;floating = fdTable.GetBool(&quot;nodrawundergray&quot;, true);
++	if (fd-&gt;floating &amp;&amp; !fd-&gt;blocking) {
++		fd-&gt;floating = false;
++	}
++
++	fd-&gt;noSelect = fdTable.GetBool(&quot;noselect&quot;, false);
++
++	fd-&gt;deathFeature = fdTable.GetString(&quot;featureDead&quot;, &quot;&quot;);
++
++	fd-&gt;metal     = fdTable.GetFloat(&quot;metal&quot;,  0.0f);
++	fd-&gt;energy    = fdTable.GetFloat(&quot;energy&quot;, 0.0f);
++	fd-&gt;maxHealth = fdTable.GetFloat(&quot;damage&quot;, 0.0f);
++	fd-&gt;reclaimTime = fdTable.GetFloat(&quot;reclaimTime&quot;, (fd-&gt;metal + fd-&gt;energy));
++
++	fd-&gt;drawType = DRAWTYPE_3DO;
++	fd-&gt;modelname = fdTable.GetString(&quot;object&quot;, &quot;&quot;);
++	if (!fd-&gt;modelname.empty()) {
++		fd-&gt;modelname=string(&quot;objects3d/&quot;) + fd-&gt;modelname;
++	}
++
++	fd-&gt;collisionSphereScale = fdTable.GetFloat(&quot;collisionSphereScale&quot;, 1.0f);
++	fd-&gt;collisionSphereOffset = fdTable.GetFloat3(&quot;collisionSphereOffset&quot;, ZeroVector);
++	fd-&gt;useCSOffset = (fd-&gt;collisionSphereOffset != ZeroVector);
++
++ 	fd-&gt;upright = fdTable.GetBool(&quot;upright&quot;, false);
++
++	// our resolution is double TA's
++	fd-&gt;xsize = fdTable.GetInt(&quot;footprintX&quot;, 1) * 2;
++	fd-&gt;ysize = fdTable.GetInt(&quot;footprintZ&quot;, 1) * 2;
++
++	const float defMass = (fd-&gt;metal * 0.4f) + (fd-&gt;maxHealth * 0.1f);
++	fd-&gt;mass = fdTable.GetFloat(&quot;mass&quot;, defMass);
++	fd-&gt;mass = max(0.001f, fd-&gt;mass);
++
++	AddFeatureDef(name, fd);
++
++	fi = featureDefs.find(name);
++
++	return fi-&gt;second;
++}
++
++
++const FeatureDef* CFeatureHandler::GetFeatureDef(const std::string mixedCase)
++{
++	const string name = StringToLower(mixedCase);
++	std::map&lt;std::string, const FeatureDef*&gt;::iterator fi = featureDefs.find(name);
++
++	if (fi != featureDefs.end()) {
++		return fi-&gt;second;
++	}
++
++	logOutput.Print(&quot;Couldnt find wreckage info %s&quot;, name.c_str());
++
++	return NULL;
++}
++
++
++const FeatureDef* CFeatureHandler::GetFeatureDefByID(int id)
++{
++	if ((id &lt; 0) || (id &gt;= (int) featureDefsVector.size())) {
++		return NULL;
++	}
++	return featureDefsVector[id];
++}
++
++
++void CFeatureHandler::LoadFeaturesFromMap(bool onlyCreateDefs)
++{
++	PrintLoadMsg(&quot;Initializing map features&quot;);
++
++	int numType = readmap-&gt;GetNumFeatureTypes ();
++
++	for (int a = 0; a &lt; numType; ++a) {
++		const string name = StringToLower(readmap-&gt;GetFeatureType(a));
++
++		if (name.find(&quot;treetype&quot;) != string::npos) {
++			FeatureDef* fd = SAFE_NEW FeatureDef;
++			fd-&gt;blocking = 1;
++			fd-&gt;burnable = true;
++			fd-&gt;destructable = 1;
++			fd-&gt;reclaimable = true;
++			fd-&gt;drawType = DRAWTYPE_TREE;
++			fd-&gt;modelType = atoi(name.substr(8).c_str());
++			fd-&gt;energy = 250;
++			fd-&gt;metal = 0;
++			fd-&gt;reclaimTime = 250;
++			fd-&gt;maxHealth = 5;
++			fd-&gt;xsize = 2;
++			fd-&gt;ysize = 2;
++			fd-&gt;myName = name;
++			fd-&gt;description = &quot;Tree&quot;;
++			fd-&gt;mass = 20;
++			AddFeatureDef(name, fd);
++		}
++		else if (name.find(&quot;geovent&quot;) != string::npos) {
++			FeatureDef* fd = SAFE_NEW FeatureDef;
++			fd-&gt;blocking = 0;
++			fd-&gt;burnable = 0;
++			fd-&gt;destructable = 0;
++			fd-&gt;reclaimable = false;
++			fd-&gt;geoThermal = true;
++			fd-&gt;drawType = DRAWTYPE_NONE;	//geos are drawn into the ground texture and emit smoke to be visible
++			fd-&gt;modelType = 0;
++			fd-&gt;energy = 0;
++			fd-&gt;metal = 0;
++			fd-&gt;reclaimTime = 0;
++			fd-&gt;maxHealth = 0;
++			fd-&gt;xsize = 0;
++			fd-&gt;ysize = 0;
++			fd-&gt;myName = name;
++			fd-&gt;mass = 100000;
++			AddFeatureDef(name, fd);
++		}
++		else {
++			if (GetFeatureDef(name) == NULL) {
++				logOutput.Print(&quot;Unknown map feature type %s&quot;, name.c_str());
++			}
++		}
++	}
++
++	if (!onlyCreateDefs) {
++		const int numFeatures = readmap-&gt;GetNumFeatures();
++		MapFeatureInfo* mfi = SAFE_NEW MapFeatureInfo[numFeatures];
++		readmap-&gt;GetFeatureInfo(mfi);
++
++		for(int a = 0; a &lt; numFeatures; ++a) {
++			const string name = StringToLower(readmap-&gt;GetFeatureType(mfi[a].featureType));
++			std::map&lt;std::string, const FeatureDef*&gt;::iterator def = featureDefs.find(name);
++
++			if (def == featureDefs.end()) {
++				logOutput.Print(&quot;Unknown feature named '%s'&quot;, name.c_str());
++				continue;
++			}
++
++			const float ypos = ground-&gt;GetHeight2(mfi[a].pos.x, mfi[a].pos.z);
++			(SAFE_NEW CFeature)-&gt;Initialize (float3(mfi[a].pos.x, ypos, mfi[a].pos.z),
++			                                 featureDefs[name], (short int)mfi[a].rotation,
++			                                 0, -1, &quot;&quot;);
++		}
++		delete[] mfi;
++	}
++}
++
++
++int CFeatureHandler::AddFeature(CFeature* feature)
++{
++	ASSERT_SYNCED_MODE;
++
++	if (freeIDs.empty()) {
++		feature-&gt;id = nextFreeID++;
++	} else {
++		feature-&gt;id = freeIDs.front();
++		freeIDs.pop_front();
++	}
++	activeFeatures.insert(feature);
++	SetFeatureUpdateable(feature);
++
++	if(feature-&gt;def-&gt;drawType==DRAWTYPE_3DO){
++		int quad = int(feature-&gt;pos.z / DRAW_QUAD_SIZE / SQUARE_SIZE) * drawQuadsX +
++		           int(feature-&gt;pos.x / DRAW_QUAD_SIZE / SQUARE_SIZE);
++		DrawQuad* dq=&amp;drawQuads[quad];
++		dq-&gt;features.insert(feature);
++		feature-&gt;drawQuad=quad;
++	}
++
++	luaCallIns.FeatureCreated(feature);
++
++	return feature-&gt;id ;
++}
++
++
++void CFeatureHandler::DeleteFeature(CFeature* feature)
++{
++	ASSERT_SYNCED_MODE;
++	toBeRemoved.push_back(feature-&gt;id);
++
++	luaCallIns.FeatureDestroyed(feature);
++}
++
++
++CFeature* CFeatureHandler::CreateWreckage(const float3&amp; pos, const std::string&amp; name,
++                                          float rot, int facing, int iter, int team,
++                                          int allyteam, bool emitSmoke,std::string fromUnit)
++{
++	ASSERT_SYNCED_MODE;
++	if (name.empty()) {
++		return NULL;
++	}
++	const FeatureDef* fd = GetFeatureDef(name);
++
++	if (!fd) {
++		return NULL;
++	}
++
++	if (iter &gt; 1) {
++		return CreateWreckage(pos, fd-&gt;deathFeature, rot, facing, iter - 1, team, allyteam, emitSmoke, &quot;&quot;);
++	}
++	else {
++		if (luaRules &amp;&amp; !luaRules-&gt;AllowFeatureCreation(fd, team, pos)) {
++			return NULL;
++		}
++		if(!fd-&gt;modelname.empty()){
++			CFeature* f=SAFE_NEW CFeature;
++			f-&gt;Initialize (pos, fd, (short int)rot, facing, team, fromUnit);
++			// allow area-reclaiming wrecks of all units, including your own (they set allyteam = -1)
++			f-&gt;allyteam = allyteam;
++			if(emitSmoke &amp;&amp; f-&gt;blocking)
++				f-&gt;emitSmokeTime=300;
++			return f;
++		}
++	}
++	return NULL;
++}
++
++
++
++void CFeatureHandler::Update()
++{
++	ASSERT_SYNCED_MODE;
++	SCOPED_TIMER(&quot;Feature::Update&quot;);
++
++	if ((gs-&gt;frameNum &amp; 31) == 0) {	// let all areareclaimers choose a target with a different id
++		bool dontClear = false;
++		for (list&lt;int&gt;::iterator it = toBeFreedIDs.begin(); it != toBeFreedIDs.end(); ++it) {
++			if (CBuilderCAI::IsFeatureBeingReclaimed(*it)) {
++				// postpone recycling
++				dontClear = true;
++				break;
++			}
++		}
++		if (!dontClear)
++			freeIDs.splice(freeIDs.end(), toBeFreedIDs, toBeFreedIDs.begin(), toBeFreedIDs.end());
++	}
++
++	while (!toBeRemoved.empty()) {
++		CFeatureSet::iterator it = activeFeatures.find(toBeRemoved.back());
++		toBeRemoved.pop_back();
++		if (it != activeFeatures.end()) {
++			CFeature* feature = *it;
++			toBeFreedIDs.push_back(feature-&gt;id);
++			activeFeatures.erase(feature);
++
++			if (feature-&gt;drawQuad &gt;= 0) {
++				DrawQuad* dq = &amp;drawQuads[feature-&gt;drawQuad];
++				dq-&gt;features.erase(feature);
++			}
++
++			if (feature-&gt;inUpdateQue) {
++				updateFeatures.erase(feature);
++			}
++
++			delete feature;
++		}
++	}
++
++	CFeatureSet::iterator fi=updateFeatures.begin();
++	while (fi != updateFeatures.end()) {
++		CFeature* feature = *fi;
++		++fi;
++
++		if (!feature-&gt;Update()) {
++			// remove it
++			feature-&gt;inUpdateQue = false;
++			updateFeatures.erase(feature);
++		}
++	}
++}
++
++
++void CFeatureHandler::UpdateDrawQuad(CFeature* feature, const float3&amp; newPos)
++{
++	const int oldDrawQuad = feature-&gt;drawQuad;
++	if (oldDrawQuad &gt;= 0) {
++		const int newDrawQuad =
++			int(newPos.z / DRAW_QUAD_SIZE / SQUARE_SIZE) * drawQuadsX +
++			int(newPos.x / DRAW_QUAD_SIZE / SQUARE_SIZE);
++		if (oldDrawQuad != newDrawQuad) {
++			DrawQuad* oldDQ = &amp;drawQuads[oldDrawQuad];
++			oldDQ-&gt;features.erase(feature);
++			DrawQuad* newDQ = &amp;drawQuads[newDrawQuad];
++			newDQ-&gt;features.insert(feature);
++			feature-&gt;drawQuad = newDrawQuad;
++		}
++	}
++}
++
++
++void CFeatureHandler::SetFeatureUpdateable(CFeature* feature)
++{
++	if (feature-&gt;inUpdateQue) {
++		return;
++	}
++	updateFeatures.insert(feature);
++	feature-&gt;inUpdateQue = true;
++}
++
++
++void CFeatureHandler::TerrainChanged(int x1, int y1, int x2, int y2)
++{
++	ASSERT_SYNCED_MODE;
++	vector&lt;int&gt; quads=qf-&gt;GetQuadsRectangle(float3(x1*SQUARE_SIZE,0,y1*SQUARE_SIZE),
++	                                        float3(x2*SQUARE_SIZE,0,y2*SQUARE_SIZE));
++//	logOutput.Print(&quot;Checking feature pos %i&quot;,quads.size());
++
++	for(vector&lt;int&gt;::iterator qi=quads.begin();qi!=quads.end();++qi){
++		list&lt;CFeature*&gt;::const_iterator fi;
++		const list&lt;CFeature*&gt;&amp; features = qf-&gt;GetQuad(*qi).features;
++		for(fi = features.begin(); fi != features.end(); ++fi) {
++			CFeature* feature = *fi;
++			float3&amp; fpos = feature-&gt;pos;
++			if (fpos.y &gt; ground-&gt;GetHeight(fpos.x, fpos.z)) {
++				SetFeatureUpdateable(feature);
++
++				if (feature-&gt;def-&gt;floating){
++					feature-&gt;finalHeight = ground-&gt;GetHeight(fpos.x, fpos.z);
++				} else {
++					feature-&gt;finalHeight = ground-&gt;GetHeight2(fpos.x, fpos.z);
++				}
++
++				feature-&gt;CalculateTransform ();
++			}
++		}
++	}
++}
++
++
++void CFeatureHandler::Draw()
++{
++	ASSERT_UNSYNCED_MODE;
++	vector&lt;CFeature*&gt; drawFar;
++
++	unitDrawer-&gt;SetupForUnitDrawing();
++	DrawRaw(0, &amp;drawFar);
++	unitDrawer-&gt;CleanUpUnitDrawing();
++
++	unitDrawer-&gt;DrawQuedS3O();
++
++	CVertexArray* va=GetVertexArray();
++	va-&gt;Initialize();
++	glAlphaFunc(GL_GREATER, 0.8f);
++	glEnable(GL_ALPHA_TEST);
++	glBindTexture(GL_TEXTURE_2D, fartextureHandler-&gt;GetTextureID());
++	glColor3f(1.0f, 1.0f, 1.0f);
++	glEnable(GL_FOG);
++	for(vector&lt;CFeature*&gt;::iterator usi=drawFar.begin();usi!=drawFar.end();usi++){
++		DrawFar(*usi,va);
++	}
++	va-&gt;DrawArrayTN(GL_QUADS);
++}
++
++
++void CFeatureHandler::DrawShadowPass()
++{
++	ASSERT_UNSYNCED_MODE;
++	glBindProgramARB( GL_VERTEX_PROGRAM_ARB, unitDrawer-&gt;unitShadowGenVP );
++	glEnable( GL_VERTEX_PROGRAM_ARB );
++	glPolygonOffset(1,1);
++	glEnable(GL_POLYGON_OFFSET_FILL);
++
++	unitDrawer-&gt;SetupForUnitDrawing();
++	DrawRaw(1, NULL);
++	unitDrawer-&gt;CleanUpUnitDrawing();
++
++	unitDrawer-&gt;DrawQuedS3O();
++
++	glDisable(GL_POLYGON_OFFSET_FILL);
++	glDisable( GL_VERTEX_PROGRAM_ARB );
++}
++
++class CFeatureDrawer : public CReadMap::IQuadDrawer
++{
++public:
++	void DrawQuad (int x,int y);
++
++	CFeatureHandler *fh;
++//	CFeatureHandler::DrawQuad *drawQuads;
++	std::vector&lt;CFeatureHandler::DrawQuad&gt; *drawQuads;
++	int drawQuadsX;
++	bool drawReflection, drawRefraction;
++	float unitDrawDist;
++	std::vector&lt;CFeature*&gt;* farFeatures;
++};
++
++
++void CFeatureDrawer::DrawQuad (int x,int y)
++{
++	CFeatureHandler::DrawQuad* dq=&amp;(*drawQuads)[y*drawQuadsX+x];
++
++	for (CFeatureSet::iterator fi = dq-&gt;features.begin(); fi != dq-&gt;features.end(); ++fi) {
++		CFeature* f = (*fi);
++		const FeatureDef* def = f-&gt;def;
++
++		if((f-&gt;allyteam==-1 || f-&gt;allyteam==gu-&gt;myAllyTeam ||
++		    loshandler-&gt;InLos(f-&gt;pos,gu-&gt;myAllyTeam) || gu-&gt;spectatingFullView)
++		   &amp;&amp; def-&gt;drawType==DRAWTYPE_3DO){
++			if(drawReflection){
++				float3 zeroPos;
++				if(f-&gt;midPos.y&lt;0){
++					zeroPos=f-&gt;midPos;
++				}else{
++					float dif=f-&gt;midPos.y-camera-&gt;pos.y;
++					zeroPos=camera-&gt;pos*(f-&gt;midPos.y/dif) + f-&gt;midPos*(-camera-&gt;pos.y/dif);
++				}
++				if(ground-&gt;GetApproximateHeight(zeroPos.x,zeroPos.z)&gt;f-&gt;radius){
++					continue;
++				}
++			}
++			if(drawRefraction){
++				if(f-&gt;pos.y&gt;0)
++					continue;
++			}
++			float sqDist=(f-&gt;pos-camera-&gt;pos).SqLength2D();
++			float farLength=f-&gt;sqRadius*unitDrawDist*unitDrawDist;
++			if(sqDist&lt;farLength){
++				if(!f-&gt;model-&gt;textureType) {
++					f-&gt;DrawS3O ();
++				} else {
++					unitDrawer-&gt;QueS3ODraw(f,f-&gt;model-&gt;textureType);
++				}
++			} else {
++				if(farFeatures)
++					farFeatures-&gt;push_back(f);
++			}
++		}
++	}
++}
++
++
++void CFeatureHandler::DrawRaw(int extraSize, std::vector&lt;CFeature*&gt;* farFeatures)
++{
++	float featureDist=3000;
++	if (!extraSize) {
++		featureDist=6000; //farfeatures wont be drawn for shadowpass anyway
++	}
++	CFeatureDrawer drawer;
++	drawer.drawQuads = &drawQuads;
++	drawer.fh = this;
++	drawer.drawQuadsX = drawQuadsX;
++	drawer.drawReflection=water-&gt;drawReflection;
++	drawer.drawRefraction=water-&gt;drawRefraction;
++	drawer.unitDrawDist=unitDrawer-&gt;unitDrawDist;
++	drawer.farFeatures = farFeatures;
++
++	readmap-&gt;GridVisibility(camera, DRAW_QUAD_SIZE, featureDist, &amp;drawer, extraSize);
++}
++
++
++void CFeatureHandler::DrawFar(CFeature* feature, CVertexArray* va)
++{
++	float3 interPos=feature-&gt;pos+UpVector*feature-&gt;model-&gt;height*0.5f;
++	int snurr=-feature-&gt;heading+GetHeadingFromVector(camera-&gt;pos.x-feature-&gt;pos.x,camera-&gt;pos.z-feature-&gt;pos.z)+(0xffff&gt;&gt;4);
++	if(snurr&lt;0)
++		snurr+=0xffff;
++	if(snurr&gt;0xffff)
++		snurr-=0xffff;
++	snurr=snurr&gt;&gt;13;
++	float tx=(feature-&gt;model-&gt;farTextureNum%8)*(1.0f/8.0f)+snurr*(1.0f/64);
++	float ty=(feature-&gt;model-&gt;farTextureNum/8)*(1.0f/64.0f);
++	float offset=0;
++	va-&gt;AddVertexTN(interPos-(camera-&gt;up*feature-&gt;radius*1.4f-offset)+camera-&gt;right*feature-&gt;radius,tx,ty,unitDrawer-&gt;camNorm);
++	va-&gt;AddVertexTN(interPos+(camera-&gt;up*feature-&gt;radius*1.4f+offset)+camera-&gt;right*feature-&gt;radius,tx,ty+(1.0f/64.0f),unitDrawer-&gt;camNorm);
++	va-&gt;AddVertexTN(interPos+(camera-&gt;up*feature-&gt;radius*1.4f+offset)-camera-&gt;right*feature-&gt;radius,tx+(1.0f/64.0f),ty+(1.0f/64.0f),unitDrawer-&gt;camNorm);
++	va-&gt;AddVertexTN(interPos-(camera-&gt;up*feature-&gt;radius*1.4f-offset)-camera-&gt;right*feature-&gt;radius,tx+(1.0f/64.0f),ty,unitDrawer-&gt;camNorm);
++}
++
++
++S3DOModel* FeatureDef::LoadModel(int team) const
++{
++	if (!useCSOffset) {
++		return modelParser-&gt;Load3DO(modelname.c_str(),
++		                            collisionSphereScale, team);
++	} else {
++		return modelParser-&gt;Load3DO(modelname.c_str(),
++		                            collisionSphereScale, team,
++		                            collisionSphereOffset);
++	}
++}
+
+Added: trunk/rts/Sim/Features/FeatureHandler.h
+===================================================================
+--- trunk/rts/Sim/Features/FeatureHandler.h	                        (rev 0)
++++ trunk/rts/Sim/Features/FeatureHandler.h	2008-02-13 20:47:13 UTC (rev 5499)
+@@ -0,0 +1,92 @@
++#ifndef __FEATURE_HANDLER_H__
++#define __FEATURE_HANDLER_H__
++
++#include &quot;Object.h&quot;
++#include &lt;string&gt;
++#include &lt;list&gt;
++#include &lt;vector&gt;
++#include &lt;boost/noncopyable.hpp&gt;
++#include &quot;creg/creg.h&quot;
++#include &quot;FeatureDef.h&quot;
++#include &quot;FeatureSet.h&quot;
++
++struct S3DOModel;
++class CFileHandler;
++class CLoadSaveInterface;
++class CVertexArray;
++class LuaTable;
++
++#define DRAW_QUAD_SIZE 32
++
++class CFeatureHandler : public CObject, public boost::noncopyable
++{
++	CR_DECLARE(CFeatureHandler);
++	CR_DECLARE_SUB(DrawQuad);
++
++public:
++	CFeatureHandler();
++	~CFeatureHandler();
++
++	CFeature* CreateWreckage(const float3&amp; pos, const std::string&amp; name,
++	                         float rot, int facing, int iter, int team, int allyteam,
++	                         bool emitSmoke, std::string fromUnit);
++
++	void Update();
++
++	int AddFeature(CFeature* feature);
++	void DeleteFeature(CFeature* feature);
++	void UpdateDrawQuad(CFeature* feature, const float3&amp; newPos);
++
++	void LoadFeaturesFromMap(bool onlyCreateDefs);
++	const FeatureDef* GetFeatureDef(const std::string name);
++	const FeatureDef* GetFeatureDefByID(int id);
++
++	void SetFeatureUpdateable(CFeature* feature);
++	void TerrainChanged(int x1, int y1, int x2, int y2);
++
++	void Draw();
++	void DrawShadowPass();
++	void DrawRaw(int extraSize, std::vector&lt;CFeature*&gt;* farFeatures); //the part of draw that both draw and drawshadowpass can use
++
++	const std::map&lt;std::string, const FeatureDef*&gt;&amp; GetFeatureDefs() const { return featureDefs; }
++	const CFeatureSet&amp; GetActiveFeatures() const { return activeFeatures; }
++
++private:
++	void AddFeatureDef(const std::string&amp; name, FeatureDef* feature);
++	const FeatureDef* CreateFeatureDef(const LuaTable&amp; luaTable, const string&amp; name);	
++
++private:
++	std::map&lt;std::string, const FeatureDef*&gt; featureDefs;
++	std::vector&lt;const FeatureDef*&gt; featureDefsVector;
++
++	int nextFreeID;
++	std::list&lt;int&gt; freeIDs;
++	std::list&lt;int&gt; toBeFreedIDs;
++	CFeatureSet activeFeatures;
++
++	std::list&lt;int&gt; toBeRemoved;
++	CFeatureSet updateFeatures;
++
++	struct DrawQuad {
++		CR_DECLARE_STRUCT(DrawQuad);
++		CFeatureSet features;
++	};
++
++	std::vector&lt;DrawQuad&gt; drawQuads;
++
++	int drawQuadsX;
++	int drawQuadsY;
++
++	float farDist;
++
++	void DrawFar(CFeature* feature, CVertexArray* va);
++
++	void Serialize(creg::ISerializer *s);
++	void PostLoad();
++
++	friend class CFeatureDrawer;
++};
++
++extern CFeatureHandler* featureHandler;
++
++#endif // __FEATURE_HANDLER_H__
+
+Added: trunk/rts/Sim/Features/FeatureSet.cpp
+===================================================================
+--- trunk/rts/Sim/Features/FeatureSet.cpp	                        (rev 0)
++++ trunk/rts/Sim/Features/FeatureSet.cpp	2008-02-13 20:47:13 UTC (rev 5499)
+@@ -0,0 +1,12 @@
++/** @file FeatureSet.cpp
++ *  @brief Defines STL like container wrapper for storing CFeature pointers.
++ *  @author Tobi Vollebregt
++ */
++
++#include &quot;StdAfx.h&quot;
++#include &quot;creg/STL_Map.h&quot;
++#include &quot;FeatureSet.h&quot;
++
++CR_BIND(CFeatureSet, );
++
++CR_REG_METADATA(CFeatureSet, CR_MEMBER(features));
+
+Added: trunk/rts/Sim/Features/FeatureSet.h
+===================================================================
+--- trunk/rts/Sim/Features/FeatureSet.h	                        (rev 0)
++++ trunk/rts/Sim/Features/FeatureSet.h	2008-02-13 20:47:13 UTC (rev 5499)
+@@ -0,0 +1,115 @@
++/** @file FeatureSet.h
++ *  @brief Defines STL like container wrapper for storing CFeature pointers.
++ *  @author Tobi Vollebregt
++ *
++ *  This file has a strong resemblence to Sim/Units/UnitSet.h, if you find a
++ *  bug in this one don't forget to update the other too. Or refactor them both
++ *  using one set of template code.
++ */
++
++#ifndef FEATURESET_H
++#define FEATURESET_H
++
++#include &quot;Feature.h&quot;
++
++class CFeatureSetIterator
++{
++	private:
++
++		typedef std::map&lt;int, CFeature*&gt; container;
++
++		container::iterator iterator;
++		friend class CFeatureSet;
++		friend class CFeatureSetConstIterator;
++
++	public:
++
++		CFeatureSetIterator() {}
++		explicit CFeatureSetIterator(container::iterator i): iterator(i) {}
++
++		const CFeatureSetIterator&amp; operator++() { ++iterator; return *this; }
++
++		CFeature* operator*()   const { return iterator-&gt;second; }
++		CFeature** operator-&gt;() const { return &amp;iterator-&gt;second; }
++
++		bool operator==(const CFeatureSetIterator&amp; other) const { return iterator == other.iterator; }
++		bool operator!=(const CFeatureSetIterator&amp; other) const { return !(*this == other); }
++};
++
++class CFeatureSetConstIterator
++{
++	private:
++
++		typedef std::map&lt;int, CFeature*&gt; container;
++
++		container::const_iterator iterator;
++		friend class CFeatureSet;
++
++	public:
++
++		CFeatureSetConstIterator() {}
++		CFeatureSetConstIterator(CFeatureSetIterator other): iterator(other.iterator) {}
++		explicit CFeatureSetConstIterator(container::const_iterator i): iterator(i) {}
++
++		const CFeatureSetConstIterator&amp; operator++() { ++iterator; return *this; }
++
++		CFeature* operator*()         const { return iterator-&gt;second; }
++		CFeature* const* operator-&gt;() const { return &amp;iterator-&gt;second; }
++
++		bool operator==(const CFeatureSetConstIterator&amp; other) const { return iterator == other.iterator; }
++		bool operator!=(const CFeatureSetConstIterator&amp; other) const { return !(*this == other); }
++};
++
++
++/** @brief Like a std::set&lt;CFeature*&gt;.
++ *  But this class guarantees the order of the features by actually putting them
++ *  in a std::map&lt;int, CFeature*&gt; where the int is the feature ID.
++ */
++class CFeatureSet
++{
++	CR_DECLARE_STRUCT(CFeatureSet);
++
++	private:
++
++		typedef std::map&lt;int, CFeature*&gt; container;
++
++		container features;
++
++	public:
++
++		typedef container::size_type size_type;
++		typedef CFeatureSetIterator iterator;
++		typedef CFeatureSetConstIterator const_iterator;
++
++		size_type size() const { return features.size(); }
++		size_type max_size() const { return features.max_size(); }
++		bool empty() const { return features.empty(); }
++
++		iterator begin() { return iterator(features.begin()); }
++		iterator end()   { return iterator(features.end()); }
++
++		const_iterator begin() const { return const_iterator(features.begin()); }
++		const_iterator end()   const { return const_iterator(features.end()); }
++
++		std::pair&lt;iterator, bool&gt; insert(CFeature* feature) {
++			std::pair&lt;container::iterator, bool&gt; ret =
++					features.insert(container::value_type(feature-&gt;id, feature));
++			return std::pair&lt;iterator, bool&gt;(iterator(ret.first), ret.second);
++		}
++
++		void erase(iterator i) { features.erase((*i)-&gt;id); }
++		void erase(const CFeature* feature) { features.erase(feature-&gt;id); }
++
++		void clear() { features.clear(); }
++
++		iterator find(const CFeature* feature) { return iterator(features.find(feature-&gt;id)); }
++		const_iterator find(const CFeature* feature) const { return const_iterator(features.find(feature-&gt;id)); }
++
++		iterator find(int id) { return iterator(features.find(id)); }
++		const_iterator find(int id) const { return const_iterator(features.find(id)); }
++
++		bool operator==(const CFeatureSet&amp; other) const { return features == other.features; }
++		bool operator!=(const CFeatureSet&amp; other) const { return !(*this == other); }
++};
++
++#endif // !defined(FEATURESET_H)
+
+Deleted: trunk/rts/Sim/Misc/Feature.cpp
+===================================================================
+--- trunk/rts/Sim/Misc/Feature.cpp	2008-02-13 20:45:11 UTC (rev 5498)
++++ trunk/rts/Sim/Misc/Feature.cpp	2008-02-13 20:47:13 UTC (rev 5499)
+@@ -1,590 +0,0 @@
+-#include &quot;StdAfx.h&quot;
+-#include &quot;DamageArray.h&quot;
+-#include &quot;Feature.h&quot;
+-#include &quot;FeatureHandler.h&quot;
+-#include &quot;Game/Team.h&quot;
+-#include &quot;LogOutput.h&quot;
+-#include &quot;Lua/LuaRules.h&quot;
+-#include &quot;Map/Ground.h&quot;
+-#include &quot;Map/ReadMap.h&quot;
+-#include &quot;myMath.h&quot;
+-#include &quot;QuadField.h&quot;
+-#include &quot;Rendering/Env/BaseTreeDrawer.h&quot;
+-#include &quot;Rendering/GL/myGL.h&quot;
+-#include &quot;Rendering/UnitModels/3DOParser.h&quot;
+-#include &quot;Rendering/UnitModels/UnitDrawer.h&quot;
+-#include &quot;Sim/ModInfo.h&quot;
+-#include &quot;Sim/Projectiles/FireProjectile.h&quot;
+-#include &quot;Sim/Projectiles/ProjectileHandler.h&quot;
+-#include &quot;Sim/Projectiles/Unsynced/GeoThermSmokeProjectile.h&quot;
+-#include &quot;Sim/Projectiles/Unsynced/SmokeProjectile.h&quot;
+-#include &quot;Sim/Units/UnitDef.h&quot;
+-#include &quot;Sim/Units/Unit.h&quot;
+-#include &quot;mmgr.h&quot;
+-
+-CR_BIND_DERIVED(CFeature, CSolidObject, )
+-
+-CR_REG_METADATA(CFeature, (
+-				//CR_MEMBER(model),
+-				CR_MEMBER(createdFromUnit),
+-				CR_MEMBER(isRepairingBeforeResurrect),
+-				CR_MEMBER(resurrectProgress),
+-				CR_MEMBER(health),
+-				CR_MEMBER(reclaimLeft),
+-				CR_MEMBER(id),
+-				CR_MEMBER(allyteam),
+-				CR_MEMBER(team),
+-				CR_MEMBER(noSelect),
+-				CR_MEMBER(tempNum),
+-				CR_MEMBER(lastReclaim),
+-//				CR_MEMBER(def),
+-				CR_MEMBER(defName),
+-				CR_MEMBER(transMatrix),
+-				CR_MEMBER(inUpdateQue),
+-				CR_MEMBER(drawQuad),
+-				CR_MEMBER(finalHeight),
+-				CR_MEMBER(myFire),
+-				CR_MEMBER(fireTime),
+-				CR_MEMBER(emitSmokeTime),
+-				CR_RESERVED(64),
+-				CR_POSTLOAD(PostLoad)
+-				));
+-
+-
+-#define TREE_RADIUS 20
+-
+-
+-CFeature::CFeature()
+-:	def(0),
+-	inUpdateQue(false),
+-	reclaimLeft(1),
+-	fireTime(0),
+-	myFire(0),
+-	drawQuad(-1),
+-	team(0),
+-	allyteam(0),
+-	noSelect(false),
+-	tempNum(0),
+-	emitSmokeTime(0),
+-	lastReclaim(0),
+-	isRepairingBeforeResurrect(false),
+-	resurrectProgress(0),
+-	health(0),
+-	id(0),
+-	finalHeight(0),
+-	solidOnTop(0),
+-	model(NULL)
+-{
+-	immobile=true;
+-	physicalState = OnGround;
+-}
+-
+-
+-CFeature::~CFeature(void)
+-{
+-	if(blocking){
+-		UnBlock();
+-	}
+-	qf-&gt;RemoveFeature(this);
+-	if(def-&gt;drawType==DRAWTYPE_TREE)
+-		treeDrawer-&gt;DeleteTree(pos);
+-
+-	if(myFire){
+-		myFire-&gt;StopFire();
+-		myFire=0;
+-	}
+-
+-	if (def-&gt;geoThermal) {
+-		CGeoThermSmokeProjectile::GeoThermDestroyed(this);
+-	}
+-}
+-
+-void CFeature::PostLoad()
+-{
+-	def = featureHandler-&gt;GetFeatureDef(defName);
+-	if (def-&gt;drawType == DRAWTYPE_3DO) {
+-		model = def-&gt;LoadModel(team);
+-		height = model-&gt;height;
+-		SetRadius(model-&gt;radius);
+-		midPos = pos + model-&gt;relMidPos;
+-	}
+-	else if (def-&gt;drawType == DRAWTYPE_TREE){
+-		midPos = pos + (UpVector * TREE_RADIUS);
+-		height = 2 * TREE_RADIUS;
+-	}
+-	else {
+-		midPos = pos;
+-	}
+-	if (def-&gt;drawType == DRAWTYPE_TREE) {
+-		treeDrawer-&gt;AddTree(def-&gt;modelType, pos, 1);
+-	}
+-}
+-
+-void CFeature::ChangeTeam(int newTeam)
+-{
+-	if (newTeam &lt; 0) {
+-		team = 0; // NOTE: this should probably be -1, would need work
+-		allyteam = -1;
+-	} else {
+-		team = newTeam;
+-		allyteam = gs-&gt;AllyTeam(newTeam);
+-	}
+-
+-	if (def-&gt;drawType == DRAWTYPE_3DO){
+-		model = def-&gt;LoadModel(team);
+-	}
+-}
+-
+-
+-void CFeature::Initialize(const float3&amp; _pos, const FeatureDef* _def, short int _heading,
+-                          int facing, int _team, std::string fromUnit)
+-{
+-	pos = _pos;
+-	def = _def;
+-	defName = def-&gt;myName;
+-	heading = _heading;
+-	buildFacing = facing;
+-	team = _team;
+-	createdFromUnit = fromUnit;
+-
+-	ChangeTeam(team);
+-
+-	pos.CheckInBounds();
+-
+-	health   = def-&gt;maxHealth;
+-	blocking = def-&gt;blocking;
+-	xsize    = def-&gt;xsize;
+-	ysize    = def-&gt;ysize;
+-	mass     = def-&gt;mass;
+-	noSelect = def-&gt;noSelect;
+-
+-	if (def-&gt;drawType == DRAWTYPE_3DO) {
+-		model = def-&gt;LoadModel(team);
+-		height = model-&gt;height;
+-		SetRadius(model-&gt;radius);
+-		midPos = pos + model-&gt;relMidPos;
+-	}
+-	else if (def-&gt;drawType == DRAWTYPE_TREE){
+-		SetRadius(TREE_RADIUS);
+-		midPos = pos + (UpVector * TREE_RADIUS);
+-		height = 2 * TREE_RADIUS;
+-	}
+-	else {
+-		SetRadius(0.0f);
+-		midPos = pos;
+-	}
+-
+-	featureHandler-&gt;AddFeature(this);
+-
+-	qf-&gt;AddFeature(this);
+-
+-	CalculateTransform ();
+-//	this-&gt;pos.y=ground-&gt;GetHeight(pos.x,pos.z);
+-
+-	if (blocking) {
+-		Block();
+-	}
+-
+-	if (def-&gt;floating) {
+-		finalHeight = ground-&gt;GetHeight(pos.x, pos.z);
+-	} else {
+-		finalHeight = ground-&gt;GetHeight2(pos.x, pos.z);
+-	}
+-
+-	if (def-&gt;drawType == DRAWTYPE_TREE) {
+-		treeDrawer-&gt;AddTree(def-&gt;modelType, pos, 1);
+-	}
+-}
+-
+-
+-void CFeature::CalculateTransform()
+-{
+-	float3 frontDir=GetVectorFromHeading(heading);
+-	float3 upDir;
+-
+-	if (def-&gt;upright) upDir = float3(0.0f,1.0f,0.0f);
+-	else upDir = ground-&gt;GetNormal(pos.x,pos.z);
+-
+-	float3 rightDir=frontDir.cross(upDir);
+-	rightDir.Normalize();
+-	frontDir=upDir.cross(rightDir);
+-	frontDir.Normalize ();
+-
+-	transMatrix = CMatrix44f (pos,-rightDir,upDir,frontDir);
+-}
+-
+-
+-bool CFeature::AddBuildPower(float amount, CUnit* builder)
+-{
+-	const float oldReclaimLeft = reclaimLeft;
+-
+-	if (amount &gt; 0.0f) {
+-		// Check they are trying to repair a feature that can be resurrected
+-		if (createdFromUnit == &quot;&quot;) {
+-			return false;
+-		}
+-
+-		// 'Repairing' previously-sucked features prior to resurrection
+-		// This is reclaim-option independant - repairing features should always
+-		// be like other repairing - gradual and multi-unit
+-		// Lots of this code is stolen from unit-&gt;AddBuildPower
+-
+-		isRepairingBeforeResurrect = true; // Stop them exploiting chunk reclaiming
+-
+-		if (reclaimLeft &gt;= 1) {
+-			return false; // cant repair a 'fresh' feature
+-		}
+-
+-		// Work out how much to try to put back, based on the speed this unit would reclaim at.
+-		const float part = (100 - amount) * 0.02f / max(10.0f, (def-&gt;metal + def-&gt;energy));
+-
+-		// Work out how much that will cost
+-		const float metalUse  = part * def-&gt;metal;
+-		const float energyUse = part * def-&gt;energy;
+-		if ((gs-&gt;Team(builder-&gt;team)-&gt;metal  &gt;= metalUse)  &amp;&amp;
+-		    (gs-&gt;Team(builder-&gt;team)-&gt;energy &gt;= energyUse) &amp;&amp;
+-				(!luaRules || luaRules-&gt;AllowFeatureBuildStep(builder, this, part))) {
+-			builder-&gt;UseMetal(metalUse);
+-			builder-&gt;UseEnergy(energyUse);
+-			reclaimLeft+=part;
+-			if (reclaimLeft &gt;= 1) {
+-				isRepairingBeforeResurrect = false; // They can start reclaiming it again if they so wish
+-				reclaimLeft = 1;
+-			}
+-			return true;
+-		}
+-		else {
+-			// update the energy and metal required counts
+-			gs-&gt;Team(builder-&gt;team)-&gt;energyPull += energyUse;
+-			gs-&gt;Team(builder-&gt;team)-&gt;metalPull  += metalUse;
+-		}
+-		return false;
+-	}
+-	else { // Reclaiming
+-		// avoid multisuck when reclaim has already completed during this frame
+-		if (reclaimLeft &lt;= 0) {
+-			return false;
+-		}
+-
+-		// don't let them exploit chunk reclaim
+-		if (isRepairingBeforeResurrect &amp;&amp; (modInfo.reclaimMethod &gt; 1)) {
+-			return false;
+-		}
+-
+-		// make sure several units cant reclaim at once on a single feature
+-		if ((modInfo.multiReclaim == 0) &amp;&amp; (lastReclaim == gs-&gt;frameNum)) {
+-			return true;
+-		}
+-
+-		const float part = ((100 - amount) * 0.02f / max(10.0f, (def-&gt;reclaimTime)));
+-
+-		if (luaRules &amp;&amp; !luaRules-&gt;AllowFeatureBuildStep(builder, this, part)) {
+-			return false;
+-		}
+-
+-		reclaimLeft -= part;
+-
+-		// stop the last bit giving too much resource
+-		if (reclaimLeft &lt; 0) {
+-			reclaimLeft = 0;
+-		}
+-
+-		const float fractionReclaimed = oldReclaimLeft - reclaimLeft;
+-
+-		if ((modInfo.reclaimMethod == 1) &amp;&amp; (reclaimLeft == 0)) {
+-			// All-at-end method
+-			builder-&gt;AddMetal(def-&gt;metal);
+-			builder-&gt;AddEnergy(def-&gt;energy);
+-		}
+-		else if (modInfo.reclaimMethod == 0) {
+-			// Gradual reclaim
+-			builder-&gt;AddMetal(def-&gt;metal * fractionReclaimed);
+-			builder-&gt;AddEnergy(def-&gt;energy * fractionReclaimed);
+-		}
+-		else {
+-			// Chunky reclaiming, work out how many chunk boundaries we crossed
+-			const float chunkSize = 1.0f / modInfo.reclaimMethod;
+-			const int oldChunk = ChunkNumber(oldReclaimLeft);
+-			const int newChunk = ChunkNumber(reclaimLeft);
+-			if (oldChunk != newChunk) {
+-				const float noChunks = (float)oldChunk - (float)newChunk;
+-				builder-&gt;AddMetal(noChunks * def-&gt;metal * chunkSize);
+-				builder-&gt;AddEnergy(noChunks * def-&gt;energy * chunkSize);
+-			}
+-		}
+-
+-		// Has the reclaim finished?
+-		if (reclaimLeft &lt;= 0) {
+-			featureHandler-&gt;DeleteFeature(this);
+-			return false;
+-		}
+-
+-		lastReclaim = gs-&gt;frameNum;
+-		return true;
+-	}
+-
+-	// Should never get here
+-	assert(false);
+-	return false;
+-}
+-
+-
+-void CFeature::DoDamage(const DamageArray&amp; damages, CUnit* attacker,const float3&amp; impulse)
+-{
+-	if (damages.paralyzeDamageTime) {
+-		return; // paralyzers do not damage features
+-	}
+-
+-	residualImpulse = impulse;
+-	health -= damages[0];
+-
+-	if (health &lt;= 0 &amp;&amp; def-&gt;destructable) {
+-		CFeature* deathFeature = featureHandler-&gt;CreateWreckage(
+-			pos, def-&gt;deathFeature, heading,
+-			buildFacing, 1, team, -1, false, &quot;&quot;
+-		);
+-
+-		if (deathFeature) {
+-			// if a partially reclaimed corpse got blasted,
+-			// ensure its wreck is not worth the full amount
+-			// (which might be more than the amount remaining)
+-			deathFeature-&gt;reclaimLeft = reclaimLeft;
+-		}
+-
+-		featureHandler-&gt;DeleteFeature(this);
+-		blockHeightChanges = false;
+-
+-		if (def-&gt;drawType == DRAWTYPE_TREE) {
+-			if (impulse.Length2D() &gt; 0.5f) {
+-				treeDrawer-&gt;AddFallingTree(pos, impulse, def-&gt;modelType);
+-			}
+-		}
+-	}
+-}
+-
+-
+-void CFeature::Kill(float3&amp; impulse) {
+-	DamageArray damage;
+-	DoDamage(damage*(health+1), 0, impulse);
+-}
+-
+-
+-void CFeature::DependentDied(CObject *o)
+-{
+-	if (o == solidOnTop)
+-		solidOnTop = 0;
+-
+-	CSolidObject::DependentDied(o);
+-}
+-
+-
+-void CFeature::ForcedMove(const float3&amp; newPos)
+-{
+-	featureHandler-&gt;UpdateDrawQuad(this, newPos);
+-
+-	// remove from managers
+-	qf-&gt;RemoveFeature(this);
+-	if (def-&gt;drawType == DRAWTYPE_TREE) {
+-		treeDrawer-&gt;DeleteTree(pos);
+-	}
+-	UnBlock();
+-
+-	pos = newPos;
+-
+-	// setup finalHeight
+-	if (def-&gt;floating) {
+-		finalHeight = ground-&gt;GetHeight(pos.x, pos.z);
+-	} else {
+-		finalHeight = ground-&gt;GetHeight2(pos.x, pos.z);
+-	}
+-
+-	// setup midPos
+-	if (def-&gt;drawType == DRAWTYPE_3DO) {
+-		midPos = pos + model-&gt;relMidPos;
+-	} else if (def-&gt;drawType == DRAWTYPE_TREE){
+-		midPos = pos + (UpVector * TREE_RADIUS);
+-	} else {
+-		midPos = pos;
+-	}
+-
+-	// insert into managers
+-	qf-&gt;AddFeature(this);
+-	if (def-&gt;drawType == DRAWTYPE_TREE) {
+-		treeDrawer-&gt;AddTree(def-&gt;modelType, pos, 1.0f);
+-	}
+-	Block();
+-}
+-
+-
+-void CFeature::ForcedSpin(const float3&amp; newDir)
+-{
+-/*
+-	heading = GetHeadingFromVector(newDir.x, newDir.z);
+-	CalculateTransform();
+-	if (def-&gt;drawType == DRAWTYPE_TREE) {
+-		treeDrawer-&gt;DeleteTree(pos);
+-		treeDrawer-&gt;AddTree(def-&gt;modelType, pos, 1.0f);
+-	}
+-*/
+-
+-	CMatrix44f tmp;
+-	tmp.RotateZ(newDir.z);
+-	tmp.RotateX(newDir.x);
+-	tmp.RotateY(newDir.y);
+-	tmp.Translate(pos);
+-	transMatrix = tmp;
+-
+-//	const float clamped = fmod(newDir.y, PI * 2.0);
+-//	heading = (short int)(clamped * 65536);
+-}
+-
+-
+-bool CFeature::Update(void)
+-{
+-	bool retValue=false;
+-
+-	if(pos.y&gt;finalHeight){
+-		const float3 oldPos = pos;
+-		if(pos.y&gt;0){	//fall faster when above water
+-			pos.y-=0.8f;
+-			midPos.y-=0.8f;
+-			transMatrix[13]-=0.8f;
+-		} else {
+-			pos.y-=0.4f;
+-			midPos.y-=0.4f;
+-			transMatrix[13]-=0.4f;
+-		}
+-//		logOutput.Print(&quot;feature sinking&quot;);
+-		if (def-&gt;drawType == DRAWTYPE_TREE) {
+-			treeDrawer-&gt;DeleteTree(oldPos);
+-			treeDrawer-&gt;AddTree(def-&gt;modelType, pos, 1.0f);
+-		}
+-		retValue=true;
+-	}
+-	if(emitSmokeTime!=0){
+-		--emitSmokeTime;
+-		PUSH_CODE_MODE;
+-		ENTER_MIXED;
+-		if(!(gs-&gt;frameNum+id &amp; 3) &amp;&amp; ph-&gt;particleSaturation&lt;0.7f){
+-			SAFE_NEW CSmokeProjectile(midPos+gu-&gt;usRandVector()*radius*0.3f,gu-&gt;usRandVector()*0.3f+UpVector,emitSmokeTime/6+20,6,0.4f,0,0.5f);
+-		}
+-		POP_CODE_MODE;
+-		retValue=true;
+-	}
+-
+-	if(fireTime&gt;0){
+-		fireTime--;
+-		if(fireTime==1)
+-			featureHandler-&gt;DeleteFeature(this);
+-		retValue=true;
+-	}
+-
+-	if(def-&gt;geoThermal){
+-		PUSH_CODE_MODE;
+-		ENTER_MIXED;
+-
+-		if ((gs-&gt;frameNum+id % 5) % 5 == 0)
+-		{
+-			// Find the unit closest to the geothermal
+-			vector&lt;CSolidObject*&gt; objs = qf-&gt;GetSolidsExact(pos, 0.0f);
+-			float bestDist2 = 0;
+-			CSolidObject *so = NULL;
+-			for (vector&lt;CSolidObject*&gt;::iterator oi=objs.begin();oi!=objs.end();++oi) {
+-				float dist2 = ((*oi)-&gt;pos-pos).SqLength();
+-				if (!so || dist2 &lt; bestDist2)  {
+-					bestDist2 = dist2;
+-					so = *oi;
+-				}
+-			}
+-
+-			if (so!=solidOnTop) {
+-				if (solidOnTop)
+-					DeleteDeathDependence(solidOnTop);
+-				if (so)
+-					AddDeathDependence(so);
+-			}
+-			solidOnTop = so;
+-		}
+-
+-		// Hide the smoke if there is a geothermal unit on the vent
+-		CUnit *u = dynamic_cast&lt;CUnit*&gt;(solidOnTop);
+-		if (!u || !u-&gt;unitDef-&gt;needGeo) {
+-			if((ph-&gt;particleSaturation&lt;0.7f) || (ph-&gt;particleSaturation&lt;1 &amp;&amp; !(gs-&gt;frameNum&amp;3))){
+-				float3 speed=gu-&gt;usRandVector()*0.5f;
+-				speed.y+=2.0f;
+-
+-				SAFE_NEW CGeoThermSmokeProjectile(gu-&gt;usRandVector() * 10 +
+-				                                  float3(pos.x, pos.y-10, pos.z),
+-				                                  speed, int(50+gu-&gt;usRandFloat()*7),
+-				                                  this);
+-			}
+-		}
+-
+-		POP_CODE_MODE;
+-		retValue=true;
+-	}
+-
+-
+-	return retValue;
+-}
+-
+-
+-void CFeature::StartFire(void)
+-{
+-	if(fireTime || !def-&gt;burnable)
+-		return;
+-
+-	fireTime=200+(int)(gs-&gt;randFloat()*30);
+-	featureHandler-&gt;SetFeatureUpdateable(this);
+-
+-	myFire=SAFE_NEW CFireProjectile(midPos,UpVector,0,300,radius*0.8f,70,20);
+-}
+-
+-
+-void CFeature::DrawS3O()
+-{
+-	glPushMatrix();
+-	glMultMatrixf(transMatrix.m);
+-	if (model-&gt;textureType) {
+-		unitDrawer-&gt;SetS3OTeamColour(team);
+-	}
+-	model-&gt;DrawStatic();
+-	glPopMatrix();
+-}
+-
+-
+-int CFeature::ChunkNumber(float f)
+-{
+-	return (int) ceil(f * modInfo.reclaimMethod);
+-}
+-
+-
+-float CFeature::RemainingResource(float res) const
+-{
+-	// Gradual reclaim
+-	if (modInfo.reclaimMethod == 0) {
+-		return res * reclaimLeft;
+-	}
+-
+-	// Old style - all reclaimed at the end
+-	if (modInfo.reclaimMethod == 1) {
+-		return res;
+-	}
+-
+-	// Otherwise we are doing chunk reclaiming
+-	float chunkSize = res / modInfo.reclaimMethod; // resource/no_chunks
+-	float chunksLeft = ceil(reclaimLeft * modInfo.reclaimMethod);
+-	return chunkSize * chunksLeft;
+-}
+-
+-
+-float CFeature::RemainingMetal() const
+-{
+-	return RemainingResource(def-&gt;metal);
+-}
+-
+-
+-float CFeature::RemainingEnergy() const
+-{
+-	return RemainingResource(def-&gt;energy);
+-}
+
+Deleted: trunk/rts/Sim/Misc/Feature.h
+===================================================================
+--- trunk/rts/Sim/Misc/Feature.h	2008-02-13 20:45:11 UTC (rev 5498)
++++ trunk/rts/Sim/Misc/Feature.h	2008-02-13 20:47:13 UTC (rev 5499)
+@@ -1,89 +0,0 @@
+-#ifndef __FEATURE_H__
+-#define __FEATURE_H__
+-
+-#include &quot;Sim/Objects/SolidObject.h&quot;
+-#include &quot;Rendering/UnitModels/3DModelParser.h&quot;
+-#include &quot;Matrix44f.h&quot;
+-#include &lt;vector&gt;
+-#include &lt;list&gt;
+-#include &lt;string&gt;
+-#include &lt;boost/noncopyable.hpp&gt;
+-
+-struct FeatureDef;
+-class CUnit;
+-struct DamageArray;
+-class CFireProjectile;
+-
+-class CFeature : public CSolidObject, public boost::noncopyable
+-{
+-	CR_DECLARE(CFeature);
+-
+-public:
+-	CFeature();
+-	~CFeature();
+-
+-	/** Pos of quad must not change after this. */
+-	void Initialize(const float3&amp; pos, const FeatureDef* def, short int heading, int facing, int allyteam, std::string fromUnit);
+-	/** Negative amount = reclaim
+-	    @return true if reclaimed */
+-	bool AddBuildPower(float amount, CUnit* builder);
+-	void DoDamage(const DamageArray&amp; damages, CUnit* attacker,const float3&amp; impulse);
+-	void Kill(float3&amp; impulse);
+-	void ForcedMove(const float3&amp; newPos);
+-	void ForcedSpin(const float3&amp; newDir);
+-	virtual bool Update(void);
+-	void StartFire(void);
+-	float RemainingResource(float res) const;
+-	float RemainingMetal(void) const;
+-	float RemainingEnergy(void) const;
+-	int ChunkNumber(float f);
+-	void DrawS3O();
+-	void CalculateTransform();
+-	void DependentDied(CObject *o);
+-	void ChangeTeam(int newTeam);
+-
+-	S3DOModel* model;
+-
+-	std::string createdFromUnit;
+-	/** This flag is used to stop a potential exploit involving tripping a unit back and forth
+-	across a chunk boundary to get unlimited resources. Basically, once a corspe has been a little bit
+-	reclaimed, if they start rezzing then they cannot reclaim again until the corpse has been fully
+-	'repaired'. */
+-	bool isRepairingBeforeResurrect;
+-	float resurrectProgress;
+-
+-	float health;
+-	float reclaimLeft;
+-	int id;
+-	int allyteam;
+-	int team;
+-
+-	bool noSelect;
+-
+-	int tempNum;
+-	int lastReclaim;
+-
+-	const FeatureDef* def;
+-	std::string defName;
+-
+-	CMatrix44f transMatrix;
+-//	float3 residualImpulse;	//impulse energy that havent been acted on
+-
+-	bool inUpdateQue;
+-	/// which drawQuad we are part of
+-	int drawQuad;
+-
+-	float finalHeight;
+-
+-	CFireProjectile* myFire;
+-	int fireTime;
+-	int emitSmokeTime;
+-
+-	/// the solid object that is on top of the geothermal
+-	CSolidObject *solidOnTop;
+-
+-private:
+-	void PostLoad();
+-};
+-
+-#endif // __FEATURE_H__
+
+Deleted: trunk/rts/Sim/Misc/FeatureDef.h
+===================================================================
+--- trunk/rts/Sim/Misc/FeatureDef.h	2008-02-13 20:45:11 UTC (rev 5498)
++++ trunk/rts/Sim/Misc/FeatureDef.h	2008-02-13 20:47:13 UTC (rev 5499)
+@@ -1,65 +0,0 @@
+-#ifndef FEATURE_DEF_H
+-#define FEATURE_DEF_H
+-
+-#define DRAWTYPE_3DO 0
+-#define DRAWTYPE_TREE 1
+-#define DRAWTYPE_NONE -1
+-
+-struct S3DOModel;
+-
+-struct FeatureDef
+-{
+-	CR_DECLARE(FeatureDef);
+-
+-	FeatureDef():
+-		metal(0), energy(0), maxHealth(0), mass(0),
+-		upright(false), drawType(0), modelType(0),
+-		destructable(false), reclaimable(true), blocking(false),
+-		burnable(false), floating(false), geoThermal(false), noSelect(false),
+-		xsize(0), ysize(0), reclaimTime(0) {}
+-
+-	S3DOModel* LoadModel(int team) const;
+-
+-	std::string myName;
+-	std::string description;
+-	std::string filename;
+-
+-	int id;
+-
+-	float metal;
+-	float energy;
+-	float maxHealth;
+-	float reclaimTime;
+-
+-	/// used to see if the object can be overrun
+-	float mass;
+-	float collisionSphereScale;
+-	float3 collisionSphereOffset;
+-	bool useCSOffset;
+-
+-	bool upright;
+-	int drawType;
+-	/// used by 3do obects
+-	std::string modelname;
+-	/// used by tree etc
+-	int modelType;
+-
+-	bool destructable;
+-	bool reclaimable;
+-	bool blocking;
+-	bool burnable;
+-	bool floating;
+-	bool noSelect;
+-
+-	bool geoThermal;
+-
+-	/// name of feature that this turn into when killed (not reclaimed)
+-	std::string deathFeature;
+-
+-	/// each size is 8 units
+-	int xsize;
+-	/// each size is 8 units
+-	int ysize;
+-};
+-
+-#endif
+
+Deleted: trunk/rts/Sim/Misc/FeatureHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Misc/FeatureHandler.cpp	2008-02-13 20:45:11 UTC (rev 5498)
++++ trunk/rts/Sim/Misc/FeatureHandler.cpp	2008-02-13 20:47:13 UTC (rev 5499)
+@@ -1,671 +0,0 @@
+-#include &quot;StdAfx.h&quot;
+-#include &quot;FeatureHandler.h&quot;
+-#include &quot;Feature.h&quot;
+-#include &quot;QuadField.h&quot;
+-#include &quot;FileSystem/FileHandler.h&quot;
+-#include &quot;Game/Camera.h&quot;
+-#include &quot;Game/Game.h&quot;
+-#include &quot;LoadSaveInterface.h&quot;
+-#include &quot;LogOutput.h&quot;
+-#include &quot;LosHandler.h&quot;
+-#include &quot;Lua/LuaCallInHandler.h&quot;
+-#include &quot;Lua/LuaParser.h&quot;
+-#include &quot;Lua/LuaRules.h&quot;
+-#include &quot;Map/Ground.h&quot;
+-#include &quot;myMath.h&quot;
+-#include &quot;Rendering/Env/BaseTreeDrawer.h&quot;
+-#include &quot;Rendering/Env/BaseWater.h&quot;
+-#include &quot;Rendering/FartextureHandler.h&quot;
+-#include &quot;Rendering/GL/myGL.h&quot;
+-#include &quot;Rendering/GL/VertexArray.h&quot;
+-#include &quot;Rendering/ShadowHandler.h&quot;
+-#include &quot;Rendering/UnitModels/3DOParser.h&quot;
+-#include &quot;Rendering/UnitModels/UnitDrawer.h&quot;
+-#include &quot;Sim/Units/UnitHandler.h&quot;
+-#include &quot;Sim/Units/CommandAI/BuilderCAI.h&quot;
+-#include &quot;System/TimeProfiler.h&quot;
+-#include &quot;System/Platform/ConfigHandler.h&quot;
+-#include &lt;GL/glu.h&gt; // after myGL.h
+-#include &quot;mmgr.h&quot;
+-#include &quot;creg/STL_List.h&quot;
+-#include &quot;creg/STL_Set.h&quot;
+-
+-using namespace std;
+-
+-
+-CFeatureHandler* featureHandler = NULL;
+-
+-
+-/******************************************************************************/
+-
+-CR_BIND(FeatureDef, );
+-
+-CR_REG_METADATA(FeatureDef, (
+-		CR_MEMBER(myName),
+-		CR_MEMBER(description),
+-		CR_MEMBER(metal),
+-		CR_MEMBER(id),
+-		CR_MEMBER(energy),
+-		CR_MEMBER(maxHealth),
+-		CR_MEMBER(reclaimTime),
+-		CR_MEMBER(mass),
+-		CR_MEMBER(upright),
+-		CR_MEMBER(drawType),
+-		//CR_MEMBER(model), FIXME
+-		CR_MEMBER(modelname),
+-		CR_MEMBER(modelType),
+-		CR_MEMBER(destructable),
+-		CR_MEMBER(blocking),
+-		CR_MEMBER(burnable),
+-		CR_MEMBER(floating),
+-		CR_MEMBER(geoThermal),
+-		CR_MEMBER(deathFeature),
+-		CR_MEMBER(xsize),
+-		CR_MEMBER(ysize)
+-		));
+-
+-
+-CR_BIND_DERIVED(CFeatureHandler,CObject, );
+-
+-CR_REG_METADATA(CFeatureHandler, (
+-
+-//	CR_MEMBER(featureDefs),
+-//	CR_MEMBER(featureDefsVector),
+-
+-	CR_MEMBER(nextFreeID),
+-	CR_MEMBER(freeIDs),
+-	CR_MEMBER(toBeFreedIDs),
+-	CR_MEMBER(activeFeatures),
+-
+-	CR_MEMBER(toBeRemoved),
+-	CR_MEMBER(updateFeatures),
+-
+-//	CR_MEMBER(drawQuads),
+-//	CR_MEMBER(drawQuadsX),
+-//	CR_MEMBER(drawQuadsY),
+-
+-	CR_RESERVED(128),
+-	CR_SERIALIZER(Serialize),
+-	CR_POSTLOAD(PostLoad)
+-));
+-
+-CR_BIND(CFeatureHandler::DrawQuad, );
+-
+-CR_REG_METADATA_SUB(CFeatureHandler,DrawQuad,(
+-	CR_MEMBER(features)
+-));
+-
+-
+-/******************************************************************************/
+-
+-CFeatureHandler::CFeatureHandler() : nextFreeID(0)
+-{
+-	PrintLoadMsg(&quot;Loading feature definitions&quot;);
+-
+-	drawQuadsX = gs-&gt;mapx/DRAW_QUAD_SIZE;
+-	drawQuadsY = gs-&gt;mapy/DRAW_QUAD_SIZE;
+-	drawQuads.resize(drawQuadsX * drawQuadsY);
+-
+-	treeDrawer = CBaseTreeDrawer::GetTreeDrawer();
+-
+-	const LuaTable rootTable = game-&gt;defsParser-&gt;GetRoot().SubTable(&quot;FeatureDefs&quot;);
+-	if (!rootTable.IsValid()) {
+-		throw content_error(&quot;Error loading FeatureDefs&quot;);
+-	}
+-
+-	// get most of the feature defs (missing trees and geovent from the map)
+-	vector&lt;string&gt; keys;
+-	rootTable.GetKeys(keys);
+-	for (int i = 0; i &lt; (int)keys.size(); i++) {
+-		const string&amp; name = keys[i];
+-		const LuaTable fdTable = rootTable.SubTable(name);
+-		CreateFeatureDef(fdTable, name);
+-	}
+-}
+-
+-
+-CFeatureHandler::~CFeatureHandler()
+-{
+-	for(CFeatureSet::iterator fi=activeFeatures.begin(); fi != activeFeatures.end(); ++fi)
+-		delete *fi;
+-	activeFeatures.clear();
+-
+-	while(!featureDefs.empty()){
+-		std::map&lt;std::string, const FeatureDef*&gt;::iterator fi=featureDefs.begin();
+-		delete fi-&gt;second;
+-		featureDefs.erase(fi);
+-	}
+-	delete treeDrawer;
+-}
+-
+-void CFeatureHandler::Serialize(creg::ISerializer *s)
+-{
+-}
+-
+-void CFeatureHandler::PostLoad()
+-{
+-	drawQuadsX=gs-&gt;mapx/DRAW_QUAD_SIZE;
+-	drawQuadsY=gs-&gt;mapy/DRAW_QUAD_SIZE;
+-	drawQuads.clear();
+-	drawQuads.resize(drawQuadsX * drawQuadsY);
+-
+-	for (CFeatureSet::const_iterator it = activeFeatures.begin(); it != activeFeatures.end(); ++it)
+-		if ((*it)-&gt;drawQuad &gt;= 0)
+-			drawQuads[(*it)-&gt;drawQuad].features.insert(*it);
+-}
+-
+-void CFeatureHandler::AddFeatureDef(const std::string&amp; name, FeatureDef* fd)
+-{
+-	std::map&lt;std::string, const FeatureDef*&gt;::const_iterator it = featureDefs.find(name);
+-
+-	if (it != featureDefs.end()) {
+-		featureDefsVector[it-&gt;second-&gt;id] = fd;
+-	} else {
+-		fd-&gt;id = featureDefsVector.size();
+-		featureDefsVector.push_back(fd);
+-	}
+-	featureDefs[name] = fd;
+-}
+-
+-
+-const FeatureDef* CFeatureHandler::CreateFeatureDef(const LuaTable&amp; fdTable,
+-                                                    const string&amp; mixedCase)
+-{
+-	const string name = StringToLower(mixedCase);
+-	std::map&lt;std::string, const FeatureDef*&gt;::iterator fi = featureDefs.find(name);
+-
+-	if (fi != featureDefs.end()) {
+-		return fi-&gt;second;
+-	}
+-
+-	FeatureDef* fd = SAFE_NEW FeatureDef;
+-
+-	fd-&gt;myName = name;
+-
+-	fd-&gt;filename = fdTable.GetString(&quot;filename&quot;, &quot;unknown&quot;);
+-
+-	fd-&gt;description = fdTable.GetString(&quot;description&quot;, &quot;&quot;);
+-
+-	fd-&gt;blocking     = fdTable.GetBool(&quot;blocking&quot;,       true);
+-	fd-&gt;burnable     = fdTable.GetBool(&quot;flammable&quot;,      false);
+-	fd-&gt;destructable = !fdTable.GetBool(&quot;indestructible&quot;, false);
+-	fd-&gt;reclaimable  = fdTable.GetBool(&quot;reclaimable&quot;, fd-&gt;destructable);
+-
+-	//this seem to be the closest thing to floating that ta wreckage contains
+-	fd-&gt;floating = fdTable.GetBool(&quot;nodrawundergray&quot;, true);
+-	if (fd-&gt;floating &amp;&amp; !fd-&gt;blocking) {
+-		fd-&gt;floating = false;
+-	}
+-
+-	fd-&gt;noSelect = fdTable.GetBool(&quot;noselect&quot;, false);
+-
+-	fd-&gt;deathFeature = fdTable.GetString(&quot;featureDead&quot;, &quot;&quot;);
+-
+-	fd-&gt;metal     = fdTable.GetFloat(&quot;metal&quot;,  0.0f);
+-	fd-&gt;energy    = fdTable.GetFloat(&quot;energy&quot;, 0.0f);
+-	fd-&gt;maxHealth = fdTable.GetFloat(&quot;damage&quot;, 0.0f);
+-	fd-&gt;reclaimTime = fdTable.GetFloat(&quot;reclaimTime&quot;, (fd-&gt;metal + fd-&gt;energy));
+-
+-	fd-&gt;drawType = DRAWTYPE_3DO;
+-	fd-&gt;modelname = fdTable.GetString(&quot;object&quot;, &quot;&quot;);
+-	if (!fd-&gt;modelname.empty()) {
+-		fd-&gt;modelname=string(&quot;objects3d/&quot;) + fd-&gt;modelname;
+-	}
+-
+-	fd-&gt;collisionSphereScale = fdTable.GetFloat(&quot;collisionSphereScale&quot;, 1.0f);
+-	fd-&gt;collisionSphereOffset = fdTable.GetFloat3(&quot;collisionSphereOffset&quot;, ZeroVector);
+-	fd-&gt;useCSOffset = (fd-&gt;collisionSphereOffset != ZeroVector);
+-
+- 	fd-&gt;upright = fdTable.GetBool(&quot;upright&quot;, false);
+-
+-	// our resolution is double TA's
+-	fd-&gt;xsize = fdTable.GetInt(&quot;footprintX&quot;, 1) * 2;
+-	fd-&gt;ysize = fdTable.GetInt(&quot;footprintZ&quot;, 1) * 2;
+-
+-	const float defMass = (fd-&gt;metal * 0.4f) + (fd-&gt;maxHealth * 0.1f);
+-	fd-&gt;mass = fdTable.GetFloat(&quot;mass&quot;, defMass);
+-	fd-&gt;mass = max(0.001f, fd-&gt;mass);
+-
+-	AddFeatureDef(name, fd);
+-
+-	fi = featureDefs.find(name);
+-
+-	return fi-&gt;second;
+-}
+-
+-
+-const FeatureDef* CFeatureHandler::GetFeatureDef(const std::string mixedCase)
+-{
+-	const string name = StringToLower(mixedCase);
+-	std::map&lt;std::string, const FeatureDef*&gt;::iterator fi = featureDefs.find(name);
+-
+-	if (fi != featureDefs.end()) {
+-		return fi-&gt;second;
+-	}
+-
+-	logOutput.Print(&quot;Couldnt find wreckage info %s&quot;, name.c_str());
+-
+-	return NULL;
+-}
+-
+-
+-const FeatureDef* CFeatureHandler::GetFeatureDefByID(int id)
+-{
+-	if ((id &lt; 0) || (id &gt;= (int) featureDefsVector.size())) {
+-		return NULL;
+-	}
+-	return featureDefsVector[id];
+-}
+-
+-
+-void CFeatureHandler::LoadFeaturesFromMap(bool onlyCreateDefs)
+-{
+-	PrintLoadMsg(&quot;Initializing map features&quot;);
+-
+-	int numType = readmap-&gt;GetNumFeatureTypes ();
+-
+-	for (int a = 0; a &lt; numType; ++a) {
+-		const string name = StringToLower(readmap-&gt;GetFeatureType(a));
+-
+-		if (name.find(&quot;treetype&quot;) != string::npos) {
+-			FeatureDef* fd = SAFE_NEW FeatureDef;
+-			fd-&gt;blocking = 1;
+-			fd-&gt;burnable = true;
+-			fd-&gt;destructable = 1;
+-			fd-&gt;reclaimable = true;
+-			fd-&gt;drawType = DRAWTYPE_TREE;
+-			fd-&gt;modelType = atoi(name.substr(8).c_str());
+-			fd-&gt;energy = 250;
+-			fd-&gt;metal = 0;
+-			fd-&gt;reclaimTime = 250;
+-			fd-&gt;maxHealth = 5;
+-			fd-&gt;xsize = 2;
+-			fd-&gt;ysize = 2;
+-			fd-&gt;myName = name;
+-			fd-&gt;description = &quot;Tree&quot;;
+-			fd-&gt;mass = 20;
+-			AddFeatureDef(name, fd);
+-		}
+-		else if (name.find(&quot;geovent&quot;) != string::npos) {
+-			FeatureDef* fd = SAFE_NEW FeatureDef;
+-			fd-&gt;blocking = 0;
+-			fd-&gt;burnable = 0;
+-			fd-&gt;destructable = 0;
+-			fd-&gt;reclaimable = false;
+-			fd-&gt;geoThermal = true;
+-			fd-&gt;drawType = DRAWTYPE_NONE;	//geos are drawn into the ground texture and emit smoke to be visible
+-			fd-&gt;modelType = 0;
+-			fd-&gt;energy = 0;
+-			fd-&gt;metal = 0;
+-			fd-&gt;reclaimTime = 0;
+-			fd-&gt;maxHealth = 0;
+-			fd-&gt;xsize = 0;
+-			fd-&gt;ysize = 0;
+-			fd-&gt;myName = name;
+-			fd-&gt;mass = 100000;
+-			AddFeatureDef(name, fd);
+-		}
+-		else {
+-			if (GetFeatureDef(name) == NULL) {
+-				logOutput.Print(&quot;Unknown map feature type %s&quot;, name.c_str());
+-			}
+-		}
+-	}
+-
+-	if (!onlyCreateDefs) {
+-		const int numFeatures = readmap-&gt;GetNumFeatures();
+-		MapFeatureInfo* mfi = SAFE_NEW MapFeatureInfo[numFeatures];
+-		readmap-&gt;GetFeatureInfo(mfi);
+-
+-		for(int a = 0; a &lt; numFeatures; ++a) {
+-			const string name = StringToLower(readmap-&gt;GetFeatureType(mfi[a].featureType));
+-			std::map&lt;std::string, const FeatureDef*&gt;::iterator def = featureDefs.find(name);
+-
+-			if (def == featureDefs.end()) {
+-				logOutput.Print(&quot;Unknown feature named '%s'&quot;, name.c_str());
+-				continue;
+-			}
+-
+-			const float ypos = ground-&gt;GetHeight2(mfi[a].pos.x, mfi[a].pos.z);
+-			(SAFE_NEW CFeature)-&gt;Initialize (float3(mfi[a].pos.x, ypos, mfi[a].pos.z),
+-			                                 featureDefs[name], (short int)mfi[a].rotation,
+-			                                 0, -1, &quot;&quot;);
+-		}
+-		delete[] mfi;
+-	}
+-}
+-
+-
+-int CFeatureHandler::AddFeature(CFeature* feature)
+-{
+-	ASSERT_SYNCED_MODE;
+-
+-	if (freeIDs.empty()) {
+-		feature-&gt;id = nextFreeID++;
+-	} else {
+-		feature-&gt;id = freeIDs.front();
+-		freeIDs.pop_front();
+-	}
+-	activeFeatures.insert(feature);
+-	SetFeatureUpdateable(feature);
+-
+-	if(feature-&gt;def-&gt;drawType==DRAWTYPE_3DO){
+-		int quad = int(feature-&gt;pos.z / DRAW_QUAD_SIZE / SQUARE_SIZE) * drawQuadsX +
+-		           int(feature-&gt;pos.x / DRAW_QUAD_SIZE / SQUARE_SIZE);
+-		DrawQuad* dq=&amp;drawQuads[quad];
+-		dq-&gt;features.insert(feature);
+-		feature-&gt;drawQuad=quad;
+-	}
+-
+-	luaCallIns.FeatureCreated(feature);
+-
+-	return feature-&gt;id ;
+-}
+-
+-
+-void CFeatureHandler::DeleteFeature(CFeature* feature)
+-{
+-	ASSERT_SYNCED_MODE;
+-	toBeRemoved.push_back(feature-&gt;id);
+-
+-	luaCallIns.FeatureDestroyed(feature);
+-}
+-
+-
+-CFeature* CFeatureHandler::CreateWreckage(const float3&amp; pos, const std::string&amp; name,
+-                                          float rot, int facing, int iter, int team,
+-                                          int allyteam, bool emitSmoke,std::string fromUnit)
+-{
+-	ASSERT_SYNCED_MODE;
+-	if (name.empty()) {
+-		return NULL;
+-	}
+-	const FeatureDef* fd = GetFeatureDef(name);
+-
+-	if (!fd) {
+-		return NULL;
+-	}
+-
+-	if (iter &gt; 1) {
+-		return CreateWreckage(pos, fd-&gt;deathFeature, rot, facing, iter - 1, team, allyteam, emitSmoke, &quot;&quot;);
+-	}
+-	else {
+-		if (luaRules &amp;&amp; !luaRules-&gt;AllowFeatureCreation(fd, team, pos)) {
+-			return NULL;
+-		}
+-		if(!fd-&gt;modelname.empty()){
+-			CFeature* f=SAFE_NEW CFeature;
+-			f-&gt;Initialize (pos, fd, (short int)rot, facing, team, fromUnit);
+-			// allow area-reclaiming wrecks of all units, including your own (they set allyteam = -1)
+-			f-&gt;allyteam = allyteam;
+-			if(emitSmoke &amp;&amp; f-&gt;blocking)
+-				f-&gt;emitSmokeTime=300;
+-			return f;
+-		}
+-	}
+-	return NULL;
+-}
+-
+-
+-
+-void CFeatureHandler::Update()
+-{
+-	ASSERT_SYNCED_MODE;
+-	SCOPED_TIMER(&quot;Feature::Update&quot;);
+-
+-	if ((gs-&gt;frameNum &amp; 31) == 0) {	// let all areareclaimers choose a target with a different id
+-		bool dontClear = false;
+-		for (list&lt;int&gt;::iterator it = toBeFreedIDs.begin(); it != toBeFreedIDs.end(); ++it) {
+-			if (CBuilderCAI::IsFeatureBeingReclaimed(*it)) {
+-				// postpone recycling
+-				dontClear = true;
+-				break;
+-			}
+-		}
+-		if (!dontClear)
+-			freeIDs.splice(freeIDs.end(), toBeFreedIDs, toBeFreedIDs.begin(), toBeFreedIDs.end());
+-	}
+-
+-	while (!toBeRemoved.empty()) {
+-		CFeatureSet::iterator it = activeFeatures.find(toBeRemoved.back());
+-		toBeRemoved.pop_back();
+-		if (it != activeFeatures.end()) {
+-			CFeature* feature = *it;
+-			toBeFreedIDs.push_back(feature-&gt;id);
+-			activeFeatures.erase(feature);
+-
+-			if (feature-&gt;drawQuad &gt;= 0) {
+-				DrawQuad* dq = &amp;drawQuads[feature-&gt;drawQuad];
+-				dq-&gt;features.erase(feature);
+-			}
+-
+-			if (feature-&gt;inUpdateQue) {
+-				updateFeatures.erase(feature);
+-			}
+-
+-			delete feature;
+-		}
+-	}
+-
+-	CFeatureSet::iterator fi=updateFeatures.begin();
+-	while (fi != updateFeatures.end()) {
+-		CFeature* feature = *fi;
+-		++fi;
+-
+-		if (!feature-&gt;Update()) {
+-			// remove it
+-			feature-&gt;inUpdateQue = false;
+-			updateFeatures.erase(feature);
+-		}
+-	}
+-}
+-
+-
+-void CFeatureHandler::UpdateDrawQuad(CFeature* feature, const float3&amp; newPos)
+-{
+-	const int oldDrawQuad = feature-&gt;drawQuad;
+-	if (oldDrawQuad &gt;= 0) {
+-		const int newDrawQuad =
+-			int(newPos.z / DRAW_QUAD_SIZE / SQUARE_SIZE) * drawQuadsX +
+-			int(newPos.x / DRAW_QUAD_SIZE / SQUARE_SIZE);
+-		if (oldDrawQuad != newDrawQuad) {
+-			DrawQuad* oldDQ = &amp;drawQuads[oldDrawQuad];
+-			oldDQ-&gt;features.erase(feature);
+-			DrawQuad* newDQ = &amp;drawQuads[newDrawQuad];
+-			newDQ-&gt;features.insert(feature);
+-			feature-&gt;drawQuad = newDrawQuad;
+-		}
+-	}
+-}
+-
+-
+-void CFeatureHandler::SetFeatureUpdateable(CFeature* feature)
+-{
+-	if (feature-&gt;inUpdateQue) {
+-		return;
+-	}
+-	updateFeatures.insert(feature);
+-	feature-&gt;inUpdateQue = true;
+-}
+-
+-
+-void CFeatureHandler::TerrainChanged(int x1, int y1, int x2, int y2)
+-{
+-	ASSERT_SYNCED_MODE;
+-	vector&lt;int&gt; quads=qf-&gt;GetQuadsRectangle(float3(x1*SQUARE_SIZE,0,y1*SQUARE_SIZE),
+-	                                        float3(x2*SQUARE_SIZE,0,y2*SQUARE_SIZE));
+-//	logOutput.Print(&quot;Checking feature pos %i&quot;,quads.size());
+-
+-	for(vector&lt;int&gt;::iterator qi=quads.begin();qi!=quads.end();++qi){
+-		list&lt;CFeature*&gt;::const_iterator fi;
+-		const list&lt;CFeature*&gt;&amp; features = qf-&gt;GetQuad(*qi).features;
+-		for(fi = features.begin(); fi != features.end(); ++fi) {
+-			CFeature* feature = *fi;
+-			float3&amp; fpos = feature-&gt;pos;
+-			if (fpos.y &gt; ground-&gt;GetHeight(fpos.x, fpos.z)) {
+-				SetFeatureUpdateable(feature);
+-
+-				if (feature-&gt;def-&gt;floating){
+-					feature-&gt;finalHeight = ground-&gt;GetHeight(fpos.x, fpos.z);
+-				} else {
+-					feature-&gt;finalHeight = ground-&gt;GetHeight2(fpos.x, fpos.z);
+-				}
+-
+-				feature-&gt;CalculateTransform ();
+-			}
+-		}
+-	}
+-}
+-
+-
+-void CFeatureHandler::Draw()
+-{
+-	ASSERT_UNSYNCED_MODE;
+-	vector&lt;CFeature*&gt; drawFar;
+-
+-	unitDrawer-&gt;SetupForUnitDrawing();
+-	DrawRaw(0, &amp;drawFar);
+-	unitDrawer-&gt;CleanUpUnitDrawing();
+-
+-	unitDrawer-&gt;DrawQuedS3O();
+-
+-	CVertexArray* va=GetVertexArray();
+-	va-&gt;Initialize();
+-	glAlphaFunc(GL_GREATER, 0.8f);
+-	glEnable(GL_ALPHA_TEST);
+-	glBindTexture(GL_TEXTURE_2D, fartextureHandler-&gt;GetTextureID());
+-	glColor3f(1.0f, 1.0f, 1.0f);
+-	glEnable(GL_FOG);
+-	for(vector&lt;CFeature*&gt;::iterator usi=drawFar.begin();usi!=drawFar.end();usi++){
+-		DrawFar(*usi,va);
+-	}
+-	va-&gt;DrawArrayTN(GL_QUADS);
+-}
+-
+-
+-void CFeatureHandler::DrawShadowPass()
+-{
+-	ASSERT_UNSYNCED_MODE;
+-	glBindProgramARB( GL_VERTEX_PROGRAM_ARB, unitDrawer-&gt;unitShadowGenVP );
+-	glEnable( GL_VERTEX_PROGRAM_ARB );
+-	glPolygonOffset(1,1);
+-	glEnable(GL_POLYGON_OFFSET_FILL);
+-
+-	unitDrawer-&gt;SetupForUnitDrawing();
+-	DrawRaw(1, NULL);
+-	unitDrawer-&gt;CleanUpUnitDrawing();
+-
+-	unitDrawer-&gt;DrawQuedS3O();
+-
+-	glDisable(GL_POLYGON_OFFSET_FILL);
+-	glDisable( GL_VERTEX_PROGRAM_ARB );
+-}
+-
+-class CFeatureDrawer : public CReadMap::IQuadDrawer
+-{
+-public:
+-	void DrawQuad (int x,int y);
+-
+-	CFeatureHandler *fh;
+-//	CFeatureHandler::DrawQuad *drawQuads;
+-	std::vector&lt;CFeatureHandler::DrawQuad&gt; *drawQuads;
+-	int drawQuadsX;
+-	bool drawReflection, drawRefraction;
+-	float unitDrawDist;
+-	std::vector&lt;CFeature*&gt;* farFeatures;
+-};
+-
+-
+-void CFeatureDrawer::DrawQuad (int x,int y)
+-{
+-	CFeatureHandler::DrawQuad* dq=&amp;(*drawQuads)[y*drawQuadsX+x];
+-
+-	for (CFeatureSet::iterator fi = dq-&gt;features.begin(); fi != dq-&gt;features.end(); ++fi) {
+-		CFeature* f = (*fi);
+-		const FeatureDef* def = f-&gt;def;
+-
+-		if((f-&gt;allyteam==-1 || f-&gt;allyteam==gu-&gt;myAllyTeam ||
+-		    loshandler-&gt;InLos(f-&gt;pos,gu-&gt;myAllyTeam) || gu-&gt;spectatingFullView)
+-		   &amp;&amp; def-&gt;drawType==DRAWTYPE_3DO){
+-			if(drawReflection){
+-				float3 zeroPos;
+-				if(f-&gt;midPos.y&lt;0){
+-					zeroPos=f-&gt;midPos;
+-				}else{
+-					float dif=f-&gt;midPos.y-camera-&gt;pos.y;
+-					zeroPos=camera-&gt;pos*(f-&gt;midPos.y/dif) + f-&gt;midPos*(-camera-&gt;pos.y/dif);
+-				}
+-				if(ground-&gt;GetApproximateHeight(zeroPos.x,zeroPos.z)&gt;f-&gt;radius){
+-					continue;
+-				}
+-			}
+-			if(drawRefraction){
+-				if(f-&gt;pos.y&gt;0)
+-					continue;
+-			}
+-			float sqDist=(f-&gt;pos-camera-&gt;pos).SqLength2D();
+-			float farLength=f-&gt;sqRadius*unitDrawDist*unitDrawDist;
+-			if(sqDist&lt;farLength){
+-				if(!f-&gt;model-&gt;textureType) {
+-					f-&gt;DrawS3O ();
+-				} else {
+-					unitDrawer-&gt;QueS3ODraw(f,f-&gt;model-&gt;textureType);
+-				}
+-			} else {
+-				if(farFeatures)
+-					farFeatures-&gt;push_back(f);
+-			}
+-		}
+-	}
+-}
+-
+-
+-void CFeatureHandler::DrawRaw(int extraSize, std::vector&lt;CFeature*&gt;* farFeatures)
+-{
+-	float featureDist=3000;
+-	if (!extraSize) {
+-		featureDist=6000; //farfeatures wont be drawn for shadowpass anyway
+-	}
+-	CFeatureDrawer drawer;
+-	drawer.drawQuads = &drawQuads;
+-	drawer.fh = this;
+-	drawer.drawQuadsX = drawQuadsX;
+-	drawer.drawReflection=water-&gt;drawReflection;
+-	drawer.drawRefraction=water-&gt;drawRefraction;
+-	drawer.unitDrawDist=unitDrawer-&gt;unitDrawDist;
+-	drawer.farFeatures = farFeatures;
+-
+-	readmap-&gt;GridVisibility(camera, DRAW_QUAD_SIZE, featureDist, &amp;drawer, extraSize);
+-}
+-
+-
+-void CFeatureHandler::DrawFar(CFeature* feature, CVertexArray* va)
+-{
+-	float3 interPos=feature-&gt;pos+UpVector*feature-&gt;model-&gt;height*0.5f;
+-	int snurr=-feature-&gt;heading+GetHeadingFromVector(camera-&gt;pos.x-feature-&gt;pos.x,camera-&gt;pos.z-feature-&gt;pos.z)+(0xffff&gt;&gt;4);
+-	if(snurr&lt;0)
+-		snurr+=0xffff;
+-	if(snurr&gt;0xffff)
+-		snurr-=0xffff;
+-	snurr=snurr&gt;&gt;13;
+-	float tx=(feature-&gt;model-&gt;farTextureNum%8)*(1.0f/8.0f)+snurr*(1.0f/64);
+-	float ty=(feature-&gt;model-&gt;farTextureNum/8)*(1.0f/64.0f);
+-	float offset=0;
+-	va-&gt;AddVertexTN(interPos-(camera-&gt;up*feature-&gt;radius*1.4f-offset)+camera-&gt;right*feature-&gt;radius,tx,ty,unitDrawer-&gt;camNorm);
+-	va-&gt;AddVertexTN(interPos+(camera-&gt;up*feature-&gt;radius*1.4f+offset)+camera-&gt;right*feature-&gt;radius,tx,ty+(1.0f/64.0f),unitDrawer-&gt;camNorm);
+-	va-&gt;AddVertexTN(interPos+(camera-&gt;up*feature-&gt;radius*1.4f+offset)-camera-&gt;right*feature-&gt;radius,tx+(1.0f/64.0f),ty+(1.0f/64.0f),unitDrawer-&gt;camNorm);
+-	va-&gt;AddVertexTN(interPos-(camera-&gt;up*feature-&gt;radius*1.4f-offset)-camera-&gt;right*feature-&gt;radius,tx+(1.0f/64.0f),ty,unitDrawer-&gt;camNorm);
+-}
+-
+-
+-S3DOModel* FeatureDef::LoadModel(int team) const
+-{
+-	if (!useCSOffset) {
+-		return modelParser-&gt;Load3DO(modelname.c_str(),
+-		                            collisionSphereScale, team);
+-	} else {
+-		return modelParser-&gt;Load3DO(modelname.c_str(),
+-		                            collisionSphereScale, team,
+-		                            collisionSphereOffset);
+-	}
+-}
+
+Deleted: trunk/rts/Sim/Misc/FeatureHandler.h
+===================================================================
+--- trunk/rts/Sim/Misc/FeatureHandler.h	2008-02-13 20:45:11 UTC (rev 5498)
++++ trunk/rts/Sim/Misc/FeatureHandler.h	2008-02-13 20:47:13 UTC (rev 5499)
+@@ -1,92 +0,0 @@
+-#ifndef __FEATURE_HANDLER_H__
+-#define __FEATURE_HANDLER_H__
+-
+-#include &quot;Object.h&quot;
+-#include &lt;string&gt;
+-#include &lt;list&gt;
+-#include &lt;vector&gt;
+-#include &lt;boost/noncopyable.hpp&gt;
+-#include &quot;creg/creg.h&quot;
+-#include &quot;FeatureDef.h&quot;
+-#include &quot;FeatureSet.h&quot;
+-
+-struct S3DOModel;
+-class CFileHandler;
+-class CLoadSaveInterface;
+-class CVertexArray;
+-class LuaTable;
+-
+-#define DRAW_QUAD_SIZE 32
+-
+-class CFeatureHandler : public CObject, public boost::noncopyable
+-{
+-	CR_DECLARE(CFeatureHandler);
+-	CR_DECLARE_SUB(DrawQuad);
+-
+-public:
+-	CFeatureHandler();
+-	~CFeatureHandler();
+-
+-	CFeature* CreateWreckage(const float3&amp; pos, const std::string&amp; name,
+-	                         float rot, int facing, int iter, int team, int allyteam,
+-	                         bool emitSmoke, std::string fromUnit);
+-
+-	void Update();
+-
+-	int AddFeature(CFeature* feature);
+-	void DeleteFeature(CFeature* feature);
+-	void UpdateDrawQuad(CFeature* feature, const float3&amp; newPos);
+-
+-	void LoadFeaturesFromMap(bool onlyCreateDefs);
+-	const FeatureDef* GetFeatureDef(const std::string name);
+-	const FeatureDef* GetFeatureDefByID(int id);
+-
+-	void SetFeatureUpdateable(CFeature* feature);
+-	void TerrainChanged(int x1, int y1, int x2, int y2);
+-
+-	void Draw();
+-	void DrawShadowPass();
+-	void DrawRaw(int extraSize, std::vector&lt;CFeature*&gt;* farFeatures); //the part of draw that both draw and drawshadowpass can use
+-
+-	const std::map&lt;std::string, const FeatureDef*&gt;&amp; GetFeatureDefs() const { return featureDefs; }
+-	const CFeatureSet&amp; GetActiveFeatures() const { return activeFeatures; }
+-
+-private:
+-	void AddFeatureDef(const std::string&amp; name, FeatureDef* feature);
+-	const FeatureDef* CreateFeatureDef(const LuaTable&amp; luaTable, const string&amp; name);	
+-
+-private:
+-	std::map&lt;std::string, const FeatureDef*&gt; featureDefs;
+-	std::vector&lt;const FeatureDef*&gt; featureDefsVector;
+-
+-	int nextFreeID;
+-	std::list&lt;int&gt; freeIDs;
+-	std::list&lt;int&gt; toBeFreedIDs;
+-	CFeatureSet activeFeatures;
+-
+-	std::list&lt;int&gt; toBeRemoved;
+-	CFeatureSet updateFeatures;
+-
+-	struct DrawQuad {
+-		CR_DECLARE_STRUCT(DrawQuad);
+-		CFeatureSet features;
+-	};
+-
+-	std::vector&lt;DrawQuad&gt; drawQuads;
+-
+-	int drawQuadsX;
+-	int drawQuadsY;
+-
+-	float farDist;
+-
+-	void DrawFar(CFeature* feature, CVertexArray* va);
+-
+-	void Serialize(creg::ISerializer *s);
+-	void PostLoad();
+-
+-	friend class CFeatureDrawer;
+-};
+-
+-extern CFeatureHandler* featureHandler;
+-
+-#endif // __FEATURE_HANDLER_H__
+
+Deleted: trunk/rts/Sim/Misc/FeatureSet.cpp
+===================================================================
+--- trunk/rts/Sim/Misc/FeatureSet.cpp	2008-02-13 20:45:11 UTC (rev 5498)
++++ trunk/rts/Sim/Misc/FeatureSet.cpp	2008-02-13 20:47:13 UTC (rev 5499)
+@@ -1,12 +0,0 @@
+-/** @file FeatureSet.cpp
+- *  @brief Defines STL like container wrapper for storing CFeature pointers.
+- *  @author Tobi Vollebregt
+- */
+-
+-#include &quot;StdAfx.h&quot;
+-#include &quot;creg/STL_Map.h&quot;
+-#include &quot;FeatureSet.h&quot;
+-
+-CR_BIND(CFeatureSet, );
+-
+-CR_REG_METADATA(CFeatureSet, CR_MEMBER(features));
+
+Deleted: trunk/rts/Sim/Misc/FeatureSet.h
+===================================================================
+--- trunk/rts/Sim/Misc/FeatureSet.h	2008-02-13 20:45:11 UTC (rev 5498)
++++ trunk/rts/Sim/Misc/FeatureSet.h	2008-02-13 20:47:13 UTC (rev 5499)
+@@ -1,115 +0,0 @@
+-/** @file FeatureSet.h
+- *  @brief Defines STL like container wrapper for storing CFeature pointers.
+- *  @author Tobi Vollebregt
+- *
+- *  This file has a strong resemblence to Sim/Units/UnitSet.h, if you find a
+- *  bug in this one don't forget to update the other too. Or refactor them both
+- *  using one set of template code.
+- */
+-
+-#ifndef FEATURESET_H
+-#define FEATURESET_H
+-
+-#include &quot;Feature.h&quot;
+-
+-class CFeatureSetIterator
+-{
+-	private:
+-
+-		typedef std::map&lt;int, CFeature*&gt; container;
+-
+-		container::iterator iterator;
+-		friend class CFeatureSet;
+-		friend class CFeatureSetConstIterator;
+-
+-	public:
+-
+-		CFeatureSetIterator() {}
+-		explicit CFeatureSetIterator(container::iterator i): iterator(i) {}
+-
+-		const CFeatureSetIterator&amp; operator++() { ++iterator; return *this; }
+-
+-		CFeature* operator*()   const { return iterator-&gt;second; }
+-		CFeature** operator-&gt;() const { return &amp;iterator-&gt;second; }
+-
+-		bool operator==(const CFeatureSetIterator&amp; other) const { return iterator == other.iterator; }
+-		bool operator!=(const CFeatureSetIterator&amp; other) const { return !(*this == other); }
+-};
+-
+-class CFeatureSetConstIterator
+-{
+-	private:
+-
+-		typedef std::map&lt;int, CFeature*&gt; container;
+-
+-		container::const_iterator iterator;
+-		friend class CFeatureSet;
+-
+-	public:
+-
+-		CFeatureSetConstIterator() {}
+-		CFeatureSetConstIterator(CFeatureSetIterator other): iterator(other.iterator) {}
+-		explicit CFeatureSetConstIterator(container::const_iterator i): iterator(i) {}
+-
+-		const CFeatureSetConstIterator&amp; operator++() { ++iterator; return *this; }
+-
+-		CFeature* operator*()         const { return iterator-&gt;second; }
+-		CFeature* const* operator-&gt;() const { return &amp;iterator-&gt;second; }
+-
+-		bool operator==(const CFeatureSetConstIterator&amp; other) const { return iterator == other.iterator; }
+-		bool operator!=(const CFeatureSetConstIterator&amp; other) const { return !(*this == other); }
+-};
+-
+-
+-/** @brief Like a std::set&lt;CFeature*&gt;.
+- *  But this class guarantees the order of the features by actually putting them
+- *  in a std::map&lt;int, CFeature*&gt; where the int is the feature ID.
+- */
+-class CFeatureSet
+-{
+-	CR_DECLARE_STRUCT(CFeatureSet);
+-
+-	private:
+-
+-		typedef std::map&lt;int, CFeature*&gt; container;
+-
+-		container features;
+-
+-	public:
+-
+-		typedef container::size_type size_type;
+-		typedef CFeatureSetIterator iterator;
+-		typedef CFeatureSetConstIterator const_iterator;
+-
+-		size_type size() const { return features.size(); }
+-		size_type max_size() const { return features.max_size(); }
+-		bool empty() const { return features.empty(); }
+-
+-		iterator begin() { return iterator(features.begin()); }
+-		iterator end()   { return iterator(features.end()); }
+-
+-		const_iterator begin() const { return const_iterator(features.begin()); }
+-		const_iterator end()   const { return const_iterator(features.end()); }
+-
+-		std::pair&lt;iterator, bool&gt; insert(CFeature* feature) {
+-			std::pair&lt;container::iterator, bool&gt; ret =
+-					features.insert(container::value_type(feature-&gt;id, feature));
+-			return std::pair&lt;iterator, bool&gt;(iterator(ret.first), ret.second);
+-		}
+-
+-		void erase(iterator i) { features.erase((*i)-&gt;id); }
+-		void erase(const CFeature* feature) { features.erase(feature-&gt;id); }
+-
+-		void clear() { features.clear(); }
+-
+-		iterator find(const CFeature* feature) { return iterator(features.find(feature-&gt;id)); }
+-		const_iterator find(const CFeature* feature) const { return const_iterator(features.find(feature-&gt;id)); }
+-
+-		iterator find(int id) { return iterator(features.find(id)); }
+-		const_iterator find(int id) const { return const_iterator(features.find(id)); }
+-
+-		bool operator==(const CFeatureSet&amp; other) const { return features == other.features; }
+-		bool operator!=(const CFeatureSet&amp; other) const { return !(*this == other); }
+-};
+-
+-#endif // !defined(FEATURESET_H)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000305.html">[Taspring-linux-commit] r5498 - in trunk/rts: ExternalAI Game	Game/StartScripts Game/UI Lua Map Map/SMF Rendering	Rendering/Env Sim Sim/Misc Sim/MoveTypes	Sim/MoveTypes/MoveMath Sim/Projectiles	Sim/Projectiles/Unsynced Sim/Projectiles/WeaponProjectiles	Sim/Units Sim/Units/CommandAI Sim/Units/UnitTypes System	System/Script
+</A></li>
+	<LI>Next message: <A HREF="000307.html">[Taspring-linux-commit] r5500 - in trunk/AI/Global:	CSAI/ABICompatibilityLayer CSAI/CSAILoader JCAI KAI-0.2	KAIK-0.13 NTai/AI/NTai/SDK
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#306">[ date ]</a>
+              <a href="thread.html#306">[ thread ]</a>
+              <a href="subject.html#306">[ subject ]</a>
+              <a href="author.html#306">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

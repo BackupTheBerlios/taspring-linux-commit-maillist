@@ -1,0 +1,779 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5596 - in trunk/rts: Game Game/UI System
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-March/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5596%20-%20in%20trunk/rts%3A%20Game%20Game/UI%20System&In-Reply-To=%3C20080319185234.914BF4682%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000376.html">
+   <LINK REL="Next"  HREF="000378.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5596 - in trunk/rts: Game Game/UI System</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5596%20-%20in%20trunk/rts%3A%20Game%20Game/UI%20System&In-Reply-To=%3C20080319185234.914BF4682%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5596 - in trunk/rts: Game Game/UI System">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Mar 19 19:52:33 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000376.html">[Taspring-linux-commit] r5595 - in trunk/rts/Sim: MoveTypes	Units/CommandAI
+</A></li>
+        <LI>Next message: <A HREF="000378.html">[Taspring-linux-commit] r5597 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#377">[ date ]</a>
+              <a href="thread.html#377">[ thread ]</a>
+              <a href="subject.html#377">[ subject ]</a>
+              <a href="author.html#377">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-03-19 19:52:32 +0100 (Wed, 19 Mar 2008)
+New Revision: 5596
+
+Added:
+   trunk/rts/Game/UI/ProfileDrawer.cpp
+   trunk/rts/Game/UI/ProfileDrawer.h
+Modified:
+   trunk/rts/Game/Game.cpp
+   trunk/rts/System/NetProtocol.h
+   trunk/rts/System/TimeProfiler.cpp
+   trunk/rts/System/TimeProfiler.h
+   trunk/rts/System/UnsyncedRNG.cpp
+   trunk/rts/System/UnsyncedRNG.h
+Log:
+* factored out drawing from TimeProfiler and moved it ProfileDrawer
+* get rid of some unneeded cruft from TimeProfiler
+* always enable time profiling because its necessary for game slowdown 
+
+
+Modified: trunk/rts/Game/Game.cpp
+===================================================================
+--- trunk/rts/Game/Game.cpp	2008-03-19 18:03:37 UTC (rev 5595)
++++ trunk/rts/Game/Game.cpp	2008-03-19 18:52:32 UTC (rev 5596)
+@@ -126,6 +126,7 @@
+ #include &quot;UI/SelectionKeyHandler.h&quot;
+ #include &quot;UI/ShareBox.h&quot;
+ #include &quot;UI/TooltipConsole.h&quot;
++#include &quot;UI/ProfileDrawer.h&quot;
+ #include &quot;Rendering/Textures/ColorMap.h&quot;
+ #include &quot;Sim/Projectiles/ExplosionGenerator.h&quot;
+ 
+@@ -1134,7 +1135,16 @@
+ 			gameServer-&gt;CreateNewFrame(false, true);
+ 	}
+ 	else if (cmd == &quot;debug&quot;) {
+-		gu-&gt;drawdebug = !gu-&gt;drawdebug;
++		if (gu-&gt;drawdebug)
++		{
++			ProfileDrawer::Disable();
++			gu-&gt;drawdebug = false;
++		}
++		else
++		{
++			ProfileDrawer::Enable();
++			gu-&gt;drawdebug = true;
++		}
+ 	}
+ 	else if (cmd == &quot;nosound&quot;) {
+ 		soundEnabled = !soundEnabled;
+@@ -2491,15 +2501,10 @@
+ 		sound-&gt;NewFrame();
+ 		treeDrawer-&gt;Update();
+ 		globalAI-&gt;Update();
+-		for(int a=0;a&lt;MAX_TEAMS;a++)
++		for (int a = 0; a &lt; MAX_TEAMS; a++)
+ 			grouphandlers[a]-&gt;Update();
+-
+-#ifdef PROFILE_TIME
+ 		profiler.Update();
+-#endif
+-
+ 		unitDrawer-&gt;Update();
+-
+ #ifdef DIRECT_CONTROL_ALLOWED
+ 		if(gu-&gt;directControl){
+ 			unsigned char status=0;
+@@ -2518,21 +2523,24 @@
+ 				net-&gt;SendDirectControlUpdate(gu-&gt;myPlayerNum, status, hp.x, hp.y);
+ 			}
+ 		}
+-#endif
++#endif	
++		water-&gt;Update();
+ 	}
+ 
+ 	ENTER_SYNCED;
+-	START_TIME_PROFILE(&quot;Sim time&quot;)
++	//everything from here is simulation
++	ScopedTimer forced(&quot;Sim time&quot;); // don't use SCOPED_TIMER here because this is the only timer needed always
+ 
+ 	helper-&gt;Update();
+ 	mapDamage-&gt;Update();
+ 	pathManager-&gt;Update();
+ 	uh-&gt;Update();
+ 
+-	START_TIME_PROFILE(&quot;Collisions&quot;);
+-	ph-&gt;CheckUnitCol();
+-	ground-&gt;CheckCol(ph);
+-	END_TIME_PROFILE(&quot;Collisions&quot;);
++	{
++		SCOPED_TIMER(&quot;Collisions&quot;);
++		ph-&gt;CheckUnitCol();
++		ground-&gt;CheckCol(ph);
++	}
+ 
+ 	ph-&gt;Update();
+ 	featureHandler-&gt;Update();
+@@ -2547,12 +2555,9 @@
+ 	}
+ //	CPathFinder::Instance()-&gt;Update();
+ 
+-	END_TIME_PROFILE(&quot;Sim time&quot;)
+-
+ 	lastUpdate = SDL_GetTicks();
+ 
+ #ifdef DIRECT_CONTROL_ALLOWED
+-
+ 	for(int a=0;a&lt;gs-&gt;activePlayers;++a){
+ 		if(!gs-&gt;players[a]-&gt;active || !gs-&gt;players[a]-&gt;playerControlledUnit)
+ 			continue;
+@@ -2605,13 +2610,8 @@
+ 
+ 	ENTER_UNSYNCED;
+ 	if (!skipping) {
+-		water-&gt;Update();
+ 	}
+ 	ENTER_SYNCED;
+-
+-#ifdef DEBUG
+-	//feclearexcept(FPU_Exceptions(FE_INVALID | FE_DIVBYZERO));
+-#endif
+ }
+ 
+ 
+@@ -2639,13 +2639,10 @@
+ 	if (!net-&gt;IsActiveConnection())
+ 		return; // should not happen
+ 
+-	// quick hack until better netcode is in place
+-#ifdef PROFILE_TIME
+ 	if (gu-&gt;gameTime - lastCpuUsageTime &gt;= 1) {
+ 		lastCpuUsageTime = gu-&gt;gameTime;
+ 		net-&gt;SendCPUUsage(profiler.profile[&quot;Sim time&quot;].percent);
+ 	}
+-#endif
+ 
+ 	PUSH_CODE_MODE;
+ 	ENTER_SYNCED;
+@@ -3076,11 +3073,7 @@
+ 				if(frame!=gs-&gt;frameNum){
+ 					logOutput.Print(&quot;Sync request for wrong frame (%i instead of %i)&quot;, frame, gs-&gt;frameNum);
+ 				}
+-#ifdef PROFILE_TIME
+ 				net-&gt;SendCPUUsage(profiler.profile[&quot;Sim time&quot;].percent);
+-#else
+-				net-&gt;SendCPUUsage(0.30f);
+-#endif
+ 				ENTER_SYNCED;
+ 				AddTraffic(-1, packetCode, dataLength);
+ 				break;
+
+Added: trunk/rts/Game/UI/ProfileDrawer.cpp
+===================================================================
+--- trunk/rts/Game/UI/ProfileDrawer.cpp	                        (rev 0)
++++ trunk/rts/Game/UI/ProfileDrawer.cpp	2008-03-19 18:52:32 UTC (rev 5596)
+@@ -0,0 +1,131 @@
++#include &quot;ProfileDrawer.h&quot;
++
++#include &lt;assert.h&gt;
++
++#include &quot;TimeProfiler.h&quot;
++#include &quot;Rendering/GL/myGL.h&quot;
++#include &quot;Rendering/glFont.h&quot;
++#include &quot;Rendering/GL/VertexArray.h&quot;
++
++ProfileDrawer* ProfileDrawer::instance = NULL;
++
++void ProfileDrawer::Enable()
++{
++	assert(instance == 0);
++	instance = new ProfileDrawer();
++}
++
++
++void ProfileDrawer::Disable()
++{
++	if (instance)
++	{
++		delete instance;
++		instance = 0;
++	}
++}
++
++void ProfileDrawer::Draw()
++{
++	glPushMatrix();
++	glDisable(GL_TEXTURE_2D);
++	glColor4f(0,0,0.5f,0.5f);
++	if(!profiler.profile.empty()){
++		glBegin(GL_TRIANGLE_STRIP);
++		glVertex3f(0.65f,0.99f,0);
++		glVertex3f(0.99f,0.99f,0);
++		glVertex3f(0.65f,0.99f-profiler.profile.size()*0.024f-0.01f,0);
++		glVertex3f(0.99f,0.99f-profiler.profile.size()*0.024f-0.01f,0);
++		glEnd();
++	}
++
++	glEnable(GL_TEXTURE_2D);
++	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
++
++	std::map&lt;std::string, CTimeProfiler::TimeRecord&gt;::iterator pi;
++
++	int y=0;
++	for (pi = profiler.profile.begin(); pi != profiler.profile.end(); ++pi, y++)
++		font-&gt;glPrintAt(0.655f, 0.960f-y*0.024f, 1.0f, &quot;%20s %6.2fs %5.2f%%&quot;,pi-&gt;first.c_str(),((float)pi-&gt;second.total)/1000.f,pi-&gt;second.percent*100);
++
++	glTranslatef(0.655f,0.965f,0);
++	glScalef(0.015f,0.02f,0.02f);
++	glColor4f(1,1,1,1);
++
++	glDisable(GL_TEXTURE_2D);
++	for (pi = profiler.profile.begin(); pi != profiler.profile.end(); ++pi){
++		glColor3f(pi-&gt;second.color.x,pi-&gt;second.color.y,pi-&gt;second.color.z);
++		glBegin(GL_QUADS);
++		glVertex3f(0,0,0);
++		glVertex3f(1,0,0);
++		glVertex3f(1,1,0);
++		glVertex3f(0,1,0);
++		glEnd();
++		if(!pi-&gt;second.showGraph){
++			glColor3f(1,0,0);
++			glBegin(GL_LINES);
++			glVertex3f(0,0,0);
++			glVertex3f(1,1,0);
++			glVertex3f(1,0,0);
++			glVertex3f(0,1,0);
++			glEnd();
++		}
++		glTranslatef(0,-1.2f,0);
++	}
++	glPopMatrix();
++
++	for(pi=profiler.profile.begin();pi!=profiler.profile.end();++pi){
++		if(!pi-&gt;second.showGraph)
++			continue;
++		CVertexArray* va=GetVertexArray();
++		va-&gt;Initialize();
++		for(int a=0;a&lt;128;++a){
++			float p=((float)pi-&gt;second.frames[a])/1000.f*30;
++			va-&gt;AddVertexT(float3(0.6f+a*0.003f,0.02f+p*0.4f,0),0,0);
++		}
++		glColor3f(pi-&gt;second.color.x,pi-&gt;second.color.y,pi-&gt;second.color.z);
++		va-&gt;DrawArrayT(GL_LINE_STRIP);
++	}
++	glEnable(GL_TEXTURE_2D);
++}
++
++bool ProfileDrawer::MousePress(int x, int y, int button)
++{
++	float mx=MouseX(x);
++	float my=MouseY(y);
++
++	if(mx&lt;0.65f || mx&gt;0.99f || my&lt;0.99f-profiler.profile.size()*0.024f-0.01f || my&gt;0.99f)
++		return false;
++
++	int num=(int) ((0.99f-my)/0.024f);
++
++	int a=0;
++	std::map&lt;std::string, CTimeProfiler::TimeRecord&gt;::iterator pi;
++	for(pi=profiler.profile.begin();pi!=profiler.profile.end() &amp;&amp; a!=num;++pi,a++){
++	}
++	if(pi!=profiler.profile.end())
++		pi-&gt;second.showGraph=!pi-&gt;second.showGraph;
++	return false;
++}
++
++bool ProfileDrawer::IsAbove(int x, int y)
++{
++	const float mx=MouseX(x);
++	const float my=MouseY(y);
++
++	if(mx&lt;0.65f || mx&gt;0.99f || my&lt;0.99f - profiler.profile.size()*0.024f-0.01f || my&gt;0.99f)
++		return false;
++
++	return true;
++}
++
++ProfileDrawer::ProfileDrawer()
++{
++}
++
++ProfileDrawer::~ProfileDrawer()
++{
++}
++
++
++
+
+Added: trunk/rts/Game/UI/ProfileDrawer.h
+===================================================================
+--- trunk/rts/Game/UI/ProfileDrawer.h	                        (rev 0)
++++ trunk/rts/Game/UI/ProfileDrawer.h	2008-03-19 18:52:32 UTC (rev 5596)
+@@ -0,0 +1,24 @@
++#ifndef PROFILE_DRAWER
++#define PROFILE_DRAWER
++
++#include &quot;InputReceiver.h&quot;
++
++class ProfileDrawer : public CInputReceiver
++{
++public:
++	static void Enable();
++	static void Disable();
++
++	virtual void Draw();
++	virtual bool MousePress(int x, int y, int button);
++	virtual bool IsAbove(int x, int y);	
++
++private:
++	ProfileDrawer();
++	~ProfileDrawer();
++
++	static ProfileDrawer* instance;
++};
++
++
++#endif // PROFILE_DRAWER
+
+Modified: trunk/rts/System/NetProtocol.h
+===================================================================
+--- trunk/rts/System/NetProtocol.h	2008-03-19 18:03:37 UTC (rev 5595)
++++ trunk/rts/System/NetProtocol.h	2008-03-19 18:52:32 UTC (rev 5596)
+@@ -40,8 +40,8 @@
+ 
+ 	/**
+ 	@brief Recieve data from Client
+-	@return The amount of data recieved, or -1 if connection did not exists
+-	@todo Throw exceptions
++	@return The data packet, or 0 if there is no data
++	@throw network_error If there is no such connection
+ 	
+ 	Recieves only one message (even if there are more in the recieve buffer), so call this until you get a 0 in return
+ 	 */
+
+Modified: trunk/rts/System/TimeProfiler.cpp
+===================================================================
+--- trunk/rts/System/TimeProfiler.cpp	2008-03-19 18:03:37 UTC (rev 5595)
++++ trunk/rts/System/TimeProfiler.cpp	2008-03-19 18:52:32 UTC (rev 5596)
+@@ -1,18 +1,12 @@
+ // TimeProfiler.cpp: implementation of the CTimeProfiler class.
+ //
+ //////////////////////////////////////////////////////////////////////
+-
+-#include &quot;StdAfx.h&quot;
+ #include &quot;TimeProfiler.h&quot;
+-#include &quot;Rendering/GL/myGL.h&quot;
+-#include &quot;Rendering/glFont.h&quot;
+-#include &quot;LogOutput.h&quot;
+-#include &quot;SDL_timer.h&quot;
+ 
+-#include &quot;Rendering/GL/VertexArray.h&quot;
+-#include &quot;mmgr.h&quot;
++#include &lt;SDL_timer.h&gt;
++#include &lt;cstring&gt;
+ 
+-#ifdef PROFILE_TIME
++#include &quot;UnsyncedRNG.h&quot;
+ 
+ 
+ ScopedTimer::ScopedTimer(const char* const myname) : name(myname), starttime(SDL_GetTicks())
+@@ -21,7 +15,7 @@
+ 
+ ScopedTimer::~ScopedTimer()
+ {
+-	unsigned stoptime = SDL_GetTicks();
++	const unsigned stoptime = SDL_GetTicks();
+ 	profiler.AddTime(name, stoptime - starttime);
+ }
+ 
+@@ -33,178 +27,58 @@
+ 
+ CTimeProfiler::CTimeProfiler()
+ {
+-	lastBigUpdate=0;
+-	startTimeNum=0;
++	currentPosition = 0;
++	lastBigUpdate = SDL_GetTicks();
+ }
+ 
+ CTimeProfiler::~CTimeProfiler()
+ {
+ }
+ 
+-void CTimeProfiler::Draw()
+-{
+-	if(!gu-&gt;drawdebug)
+-		return;
+-
+-	glPushMatrix();
+-	glDisable(GL_TEXTURE_2D);
+-	glColor4f(0,0,0.5f,0.5f);
+-	if(!profile.empty()){
+-		glBegin(GL_TRIANGLE_STRIP);
+-			glVertex3f(0.65f,0.99f,0);
+-			glVertex3f(0.99f,0.99f,0);
+-			glVertex3f(0.65f,0.99f-profile.size()*0.024f-0.01f,0);
+-			glVertex3f(0.99f,0.99f-profile.size()*0.024f-0.01f,0);
+-		glEnd();
+-	}
+-
+-	glEnable(GL_TEXTURE_2D);
+-	glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+-
+-	std::map&lt;std::string,TimeRecord&gt;::iterator pi;
+-
+-	int y=0;
+-	for(pi=profile.begin();pi!=profile.end();++pi,y++)
+-		font-&gt;glPrintAt(0.655f, 0.960f-y*0.024f, 1.0f, &quot;%20s %6.2fs %5.2f%%&quot;,pi-&gt;first.c_str(),((float)pi-&gt;second.total)/1000.f,pi-&gt;second.percent*100);
+-
+-	glTranslatef(0.655f,0.965f,0);
+-	glScalef(0.015f,0.02f,0.02f);
+-	glColor4f(1,1,1,1);
+-
+-	glDisable(GL_TEXTURE_2D);
+-	for(pi=profile.begin();pi!=profile.end();++pi){
+-		glColor3f(pi-&gt;second.color.x,pi-&gt;second.color.y,pi-&gt;second.color.z);
+-		glBegin(GL_QUADS);
+-			glVertex3f(0,0,0);
+-			glVertex3f(1,0,0);
+-			glVertex3f(1,1,0);
+-			glVertex3f(0,1,0);
+-		glEnd();
+-		if(!pi-&gt;second.showGraph){
+-			glColor3f(1,0,0);
+-			glBegin(GL_LINES);
+-				glVertex3f(0,0,0);
+-				glVertex3f(1,1,0);
+-				glVertex3f(1,0,0);
+-				glVertex3f(0,1,0);
+-			glEnd();
+-		}
+-		glTranslatef(0,-1.2f,0);
+-	}
+-	glPopMatrix();
+-
+-	for(pi=profile.begin();pi!=profile.end();++pi){
+-		if(!pi-&gt;second.showGraph)
+-			continue;
+-		CVertexArray* va=GetVertexArray();
+-		va-&gt;Initialize();
+-		for(int a=0;a&lt;128;++a){
+-			float p=((float)pi-&gt;second.frames[a])/1000.f*30;
+-			va-&gt;AddVertexT(float3(0.6f+a*0.003f,0.02f+p*0.4f,0),0,0);
+-		}
+-		glColor3f(pi-&gt;second.color.x,pi-&gt;second.color.y,pi-&gt;second.color.z);
+-		va-&gt;DrawArrayT(GL_LINE_STRIP);
+-	}
+-	glEnable(GL_TEXTURE_2D);
+-}
+-
+ void CTimeProfiler::Update()
+ {
++	++currentPosition;
++	currentPosition &amp;= 127;
+ 	std::map&lt;std::string,TimeRecord&gt;::iterator pi;
+-	for(pi=profile.begin();pi!=profile.end();++pi){
+-	  pi-&gt;second.frames[(gs-&gt;frameNum+1)&amp;127]=0;
++	for (pi = profile.begin(); pi != profile.end(); ++pi)
++	{
++		pi-&gt;second.frames[currentPosition]=0;
+ 	}
+ 
+-	if(lastBigUpdate&lt;gu-&gt;gameTime-1){
+-		lastBigUpdate=gu-&gt;gameTime;
+-		std::map&lt;std::string,TimeRecord&gt;::iterator pi;
+-		for(pi=profile.begin();pi!=profile.end();++pi){
+-			pi-&gt;second.percent=((float)pi-&gt;second.current)/1000.f;
++	const unsigned curTime = SDL_GetTicks();
++	const unsigned timeDiff = curTime - lastBigUpdate;
++	if (timeDiff &gt; 500) // twice every second
++	{
++		for (std::map&lt;std::string,TimeRecord&gt;::iterator pi = profile.begin(); pi != profile.end(); ++pi)
++		{
++			pi-&gt;second.percent = ((float)pi-&gt;second.current) / ((float)timeDiff);
+ 			pi-&gt;second.current=0;
+ 
+ 		}
++		lastBigUpdate = curTime;
+ 	}
+ }
+ 
+ void CTimeProfiler::AddTime(const std::string&amp; name, unsigned time)
+ {
+-	std::map&lt;std::string,TimeRecord&gt;::iterator pi;
+-	if((pi=profile.find(name))!=profile.end()){
++	std::map&lt;std::string, TimeRecord&gt;::iterator pi;
++	if ( (pi = profile.find(name)) != profile.end() )
++	{
+ 		pi-&gt;second.total+=time;
+ 		pi-&gt;second.current+=time;
+-		pi-&gt;second.frames[gs-&gt;frameNum&amp;127]+=time;
+-	} else {
+-		PUSH_CODE_MODE;
+-		ENTER_MIXED;
++		pi-&gt;second.frames[currentPosition]+=time;
++	}
++	else
++	{
+ 		profile[name].total=time;
+ 		profile[name].current=time;
+ 		profile[name].percent=0;
+-		for(unsigned a=0;a&lt;128;++a)
+-		  profile[name].frames[a]=0;
+-		profile[name].color.x=gu-&gt;usRandFloat();
+-		profile[name].color.y=gu-&gt;usRandFloat();
+-		profile[name].color.z=gu-&gt;usRandFloat();
++		memset(profile[name].frames, 0, 128*sizeof(unsigned));
++		static UnsyncedRNG rand;
++		rand.Seed(SDL_GetTicks());
++		profile[name].color.x = rand.RandFloat();
++		profile[name].color.y = rand.RandFloat();
++		profile[name].color.z = rand.RandFloat();
+ 		profile[name].showGraph=true;
+-		POP_CODE_MODE;
+ 	}
+ }
+-
+-void CTimeProfiler::StartTimer(const char* name)
+-{
+-	if (startTimeNum == 999) {
+-		logOutput.Print(&quot;Too many timers&quot;);
+-		return;
+-	}
+-	startTimes[startTimeNum] = SDL_GetTicks();
+-	startNames[startTimeNum] = name;
+-	startTimeNum++;
+-}
+-
+-void CTimeProfiler::EndTimer(const char* name)
+-{
+-	if (startTimeNum == 0) {
+-		logOutput.Print(&quot;Not enough timers&quot;);
+-		return;
+-	}
+-	startTimeNum--;
+-/* 
+-	if (strcmp(name, startNames[startTimeNum]) != 0) {
+-		logOutput.Print(&quot;Timer mismatch: start = %s, end = %s\n&quot;,
+-	                  startTimes[startTimeNum], name);
+-	}
+-*/
+-	unsigned stop = SDL_GetTicks();
+-	AddTime(name,stop - startTimes[startTimeNum]);
+-}
+-
+-bool CTimeProfiler::IsAbove(int x, int y)
+-{
+-	float mx=MouseX(x);
+-	float my=MouseY(y);
+-
+-	if(!gu-&gt;drawdebug || mx&lt;0.65f || mx&gt;0.99f || my&lt;0.99f-profile.size()*0.024f-0.01f || my&gt;0.99f)
+-		return false;
+-
+-	return true;
+-}
+-
+-bool CTimeProfiler::MousePress(int x, int y, int button)
+-{
+-	float mx=MouseX(x);
+-	float my=MouseY(y);
+-
+-	if(!gu-&gt;drawdebug || mx&lt;0.65f || mx&gt;0.99f || my&lt;0.99f-profile.size()*0.024f-0.01f || my&gt;0.99f)
+-		return false;
+-
+-	int num=(int) ((0.99f-my)/0.024f);
+-
+-	int a=0;
+-	std::map&lt;std::string,TimeRecord&gt;::iterator pi;
+-	for(pi=profile.begin();pi!=profile.end() &amp;&amp; a!=num;++pi,a++){
+-	}
+-	if(pi!=profile.end())
+-		pi-&gt;second.showGraph=!pi-&gt;second.showGraph;
+-	return false;
+-}
+-
+-#endif
+
+Modified: trunk/rts/System/TimeProfiler.h
+===================================================================
+--- trunk/rts/System/TimeProfiler.h	2008-03-19 18:03:37 UTC (rev 5595)
++++ trunk/rts/System/TimeProfiler.h	2008-03-19 18:52:32 UTC (rev 5596)
+@@ -4,46 +4,27 @@
+ //
+ //////////////////////////////////////////////////////////////////////
+ 
+-#ifdef __powerpc__
+-/* HACK It won't compile under PPC Linux unless profiler is
+-        made a pointer, and even then it'll smash the stack
+-        before dying. Hopefully, someone's milage will vary. :(
+- */
+-#undef PROFILE_TIME
+-#else
+-#define PROFILE_TIME
+-#endif
+-
+-#ifdef PROFILE_TIME
+-	#define START_TIME_PROFILE(name) profiler.StartTimer(name);
+-	#define END_TIME_PROFILE(name) profiler.EndTimer(name);
+-	#define SCOPED_TIMER(name) ScopedTimer myScopedTimerFromMakro(name);
+-#else
+-	#define START_TIME_PROFILE(name) ;
+-	#define END_TIME_PROFILE(name) ;
+-	#define SCOPED_TIMER(name) ;
+-#endif
+-
+-#ifdef PROFILE_TIME
+-
+ #include &lt;string&gt;
+ #include &lt;map&gt;
+-#include &lt;vector&gt;
+-#include &quot;SDL_types.h&quot;
+ #include &lt;boost/noncopyable.hpp&gt;
+ 
+-#include &quot;Game/UI/InputReceiver.h&quot;
++#include &quot;SFloat3.h&quot;
+ 
++// disable this if you want minimal profiling (sim time is still measured because of game slowdown)
++#define SCOPED_TIMER(name) ScopedTimer myScopedTimerFromMakro(name);
++
++
+ /**
+<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">- at brief</A> Time profiling is now easy
+<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">+ at brief</A> Time profiling helper class
+ @author Karl-Robert Ernst
++
+ Construct an instance of this class where you want to begin time measuring, and destruct it at the end (or let it be autodestructed).
+ */
+ class ScopedTimer : public boost::noncopyable
+ {
+ public:
+ 	/**
+-	@brief Initialise
++	@brief Initialise and start measuring
+ 	*/
+ 	ScopedTimer(const char* const name);
+ 	
+@@ -57,40 +38,30 @@
+ 	const unsigned starttime;
+ };
+ 
+-class CTimeProfiler : public CInputReceiver
++class CTimeProfiler
+ {
+ 	struct TimeRecord{
+ 		unsigned total;
+ 		unsigned current;
+-		Uint64 frames[128];
++		unsigned frames[128];
+ 		float percent;
+-		float3 color;
++		SFloat3 color;
+ 		bool showGraph;
+ 	};
+ public:
+-	void StartTimer(const char* name);
+-	void EndTimer(const char* name=0);
++	CTimeProfiler();
++	~CTimeProfiler();
+ 
+ 	void AddTime(const std::string&amp; name, unsigned time);
+ 	void Update();
+-	void Draw();
+-	CTimeProfiler();
+-	virtual ~CTimeProfiler();
+-
+-	virtual bool MousePress(int x, int y, int button);
+-	virtual bool IsAbove(int x, int y);	
+ 	
+ 	std::map&lt;std::string,TimeRecord&gt; profile;
+ 	
+ private:
+-	float lastBigUpdate;
+-	
+-	unsigned startTimes[1000];
+-	const char* startNames[1000];
+-	unsigned startTimeNum;
++	unsigned lastBigUpdate;
++	unsigned currentPosition; // increases each update, from 0 to 127
+ };
+ 
+ extern CTimeProfiler profiler;
+-#endif
+ 
+ #endif /* TIMEPROFILER_H */
+
+Modified: trunk/rts/System/UnsyncedRNG.cpp
+===================================================================
+--- trunk/rts/System/UnsyncedRNG.cpp	2008-03-19 18:03:37 UTC (rev 5595)
++++ trunk/rts/System/UnsyncedRNG.cpp	2008-03-19 18:52:32 UTC (rev 5596)
+@@ -23,6 +23,12 @@
+ 	return randSeed &amp; 0x7FFF;
+ }
+ 
++float UnsyncedRNG::RandFloat()
++{
++	randSeed = (randSeed * 214013L + 2531011L);
++	return float(randSeed &amp; 0x7FFF) / 0x7FFF;
++}
++
+ int UnsyncedRNG::operator()(int n)
+ {
+ 	return RandInt() * n / ((INT_MAX &amp; 0x7FFF) + 1); // the range of RandInt() is limited to (INT_MAX &amp; 0x7FFF)
+
+Modified: trunk/rts/System/UnsyncedRNG.h
+===================================================================
+--- trunk/rts/System/UnsyncedRNG.h	2008-03-19 18:03:37 UTC (rev 5595)
++++ trunk/rts/System/UnsyncedRNG.h	2008-03-19 18:52:32 UTC (rev 5596)
+@@ -14,6 +14,8 @@
+ 	/** @brief returns a random integer in the range [0, (INT_MAX &amp; 0x7FFF)) */
+ 	int RandInt();
+ 	
++	float RandFloat();
++	
+ 	/** @brief returns a random number in the range [0, n) */
+ 	int operator()(int n);
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000376.html">[Taspring-linux-commit] r5595 - in trunk/rts/Sim: MoveTypes	Units/CommandAI
+</A></li>
+	<LI>Next message: <A HREF="000378.html">[Taspring-linux-commit] r5597 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#377">[ date ]</a>
+              <a href="thread.html#377">[ thread ]</a>
+              <a href="subject.html#377">[ subject ]</a>
+              <a href="author.html#377">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

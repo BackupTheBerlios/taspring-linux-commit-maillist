@@ -1,0 +1,539 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6341 - in trunk/rts: Lua Rendering	Rendering/Env Rendering/GL Rendering/UnitModels Sim/Projectiles
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6341%20-%20in%20trunk/rts%3A%20Lua%20Rendering%0A%09Rendering/Env%20Rendering/GL%20Rendering/UnitModels%20Sim/Projectiles&In-Reply-To=%3C20080830145652.9E17149B0%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001110.html">
+   <LINK REL="Next"  HREF="001112.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6341 - in trunk/rts: Lua Rendering	Rendering/Env Rendering/GL Rendering/UnitModels Sim/Projectiles</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6341%20-%20in%20trunk/rts%3A%20Lua%20Rendering%0A%09Rendering/Env%20Rendering/GL%20Rendering/UnitModels%20Sim/Projectiles&In-Reply-To=%3C20080830145652.9E17149B0%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6341 - in trunk/rts: Lua Rendering	Rendering/Env Rendering/GL Rendering/UnitModels Sim/Projectiles">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Aug 30 16:56:52 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001110.html">[Taspring-linux-commit] r6340 - in site/trunk: . wwwroot	wwwroot/external wwwroot/external/jwplayer	wwwroot/external/lytebox wwwroot/external/lytebox/images	wwwroot/images wwwroot/includes wwwroot/skins	wwwroot/skins/mediawiki wwwroot/skins/phpbb	wwwroot/skins/phpbb/imageset wwwroot/skins/phpbb/imageset/en	wwwroot/skins/phpbb/template wwwroot/skins/phpbb/theme	wwwroot/skins/phpbb/theme/images wwwroot/templates wwwroot/thumbs
+</A></li>
+        <LI>Next message: <A HREF="001112.html">[Taspring-linux-commit] r6342 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1111">[ date ]</a>
+              <a href="thread.html#1111">[ thread ]</a>
+              <a href="subject.html#1111">[ subject ]</a>
+              <a href="author.html#1111">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: jk
+Date: 2008-08-30 16:56:50 +0200 (Sat, 30 Aug 2008)
+New Revision: 6341
+
+Modified:
+   trunk/rts/Lua/LuaMaterial.cpp
+   trunk/rts/Lua/LuaMaterial.h
+   trunk/rts/Lua/LuaUnitRendering.cpp
+   trunk/rts/Rendering/Env/AdvWater.cpp
+   trunk/rts/Rendering/Env/BumpWater.cpp
+   trunk/rts/Rendering/GL/myGL.h
+   trunk/rts/Rendering/GroundDecalHandler.cpp
+   trunk/rts/Rendering/UnitModels/UnitDrawer.cpp
+   trunk/rts/Sim/Projectiles/ProjectileHandler.cpp
+Log:
+ * BumpWater: use 16bit depth buffer if atiHack is on
+ * BumpWater: an attempt to get shorewaves working with atis
+
+ * Lua's Spring.UnitRendering interface fixes to make it possible to emulate the default 3do/s3o shaders
+   * fixed $shadows texture params (you can now use shadow2DProj() in glsl)
+   * fixed wrong (!=0) check if uniform locations are set (they begin with 0!)
+   * added new uniforms: cameraposloc,shadowloc,shadowparamsloc
+   * added new culling tag, so you can enable s3o backface culling w/o using a displaylist
+ 
+
+Modified: trunk/rts/Lua/LuaMaterial.cpp
+===================================================================
+--- trunk/rts/Lua/LuaMaterial.cpp	2008-08-30 11:23:36 UTC (rev 6340)
++++ trunk/rts/Lua/LuaMaterial.cpp	2008-08-30 14:56:50 UTC (rev 6341)
+@@ -45,7 +45,7 @@
+ 		return;
+ 	}
+ 	if (speedLoc != 0) {
+-		glUniform3f(speedLoc, unit-&gt;speed.x, unit-&gt;speed.y, unit-&gt;speed.z);
++		glUniformf3(speedLoc, unit-&gt;speed);
+ 	}
+ 	if (healthLoc != 0) {
+ 		glUniform1f(healthLoc, unit-&gt;health / unit-&gt;maxHealth);
+@@ -238,13 +238,10 @@
+ }
+ 
+ 
+-void LuaMatTexture::Execute(const LuaMatTexture&amp; prev) const
++void LuaMatTexture::Bind(const LuaMatTexture&amp; prev) const
+ {
+ 	// blunt force -- poor form
+-	if (prev.enable) {
+-		glDisable(GL_TEXTURE_2D);
+-		glDisable(GL_TEXTURE_CUBE_MAP_ARB);
+-	}
++	prev.Unbind();
+ 
+ 	if (type == LUATEX_GL) {
+ 		glBindTexture(GL_TEXTURE_2D, openglID);
+@@ -254,6 +251,9 @@
+ 	}
+ 	else if (type == LUATEX_SHADOWMAP) {
+ 		glBindTexture(GL_TEXTURE_2D, shadowHandler-&gt;shadowTexture);
++		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE_ARB, GL_COMPARE_R_TO_TEXTURE);
++		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC_ARB, GL_LEQUAL);
++		glTexParameteri(GL_TEXTURE_2D, GL_DEPTH_TEXTURE_MODE_ARB, GL_LUMINANCE);
+ 		if (enable) {
+ 			glEnable(GL_TEXTURE_2D);
+ 		}
+@@ -273,6 +273,28 @@
+ }
+ 
+ 
++void LuaMatTexture::Unbind() const
++{
++	if (type == LUATEX_NONE || (!enable &amp;&amp; (type == LUATEX_SHADOWMAP)))
++        return;
++
++	if (type == LUATEX_GL) {
++		glDisable(GL_TEXTURE_2D);
++	}
++	else if (type == LUATEX_SHADOWMAP) {
++		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE_ARB, GL_NONE);
++		glTexParameteri(GL_TEXTURE_2D, GL_DEPTH_TEXTURE_MODE_ARB, GL_LUMINANCE);
++		glDisable(GL_TEXTURE_2D);
++	}
++	else if (type == LUATEX_REFLECTION) {
++		glDisable(GL_TEXTURE_CUBE_MAP_ARB);
++	}
++	else if (type == LUATEX_SPECULAR) {
++		glDisable(GL_TEXTURE_CUBE_MAP_ARB);
++	}
++}
++
++
+ void LuaMatTexture::Print(const string&amp; indent) const
+ {
+ 	const char* typeName = &quot;Unknown&quot;;
+@@ -323,7 +345,7 @@
+ 
+ 	shader.Execute(prev.shader);
+ 
+-	if (cameraLoc) {
++	if (cameraLoc&gt;=0) {
+ 		// FIXME: this is happening too much, just use floats?
+ 		GLfloat array[16];
+ 		const GLdouble* modelview = camera-&gt;GetModelview();
+@@ -333,10 +355,22 @@
+ 		glUniformMatrix4fv(cameraLoc, 1, GL_FALSE, array);
+ 	}
+ 
++	if (cameraPosLoc&gt;=0) {
++		glUniformf3(cameraPosLoc, camera-&gt;pos);
++	}
++
++	if (shadowLoc&gt;=0) {
++		glUniformMatrix4fv(shadowLoc, 1, GL_FALSE, shadowHandler-&gt;shadowMatrix.m);
++	}
++
++	if (shadowParamsLoc&gt;=0) {
++		glUniform4f(shadowParamsLoc, shadowHandler-&gt;xmid, shadowHandler-&gt;ymid, shadowHandler-&gt;p17, shadowHandler-&gt;p18);
++	}
++
+ 	const int maxTex = std::max(texCount, prev.texCount);
+ 	for (int t = (maxTex - 1); t &gt;= 0; t--) {
+ 		glActiveTexture(GL_TEXTURE0 + t);
+-		textures[t].Execute(prev.textures[t]);
++		textures[t].Bind(prev.textures[t]);
+ 	}
+ 
+ 	if (useCamera != prev.useCamera) {
+@@ -347,6 +381,15 @@
+ 			glLoadIdentity();
+ 		}
+ 	}
++
++	if (culling != prev.culling) {
++		if (culling) {
++			glEnable(GL_CULL_FACE);
++			glCullFace(culling);
++		} else {
++			glDisable(GL_CULL_FACE);
++		}
++	}
+ }
+ 
+ 
+@@ -376,7 +419,7 @@
+ 		}
+ 	}
+ 	if (a.texCount != b.texCount) {
+-		return (a.texCount &lt; b.texCount) ? -1 : + 1;
++		return (a.texCount &lt; b.texCount) ? -1 : +1;
+ 	}
+ 
+ 	if (a.preList != b.preList) {
+@@ -391,10 +434,26 @@
+ 		return a.useCamera ? -1 : +1;
+ 	}
+ 
++	if (a.culling != b.culling) {
++		return (a.culling &lt; b.culling) ? -1 : +1;
++	}
++
+ 	if (a.cameraLoc != b.cameraLoc) {
+-		return (a.cameraLoc &lt; a.cameraLoc) ? -1 : +1;
++		return (a.cameraLoc &lt; b.cameraLoc) ? -1 : +1;
+ 	}
+ 
++	if (a.cameraPosLoc != b.cameraPosLoc) {
++		return (a.cameraPosLoc &lt; b.cameraPosLoc) ? -1 : +1;
++	}
++
++	if (a.shadowLoc != b.shadowLoc) {
++		return (a.shadowLoc &lt; b.shadowLoc) ? -1 : +1;
++	}
++
++	if (a.shadowParamsLoc != b.shadowParamsLoc) {
++		return (a.shadowParamsLoc &lt; b.shadowParamsLoc) ? -1 : +1;
++	}
++
+ 	return 0;
+ }
+ 
+@@ -415,6 +474,9 @@
+ 
+ void LuaMaterial::Print(const string&amp; indent) const
+ {
++#define CULL_TO_STR(x) \
++	(x==GL_FRONT) ? &quot;front&quot; : (x==GL_BACK) ? &quot;back&quot; : (x!=0) ? &quot;false&quot; : &quot;unknown&quot;
++
+ 	PRINTF(&quot;%s%s\n&quot;, indent.c_str(), GetMatTypeName(type));
+ 	PRINTF(&quot;%sorder = %i\n&quot;, indent.c_str(), order);
+ 	shader.Print(indent);
+@@ -427,7 +489,11 @@
+ 	PRINTF(&quot;%spreList  = %i\n&quot;,  indent.c_str(), preList);
+ 	PRINTF(&quot;%spostList = %i\n&quot;,  indent.c_str(), postList);
+ 	PRINTF(&quot;%suseCamera = %s\n&quot;, indent.c_str(), useCamera ? &quot;true&quot; : &quot;false&quot;);
++	PRINTF(&quot;%sculling = %s\n&quot;, indent.c_str(), CULL_TO_STR(culling));
+ 	PRINTF(&quot;%scameraLoc = %i\n&quot;, indent.c_str(), cameraLoc);
++	PRINTF(&quot;%scameraPosLoc = %i\n&quot;, indent.c_str(), cameraPosLoc);
++	PRINTF(&quot;%sshadowLoc = %i\n&quot;, indent.c_str(), shadowLoc);
++	PRINTF(&quot;%sshadowParamsLoc = %i\n&quot;, indent.c_str(), shadowParamsLoc);
+ }
+ 
+ 
+
+Modified: trunk/rts/Lua/LuaMaterial.h
+===================================================================
+--- trunk/rts/Lua/LuaMaterial.h	2008-08-30 11:23:36 UTC (rev 6340)
++++ trunk/rts/Lua/LuaMaterial.h	2008-08-30 14:56:50 UTC (rev 6341)
+@@ -80,7 +80,8 @@
+ 
+ 		void Finalize();
+ 
+-		void Execute(const LuaMatTexture&amp; prev) const;
++		void Bind(const LuaMatTexture&amp; prev) const;
++		void Unbind() const;
+ 
+ 		void Print(const string&amp; indent) const;
+ 
+@@ -128,7 +129,9 @@
+ 		: type(LuaMatType(-1)), // invalid
+ 		  order(0), texCount(0),
+ 		  preList(0), postList(0),
+-		  useCamera(true), cameraLoc(0)
++		  useCamera(true), culling(0),
++		  cameraLoc(-1), cameraPosLoc(-1),
++		  shadowLoc(-1), shadowParamsLoc(-1)
+ 		{}
+ 
+ 		void Finalize();
+@@ -159,7 +162,11 @@
+ 		GLuint postList;
+ 
+ 		bool useCamera;
++		GLenum culling;
+ 		GLint cameraLoc;
++		GLint cameraPosLoc;
++		GLint shadowLoc;
++		GLint shadowParamsLoc;
+ 
+ 		static const LuaMaterial defMat;
+ };
+@@ -173,7 +180,9 @@
+ 		: type(LuaMatType(-1)), // invalid
+ 		  order(0), texCount(0),
+ 		  preList(0), postList(0),
+-		  useCamera(true), cameraLoc(0)
++		  useCamera(true), culling(0),
++		  cameraLoc(-1), cameraPosLoc(-1),
++		  shadowLoc(-1), shadowParamsLoc(-1)
+ 		{}
+ 
+ 		LuaMatRef GetRef() const;
+@@ -189,7 +198,11 @@
+ 		GLuint postList;
+ 
+ 		bool useCamera;
++		GLenum culling;
+ 		GLint cameraLoc;
++		GLint cameraPosLoc;
++		GLint shadowLoc;
++		GLint shadowParamsLoc;
+ };
+ 
+ 
+
+Modified: trunk/rts/Lua/LuaUnitRendering.cpp
+===================================================================
+--- trunk/rts/Lua/LuaUnitRendering.cpp	2008-08-30 11:23:36 UTC (rev 6340)
++++ trunk/rts/Lua/LuaUnitRendering.cpp	2008-08-30 14:56:50 UTC (rev 6341)
+@@ -445,11 +445,31 @@
+ 				mat.useCamera = lua_toboolean(L, -1);
+ 			}
+ 		}
++		else if (key == &quot;culling&quot;) {
++			if (lua_isnumber(L, -1)) {
++				mat.culling = (GLenum)lua_tonumber(L, -1);
++			}
++		}
+ 		else if (key == &quot;cameraloc&quot;) {
+ 			if (lua_isnumber(L, -1)) {
+ 				mat.cameraLoc = (GLint)lua_tonumber(L, -1);
+ 			}
+ 		}
++		else if (key == &quot;cameraposloc&quot;) {
++			if (lua_isnumber(L, -1)) {
++				mat.cameraPosLoc = (GLint)lua_tonumber(L, -1);
++			}
++		}
++		else if (key == &quot;shadowloc&quot;) {
++			if (lua_isnumber(L, -1)) {
++				mat.shadowLoc = (GLint)lua_tonumber(L, -1);
++			}
++		}
++		else if (key == &quot;shadowparamsloc&quot;) {
++			if (lua_isnumber(L, -1)) {
++				mat.shadowParamsLoc = (GLint)lua_tonumber(L, -1);
++			}
++		}
+ 	}
+ 
+ 	mat.Finalize();
+
+Modified: trunk/rts/Rendering/Env/AdvWater.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/AdvWater.cpp	2008-08-30 11:23:36 UTC (rev 6340)
++++ trunk/rts/Rendering/Env/AdvWater.cpp	2008-08-30 14:56:50 UTC (rev 6341)
+@@ -148,7 +148,6 @@
+ 		glDisable(GL_BLEND);
+ 	}
+ 	glDepthMask(0);
+-	glBindTexture(GL_TEXTURE_2D, reflectTexture);
+ 	glActiveTextureARB(GL_TEXTURE1_ARB);
+ 		glBindTexture(GL_TEXTURE_2D, bumpTexture);
+ 		GLfloat plan[]={0.02f,0,0,0};
+@@ -161,6 +160,7 @@
+ 		glTexGenfv(GL_T,GL_EYE_PLANE,plan2);
+ 		glEnable(GL_TEXTURE_GEN_T);
+ 	glActiveTextureARB(GL_TEXTURE0_ARB);
++	glBindTexture(GL_TEXTURE_2D, reflectTexture);
+ 
+ 	glBindProgramARB( GL_FRAGMENT_PROGRAM_ARB, waterFP );
+ 	glEnable( GL_FRAGMENT_PROGRAM_ARB );
+
+Modified: trunk/rts/Rendering/Env/BumpWater.cpp
+===================================================================
+--- trunk/rts/Rendering/Env/BumpWater.cpp	2008-08-30 11:23:36 UTC (rev 6340)
++++ trunk/rts/Rendering/Env/BumpWater.cpp	2008-08-30 14:56:50 UTC (rev 6341)
+@@ -186,7 +186,7 @@
+ 	refraction   = configHandler.GetInt(&quot;BumpWaterRefraction&quot;, 1);  /// 0:=off, 1:=screencopy, 2:=own rendering cycle
+ 	anisotropy   = atof(configHandler.GetString(&quot;BumpWaterAnisotropy&quot;, &quot;0.0&quot;).c_str());
+ 	depthCopy    = !!configHandler.GetInt(&quot;BumpWaterUseDepthTexture&quot;, 1);
+-	depthBits    = configHandler.GetInt(&quot;BumpWaterDepthBits&quot;, 24);
++	depthBits    = configHandler.GetInt(&quot;BumpWaterDepthBits&quot;, (gu-&gt;atiHacks)?16:24);
+ 	blurRefl     = !!configHandler.GetInt(&quot;BumpWaterBlurReflection&quot;, 0);
+ 	shoreWaves   = (!!configHandler.GetInt(&quot;BumpWaterShoreWaves&quot;, 1)) &amp;&amp; mapInfo-&gt;water.shoreWaves;
+ 	endlessOcean = (!!configHandler.GetInt(&quot;BumpWaterEndlessOcean&quot;, 1)) &amp;&amp; mapInfo-&gt;hasWaterPlane;
+@@ -706,13 +706,13 @@
+ 
+ void CBumpWater::UpdateCoastmap(const int x1, const int y1, const int x2, const int y2)
+ {
++	glDisable(GL_BLEND);
++	glDepthMask(GL_FALSE);
++	glDisable(GL_DEPTH_TEST);
++
+ 	glBindFramebufferEXT(GL_FRAMEBUFFER_EXT, coastFBO);
+ 	GLenum status = glCheckFramebufferStatusEXT(GL_FRAMEBUFFER_EXT);
+ 	if (status == GL_FRAMEBUFFER_COMPLETE_EXT) {
+-		glDisable(GL_DEPTH_TEST);
+-		glDepthMask(GL_FALSE);
+-		glDisable(GL_BLEND);
+-
+ 		glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, coastTexture[1]);
+ 		glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, coastTexture[0]);
+ 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+Modified: trunk/rts/Rendering/GL/myGL.h
+===================================================================
+--- trunk/rts/Rendering/GL/myGL.h	2008-08-30 11:23:36 UTC (rev 6340)
++++ trunk/rts/Rendering/GL/myGL.h	2008-08-30 14:56:50 UTC (rev 6341)
+@@ -8,12 +8,11 @@
+ 
+ #include &lt;string&gt;
+ #include &lt;GL/glew.h&gt;
++#include &quot;float3.h&quot;
+ 
+ #include &quot;lib/gml/gml.h&quot;
+ 
+-#include &quot;float3.h&quot;
+ 
+-
+ inline void glVertexf3(const float3 &amp;v)
+ {
+ 	glVertex3f(v.x,v.y,v.z);
+
+Modified: trunk/rts/Rendering/GroundDecalHandler.cpp
+===================================================================
+--- trunk/rts/Rendering/GroundDecalHandler.cpp	2008-08-30 11:23:36 UTC (rev 6340)
++++ trunk/rts/Rendering/GroundDecalHandler.cpp	2008-08-30 14:56:50 UTC (rev 6341)
+@@ -312,6 +312,8 @@
+ 		glDisable(GL_FRAGMENT_PROGRAM_ARB);
+ 		glDisable(GL_VERTEX_PROGRAM_ARB);
+ 		glActiveTextureARB(GL_TEXTURE2_ARB);
++		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE_ARB, GL_NONE);
++		glTexParameteri(GL_TEXTURE_2D, GL_DEPTH_TEXTURE_MODE_ARB, GL_LUMINANCE);
+ 		glDisable(GL_TEXTURE_2D);
+ 
+ 		glActiveTextureARB(GL_TEXTURE1_ARB);
+
+Modified: trunk/rts/Rendering/UnitModels/UnitDrawer.cpp
+===================================================================
+--- trunk/rts/Rendering/UnitModels/UnitDrawer.cpp	2008-08-30 11:23:36 UTC (rev 6340)
++++ trunk/rts/Rendering/UnitModels/UnitDrawer.cpp	2008-08-30 14:56:50 UTC (rev 6341)
+@@ -485,7 +485,7 @@
+ 
+ 	luaDrawing = true;
+ 
+-	glPushAttrib(GL_TEXTURE_BIT | GL_ENABLE_BIT);
++	glPushAttrib(GL_TEXTURE_BIT | GL_ENABLE_BIT | GL_TRANSFORM_BIT);
+ 
+ 	const LuaMaterial* currMat = &amp;LuaMaterial::defMat;
+ 
+
+Modified: trunk/rts/Sim/Projectiles/ProjectileHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Projectiles/ProjectileHandler.cpp	2008-08-30 11:23:36 UTC (rev 6340)
++++ trunk/rts/Sim/Projectiles/ProjectileHandler.cpp	2008-08-30 14:56:50 UTC (rev 6341)
+@@ -488,26 +488,28 @@
+ 		m.Rotate((*pi)-&gt;rot,(*pi)-&gt;rotAxis);
+ 		float3 interPos=(*pi)-&gt;pos+(*pi)-&gt;speed*gu-&gt;timeOffset;
+ 		CTextureHandler::UnitTexture* tex=(*pi)-&gt;prim-&gt;texture;
++		const std::vector&lt;S3DOVertex&gt;&amp; vertices    = (*pi)-&gt;object-&gt;vertices;
++		const std::vector&lt;int&gt;&amp;        verticesIdx = (*pi)-&gt;prim-&gt;vertices;
+ 
+-		S3DOVertex* v=&amp;(*pi)-&gt;object-&gt;vertices[(*pi)-&gt;prim-&gt;vertices[0]];
++		const S3DOVertex* v=&amp;vertices[verticesIdx[0]];
+ 		float3 tp=m.Mul(v-&gt;pos);
+ 		float3 tn=m.Mul(v-&gt;normal);
+ 		tp+=interPos;
+ 		va-&gt;AddVertexTN(tp,tex-&gt;xstart,tex-&gt;ystart,tn);
+ 
+-		v=&amp;(*pi)-&gt;object-&gt;vertices[(*pi)-&gt;prim-&gt;vertices[1]];
++		v=&amp;vertices[verticesIdx[1]];
+ 		tp=m.Mul(v-&gt;pos);
+ 		tn=m.Mul(v-&gt;normal);
+ 		tp+=interPos;
+ 		va-&gt;AddVertexTN(tp,tex-&gt;xend,tex-&gt;ystart,tn);
+ 
+-		v=&amp;(*pi)-&gt;object-&gt;vertices[(*pi)-&gt;prim-&gt;vertices[2]];
++		v=&amp;vertices[verticesIdx[2]];
+ 		tp=m.Mul(v-&gt;pos);
+ 		tn=m.Mul(v-&gt;normal);
+ 		tp+=interPos;
+ 		va-&gt;AddVertexTN(tp,tex-&gt;xend,tex-&gt;yend,tn);
+ 
+-		v=&amp;(*pi)-&gt;object-&gt;vertices[(*pi)-&gt;prim-&gt;vertices[3]];
++		v=&amp;vertices[verticesIdx[3]];
+ 		tp=m.Mul(v-&gt;pos);
+ 		tn=m.Mul(v-&gt;normal);
+ 		tp+=interPos;
+@@ -619,14 +621,14 @@
+ 
+ 	sort(distlist.begin(), distlist.end(), CompareProjDist);
+ 
++	glEnable(GL_BLEND);
+ 	glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+ 	glEnable(GL_TEXTURE_2D);
+ 	textureAtlas-&gt;BindTexture();
+-	glEnable(GL_BLEND);
+-	glDepthMask(0);
+ 	glColor4f(1,1,1,0.2f);
+ 	glAlphaFunc(GL_GREATER,0.0f);
+ 	glEnable(GL_ALPHA_TEST);
++	glDepthMask(0);
+ //	glFogfv(GL_FOG_COLOR,mapInfo-&gt;atmosphere.fogColor);
+ 	glDisable(GL_FOG);
+ 
+@@ -639,8 +641,13 @@
+ 	}
+ 	if(CProjectile::inArray)
+ 		CProjectile::DrawArray();
+-	glDisable(GL_TEXTURE_2D);
++
++	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
++	//glDisable(GL_TEXTURE_2D);
++	glDisable(GL_ALPHA_TEST);
++	glColor4f(1,1,1,1.0f);
+ 	glDepthMask(1);
++
+ 	currentParticles=(int)(ps.size()*0.8f+currentParticles*0.2f);
+ 	currentParticles+=(int)(0.2f*drawnPieces+0.3f*numFlyingPieces);
+ 	particleSaturation=(float)currentParticles/(float)maxParticles;
+@@ -993,6 +1000,7 @@
+ 	perlinFB-&gt;deselect();
+ 	glViewport(gu-&gt;viewPosX,0,gu-&gt;viewSizeX,gu-&gt;viewSizeY);
+ 
++	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+ 	glEnable(GL_DEPTH_TEST);
+ 	glDisable(GL_TEXTURE_2D);
+ 	glDepthMask(1);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001110.html">[Taspring-linux-commit] r6340 - in site/trunk: . wwwroot	wwwroot/external wwwroot/external/jwplayer	wwwroot/external/lytebox wwwroot/external/lytebox/images	wwwroot/images wwwroot/includes wwwroot/skins	wwwroot/skins/mediawiki wwwroot/skins/phpbb	wwwroot/skins/phpbb/imageset wwwroot/skins/phpbb/imageset/en	wwwroot/skins/phpbb/template wwwroot/skins/phpbb/theme	wwwroot/skins/phpbb/theme/images wwwroot/templates wwwroot/thumbs
+</A></li>
+	<LI>Next message: <A HREF="001112.html">[Taspring-linux-commit] r6342 - trunk/Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1111">[ date ]</a>
+              <a href="thread.html#1111">[ thread ]</a>
+              <a href="subject.html#1111">[ subject ]</a>
+              <a href="author.html#1111">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

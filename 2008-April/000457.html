@@ -1,0 +1,276 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5676 - trunk/rts/Sim/Path
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5676%20-%20trunk/rts/Sim/Path&In-Reply-To=%3C20080407184313.5AA6F46BB%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000456.html">
+   <LINK REL="Next"  HREF="000458.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5676 - trunk/rts/Sim/Path</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5676%20-%20trunk/rts/Sim/Path&In-Reply-To=%3C20080407184313.5AA6F46BB%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5676 - trunk/rts/Sim/Path">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon Apr  7 20:43:13 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000456.html">[Taspring-linux-commit] r5675 - trunk/Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="000458.html">[Taspring-linux-commit] r5677 - in trunk/tools/springie: . Springie	Springie/Properties Springie/autohost Springie/client	Springie/doc Springie/spring Springie/utils
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#457">[ date ]</a>
+              <a href="thread.html#457">[ thread ]</a>
+              <a href="subject.html#457">[ subject ]</a>
+              <a href="author.html#457">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-04-07 20:43:12 +0200 (Mon, 07 Apr 2008)
+New Revision: 5676
+
+Modified:
+   trunk/rts/Sim/Path/PathEstimator.cpp
+   trunk/rts/Sim/Path/PathEstimator.h
+Log:
+make the estimator fully multithreaded by giving each thread its own CPathFinder instance
+
+Modified: trunk/rts/Sim/Path/PathEstimator.cpp
+===================================================================
+--- trunk/rts/Sim/Path/PathEstimator.cpp	2008-04-07 13:07:59 UTC (rev 5675)
++++ trunk/rts/Sim/Path/PathEstimator.cpp	2008-04-07 18:43:12 UTC (rev 5676)
+@@ -121,39 +121,48 @@
+ void CPathEstimator::SpawnThreads(int numThreads, bool init) {
+ 	if (threads.size() != numThreads) {
+ 		threads.resize(numThreads);
++		pathFinders.resize(numThreads);
+ 	}
+ 
+-	const int vertexMult = nbrOfVertices / numThreads;
+-	const int blockMult = nbrOfBlocks / numThreads;
++	const int vertsPerThread = nbrOfVertices / numThreads;
++	const int blocksPerThread = nbrOfBlocks / numThreads;
+ 
+ 	for (int threadIdx = 0; threadIdx &lt; numThreads; threadIdx++) {
+ 		// if this is the last thread, we might have to do extra
+ 		// work if numThreads did not evenly divide nbrOfVertices
+ 		// or nbrOfBlocks, so calculate the remainder for both
+ 		const bool isLastThread = (threadIdx == numThreads - 1);
+-		const int verticesRem = isLastThread? (nbrOfVertices - vertexMult * numThreads): 0;
+-		const int blocksRem = isLastThread? (nbrOfBlocks - blockMult * numThreads): 0;
++		const int verticesRem = isLastThread? (nbrOfVertices - vertsPerThread * numThreads): 0;
++		const int blocksRem = isLastThread? (nbrOfBlocks - blocksPerThread * numThreads): 0;
+ 
+-		const int minVertex = threadIdx * vertexMult;
+-		const int maxVertex = minVertex + vertexMult + verticesRem;
+-		const int minBlock = threadIdx * blockMult;
+-		const int maxBlock = minBlock + blockMult + blocksRem;
++		const int minVertex = threadIdx * vertsPerThread;
++		const int maxVertex = minVertex + vertsPerThread + verticesRem;
++		const int minBlock = threadIdx * blocksPerThread;
++		const int maxBlock = minBlock + blocksPerThread + blocksRem;
+ 
+ 		if (init) {
+ 			threads[threadIdx] = SAFE_NEW
+ 				boost::thread(boost::bind(&amp;CPathEstimator::InitVerticesAndBlocks, this, minVertex, maxVertex, minBlock, maxBlock));
+ 		} else {
+ 			threads[threadIdx] = SAFE_NEW
+-				boost::thread(boost::bind(&amp;CPathEstimator::CalcOffsetsAndPathCosts, this, minBlock, maxBlock));
++				boost::thread(boost::bind(&amp;CPathEstimator::CalcOffsetsAndPathCosts, this, minBlock, maxBlock, threadIdx));
++
++			// allocate one private CPathFinder object per thread
++			pathFinders[threadIdx] = SAFE_NEW CPathFinder();
+ 		}
+ 	}
+ }
+ 
+-void CPathEstimator::JoinThreads(int numThreads) {
++void CPathEstimator::JoinThreads(int numThreads, bool init) {
+ 	for (int threadIdx = 0; threadIdx &lt; numThreads; threadIdx++) {
+ 		threads[threadIdx]-&gt;join();
+ 		delete threads[threadIdx];
+ 		threads[threadIdx] = 0x0;
++
++		if (!init) {
++			delete pathFinders[threadIdx];
++			pathFinders[threadIdx] = 0x0;
++		}
+ 	}
+ }
+ 
+@@ -162,7 +171,7 @@
+ 
+ 	if (numThreads &gt; 1) {
+ 		SpawnThreads(numThreads, true);
+-		JoinThreads(numThreads);
++		JoinThreads(numThreads, true);
+ 
+ 		char loadMsg[512];
+ 		sprintf(loadMsg, &quot;Reading estimate path costs (using %d threads)&quot;, numThreads);
+@@ -176,7 +185,7 @@
+ 			// re-spawn the threads for the wrapper which calls
+ 			// CalculateBlockOffsets() and EstimatePathCosts()
+ 			SpawnThreads(numThreads, false);
+-			JoinThreads(numThreads);
++			JoinThreads(numThreads, false);
+ 
+ 			WriteFile(name);
+ 		}
+@@ -231,12 +240,12 @@
+ 
+ 
+ // wrapper
+-void CPathEstimator::CalcOffsetsAndPathCosts(int minBlock, int maxBlock) {
+-	CalculateBlockOffsets(minBlock, maxBlock);
+-	EstimatePathCosts(minBlock, maxBlock);
++void CPathEstimator::CalcOffsetsAndPathCosts(int minBlock, int maxBlock, int threadID) {
++	CalculateBlockOffsets(minBlock, maxBlock, threadID);
++	EstimatePathCosts(minBlock, maxBlock, threadID);
+ }
+ 
+-void CPathEstimator::CalculateBlockOffsets(int minBlock, int maxBlock) {
++void CPathEstimator::CalculateBlockOffsets(int minBlock, int maxBlock, int) {
+ 	assert(maxBlock &lt;= nbrOfBlocks);
+ 
+ 	for (int idx = minBlock; idx &lt; maxBlock; idx++) {
+@@ -250,7 +259,7 @@
+ 	}
+ }
+ 
+-void CPathEstimator::EstimatePathCosts(int minBlock, int maxBlock) {
++void CPathEstimator::EstimatePathCosts(int minBlock, int maxBlock, int threadID) {
+ 	assert(maxBlock &lt;= nbrOfBlocks);
+ 
+ 	for (int move = 0; move &lt; moveinfo-&gt;moveData.size(); move++) {
+@@ -275,7 +284,7 @@
+ 		for (int idx = minBlock; idx &lt; maxBlock; idx++) {
+ 			int x = idx % nbrOfBlocksX;
+ 			int z = idx / nbrOfBlocksX;
+-			CalculateVertices(*mdi, x, z);
++			CalculateVertices(*mdi, x, z, threadID);
+ 		}
+ 	}
+ }
+@@ -325,9 +334,9 @@
+  * calculate all vertices connected from given block
+  * (always 4 out of 8 vertices connected to the block)
+  */
+-void CPathEstimator::CalculateVertices(const MoveData&amp; moveData, int blockX, int blockZ) {
++void CPathEstimator::CalculateVertices(const MoveData&amp; moveData, int blockX, int blockZ, int threadID) {
+ 	for (int dir = 0; dir &lt; PATH_DIRECTION_VERTICES; dir++) {
+-		CalculateVertex(moveData, blockX, blockZ, dir);
++		CalculateVertex(moveData, blockX, blockZ, dir, threadID);
+ 	}
+ }
+ 
+@@ -335,7 +344,7 @@
+ /*
+  * calculate requested vertex
+  */
+-void CPathEstimator::CalculateVertex(const MoveData&amp; moveData, int parentBlockX, int parentBlockZ, unsigned int direction) {
++void CPathEstimator::CalculateVertex(const MoveData&amp; moveData, int parentBlockX, int parentBlockZ, unsigned int direction, int threadID) {
+ 	// initial calculations
+ 	int parentBlocknr = parentBlockZ * nbrOfBlocksX + parentBlockX;
+ 	int childBlockX = parentBlockX + directionVector[direction].x;
+@@ -367,9 +376,15 @@
+ 	Path path;
+ 	SearchResult result;
+ 
+-	{
+-		// perform the search (NOTE: not thread-safe yet)
+-		boost::mutex::scoped_lock lock(pathFinderMutex);
++	if (threadID &gt;= 0) {
++		// since CPathFinder::GetPath() is not thread-safe,
++		// use this thread's &quot;private&quot; CPathFinder instance
++		// (rather than locking pathFinder-&gt;GetPath()) if we
++		// are in one
++		result = pathFinders[threadID]-&gt;GetPath(moveData, startPos, pfDef, path, false, true, 10000, false);
++	} else {
++		// otherwise use the pathFinder instance passed to
++		// the constructor of this CPathEstimator object
+ 		result = pathFinder-&gt;GetPath(moveData, startPos, pfDef, path, false, true, 10000, false);
+ 	}
+ 
+@@ -819,7 +834,7 @@
+ 
+ 		// Write hash.
+ 		unsigned int hash = Hash();
+-		zipWriteInFileInZip(file, (void*)&amp;hash, 4);
++		zipWriteInFileInZip(file, (void*) &amp;hash, 4);
+ 
+ 		// Write block-center-offsets.
+ 		for (int blocknr = 0; blocknr &lt; nbrOfBlocks; blocknr++) {
+
+Modified: trunk/rts/Sim/Path/PathEstimator.h
+===================================================================
+--- trunk/rts/Sim/Path/PathEstimator.h	2008-04-07 13:07:59 UTC (rev 5675)
++++ trunk/rts/Sim/Path/PathEstimator.h	2008-04-07 18:43:12 UTC (rev 5676)
+@@ -95,15 +95,15 @@
+ 		void InitVerticesAndBlocks(int, int, int, int);
+ 		void InitVertices(int, int);
+ 		void InitBlocks(int, int);
+-		void CalcOffsetsAndPathCosts(int, int);
+-		void CalculateBlockOffsets(int, int);
+-		void EstimatePathCosts(int, int);
++		void CalcOffsetsAndPathCosts(int, int, int threadID = -1);
++		void CalculateBlockOffsets(int, int, int);
++		void EstimatePathCosts(int, int, int);
+ 	
+ 		void SpawnThreads(int, bool);
+-		void JoinThreads(int);
++		void JoinThreads(int, bool);
+ 
++		std::vector&lt;CPathFinder*&gt; pathFinders;
+ 		boost::mutex loadMsgMutex;
+-		boost::mutex pathFinderMutex;
+ 		std::vector&lt;boost::thread*&gt; threads;
+ 
+ 
+@@ -144,9 +144,9 @@
+ 		};
+ 
+ 
+-		void FindOffset(const MoveData&amp; moveData, int blockX, int blockZ);
+-		void CalculateVertices(const MoveData&amp; moveData, int blockX, int blockZ);
+-		void CalculateVertex(const MoveData&amp; moveData, int parentBlockX, int parentBlockZ, unsigned int direction);
++		void FindOffset(const MoveData&amp;, int, int);
++		void CalculateVertices(const MoveData&amp;, int, int, int threadID = -1);
++		void CalculateVertex(const MoveData&amp;, int, int, unsigned int, int threadID = -1);
+ 	
+ 		SearchResult InitSearch(const MoveData&amp; moveData, const CPathFinderDef&amp; peDef);
+ 		SearchResult StartSearch(const MoveData&amp; moveData, const CPathFinderDef&amp; peDef);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000456.html">[Taspring-linux-commit] r5675 - trunk/Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="000458.html">[Taspring-linux-commit] r5677 - in trunk/tools/springie: . Springie	Springie/Properties Springie/autohost Springie/client	Springie/doc Springie/spring Springie/utils
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#457">[ date ]</a>
+              <a href="thread.html#457">[ thread ]</a>
+              <a href="subject.html#457">[ subject ]</a>
+              <a href="author.html#457">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

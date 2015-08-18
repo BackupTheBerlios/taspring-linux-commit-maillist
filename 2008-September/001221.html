@@ -1,0 +1,1043 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6451 - in trunk: rts/Map rts/Map/SMF	tools/unitsync tools/unitsync/test
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6451%20-%20in%20trunk%3A%20rts/Map%20rts/Map/SMF%0A%09tools/unitsync%20tools/unitsync/test&In-Reply-To=%3C20080923195519.7E36848A4%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001220.html">
+   <LINK REL="Next"  HREF="001222.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6451 - in trunk: rts/Map rts/Map/SMF	tools/unitsync tools/unitsync/test</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6451%20-%20in%20trunk%3A%20rts/Map%20rts/Map/SMF%0A%09tools/unitsync%20tools/unitsync/test&In-Reply-To=%3C20080923195519.7E36848A4%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6451 - in trunk: rts/Map rts/Map/SMF	tools/unitsync tools/unitsync/test">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Tue Sep 23 21:55:19 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001220.html">[Taspring-linux-commit] r6450 - trunk/rts/Lua
+</A></li>
+        <LI>Next message: <A HREF="001222.html">[Taspring-linux-commit] r6452 - in trunk/rts: Map/SMF Sim/MoveTypes	Sim/Units Sim/Units/UnitTypes System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1221">[ date ]</a>
+              <a href="thread.html#1221">[ thread ]</a>
+              <a href="subject.html#1221">[ subject ]</a>
+              <a href="author.html#1221">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-09-23 21:55:18 +0200 (Tue, 23 Sep 2008)
+New Revision: 6451
+
+Modified:
+   trunk/rts/Map/MapParser.cpp
+   trunk/rts/Map/ReadMap.h
+   trunk/rts/Map/SMF/SmfMapFile.cpp
+   trunk/rts/Map/SMF/SmfMapFile.h
+   trunk/rts/Map/SMF/SmfReadMap.cpp
+   trunk/tools/unitsync/CMakeLists.txt
+   trunk/tools/unitsync/test/test.cpp
+   trunk/tools/unitsync/unitsync.cpp
+   trunk/tools/unitsync/unitsync.h
+   trunk/tools/unitsync/unitsync_api.h
+Log:
+* Added unitsync APIs:
+
+  - DLL_EXPORT int __stdcall GetInfoMapSize(const char* filename, const char* name, int* width, int* height);
+  - DLL_EXPORT int __stdcall GetInfoMap(const char* filename, const char* name, void* data, int typeHint);
+
+  This allows lobbies to fetch and display e.g. heightmap and metalmap from a map.
+
+
+
+Modified: trunk/rts/Map/MapParser.cpp
+===================================================================
+--- trunk/rts/Map/MapParser.cpp	2008-09-23 19:05:07 UTC (rev 6450)
++++ trunk/rts/Map/MapParser.cpp	2008-09-23 19:55:18 UTC (rev 6451)
+@@ -36,8 +36,7 @@
+ {
+ 	const string mapConfig = GetMapConfigName(mapName);
+ 
+-	parser = SAFE_NEW LuaParser(&quot;maphelper/mapinfo.lua&quot;,
+-															SPRING_VFS_MAP_BASE, SPRING_VFS_MAP_BASE);
++	parser = SAFE_NEW LuaParser(&quot;maphelper/mapinfo.lua&quot;, SPRING_VFS_MAP_BASE, SPRING_VFS_MAP_BASE);
+ 	parser-&gt;GetTable(&quot;Map&quot;);
+ 	parser-&gt;AddString(&quot;fileName&quot;, mapName);
+ 	parser-&gt;AddString(&quot;fullName&quot;, &quot;maps/&quot; + mapName);
+@@ -76,7 +75,7 @@
+ 
+ 	pos.x = posTable.GetFloat(&quot;x&quot;, pos.x);
+ 	pos.z = posTable.GetFloat(&quot;z&quot;, pos.z);
+-	
++
+ 	return true;
+ }
+ 
+
+Modified: trunk/rts/Map/ReadMap.h
+===================================================================
+--- trunk/rts/Map/ReadMap.h	2008-09-23 19:05:07 UTC (rev 6450)
++++ trunk/rts/Map/ReadMap.h	2008-09-23 19:55:18 UTC (rev 6451)
+@@ -17,6 +17,7 @@
+ class CLoadSaveInterface;
+ class CBaseGroundDrawer;
+ 
++
+ struct MapFeatureInfo
+ {
+ 	float3 pos;
+@@ -24,9 +25,14 @@
+ 	float rotation;
+ };
+ 
++
+ struct MapBitmapInfo
+ {
+-	int width,height;
++	MapBitmapInfo() {}
++	MapBitmapInfo(int w, int h) : width(w), height(h) {}
++
++	int width;
++	int height;
+ };
+ 
+ 
+
+Modified: trunk/rts/Map/SMF/SmfMapFile.cpp
+===================================================================
+--- trunk/rts/Map/SMF/SmfMapFile.cpp	2008-09-23 19:05:07 UTC (rev 6450)
++++ trunk/rts/Map/SMF/SmfMapFile.cpp	2008-09-23 19:55:18 UTC (rev 6451)
+@@ -104,38 +104,44 @@
+ }
+ 
+ 
+-bool CSmfMapFile::ReadInfoMap(const string&amp; name, unsigned char* data, MapBitmapInfo* bmInfo)
++MapBitmapInfo CSmfMapFile::GetInfoMapSize(const string&amp; name) const
+ {
+-	if (name == &quot;grass&quot;) {
+-		bmInfo-&gt;width = header.mapx / 4;
+-		bmInfo-&gt;height = header.mapy / 4;
++	if (name == &quot;height&quot;) {
++		return MapBitmapInfo(header.mapx + 1, header.mapy + 1);
++	}
++	else if (name == &quot;grass&quot;) {
++		return MapBitmapInfo(header.mapx / 4, header.mapy / 4);
++	}
++	else if (name == &quot;metal&quot;) {
++		return MapBitmapInfo(header.mapx / 2, header.mapy / 2);
++	}
++	else if (name == &quot;type&quot;) {
++		return MapBitmapInfo(header.mapx / 2, header.mapy / 2);
++	}
++	return MapBitmapInfo(0, 0);
++}
+ 
+-		if (data != NULL) {
+-			ReadGrassMap(data);
+-		}
++
++bool CSmfMapFile::ReadInfoMap(const string&amp; name, void* data)
++{
++	if (name == &quot;height&quot;) {
++		ReadHeightmap((unsigned short*)data);
+ 		return true;
+ 	}
++	else if (name == &quot;grass&quot;) {
++		ReadGrassMap(data);
++		return true;
++	}
+ 	else if(name == &quot;metal&quot;) {
+-		bmInfo-&gt;width = header.mapx / 2;
+-		bmInfo-&gt;height = header.mapy / 2;
+-
+-		if (data != NULL) {
+-			ifs.Seek(header.metalmapPtr);
+-			ifs.Read(data, bmInfo-&gt;width * bmInfo-&gt;height);
+-		}
++		ifs.Seek(header.metalmapPtr);
++		ifs.Read(data, header.mapx / 2 * header.mapy / 2);
+ 		return true;
+ 	}
+ 	else if(name == &quot;type&quot;) {
+-		bmInfo-&gt;width = header.mapx / 2;
+-		bmInfo-&gt;height = header.mapy / 2;
+-
+-		if (data != NULL) {
+-			ifs.Seek(header.typeMapPtr);
+-			ifs.Read(data, bmInfo-&gt;width * bmInfo-&gt;height);
+-		}
++		ifs.Seek(header.typeMapPtr);
++		ifs.Read(data, header.mapx / 2 * header.mapy / 2);
+ 		return true;
+ 	}
+-
+ 	return false;
+ }
+ 
+@@ -156,13 +162,13 @@
+ 			ifs.Read(&amp;pos, 4);
+ 			pos = swabdword(pos);
+ 			ifs.Seek(pos);
+-			ifs.Read(data, header.mapx * header.mapy / 16);
++			ifs.Read(data, header.mapx / 4 * header.mapy / 4);
+ 			/* char; no swabbing. */
+ 			break; //we arent interested in other extensions anyway
+ 		}
+ 		else {
+ 			// assumes we can use data as scratch memory
+-			assert(size - 8 &lt;= header.mapx * header.mapy / 16);
++			assert(size - 8 &lt;= header.mapx / 4 * header.mapy / 4);
+ 			ifs.Read(data, size - 8);
+ 		}
+ 	}
+
+Modified: trunk/rts/Map/SMF/SmfMapFile.h
+===================================================================
+--- trunk/rts/Map/SMF/SmfMapFile.h	2008-09-23 19:05:07 UTC (rev 6450)
++++ trunk/rts/Map/SMF/SmfMapFile.h	2008-09-23 19:55:18 UTC (rev 6451)
+@@ -21,7 +21,8 @@
+ 	void ReadHeightmap(float* heightmap, float base, float mod);
+ 	void ReadFeatureInfo();
+ 	void ReadFeatureInfo(MapFeatureInfo* f);
+-	bool ReadInfoMap(const std::string&amp; name, unsigned char* infomap, MapBitmapInfo* bmInfo);
++	MapBitmapInfo GetInfoMapSize(const std::string&amp; name) const;
++	bool ReadInfoMap(const std::string&amp; name, void* data);
+ 
+ 	int GetNumFeatures()     const { return featureHeader.numFeatures; }
+ 	int GetNumFeatureTypes() const { return featureHeader.numFeatureType; }
+
+Modified: trunk/rts/Map/SMF/SmfReadMap.cpp
+===================================================================
+--- trunk/rts/Map/SMF/SmfReadMap.cpp	2008-09-23 19:05:07 UTC (rev 6450)
++++ trunk/rts/Map/SMF/SmfReadMap.cpp	2008-09-23 19:55:18 UTC (rev 6451)
+@@ -381,12 +381,12 @@
+ unsigned char *CSmfReadMap::GetInfoMap (const std::string&amp; name, MapBitmapInfo* bmInfo)
+ {
+ 	// get size
+-	if (!file.ReadInfoMap(name, NULL, bmInfo))
+-		return NULL;
++	*bmInfo = file.GetInfoMapSize(name);
++	if (bmInfo-&gt;width &lt;= 0) return NULL;
+ 
+ 	// get data
+ 	unsigned char* data = SAFE_NEW unsigned char[bmInfo-&gt;width * bmInfo-&gt;height];
+-	file.ReadInfoMap(name, data, bmInfo);
++	file.ReadInfoMap(name, data);
+ 	return data;
+ }
+ 
+
+Modified: trunk/tools/unitsync/CMakeLists.txt
+===================================================================
+--- trunk/tools/unitsync/CMakeLists.txt	2008-09-23 19:05:07 UTC (rev 6450)
++++ trunk/tools/unitsync/CMakeLists.txt	2008-09-23 19:55:18 UTC (rev 6451)
+@@ -61,6 +61,7 @@
+ 	../../rts/Lua/LuaUtils
+ 	../../rts/Lua/LuaIO
+ 	../../rts/Map/MapParser
++	../../rts/Map/SMF/SmfMapFile
+ 	../../rts/Rendering/Textures/Bitmap
+ 	../../rts/Rendering/Textures/nv_dds)
+ 
+
+Modified: trunk/tools/unitsync/test/test.cpp
+===================================================================
+--- trunk/tools/unitsync/test/test.cpp	2008-09-23 19:05:07 UTC (rev 6450)
++++ trunk/tools/unitsync/test/test.cpp	2008-09-23 19:55:18 UTC (rev 6451)
+@@ -2,9 +2,8 @@
+ ################################################################################
+ file=test.cpp
+ 
+-g++ -g -I../../../rts/System $file ../../../game/unitsync.so
+-
+-echo ./a.out Castles.smf ba621.sd7
++g++ -g -I../../../rts/System $file ../../../game/unitsync.so &amp;&amp; \
++echo ./a.out Castles.smf ba621.sd7 &amp;&amp; \
+ ./a.out Castles.smf ba621.sd7
+ 
+ exit
+@@ -71,6 +70,24 @@
+       const StartPos&amp; sp = mi.positions[p];
+       printf(&quot;    pos %i:     &lt;%5i, %5i&gt;\n&quot;, p, sp.x, sp.z);
+     }
++
++    char* infomaps[] = { &quot;height&quot;, &quot;grass&quot;, &quot;metal&quot;, &quot;type&quot;, NULL };
++    int width, height;
++    for (int i = 0; infomaps[i]; ++i) {
++      if (GetInfoMapSize(mapName.c_str(), infomaps[i], &amp;width, &amp;height)) {
++        printf(&quot;    %smap: %i x %i\n&quot;, infomaps[i], width, height);
++        /*void* data = malloc(width*height);
++        GetInfoMap(mapName.c_str(), infomaps[i], data, 1);
++        FILE* f = fopen(infomaps[i], &quot;w&quot;);
++        if (f == NULL) {
++          perror(infomaps[i]);
++        } else {
++          fwrite(data, 1, width*height, f);
++          fclose(f);
++        }
++        free(data);*/
++      }
++    }
+   }
+ }
+ 
+@@ -109,7 +126,7 @@
+   for (int a = 0; a &lt; mapArcCount; a++) {
+     printf(&quot;      arc %i: %s\n&quot;, a, GetMapArchiveName(a));
+   }
+-  
++
+   // map info
+   PrintMapInfo(map);
+ 
+@@ -118,7 +135,7 @@
+       PrintMapInfo(mapNames[i]);
+     }
+   }
+-    
++
+   // mod names
+   printf(&quot;  MODS\n&quot;);
+   const int modCount = GetPrimaryModCount();
+@@ -301,7 +318,7 @@
+     lpEndTable();
+     lpAddIntKeyStrVal(6, &quot;hello&quot;);
+     lpAddIntKeyStrVal(7, &quot;world&quot;);
+-  lpEndTable();  
++  lpEndTable();
+ 
+   if (!lpExecute()) {
+     printf(&quot;LuaParser API test failed: %s\n&quot;, lpErrorLog());
+@@ -349,8 +366,8 @@
+       printf(&quot;SubTable root-expr: '%s'\n&quot;, lpGetIntKeyStrVal(1, &quot;FAILURE&quot;));
+   lpRootTableExpr(&quot;[12].four&quot;);
+       printf(&quot;SubTable root-expr: '%s'\n&quot;, lpGetIntKeyStrVal(1, &quot;FAILURE&quot;));
+-  
+-  return true;  
++
++  return true;
+ }
+ 
+ 
+
+Modified: trunk/tools/unitsync/unitsync.cpp
+===================================================================
+--- trunk/tools/unitsync/unitsync.cpp	2008-09-23 19:05:07 UTC (rev 6450)
++++ trunk/tools/unitsync/unitsync.cpp	2008-09-23 19:55:18 UTC (rev 6451)
+@@ -9,7 +9,7 @@
+ #include &quot;Game/GameVersion.h&quot;
+ #include &quot;Lua/LuaParser.h&quot;
+ #include &quot;Map/MapParser.h&quot;
+-#include &quot;Map/SMF/mapfile.h&quot;
++#include &quot;Map/SMF/SmfMapFile.h&quot;
+ #include &quot;Platform/ConfigHandler.h&quot;
+ #include &quot;Platform/FileSystem.h&quot;
+ #include &quot;Rendering/Textures/Bitmap.h&quot;
+@@ -35,12 +35,21 @@
+ 	do { \
+ 		if (!(condition)) { \
+ 			char buf[256]; \
+-			sprintf(buf, &quot;%s:%d: %s&quot;, __FILE__, __LINE__, message); \
++			sprintf(buf, &quot;%s:%d: %s: %s&quot;, __FILE__, __LINE__, __FUNCTION__, message); \
+ 			MessageBox(0, buf, &quot;Unitsync assertion failed&quot;, MB_OK); \
+ 		} \
+ 		assert(condition); /* just crash after the error in release mode */ \
+ 	} while(0)
+ 
++#define CHECK_INIT() \
++	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init first.&quot;)
++
++#define CHECK_NULL(condition) \
++	ASSERT((condition) != NULL, #condition &quot; may not be null.&quot;)
++
++#define CHECK_NULL_OR_EMPTY(condition) \
++	ASSERT((condition) != NULL &amp;&amp; *(condition) != 0, #condition &quot; may not be null or empty.&quot;)
++
+ //This means that the DLL can only support one instance. Don't think this should be a problem.
+ static CSyncer *syncer = NULL;
+ 
+@@ -183,7 +192,8 @@
+ 			logOutput.Print(&quot;unitsync: joining\n&quot;);
+ 			syncer = new CSyncer(id);
+ 		}
+-	} catch (const std::exception&amp; e) {
++	}
++	catch (const std::exception&amp; e) {
+ 		Message(e.what());
+ 		return 0;
+ 	}
+@@ -331,15 +341,17 @@
+ 
+ DLL_EXPORT void __stdcall AddArchive(const char* name)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before AddArchive.&quot;);
+-	ASSERT(name &amp;&amp; *name, &quot;Don't pass a NULL pointer or an empty string to AddArchive.&quot;);
++	CHECK_INIT();
++	CHECK_NULL_OR_EMPTY(name);
++
+ 	vfsHandler-&gt;AddArchive(name, false);
+ }
+ 
+ DLL_EXPORT void __stdcall AddAllArchives(const char* root)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before AddAllArchives.&quot;);
+-	ASSERT(root &amp;&amp; *root, &quot;Don't pass a NULL pointer or an empty string to AddAllArchives.&quot;);
++	CHECK_INIT();
++	CHECK_NULL_OR_EMPTY(root);
++
+ 	vector&lt;string&gt; ars = archiveScanner-&gt;GetArchives(root);
+ //	Message(root);
+ 	for (vector&lt;string&gt;::iterator i = ars.begin(); i != ars.end(); ++i) {
+@@ -350,16 +362,18 @@
+ 
+ DLL_EXPORT unsigned int __stdcall GetArchiveChecksum(const char* arname)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetArchiveChecksum.&quot;);
+-	ASSERT(arname &amp;&amp; *arname, &quot;Don't pass a NULL pointer or an empty string to GetArchiveChecksum.&quot;);
++	CHECK_INIT();
++	CHECK_NULL_OR_EMPTY(arname);
++
+ 	logOutput.Print(&quot;archive checksum: %s\n&quot;, arname);
+ 	return archiveScanner-&gt;GetArchiveChecksum(arname);
+ }
+ 
+ DLL_EXPORT const char* __stdcall GetArchivePath(const char* arname)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetArchivePath.&quot;);
+-	ASSERT(arname &amp;&amp; *arname, &quot;Don't pass a NULL pointer or an empty string to GetArchivePath.&quot;);
++	CHECK_INIT();
++	CHECK_NULL_OR_EMPTY(arname);
++
+ 	logOutput.Print(&quot;archive path: %s\n&quot;, arname);
+ 	return GetStr(archiveScanner-&gt;GetArchivePath(arname));
+ }
+@@ -369,7 +383,8 @@
+ 
+ DLL_EXPORT int __stdcall GetMapCount()
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetMapCount.&quot;);
++	CHECK_INIT();
++
+ 	//vector&lt;string&gt; files = CFileHandler::FindFiles(&quot;{maps/*.smf,maps/*.sm3}&quot;);
+ 	vector&lt;string&gt; files = CFileHandler::FindFiles(&quot;maps/&quot;, &quot;{*.smf,*.sm3}&quot;);
+ 	vector&lt;string&gt; ars = archiveScanner-&gt;GetMaps();
+@@ -393,16 +408,18 @@
+ 
+ DLL_EXPORT const char* __stdcall GetMapName(int index)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetMapName.&quot;);
++	CHECK_INIT();
+ 	ASSERT((unsigned)index &lt; mapNames.size(), &quot;Array index out of bounds. Call GetMapCount before GetMapName.&quot;);
++
+ 	return GetStr(mapNames[index]);
+ }
+ 
+ 
+ DLL_EXPORT int __stdcall GetMapInfoEx(const char* name, MapInfo* outInfo, int version)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetMapInfo.&quot;);
+-	ASSERT(name &amp;&amp; *name &amp;&amp; outInfo, &quot;Don't pass a NULL pointer or an empty string to GetMapInfo.&quot;);
++	CHECK_INIT();
++	CHECK_NULL_OR_EMPTY(name);
++	CHECK_NULL(outInfo);
+ 
+ 	const string mapName = name;
+ 	ScopedMapLoader mapLoader(mapName);
+@@ -413,23 +430,22 @@
+ 	if (!mapParser.IsValid()) {
+ 		err = mapParser.GetErrorLog();
+ 	}
+-	const	LuaTable mapTable = mapParser.GetRoot();
++	const LuaTable mapTable = mapParser.GetRoot();
+ 
+ 	// Retrieve the map header as well
+ 	if (err.empty()) {
+ 		const string extension = mapName.substr(mapName.length() - 3);
+ 		if (extension == &quot;smf&quot;) {
+-			SMFHeader mh;
+-			string origName = name;
+-			mh.mapx = -1;
+-			{
+-				CFileHandler in(&quot;maps/&quot; + origName);
+-				if (in.FileExists()) {
+-					in.Read(&amp;mh, sizeof(mh));
+-				}
++			try {
++				CSmfMapFile file(name);
++				const SMFHeader&amp; mh = file.GetHeader();
++
++				outInfo-&gt;width  = mh.mapx * SQUARE_SIZE;
++				outInfo-&gt;height = mh.mapy * SQUARE_SIZE;
+ 			}
+-			outInfo-&gt;width  = mh.mapx * SQUARE_SIZE;
+-			outInfo-&gt;height = mh.mapy * SQUARE_SIZE;
++			catch (content_error&amp;) {
++				outInfo-&gt;width  = -1;
++			}
+ 		}
+ 		else {
+ 			int w = mapTable.GetInt(&quot;gameAreaW&quot;, 0);
+@@ -499,6 +515,10 @@
+ 
+ DLL_EXPORT int __stdcall GetMapInfo(const char* name, MapInfo* outInfo)
+ {
++	CHECK_INIT();
++	CHECK_NULL_OR_EMPTY(name);
++	CHECK_NULL(outInfo);
++
+ 	return GetMapInfoEx(name, outInfo, 0);
+ }
+ 
+@@ -506,28 +526,33 @@
+ 
+ DLL_EXPORT int __stdcall GetMapArchiveCount(const char* mapName)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetMapArchiveCount.&quot;);
++	CHECK_INIT();
++	CHECK_NULL_OR_EMPTY(mapName);
++
+ 	mapArchives = archiveScanner-&gt;GetArchivesForMap(mapName);
+ 	return mapArchives.size();
+ }
+ 
+ DLL_EXPORT const char* __stdcall GetMapArchiveName(int index)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetMapArchiveName.&quot;);
++	CHECK_INIT();
+ 	ASSERT((unsigned)index &lt; mapArchives.size(), &quot;Array index out of bounds. Call GetMapArchiveCount before GetMapArchiveName.&quot;);
++
+ 	return GetStr(mapArchives[index]);
+ }
+ 
+ DLL_EXPORT unsigned int __stdcall GetMapChecksum(int index)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetMapChecksum.&quot;);
++	CHECK_INIT();
+ 	ASSERT((unsigned)index &lt; mapNames.size(), &quot;Array index out of bounds. Call GetMapCount before GetMapChecksum.&quot;);
++
+ 	return archiveScanner-&gt;GetMapChecksum(mapNames[index]);
+ }
+ 
+ DLL_EXPORT unsigned int __stdcall GetMapChecksumFromName(const char* mapName)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetMapChecksumFromName.&quot;);
++	CHECK_INIT();
++
+ 	return archiveScanner-&gt;GetMapChecksum(mapName);
+ }
+ 
+@@ -599,31 +624,17 @@
+ 
+ 	// Read the map data
+ 	CFileHandler in(&quot;maps/&quot; + mapName);
+-	char* buffer = (char*)malloc(size);
+-	bool done = false;
++	unsigned char* buffer = (unsigned char*)malloc(size);
++
+ 	if (in.FileExists()) {
+-
+ 		SMFHeader mh;
+ 		in.Read(&amp;mh, sizeof(mh));
+ 		in.Seek(mh.minimapPtr + offset);
+ 		in.Read(buffer, size);
+-
+-		done = true;
+ 	}
+-/*	ifstream inFile;
+-	inFile.open(filename, ios_base::binary);
+-	if ( !inFile.is_open() )
+-		return 0;
+-	SM2Header sm2;
+-	inFile.read(reinterpret_cast&lt;char*&gt;(&amp;sm2), sizeof(sm2));
+-	inFile.seekg(sm2.minimapPtr+offset);
+-
+-	char* buffer = (char*)malloc(size);
+-	inFile.read(buffer, size); */
+-
+-	if (!done) {
++	else {
+ 		free(buffer);
+-		return 0;
++		return NULL;
+ 	}
+ 
+ 	// Do stuff
+@@ -632,7 +643,7 @@
+ 	void* ret = (void*)imgbuf;
+ 	unsigned short* colors = (unsigned short*)ret;
+ 
+-	unsigned char* temp = (unsigned char*)buffer;
++	unsigned char* temp = buffer;
+ 
+ 	for ( int i = 0; i &lt; numblocks; i++ )
+ 	{
+@@ -713,8 +724,8 @@
+  */
+ DLL_EXPORT void* __stdcall GetMinimap(const char* filename, int miplevel)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetMinimap.&quot;);
+-	ASSERT(filename &amp;&amp; *filename, &quot;Don't pass a NULL pointer or an empty string to GetMinimap.&quot;);
++	CHECK_INIT();
++	CHECK_NULL_OR_EMPTY(filename);
+ 	ASSERT(miplevel &gt;= 0 &amp;&amp; miplevel &lt;= 8, &quot;Miplevel must be between 0 and 8 (inclusive) in GetMinimap.&quot;);
+ 
+ 	const string mapName = filename;
+@@ -734,6 +745,106 @@
+ }
+ 
+ 
++/**
++ * @brief Retrieves dimensions of infomap for a map.
++ * @param filename The name of the map, including extension.
++ * @param name     Of which infomap to retrieve the dimensions.
++ * @param width    This is set to the width of the infomap, or 0 on error.
++ * @param height   This is set to the height of the infomap, or 0 on error.
++ * @return 1 when the infomap was found with a nonzero size, 0 on error.
++ * @see GetInfoMap
++ */
++DLL_EXPORT int __stdcall GetInfoMapSize(const char* filename, const char* name, int* width, int* height)
++{
++	CHECK_INIT();
++	CHECK_NULL_OR_EMPTY(filename);
++	CHECK_NULL_OR_EMPTY(name);
++	CHECK_NULL(width);
++	CHECK_NULL(height);
++
++	try {
++		ScopedMapLoader mapLoader(filename);
++		CSmfMapFile file(filename);
++		MapBitmapInfo bmInfo = file.GetInfoMapSize(name);
++
++		*width = bmInfo.width;
++		*height = bmInfo.height;
++
++		return bmInfo.width &gt; 0;
++	}
++	catch (content_error&amp;) {
++	}
++
++	return 0;
++}
++
++
++/**
++ * @brief Retrieves infomap data of a map.
++ * @param filename The name of the map, including extension.
++ * @param name     Which infomap to extract from the file.
++ * @param data     Pointer to memory location with enough room to hold the infomap data.
++ * @param typeHint One of bm_grayscale_8 (or 1) and bm_grayscale_16 (or 2).
++ * @return 1 if the infomap was succesfully extracted (and optionally converted),
++ * or 0 on error (map wasn't found, infomap wasn't found, or typeHint could not
++ * be honoured.)
++ *
++ * This function extracts an infomap from a map. This can currently be one of:
++ * &quot;height&quot;, &quot;metal&quot;, &quot;grass&quot;, &quot;type&quot;. The heightmap is natively in 16 bits per
++ * pixel, the others are in 8 bits pixel. Using typeHint one can give a hint to
++ * this function to convert from one format to another. Currently only the
++ * conversion from 16 bpp to 8 bpp is implemented.
++ */
++DLL_EXPORT int __stdcall GetInfoMap(const char* filename, const char* name, void* data, int typeHint)
++{
++	CHECK_INIT();
++	CHECK_NULL_OR_EMPTY(filename);
++	CHECK_NULL_OR_EMPTY(name);
++	CHECK_NULL(data);
++
++	string n = name;
++
++	try {
++		ScopedMapLoader mapLoader(filename);
++		CSmfMapFile file(filename);
++		int actualType = (n == &quot;height&quot; ? bm_grayscale_16 : bm_grayscale_8);
++
++		if (actualType == typeHint) {
++			return file.ReadInfoMap(n, data);
++		}
++		else if (actualType == bm_grayscale_16 &amp;&amp; typeHint == bm_grayscale_8) {
++			// convert from 16 bits per pixel to 8 bits per pixel
++			MapBitmapInfo bmInfo = file.GetInfoMapSize(name);
++			const int size = bmInfo.width * bmInfo.height;
++			if (size &lt;= 0) return 0;
++
++			unsigned short* temp = new unsigned short[size];
++			if (!file.ReadInfoMap(n, temp)) {
++				delete[] temp;
++				return 0;
++			}
++
++			const unsigned short* inp = temp;
++			const unsigned short* inp_end = temp + size;
++			unsigned char* outp = (unsigned char*) data;
++			for (; inp &lt; inp_end; ++inp, ++outp) {
++				*outp = *inp &gt;&gt; 8;
++			}
++			delete[] temp;
++			return 1;
++		}
++		else if (actualType == bm_grayscale_8 &amp;&amp; typeHint == bm_grayscale_16) {
++			// converting from 8 bits per pixel to 16 bits per pixel is unsupported
++			return 0;
++		}
++	}
++	catch (content_error&amp;) {
++	}
++
++	return 0;
++}
++
++
+ //////////////////////////
+ //////////////////////////
+ 
+@@ -749,7 +860,8 @@
+  */
+ DLL_EXPORT int __stdcall GetPrimaryModCount()
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetPrimaryModCount.&quot;);
++	CHECK_INIT();
++
+ 	modData = archiveScanner-&gt;GetPrimaryMods();
+ 	return modData.size();
+ }
+@@ -765,8 +877,9 @@
+  */
+ DLL_EXPORT const char* __stdcall GetPrimaryModName(int index)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetPrimaryModName.&quot;);
++	CHECK_INIT();
+ 	ASSERT((unsigned)index &lt; modData.size(), &quot;Array index out of bounds. Call GetPrimaryModCount before GetPrimaryModName.&quot;);
++
+ 	string x = modData[index].name;
+ 	return GetStr(x);
+ }
+@@ -782,8 +895,9 @@
+  */
+ DLL_EXPORT const char* __stdcall GetPrimaryModShortName(int index)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetPrimaryModShortName.&quot;);
++	CHECK_INIT();
+ 	ASSERT((unsigned)index &lt; modData.size(), &quot;Array index out of bounds. Call GetPrimaryModCount before GetPrimaryModShortName.&quot;);
++
+ 	string x = modData[index].shortName;
+ 	return GetStr(x);
+ }
+@@ -799,8 +913,9 @@
+  */
+ DLL_EXPORT const char* __stdcall GetPrimaryModVersion(int index)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetPrimaryModVersion.&quot;);
++	CHECK_INIT();
+ 	ASSERT((unsigned)index &lt; modData.size(), &quot;Array index out of bounds. Call GetPrimaryModCount before GetPrimaryModMutator.&quot;);
++
+ 	string x = modData[index].version;
+ 	return GetStr(x);
+ }
+@@ -816,8 +931,9 @@
+  */
+ DLL_EXPORT const char* __stdcall GetPrimaryModMutator(int index)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetPrimaryModMutator.&quot;);
++	CHECK_INIT();
+ 	ASSERT((unsigned)index &lt; modData.size(), &quot;Array index out of bounds. Call GetPrimaryModCount before GetPrimaryModMutator.&quot;);
++
+ 	string x = modData[index].mutator;
+ 	return GetStr(x);
+ }
+@@ -833,8 +949,9 @@
+  */
+ DLL_EXPORT const char* __stdcall GetPrimaryModGame(int index)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetPrimaryModName.&quot;);
++	CHECK_INIT();
+ 	ASSERT((unsigned)index &lt; modData.size(), &quot;Array index out of bounds. Call GetPrimaryModCount before GetPrimaryModName.&quot;);
++
+ 	string x = modData[index].game;
+ 	return GetStr(x);
+ }
+@@ -850,8 +967,9 @@
+  */
+ DLL_EXPORT const char* __stdcall GetPrimaryModShortGame(int index)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetPrimaryModShortGame.&quot;);
++	CHECK_INIT();
+ 	ASSERT((unsigned)index &lt; modData.size(), &quot;Array index out of bounds. Call GetPrimaryModCount before GetPrimaryModShortGame.&quot;);
++
+ 	string x = modData[index].shortGame;
+ 	return GetStr(x);
+ }
+@@ -867,8 +985,9 @@
+  */
+ DLL_EXPORT const char* __stdcall GetPrimaryModDescription(int index)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetPrimaryModDescription.&quot;);
++	CHECK_INIT();
+ 	ASSERT((unsigned)index &lt; modData.size(), &quot;Array index out of bounds. Call GetPrimaryModCount before GetPrimaryModDescription.&quot;);
++
+ 	string x = modData[index].description;
+ 	return GetStr(x);
+ }
+@@ -876,8 +995,9 @@
+ 
+ DLL_EXPORT const char* __stdcall GetPrimaryModArchive(int index)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetPrimaryModArchive.&quot;);
++	CHECK_INIT();
+ 	ASSERT((unsigned)index &lt; modData.size(), &quot;Array index out of bounds. Call GetPrimaryModCount before GetPrimaryModArchive.&quot;);
++
+ 	return GetStr(modData[index].dependencies[0]);
+ }
+ 
+@@ -896,8 +1016,9 @@
+  */
+ DLL_EXPORT int __stdcall GetPrimaryModArchiveCount(int index)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetPrimaryModArchiveCount.&quot;);
++	CHECK_INIT();
+ 	ASSERT((unsigned)index &lt; modData.size(), &quot;Array index out of bounds. Call GetPrimaryModCount before GetPrimaryModArchiveCount.&quot;);
++
+ 	primaryArchives = archiveScanner-&gt;GetArchives(modData[index].dependencies[0]);
+ 	return primaryArchives.size();
+ }
+@@ -910,15 +1031,17 @@
+  */
+ DLL_EXPORT const char* __stdcall GetPrimaryModArchiveList(int arnr)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetPrimaryModArchiveList.&quot;);
++	CHECK_INIT();
+ 	ASSERT((unsigned)arnr &lt; primaryArchives.size(), &quot;Array index out of bounds. Call GetPrimaryModArchiveCount before GetPrimaryModArchiveList.&quot;);
++
+ 	logOutput.Print(&quot;primary mod archive list: %s\n&quot;, primaryArchives[arnr].c_str());
+ 	return GetStr(primaryArchives[arnr]);
+ }
+ 
+ DLL_EXPORT int __stdcall GetPrimaryModIndex(const char* name)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetPrimaryModIndex.&quot;);
++	CHECK_INIT();
++
+ 	string n(name);
+ 	for (unsigned i = 0; i &lt; modData.size(); ++i) {
+ 		if (modData[i].name == n)
+@@ -930,14 +1053,16 @@
+ 
+ DLL_EXPORT unsigned int __stdcall GetPrimaryModChecksum(int index)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetPrimaryModChecksum.&quot;);
++	CHECK_INIT();
+ 	ASSERT((unsigned)index &lt; modData.size(), &quot;Array index out of bounds. Call GetPrimaryModCount before GetPrimaryModChecksum.&quot;);
++
+ 	return archiveScanner-&gt;GetModChecksum(GetPrimaryModArchive(index));
+ }
+ 
+ DLL_EXPORT unsigned int __stdcall GetPrimaryModChecksumFromName(const char* name)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler, &quot;Call Init before GetPrimaryModChecksumFromName.&quot;);
++	CHECK_INIT();
++
+ 	return archiveScanner-&gt;GetModChecksum(archiveScanner-&gt;ModNameToModArchive(name));
+ }
+ 
+@@ -1268,10 +1393,8 @@
+ 
+ DLL_EXPORT int __stdcall GetMapOptionCount(const char* name)
+ {
+-	ASSERT(archiveScanner &amp;&amp; vfsHandler,
+-	       &quot;Call Init before GetMapOptionCount.&quot;);
+-	ASSERT(name &amp;&amp; *name,
+-				 &quot;Don't pass a NULL pointer or an empty string to GetMapOptionCount.&quot;);
++	CHECK_INIT();
++	CHECK_NULL_OR_EMPTY(name);
+ 
+ 	ScopedMapLoader mapLoader(name);
+ 
+@@ -1601,7 +1724,8 @@
+ 
+ DLL_EXPORT int __stdcall OpenFileVFS(const char* name)
+ {
+-	ASSERT(name &amp;&amp; *name, &quot;Don't pass a NULL pointer or an empty string to OpenFileVFS.&quot;);
++	CHECK_NULL_OR_EMPTY(name);
++
+ 	logOutput.Print(&quot;openfilevfs: %s\n&quot;, name);
+ 
+ 	CFileHandler* fh = new CFileHandler(name);
+@@ -1619,6 +1743,7 @@
+ DLL_EXPORT void __stdcall CloseFileVFS(int handle)
+ {
+ 	ASSERT(openFiles.find(handle) != openFiles.end(), &quot;Unregistered handle. Pass the handle returned by OpenFileVFS to CloseFileVFS.&quot;);
++
+ 	logOutput.Print(&quot;closefilevfs: %d\n&quot;, handle);
+ 	delete openFiles[handle];
+ 	openFiles.erase(handle);
+@@ -1627,7 +1752,8 @@
+ DLL_EXPORT void __stdcall ReadFileVFS(int handle, void* buf, int length)
+ {
+ 	ASSERT(openFiles.find(handle) != openFiles.end(), &quot;Unregistered handle. Pass the handle returned by OpenFileVFS to ReadFileVFS.&quot;);
+-	ASSERT(buf, &quot;Don't pass a NULL pointer to ReadFileVFS.&quot;);
++	CHECK_NULL(buf);
++
+ 	logOutput.Print(&quot;readfilevfs: %d\n&quot;, handle);
+ 	CFileHandler* fh = openFiles[handle];
+ 	fh-&gt;Read(buf, length);
+@@ -1636,6 +1762,7 @@
+ DLL_EXPORT int __stdcall FileSizeVFS(int handle)
+ {
+ 	ASSERT(openFiles.find(handle) != openFiles.end(), &quot;Unregistered handle. Pass the handle returned by OpenFileVFS to FileSizeVFS.&quot;);
++
+ 	logOutput.Print(&quot;filesizevfs: %d\n&quot;, handle);
+ 	CFileHandler* fh = openFiles[handle];
+ 	return fh-&gt;FileSize();
+@@ -1681,8 +1808,9 @@
+ // until 0 is returned. size should be set to max namebuffer size on call
+ DLL_EXPORT int __stdcall FindFilesVFS(int handle, char* nameBuf, int size)
+ {
+-	ASSERT(nameBuf, &quot;Don't pass a NULL pointer to FindFilesVFS.&quot;);
++	CHECK_NULL(nameBuf);
+ 	ASSERT(size &gt; 0, &quot;Negative or zero buffer length doesn't make sense.&quot;);
++
+ 	logOutput.Print(&quot;findfilesvfs: %d\n&quot;, handle);
+ 	if ((unsigned)handle &gt;= curFindFiles.size())
+ 		return 0;
+@@ -1700,7 +1828,8 @@
+ // returns 0 on error, a handle otherwise
+ DLL_EXPORT int __stdcall OpenArchive(const char* name)
+ {
+-	ASSERT(name &amp;&amp; *name, &quot;Don't pass a NULL pointer or an empty string to OpenArchive.&quot;);
++	CHECK_NULL_OR_EMPTY(name);
++
+ 	CArchiveBase* a = CArchiveFactory::OpenArchive(name);
+ 	if (a) {
+ 		nextArchive++;
+@@ -1715,8 +1844,9 @@
+ // returns 0 on error, a handle otherwise
+ DLL_EXPORT int __stdcall OpenArchiveType(const char* name, const char* type)
+ {
+-	ASSERT(name &amp;&amp; *name &amp;&amp; type &amp;&amp; *type,
+-	       &quot;Don't pass a NULL pointer or an empty string to OpenArchiveType.&quot;);
++	CHECK_NULL_OR_EMPTY(name);
++	CHECK_NULL_OR_EMPTY(type);
++
+ 	CArchiveBase* a = CArchiveFactory::OpenArchive(name, type);
+ 	if (a) {
+ 		nextArchive++;
+@@ -1731,6 +1861,7 @@
+ DLL_EXPORT void __stdcall CloseArchive(int archive)
+ {
+ 	ASSERT(openArchives.find(archive) != openArchives.end(), &quot;Unregistered archive. Pass the handle returned by OpenArchive to CloseArchive.&quot;);
++
+ 	delete openArchives[archive];
+ 	openArchives.erase(archive);
+ }
+@@ -1738,7 +1869,9 @@
+ DLL_EXPORT int __stdcall FindFilesArchive(int archive, int cur, char* nameBuf, int* size)
+ {
+ 	ASSERT(openArchives.find(archive) != openArchives.end(), &quot;Unregistered archive. Pass the handle returned by OpenArchive to FindFilesArchive.&quot;);
+-	ASSERT(nameBuf &amp;&amp; size, &quot;Don't pass a NULL pointer to FindFilesArchive.&quot;);
++	CHECK_NULL(nameBuf);
++	CHECK_NULL(size);
++
+ 	CArchiveBase* a = openArchives[archive];
+ 
+ 	logOutput.Print(&quot;findfilesarchive: %d\n&quot;, archive);
+@@ -1756,7 +1889,8 @@
+ DLL_EXPORT int __stdcall OpenArchiveFile(int archive, const char* name)
+ {
+ 	ASSERT(openArchives.find(archive) != openArchives.end(), &quot;Unregistered archive. Pass the handle returned by OpenArchive to OpenArchiveFile.&quot;);
+-	ASSERT(name &amp;&amp; *name, &quot;Don't pass a NULL pointer or an empty string to OpenArchiveFile.&quot;);
++	CHECK_NULL_OR_EMPTY(name);
++
+ 	CArchiveBase* a = openArchives[archive];
+ 	return a-&gt;OpenFile(name);
+ }
+@@ -1764,7 +1898,8 @@
+ DLL_EXPORT int __stdcall ReadArchiveFile(int archive, int handle, void* buffer, int numBytes)
+ {
+ 	ASSERT(openArchives.find(archive) != openArchives.end(), &quot;Unregistered archive. Pass the handle returned by OpenArchive to ReadArchiveFile.&quot;);
+-	ASSERT(buffer, &quot;Don't pass a NULL pointer to ReadArchiveFile.&quot;);
++	CHECK_NULL(buffer);
++
+ 	CArchiveBase* a = openArchives[archive];
+ 	return a-&gt;ReadFile(handle, buffer, numBytes);
+ }
+@@ -1772,6 +1907,7 @@
+ DLL_EXPORT void __stdcall CloseArchiveFile(int archive, int handle)
+ {
+ 	ASSERT(openArchives.find(archive) != openArchives.end(), &quot;Unregistered archive. Pass the handle returned by OpenArchive to CloseArchiveFile.&quot;);
++
+ 	CArchiveBase* a = openArchives[archive];
+ 	return a-&gt;CloseFile(handle);
+ }
+@@ -1779,6 +1915,7 @@
+ DLL_EXPORT int __stdcall SizeArchiveFile(int archive, int handle)
+ {
+ 	ASSERT(openArchives.find(archive) != openArchives.end(), &quot;Unregistered archive. Pass the handle returned by OpenArchive to SizeArchiveFile.&quot;);
++
+ 	CArchiveBase* a = openArchives[archive];
+ 	return a-&gt;FileSize(handle);
+ }
+
+Modified: trunk/tools/unitsync/unitsync.h
+===================================================================
+--- trunk/tools/unitsync/unitsync.h	2008-09-23 19:05:07 UTC (rev 6450)
++++ trunk/tools/unitsync/unitsync.h	2008-09-23 19:55:18 UTC (rev 6451)
+@@ -44,6 +44,12 @@
+ };
+ 
+ 
++enum BitmapType {
++	bm_grayscale_8 = 1,
++	bm_grayscale_16 = 2
++};
++
++
+ const char *GetStr(std::string str);
+ 
+ 
+
+Modified: trunk/tools/unitsync/unitsync_api.h
+===================================================================
+--- trunk/tools/unitsync/unitsync_api.h	2008-09-23 19:05:07 UTC (rev 6450)
++++ trunk/tools/unitsync/unitsync_api.h	2008-09-23 19:55:18 UTC (rev 6451)
+@@ -42,6 +42,8 @@
+ DLL_EXPORT const char*  __stdcall GetMapArchiveName(int index);
+ DLL_EXPORT unsigned int __stdcall GetMapChecksum(int index);
+ DLL_EXPORT void*        __stdcall GetMinimap(const char* filename, int miplevel);
++DLL_EXPORT int          __stdcall GetInfoMapSize(const char* filename, const char* name, int* width, int* height);
++DLL_EXPORT int          __stdcall GetInfoMap(const char* filename, const char* name, void* data, int typeHint);
+ 
+ DLL_EXPORT int          __stdcall GetPrimaryModCount();
+ DLL_EXPORT const char*  __stdcall GetPrimaryModName(int index);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001220.html">[Taspring-linux-commit] r6450 - trunk/rts/Lua
+</A></li>
+	<LI>Next message: <A HREF="001222.html">[Taspring-linux-commit] r6452 - in trunk/rts: Map/SMF Sim/MoveTypes	Sim/Units Sim/Units/UnitTypes System
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1221">[ date ]</a>
+              <a href="thread.html#1221">[ thread ]</a>
+              <a href="subject.html#1221">[ subject ]</a>
+              <a href="author.html#1221">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

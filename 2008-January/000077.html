@@ -1,0 +1,1088 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5269 - in	trunk/Lobby/TASServer/WebInterface: . inc
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5269%20-%20in%0A%09trunk/Lobby/TASServer/WebInterface%3A%20.%20inc&In-Reply-To=%3CE1JAvL4-0001CF-6p%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000076.html">
+   <LINK REL="Next"  HREF="000078.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5269 - in	trunk/Lobby/TASServer/WebInterface: . inc</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5269%20-%20in%0A%09trunk/Lobby/TASServer/WebInterface%3A%20.%20inc&In-Reply-To=%3CE1JAvL4-0001CF-6p%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5269 - in	trunk/Lobby/TASServer/WebInterface: . inc">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Jan  4 23:48:30 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000076.html">[Taspring-linux-commit] r5268 - trunk/Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="000078.html">[Taspring-linux-commit] r5270 - in trunk/rts: Game System/Net
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#77">[ date ]</a>
+              <a href="thread.html#77">[ thread ]</a>
+              <a href="subject.html#77">[ subject ]</a>
+              <a href="author.html#77">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: betalord
+Date: 2008-01-04 23:48:29 +0100 (Fri, 04 Jan 2008)
+New Revision: 5269
+
+Added:
+   trunk/Lobby/TASServer/WebInterface/inc/HtmlFormParser.php
+   trunk/Lobby/TASServer/WebInterface/inc/curl_phpbb.class.php
+   trunk/Lobby/TASServer/WebInterface/inc/curl_phpbb.example.php
+Modified:
+   trunk/Lobby/TASServer/WebInterface/ban.process.php
+   trunk/Lobby/TASServer/WebInterface/inc/constants.inc
+Log:
+added automated posting on the forum when new ban entry is added. I've stolen some code from the net (both scripts are GPLed)
+
+Modified: trunk/Lobby/TASServer/WebInterface/ban.process.php
+===================================================================
+--- trunk/Lobby/TASServer/WebInterface/ban.process.php	2008-01-04 21:04:39 UTC (rev 5268)
++++ trunk/Lobby/TASServer/WebInterface/ban.process.php	2008-01-04 22:48:29 UTC (rev 5269)
+@@ -1,6 +1,7 @@
+ &lt;?php require(&quot;inc/head.php&quot;) ?&gt;
+ 
+ &lt;?php 
++  require_once('inc/curl_phpbb.class.php');
+   
+   function returnError($err_msg) 
+   {
+@@ -41,8 +42,40 @@
+ 
+     // close connection with server:
+     $conn-&gt;close();
+-  }  
++  }
++
++  // will try to make a post in the private moderation forum to notify other moderators about this new ban entry
++  function postOnForum($message, &amp;$errormsg) {
++    global $constants;
++  
++    $forum_id = 17;
++    $topic_id = 4091;
+     
++    // The ending backslash is required.
++    $phpbb = new curl_phpbb('<A HREF="http://spring.clan-sy.com/phpbb/">http://spring.clan-sy.com/phpbb/</A>');
++    
++    // Log in
++    $r = $phpbb-&gt;login($constants['forumposter_username'], $constants['forumposter_password']);
++    if (!$r) {
++      $errormsg = 'ErrCode: ' . implode(&quot; - &quot;, $phpbb-&gt;error);
++      return false;
++    }
++
++    // Post a topic reply
++    $r = $phpbb-&gt;topic_reply_advanced($topic_id, $forum_id, $message, &amp;$errormsg);
++    if (!$r) {
++      return false;
++    }
++
++    // Log out
++    $r = $phpbb-&gt;logout();
++    if (!$r) {
++      // ignore! We were still successful
++    }
++    
++    return true;
++  }
++    
+   //$bandur; // ban duration. If 1, then we banned for limited time, if 2, we banned for indefinite time
+   if ($_POST[&quot;R_bandDuration&quot;] == &quot;limited&quot;) $bandur = 1;
+   else if ($_POST[&quot;R_bandDuration&quot;] == &quot;unlimited&quot;) $bandur = 2;
+@@ -111,6 +144,22 @@
+   $insert .= ', &quot;' . $priv_reason . '&quot;';
+   $insert .= ', &quot;' . $pub_reason . '&quot;';
+   $insert .= &quot;)&quot;;
++  
++  // construct $forumpost, which is what we'll post on the forum:
++  $forumpost = &quot;&lt;&quot; . $_SESSION['username'] . &quot;&gt; has just added new ban entry:\n\n[list]\n&quot;;
++  if ($_POST[&quot;C1&quot;] == 1) $forumpost .= &quot;[*]Banned username: [color=#0000FF]&quot; . $username . &quot;[/color]\n&quot;;
++  if ($bandur == 1) {
++    $forumpost .= &quot;[*]Banned until &quot; . date(&quot;Y-m-d, H:i:s&quot;, $enddate) . &quot;\n&quot;;
++  } else {
++  $forumpost .= &quot;[*]Banned indefinitely\n&quot;;
++  }
++  if ($_POST[&quot;C2&quot;] == 1) $forumpost .= &quot;[*]Banned IP: &quot; . ($ip_start == $ip_end ? $ip_start : $ip_start . &quot; - &quot; . $ip_end) . &quot;\n&quot;;
++  if ($_POST[&quot;C3&quot;] == 1) $forumpost .= &quot;[*]Banned User ID: &quot; . $user_id . &quot;\n&quot;;
++  $forumpost .= &quot;[/list]\n\n&quot;;
++  $forumpost .= &quot;When user tries to connect, he will see:\n&quot;;
++  $forumpost .= &quot;[quote]&quot;.$pub_reason.&quot;[/quote]\n&quot;;
++  $forumpost .= &quot;&lt;&quot; . $_SESSION['username'] . &quot;&gt; says this about it:\n&quot;;
++  $forumpost .= &quot;[quote]&quot;.$priv_reason.&quot;[/quote]\n&quot;;
+ 
+   
+   // now connect to the database and add new ban entry:
+@@ -129,7 +178,12 @@
+   mysql_close($dbh);
+   
+   echo &quot;&lt;p&gt;New ban entry has been successfully created. Now forcing TASServer to fetch new ban entries from the database ... &lt;/p&gt;&quot;;
+-  forceUpdate();
++  forceUpdate(); 
++  if (!postOnForum($forumpost, &amp;$errormsg)) {
++    echo &quot;&lt;p style='color: red'&gt;Unable to post on the forum, you will have to post it manually. (error: &quot; . $errormsg . &quot;&lt;/p&gt;&quot;;
++  } else {
++    echo &quot;&lt;p&gt;Post has been added to forum successfully.&lt;/p&gt;&quot;;
++  }  
+   echo &quot;&lt;a class='button1' href='ban.php'&gt;OK&lt;/a&gt;&quot;;
+   
+ ?&gt;
+
+Added: trunk/Lobby/TASServer/WebInterface/inc/HtmlFormParser.php
+===================================================================
+--- trunk/Lobby/TASServer/WebInterface/inc/HtmlFormParser.php	                        (rev 0)
++++ trunk/Lobby/TASServer/WebInterface/inc/HtmlFormParser.php	2008-01-04 22:48:29 UTC (rev 5269)
+@@ -0,0 +1,312 @@
++&lt;?php
++
++/**
++ * HTML Form Parser
++ * This will extract all forms and his elemets in an
++ * big assoc Array.
++ *
++ * @package HtmlFormParser
++ * @version $Id 1.0
++ * @author Peter Valicek &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">Sonny2 at gmx.DE</A>&gt;
++ * @copyright 2004 Peter Valicek Peter Valicek &lt;<A HREF="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">Sonny2 at gmx.DE</A>&gt;
++ */
++
++class HtmlFormParser {
++	
++	/**
++	 * Core HTML Data
++	 * @access public
++	 * @var string
++	 * @see HtmlFormParser()
++	 */
++	var $html_data = '';
++	
++	/**
++	 * Param Array of all Elemets
++	 * @access private
++	 * @var array
++	 */
++	var $_return = array();
++	
++	/**
++	 * Form counter
++	 * @access private
++	 * @var int
++	 */
++	var $_counter = '';
++	
++	/**
++	 * Form button Counter
++	 * @access private
++	 * @var int
++	 * @see parseForms()
++	 */
++	var $button_counter = '';
++	
++	/**
++	 * unique identifiert for parsing
++	 * @access private
++	 * @var string
++	 * @see HtmlFormParser()
++	 */
++	var $_unique_id = '';
++	 
++	/**
++	 * HtmlFormParser Constructor
++	 * @access public
++	 * @param mixed $html_data Could be either an big array or an string
++	 */
++	function HtmlFormParser( $html_data ) {
++		if ( is_array($html_data) ) {
++			$this-&gt;html_data = join('', $html_data);
++		} else {
++			$this-&gt;html_data = $html_data;
++		}
++		$this-&gt;_return = array();
++		$this-&gt;_counter = 0;
++		$this-&gt;button_counter = 0;
++		$this-&gt;_unique_id = md5(time());
++	}
++	
++	/**
++	 * Parse all Forms in given Data
++	 * @access public
++	 * @return array
++	 */
++	function parseForms() {
++		if ( preg_match_all(&quot;/&lt;form.*&gt;.+&lt;\/form&gt;/isU&quot;, $this-&gt;html_data, $forms) ) {
++			foreach ( $forms[0] as $form ) {
++				/*
++				 * Form Details like method, action ..
++				 */
++				preg_match(&quot;/&lt;form.*name=[\&quot;']?([\w\s]*)[\&quot;']?[\s&gt;]/i&quot;, $form, $form_name);
++				$this-&gt;_return[$this-&gt;_counter]['form_data']['name'] = preg_replace(&quot;/[\&quot;'&lt;&gt;]/&quot;, &quot;&quot;, $form_name[1]);
++				preg_match(&quot;/&lt;form.*action=(\&quot;([^\&quot;]*)\&quot;|'([^']*)'|[^&gt;\s]*)([^&gt;]*)?&gt;/is&quot;, $form, $action);
++				$this-&gt;_return[$this-&gt;_counter]['form_data']['action'] = preg_replace(&quot;/[\&quot;'&lt;&gt;]/&quot;, &quot;&quot;, $action[1]);
++				preg_match(&quot;/&lt;form.*method=[\&quot;']?([\w\s]*)[\&quot;']?[\s&gt;]/i&quot;, $form, $method);
++				$this-&gt;_return[$this-&gt;_counter]['form_data']['method'] = preg_replace(&quot;/[\&quot;'&lt;&gt;]/&quot;, &quot;&quot;, $method[1]);
++				preg_match(&quot;/&lt;form.*enctype=(\&quot;([^\&quot;]*)\&quot;|'([^']*)'|[^&gt;\s]*)([^&gt;]*)?&gt;/is&quot;, $form, $enctype);
++				$this-&gt;_return[$this-&gt;_counter]['form_data']['enctype'] = preg_replace(&quot;/[\&quot;'&lt;&gt;]/&quot;, &quot;&quot;, $enctype[1]);
++				
++				/*
++				 * &lt;input type=hidden entries
++				 */
++				if ( preg_match_all(&quot;/&lt;input.*type=[\&quot;']?hidden[\&quot;']?.*&gt;$/im&quot;, $form, $hiddens) ) {					
++					foreach ( $hiddens[0] as $hidden ) {
++						$this-&gt;_return[$this-&gt;_counter]['form_elemets'][$this-&gt;_getName($hidden)] = array(
++																							'type'	=&gt; 'hidden',
++																							'value'	=&gt; $this-&gt;_getValue($hidden)
++																							);
++					}
++				}
++				
++				/*
++				 * &lt;input type=text entries
++				 */
++				if ( preg_match_all(&quot;/&lt;input.*type=[\&quot;']?text[\&quot;']?.*&gt;/iU&quot;, $form, $texts) ) { 
++					foreach ( $texts[0] as $text ) {
++						$this-&gt;_return[$this-&gt;_counter]['form_elemets'][$this-&gt;_getName($text)] = array(
++																							'type'	=&gt; 'text',
++																							'value'	=&gt; $this-&gt;_getValue($text)
++																							);
++					}
++				}
++				
++				/*
++				 * &lt;input type=password entries
++				 */
++				if ( preg_match_all(&quot;/&lt;input.*type=[\&quot;']?password[\&quot;']?.*&gt;/iU&quot;, $form, $passwords) ) { 
++					foreach ( $passwords[0] as $password ) {
++						$this-&gt;_return[$this-&gt;_counter]['form_elemets'][$this-&gt;_getName($password)] = array(
++																							'type'	=&gt; 'password',
++																							'value'	=&gt; $this-&gt;_getValue($password)
++																							);
++					}
++				}
++				
++				/*
++				 * &lt;textarea entries
++				 */
++				if ( preg_match_all(&quot;/&lt;textarea.*&gt;.*&lt;\/textarea&gt;/isU&quot;, $form, $textareas) ) {
++					foreach ( $textareas[0] as $textarea ) {
++						preg_match(&quot;/&lt;textarea.*&gt;(.*)&lt;\/textarea&gt;/isU&quot;, $textarea, $textarea_value);
++						$this-&gt;_return[$this-&gt;_counter]['form_elemets'][$this-&gt;_getName($textarea)] = array(
++																							'type'	=&gt; 'textarea',
++																							'value'	=&gt; $textarea_value[1]
++																							);
++					}
++				}
++				
++				/*
++				 * &lt;input type=checkbox entries
++				 */
++				if ( preg_match_all(&quot;/&lt;input.*type=[\&quot;']?checkbox[\&quot;']?.*&gt;/iU&quot;, $form, $checkboxes) ) {
++					foreach ( $checkboxes[0] as $checkbox ) {
++						if ( preg_match(&quot;/checked/i&quot;, $checkbox) ) {
++							$this-&gt;_return[$this-&gt;_counter]['form_elemets'][$this-&gt;_getName($checkbox)] = array(
++																							'type'	=&gt; 'checkbox',
++																							'value'	=&gt; 'on'
++																							);
++						} else {
++							$this-&gt;_return[$this-&gt;_counter]['form_elemets'][$this-&gt;_getName($checkbox)] = array(
++																							'type'	=&gt; 'checkbox',
++																							'value'	=&gt; ''
++																							);
++						}
++					}
++				}
++				
++				/*
++				 * &lt;input type=radio entries
++				 */
++				if ( preg_match_all(&quot;/&lt;input.*type=[\&quot;']?radio[\&quot;']?.*&gt;/iU&quot;, $form, $radios) ) {
++					foreach ( $radios[0] as $radio ) {
++						if ( preg_match(&quot;/checked/i&quot;, $radio) ) {
++							$this-&gt;_return[$this-&gt;_counter]['form_elemets'][$this-&gt;_getName($radio)] = array(
++																							'type'	=&gt; 'radio',
++																							'value'	=&gt; $this-&gt;_getValue($radio)
++																							);
++						}
++					}		
++				}
++				
++				/*
++				 * &lt;input type=submit entries
++				 */
++				if ( preg_match_all(&quot;/&lt;input.*type=[\&quot;']?submit[\&quot;']?.*&gt;/iU&quot;, $form, $submits) ) {
++					foreach ( $submits[0] as $submit ) {
++						$this-&gt;_return[$this-&gt;_counter]['buttons'][$this-&gt;button_counter] = array(
++																							'type'	=&gt; 'submit',
++																							'name'	=&gt; $this-&gt;_getName($submit),
++																							'value'	=&gt; $this-&gt;_getValue($submit)
++																							);
++						$this-&gt;button_counter++;
++					}
++				}
++				
++				/*
++				 * &lt;input type=button entries
++				 */
++				if ( preg_match_all(&quot;/&lt;input.*type=[\&quot;']?button[\&quot;']?.*&gt;/iU&quot;, $form, $buttons) ) {
++					foreach ( $buttons[0] as $button ) {
++						$this-&gt;_return[$this-&gt;_counter]['buttons'][$this-&gt;button_counter] = array(
++																							'type'	=&gt; 'button',
++																							'name'	=&gt; $this-&gt;_getName($button),
++																							'value'	=&gt; $this-&gt;_getValue($button)
++																							);
++						$this-&gt;button_counter++;
++					}
++				}
++				
++				/*
++				 * &lt;input type=reset entries
++				 */
++				if ( preg_match_all(&quot;/&lt;input.*type=[\&quot;']?reset[\&quot;']?.*&gt;/iU&quot;, $form, $resets) ) {
++					foreach ( $resets[0] as $reset ) {
++						$this-&gt;_return[$this-&gt;_counter]['buttons'][$this-&gt;button_counter] = array(
++																							'type'	=&gt; 'reset',
++																							'name'	=&gt; $this-&gt;_getName($reset),
++																							'value'	=&gt; $this-&gt;_getValue($reset)
++																							);
++						$this-&gt;button_counter++;
++					}
++				}
++				
++				/*
++				 * &lt;input type=image entries
++				 */
++				if ( preg_match_all(&quot;/&lt;input.*type=[\&quot;']?image[\&quot;']?.*&gt;/iU&quot;, $form, $images) ) {
++					foreach ( $images[0] as $image ) {
++						$this-&gt;_return[$this-&gt;_counter]['buttons'][$this-&gt;button_counter] = array(
++																							'type'	=&gt; 'reset',
++																							'name'	=&gt; $this-&gt;_getName($image),
++																							'value'	=&gt; $this-&gt;_getValue($image)
++																							);
++						$this-&gt;button_counter++;
++					}
++				}
++				
++				/*
++				 * &lt;input type=select entries
++				 * Here I have to go on step around to grep at first all select names and then
++				 * the content. Seems not to work in an other way
++				 */
++				if ( preg_match_all(&quot;/&lt;select.*&gt;.+&lt;\/select&gt;/isU&quot;, $form, $selects) ) {
++					foreach ( $selects[0] as $select ) {
++						if ( preg_match_all(&quot;/&lt;option.*&gt;.+&lt;\/option&gt;/isU&quot;, $select, $all_options) ) {
++							foreach ( $all_options[0] as $option ) {
++								if ( preg_match(&quot;/selected/i&quot;, $option) ) {
++									if ( preg_match(&quot;/value=[\&quot;'](.*)[\&quot;']\s/iU&quot;, $option, $option_value) ) {
++										$option_value = $option_value[1];
++										$found_selected = 1;
++									} else {
++										preg_match(&quot;/&lt;option.*&gt;(.*)&lt;\/option&gt;/isU&quot;, $option, $option_value);
++										$option_value = $option_value[1];
++										$found_selected = 1;
++									}
++								}
++							}
++							if ( !isset($found_selected) ) {
++								if ( preg_match(&quot;/value=[\&quot;'](.*)[\&quot;']/iU&quot;, $all_options[0][0], $option_value) ) {
++									$option_value = $option_value[1];
++								} else {
++									preg_match(&quot;/&lt;option&gt;(.*)&lt;\/option&gt;/iU&quot;, $all_options[0][0], $option_value);
++									$option_value = $option_value[1];
++								}
++							} else {
++								unset($found_selected);
++							}
++							$this-&gt;_return[$this-&gt;_counter]['form_elemets'][$this-&gt;_getName($select)] = array(
++																									'type'	=&gt; 'select',
++																									'value'	=&gt; trim($option_value)
++																									);
++						}
++					}
++				}
++
++				/*
++				 * Update the form counter if we have more then 1 form in the HTML table
++				 */
++				$this-&gt;_counter++;
++			}
++		}
++		return $this-&gt;_return;
++	}
++	
++	/**
++	 * Get Name from string
++	 * @access private
++	 * @param string
++	 * @return string
++	 */
++	function _getName( $string ) {
++		if ( preg_match(&quot;/name=[\&quot;']?([\w\s]*)[\&quot;']?[\s&gt;]/i&quot;, $string, $match) ) {
++			$val_match = preg_replace(&quot;/\&quot;'/&quot;, &quot;&quot;, trim($match[1]));
++			
++			unset($string);
++			return $val_match;
++		}
++	}
++	
++	/**
++	 * Get Value from string
++	 * @access private
++	 * @param string
++	 * @return string
++	 */
++	function _getValue( $string ) {
++		if ( preg_match(&quot;/value=(\&quot;([^\&quot;]*)\&quot;|'([^']*)'|[^&gt;\s]*)([^&gt;]*)?&gt;/is&quot;, $string, $match) ) {
++			$val_match = trim($match[1]);
++			
++			if ( strstr($val_match, '&quot;') ) {
++				$val_match = str_replace('&quot;', '', $val_match);
++			}
++			
++			unset($string);
++			return $val_match;
++		}
++	}
++
++}
++
++?&gt;
+\ No newline at end of file
+
+Modified: trunk/Lobby/TASServer/WebInterface/inc/constants.inc
+===================================================================
+--- trunk/Lobby/TASServer/WebInterface/inc/constants.inc	2008-01-04 21:04:39 UTC (rev 5268)
++++ trunk/Lobby/TASServer/WebInterface/inc/constants.inc	2008-01-04 22:48:29 UTC (rev 5269)
+@@ -10,6 +10,8 @@
+   $constants['database_name'] = &quot;spring&quot;;
+   $constants['database_username'] = &quot;anonymous&quot;;
+   $constants['database_password'] = &quot;anonymous&quot;;
++  $constants['forumposter_username'] = &quot;anonymous&quot;;
++  $constants['forumposter_password'] = &quot;anonymous&quot;;
+ 
+   /* restrictions for various pages (0 means no restrictions (default) which can be overriden with $restrict_default identifier
+      to restrict such a page, 1 means &quot;normal user&quot; (user must be logged in to view the page),
+
+Added: trunk/Lobby/TASServer/WebInterface/inc/curl_phpbb.class.php
+===================================================================
+--- trunk/Lobby/TASServer/WebInterface/inc/curl_phpbb.class.php	                        (rev 0)
++++ trunk/Lobby/TASServer/WebInterface/inc/curl_phpbb.class.php	2008-01-04 22:48:29 UTC (rev 5269)
+@@ -0,0 +1,542 @@
++&lt;?php
++/*
++	@ Program	: phpBB CURL Library
++	@ Author	: Dean Newman, Afterlife(69)
++	@ Purpose	: Remote login and posting in phpBB
++	@ Filename	: curl_phpbb.class.php
++	@ Class		: curl_phpbb
++	@ About		: Function lib for login, posting and logout on remote phpbb's
++	@ Licence	: GNU/General Public Licence v2
++	@ Created	: 6/22/2006, 7:41pm
++	@ Updated	: 9/01/2006, 5:19pm
++	@ Updated	: 4/01/2008, 7:39pm
++*/
++
++/*
++	@ Changelog
++	@	9/01/2006: Added -&gt;read() functionality.
++  @	4/01/2008: (Betalord) -&gt; modified the script to work with phpbb3 forum. Not all methods were fixed though (only login and post reply)
++*/
++
++require_once &quot;HtmlFormParser.php&quot;;
++
++class curl_phpbb
++{
++	/*
++		@ Variable	: $curl (Resource)
++		@ About		: The cURL object used for the request
++		@ Type		: Private
++	*/
++	var $curl = null;
++
++	/*
++		@ Variable	: $cookie_name (String)
++		@ About		: The filename of the temp file used for storing cookies
++		@ Type		: Private
++	*/
++	var $cookie_name = array();
++
++	/*
++		@ Variable	: $phpbb_url (String)
++		@ About		: The address of the remote phpbb that is being connected to
++		@ Type		: Private
++	*/
++	var $phpbb_url = null;
++
++	/*
++		@ Variable	: $error (Array)
++		@ About		: The array including error code and message on errors
++		@ Type		: Public
++	*/
++	var $error = array();
++
++	/*
++		@ Function	: curl_phpbb() - Constructor
++		@ About		: Check if CURL is available and the url exists.
++		@ Type		: Public
++	*/
++	function curl_phpbb($phpbb_url, $cookie_name = 'tmpfile.tmp')
++	{
++		// Check CURL is present
++		if ( ! function_exists ( 'curl_init') )
++		{
++			// Output an error message
++			trigger_error('curl_phpbb::error, Sorry but it appears that CURL is not loaded, Please install it to continue.');
++			return false;
++		}
++		if ( empty($phpbb_url) )
++		{
++			// Output an error message
++			trigger_error('curl_phpbb::error, The phpBB location is required to continue, Please edit your script.');
++			return false;
++		}
++		// Set base location
++		$this-&gt;phpbb_url = $phpbb_url;
++		// Create temp file
++		$this-&gt;cookie_name = $cookie_name;
++	}
++  
++  /* similar to topic_reply, only that it also parses the &quot;post reply&quot; form (needed for phpbb3) */
++	function topic_reply_advanced($topic_id, $forum_id, $message, &amp;$errormsg)
++	{
++		global $_SERVER;
++  
++    // get the &quot;post a reply&quot; page:
++    $postReplyPage = $this-&gt;read('posting.php?mode=reply&amp;f=' . $forum_id . '&amp;t=' . $topic_id);
++    if (!$postReplyPage) {
++      $errormsg = &quot;Unable to retrieve 'post a reply' page&quot;;
++      return false;
++    }
++      
++    $parser =&amp; new HtmlFormParser($postReplyPage);
++    $parsed = $parser-&gt;parseForms();
++    
++    // Generate post string
++    $post_fields = $this-&gt;array_to_http(array(
++      'post'				=&gt; 'Submit',
++      
++      'f'		=&gt; $forum_id,
++      't'		=&gt; $topic_id,
++      
++//			'mode'				=&gt; 'reply',
++      'message'			=&gt; $message,
++      
++			'disable_smilies'	=&gt; 1,
++        
++      // parsed:
++      'topic_cur_post_id' =&gt; $parsed[0]['form_elemets']['topic_cur_post_id']['value'],
++      'creation_time' =&gt; $parsed[0]['form_elemets']['creation_time']['value'],
++      'form_token' =&gt; $parsed[0]['form_elemets']['form_token']['value'],
++      'subject' =&gt; $parsed[0]['form_elemets']['subject'],
++    ));
++
++		// Location
++		$url_vars = $this-&gt;array_to_http2(array(
++			'mode'	=&gt; 'reply',
++      'f'		=&gt; $forum_id,
++			't'		=&gt; $topic_id,
++		));
++		// Init curl
++		$this-&gt;curl = curl_init();
++		// Set options
++		curl_setopt ( $this-&gt;curl, CURLOPT_URL, $this-&gt;phpbb_url . 'posting.php?' . $url_vars ); // curl_setopt ( $this-&gt;curl, CURLOPT_URL, $this-&gt;phpbb_url . substr($parsed[0]['form_data']['action'], 2));
++		curl_setopt ( $this-&gt;curl, CURLOPT_POST, true );
++		curl_setopt ( $this-&gt;curl, CURLOPT_POSTFIELDS, $post_fields );
++		curl_setopt ( $this-&gt;curl, CURLOPT_RETURNTRANSFER, true );
++		curl_setopt ( $this-&gt;curl, CURLOPT_HEADER, false );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIE, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIEJAR, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIEFILE, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_USERAGENT, $_SERVER['HTTP_USER_AGENT'] );
++		// Execute request
++		$result = curl_exec ( $this-&gt;curl );
++		// Get the result
++		if ( preg_match ( '#This message has been posted successfully.#', $result, $match ) )
++		{
++			$post_status = 1;
++		}
++		else if ( preg_match ( '#You cannot make another post so soon after your last; please try again in a short while.#', $result, $match ) )
++		{
++			$post_status = 0;
++		}
++		else
++		{
++			$post_status = 0;
++		}
++		// Error handling
++		if ( curl_errno ( $this-&gt;curl ) )
++		{
++			$this-&gt;error = array(
++				curl_errno($this-&gt;curl),
++				curl_error($this-&gt;curl),
++			);
++			curl_close ( $this-&gt;curl );
++      $errormsg = implode(&quot; - &quot;, $this-&gt;error);
++			return false;
++		}
++		// Close connection
++		curl_close ( $this-&gt;curl );
++		// Return result
++    if ($post_status == 0) {
++      $errormsg = &quot;Unknown or invalid response to post submission (post may still have been written)&quot;;
++      return false;
++    }
++    return true;
++	}
++  
++	/*
++		@ Function	: login() - Log In
++		@ About		: Does a remote login to the target phpBB and stores in cookie
++		@ Type		: Public
++	*/
++	function login($username, $password)
++	{
++		global $_SERVER;
++	
++		// Generate post string
++		$post_fields = $this-&gt;array_to_http(array(
++			'username'	=&gt; $username,
++			'password'	=&gt; $password,
++			'autologin'	=&gt; 1,
++			'redirect'	=&gt; 'index.php',
++			'login'		=&gt; 'Login',
++		));
++		// Init curl
++		$this-&gt;curl = curl_init();
++		// Set options
++		curl_setopt ( $this-&gt;curl, CURLOPT_URL, $this-&gt;phpbb_url . 'ucp.php?mode=login' );
++		curl_setopt ( $this-&gt;curl, CURLOPT_POST, true );
++		curl_setopt ( $this-&gt;curl, CURLOPT_POSTFIELDS, $post_fields );
++		curl_setopt ( $this-&gt;curl, CURLOPT_RETURNTRANSFER, true );
++		curl_setopt ( $this-&gt;curl, CURLOPT_HEADER, false );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIE, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIEJAR, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIEFILE, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_USERAGENT, $_SERVER['HTTP_USER_AGENT'] );
++		// Execute request
++		$result = curl_exec ( $this-&gt;curl );
++		// Error handling
++		if ( curl_errno ( $this-&gt;curl ) )
++		{
++			$this-&gt;error = array(
++				curl_errno($this-&gt;curl),
++				curl_error($this-&gt;curl),
++			);
++			curl_close ( $this-&gt;curl );
++			return false;
++		}
++		// Close connection
++		curl_close ( $this-&gt;curl );
++		// Return result
++		return true;
++	}
++
++	/*
++		@ Function	: read() - Read a pages contents
++		@ About		: Returns the contents of a url
++		@ Type		: Public
++	*/
++	function read($page_url)
++	{
++		global $_SERVER;
++
++		// Init curl
++		$this-&gt;curl = curl_init();
++		// Set options
++		curl_setopt ( $this-&gt;curl, CURLOPT_URL, $this-&gt;phpbb_url . $page_url );
++		curl_setopt ( $this-&gt;curl, CURLOPT_POST, false );
++		curl_setopt ( $this-&gt;curl, CURLOPT_RETURNTRANSFER, true );
++		curl_setopt ( $this-&gt;curl, CURLOPT_HEADER, false );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIE, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIEJAR, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIEFILE, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_USERAGENT, $_SERVER['HTTP_USER_AGENT'] );
++		// Execute request
++		$result = curl_exec ( $this-&gt;curl );
++		// Error handling
++		if ( curl_errno ( $this-&gt;curl ) )
++		{
++			$this-&gt;error = array(
++				curl_errno($this-&gt;curl),
++				curl_error($this-&gt;curl),
++			);
++			curl_close ( $this-&gt;curl );
++			return false;
++		}
++		// Close connection
++		curl_close ( $this-&gt;curl );
++		// Return result
++		return $result;
++	}
++
++	/*
++		@ Function	: new_topic() - New Topic
++		@ About		: Remotely posts a topic to the target phpBB forum.
++		@ Type		: Public
++	*/
++	function new_topic($forum_id, $message, $topic_title)
++	{
++		global $_SERVER;
++	
++		// Generate post string
++		$post_fields = $this-&gt;array_to_http(array(
++			'post'				=&gt; 'Submit',
++			'mode'				=&gt; 'newtopic',
++			'message'			=&gt; $message,
++			'f'					=&gt; $forum_id,
++			'subject'			=&gt; $topic_title,
++			'disable_bbcode'	=&gt; 0,
++			'disable_smilies'	=&gt; 0,
++			'attach_sig'		=&gt; 1,
++			'topictype'			=&gt; 0,
++		));
++		// Location
++		$url_vars = $this-&gt;array_to_http(array(
++			'mode'	=&gt; 'newtopic',
++			'f'		=&gt; $forum_id,
++		));
++		// Init curl
++		$this-&gt;curl = curl_init();
++		// Set options
++		curl_setopt ( $this-&gt;curl, CURLOPT_URL, $this-&gt;phpbb_url . 'posting.php?' . $url_vars );
++		curl_setopt ( $this-&gt;curl, CURLOPT_POST, true );
++		curl_setopt ( $this-&gt;curl, CURLOPT_POSTFIELDS, $post_fields );
++		curl_setopt ( $this-&gt;curl, CURLOPT_RETURNTRANSFER, true );
++		curl_setopt ( $this-&gt;curl, CURLOPT_HEADER, false );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIE, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIEJAR, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIEFILE, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_USERAGENT, $_SERVER['HTTP_USER_AGENT'] );
++		// Execute request
++		$result = curl_exec ( $this-&gt;curl );
++		// Get the result
++		if ( preg_match ( '#&lt;td align=&quot;center&quot;&gt;&lt;span class=&quot;gen&quot;&gt;Your message has been entered successfully.&lt;br \/&gt;&lt;br \/&gt;#is', $result, $match ) )
++		{
++			$post_status = 1;
++		}
++		else if ( preg_match ( '#&lt;td align=&quot;center&quot;&gt;&lt;span class=&quot;gen&quot;&gt;You cannot make another post so soon after your last; please try again in a short while.&lt;\/span&gt;&lt;\/td&gt;&gt;#is', $result, $match ) )
++		{
++			$post_status = 0;
++		}
++		else
++		{
++			$post_status = 0;
++		}
++		// Error handling
++		if ( curl_errno ( $this-&gt;curl ) )
++		{
++			$this-&gt;error = array(
++				curl_errno($this-&gt;curl),
++				curl_error($this-&gt;curl),
++			);
++			curl_close ( $this-&gt;curl );
++			return false;
++		}
++		// Close connection
++		curl_close ( $this-&gt;curl );
++		// Return result
++		return $post_status;
++	}
++
++	/*
++		@ Function	: new_pm() - New PM
++		@ About		: Remotely sends a pm to a user of a phpbb forum.
++		@ Type		: Public
++	*/
++	function new_pm($username, $message, $topic_title)
++	{
++		global $_SERVER;
++	
++		// Generate post string
++		$post_fields = $this-&gt;array_to_http(array(
++			'post'				=&gt; 'Submit',
++			'mode'				=&gt; 'newtopic',
++			'message'			=&gt; $message,
++			'username'			=&gt; $username,
++			'subject'			=&gt; $topic_title,
++			'disable_bbcode'	=&gt; 0,
++			'disable_smilies'	=&gt; 0,
++			'attach_sig'		=&gt; 1,
++		));
++		// Location
++		$url_vars = $this-&gt;array_to_http(array(
++			'mode'	=&gt; 'post',
++			'u'		=&gt; $username,
++		));
++		// Init curl
++		$this-&gt;curl = curl_init();
++		// Set options
++		curl_setopt ( $this-&gt;curl, CURLOPT_URL, $this-&gt;phpbb_url . 'posting.php?' . $url_vars );
++		curl_setopt ( $this-&gt;curl, CURLOPT_POST, true );
++		curl_setopt ( $this-&gt;curl, CURLOPT_POSTFIELDS, $post_fields );
++		curl_setopt ( $this-&gt;curl, CURLOPT_RETURNTRANSFER, true );
++		curl_setopt ( $this-&gt;curl, CURLOPT_HEADER, false );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIE, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIEJAR, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIEFILE, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_USERAGENT, $_SERVER['HTTP_USER_AGENT'] );
++		// Execute request
++		$result = curl_exec ( $this-&gt;curl );
++		// Get the result
++		if ( preg_match ( '#&lt;td align=&quot;center&quot;&gt;&lt;span class=&quot;gen&quot;&gt;Your message has been sent.&lt;br \/&gt;&lt;br \/&gt;#is', $result, $match ) )
++		{
++			$post_status = 1;
++		}
++		else if ( preg_match ( '#&lt;td align=&quot;center&quot;&gt;&lt;span class=&quot;gen&quot;&gt;You cannot make another post so soon after your last; please try again in a short while.&lt;\/span&gt;&lt;\/td&gt;&gt;#is', $result, $match ) )
++		{
++			$post_status = 0;
++		}
++		else
++		{
++			$post_status = 0;
++		}
++		// Error handling
++		if ( curl_errno ( $this-&gt;curl ) )
++		{
++			$this-&gt;error = array(
++				curl_errno($this-&gt;curl),
++				curl_error($this-&gt;curl),
++			);
++			curl_close ( $this-&gt;curl );
++			return false;
++		}
++		// Close connection
++		curl_close ( $this-&gt;curl );
++		// Return result
++		return $post_status;
++	}
++
++	/*
++		@ Function	: topic_reply() - Topic Reply
++		@ About		: Remotely replys a post to a topic to the target phpBB forum.
++		@ Type		: Public
++	*/
++	function topic_reply($topic_id, $message, $topic_title)
++	{
++		global $_SERVER;
++	
++		// Generate post string
++		$post_fields = $this-&gt;array_to_http(array(
++			'post'				=&gt; 'Submit',
++			'mode'				=&gt; 'reply',
++			'message'			=&gt; $message,
++			't'					=&gt; $topic_id,
++			'subject'			=&gt; $topic_title,
++			'disable_bbcode'	=&gt; 0,
++			'disable_smilies'	=&gt; 0,
++			'attach_sig'		=&gt; 1,
++			'topictype'			=&gt; 0,
++		));
++		// Location
++		$url_vars = $this-&gt;array_to_http(array(
++			'mode'	=&gt; 'reply',
++			't'		=&gt; $topic_id,
++		));
++		// Init curl
++		$this-&gt;curl = curl_init();
++		// Set options
++		curl_setopt ( $this-&gt;curl, CURLOPT_URL, $this-&gt;phpbb_url . 'posting.php?' . $url_vars );
++		curl_setopt ( $this-&gt;curl, CURLOPT_POST, true );
++		curl_setopt ( $this-&gt;curl, CURLOPT_POSTFIELDS, $post_fields );
++		curl_setopt ( $this-&gt;curl, CURLOPT_RETURNTRANSFER, true );
++		curl_setopt ( $this-&gt;curl, CURLOPT_HEADER, false );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIE, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIEJAR, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIEFILE, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_USERAGENT, $_SERVER['HTTP_USER_AGENT'] );
++		// Execute request
++		$result = curl_exec ( $this-&gt;curl );
++		// Get the result
++		if ( preg_match ( '#&lt;td align=&quot;center&quot;&gt;&lt;span class=&quot;gen&quot;&gt;Your message has been entered successfully.&lt;br \/&gt;&lt;br \/&gt;#is', $result, $match ) )
++		{
++			$post_status = 1;
++		}
++		else if ( preg_match ( '#&lt;td align=&quot;center&quot;&gt;&lt;span class=&quot;gen&quot;&gt;You cannot make another post so soon after your last; please try again in a short while.&lt;\/span&gt;&lt;\/td&gt;&gt;#is', $result, $match ) )
++		{
++			$post_status = 0;
++		}
++		else
++		{
++			$post_status = 0;
++		}
++		// Error handling
++		if ( curl_errno ( $this-&gt;curl ) )
++		{
++			$this-&gt;error = array(
++				curl_errno($this-&gt;curl),
++				curl_error($this-&gt;curl),
++			);
++			curl_close ( $this-&gt;curl );
++			return false;
++		}
++		// Close connection
++		curl_close ( $this-&gt;curl );
++		// Return result
++		return $post_status;
++	}
++  
++	/*
++		@ Function	: logout() - Log Out
++		@ About		: Logs out of the target phpBB properly.
++		@ Type		: Public
++	*/
++	function logout()
++	{
++		global $_SERVER;
++	
++		// Generate post string
++		$urlopt = $this-&gt;array_to_http(array(
++			'logout'	=&gt; 'true',
++			'mode'		=&gt; 'logout',
++		));
++		// Init curl
++		$this-&gt;curl = curl_init();
++		// Set options
++		curl_setopt ( $this-&gt;curl, CURLOPT_URL, $this-&gt;phpbb_url . 'ucp.php?' . $urlopt );
++		curl_setopt ( $this-&gt;curl, CURLOPT_POST, false );
++		curl_setopt ( $this-&gt;curl, CURLOPT_RETURNTRANSFER, true );
++		curl_setopt ( $this-&gt;curl, CURLOPT_HEADER, false );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIE, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIEJAR, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_COOKIEFILE, $this-&gt;cookie_name );
++		curl_setopt ( $this-&gt;curl, CURLOPT_USERAGENT, $_SERVER['HTTP_USER_AGENT'] );
++		// Execute request
++		$result = curl_exec ( $this-&gt;curl );
++		// Error handling
++		if ( curl_errno ( $this-&gt;curl ) )
++		{
++			$this-&gt;error = array(
++				curl_errno($this-&gt;curl),
++				curl_error($this-&gt;curl),
++			);
++			curl_close ( $this-&gt;curl );
++			return false;
++		}
++		// Close connection
++		curl_close ( $this-&gt;curl );
++		// Delete cookie file
++		@unlink($this-&gt;cookie_name);
++		// Return result
++		return true;
++	}
++  
++	/*
++		@ Function	: getCurl() - return curl object
++		@ About		: Returns curl object
++		@ Type		: Public
++	*/  
++  function getCurl() {
++    return $this-&gt;curl;
++  }
++	
++	/*
++		@ Function	: array_to_http() - Converter
++		@ About		: Converts data from array to http string
++		@ Type		: Private
++	*/
++	function array_to_http($array)
++	{
++		$retvar = '';
++		while ( list ( $field, $data ) = @each ( $array ) )
++		{
++			$retvar .= ( empty($retvar) ) ? '' : '&amp;';
++			$retvar .= urlencode($field) . '=' . urlencode($data); 
++		}
++		return $retvar;
++	}
++  
++	function array_to_http2($array)
++	{
++		$retvar = '';
++		while ( list ( $field, $data ) = @each ( $array ) )
++		{
++			$retvar .= ( empty($retvar) ) ? '' : '&amp;';
++			$retvar .= urlencode($field) . '=' . urlencode($data); 
++		}
++		return $retvar;
++	}
++  
++  
++}
++
++?&gt;
+\ No newline at end of file
+
+Added: trunk/Lobby/TASServer/WebInterface/inc/curl_phpbb.example.php
+===================================================================
+--- trunk/Lobby/TASServer/WebInterface/inc/curl_phpbb.example.php	                        (rev 0)
++++ trunk/Lobby/TASServer/WebInterface/inc/curl_phpbb.example.php	2008-01-04 22:48:29 UTC (rev 5269)
+@@ -0,0 +1,32 @@
++&lt;?php
++/*
++
++// Init class
++include('curl_phpbb.class.php');
++
++// The ending backslash is required.
++$phpbb = new curl_phpbb('<A HREF="http://www.phpbb.com/phpBB/">http://www.phpbb.com/phpBB/</A>');
++
++// Log in
++$phpbb-&gt;login('username', 'password');
++
++// Send random_user a pm
++$r = $phpbb-&gt;new_pm('random_user', print_r($_SERVER, true), 'Hello user...');
++echo ( $r ) ? 'Posted' : 'Failed';
++
++// Post a topic
++$r = $phpbb-&gt;new_topic('16', 'This is just a test post!', 'Topic subject');
++echo ( $r ) ? 'Posted' : 'Failed';
++
++// Post a topic
++$r = $phpbb-&gt;topic_reply('343298', 'This is just a test post!', 'Post subject');
++echo ( $r ) ? 'Posted' : 'Failed';
++
++// Read index
++echo $phpbb-&gt;read('index.php');
++
++// Log out
++$phpbb-&gt;logout();
++
++*/
++?&gt;
+\ No newline at end of file
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000076.html">[Taspring-linux-commit] r5268 - trunk/Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="000078.html">[Taspring-linux-commit] r5270 - in trunk/rts: Game System/Net
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#77">[ date ]</a>
+              <a href="thread.html#77">[ thread ]</a>
+              <a href="subject.html#77">[ subject ]</a>
+              <a href="author.html#77">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

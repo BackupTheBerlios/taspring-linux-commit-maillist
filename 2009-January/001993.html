@@ -1,0 +1,861 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7224 -	branches/caiinterface/AI/Interfaces/Java
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2009-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7224%20-%0A%09branches/caiinterface/AI/Interfaces/Java&In-Reply-To=%3C20090104091700.9D84F487FC%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001992.html">
+   <LINK REL="Next"  HREF="001994.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7224 -	branches/caiinterface/AI/Interfaces/Java</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7224%20-%0A%09branches/caiinterface/AI/Interfaces/Java&In-Reply-To=%3C20090104091700.9D84F487FC%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r7224 -	branches/caiinterface/AI/Interfaces/Java">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Jan  4 10:17:00 CET 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001992.html">[Taspring-linux-commit] r7223 - in	branches/caiinterface/AI/Interfaces/Java: bin	java/src/com/clan_sy/spring/ai
+</A></li>
+        <LI>Next message: <A HREF="001994.html">[Taspring-linux-commit] r7225 - in branches/caiinterface:	AI/Interfaces/Java/bin rts/ExternalAI/Interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1993">[ date ]</a>
+              <a href="thread.html#1993">[ thread ]</a>
+              <a href="subject.html#1993">[ subject ]</a>
+              <a href="author.html#1993">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: hoijui
+Date: 2009-01-04 10:17:00 +0100 (Sun, 04 Jan 2009)
+New Revision: 7224
+
+Modified:
+   branches/caiinterface/AI/Interfaces/Java/InterfaceExport.c
+   branches/caiinterface/AI/Interfaces/Java/JavaBridge.c
+   branches/caiinterface/AI/Interfaces/Java/JavaBridge.h
+Log:
+made the classpath of the Java interface hirarchical
+-&gt; two Skirmish AI implementations can have the same class without hassling with each other
+
+Modified: branches/caiinterface/AI/Interfaces/Java/InterfaceExport.c
+===================================================================
+--- branches/caiinterface/AI/Interfaces/Java/InterfaceExport.c	2009-01-03 12:03:18 UTC (rev 7223)
++++ branches/caiinterface/AI/Interfaces/Java/InterfaceExport.c	2009-01-04 09:17:00 UTC (rev 7224)
+@@ -165,7 +165,7 @@
+ 
+ 	if (className != NULL) {
+ //simpleLog_fine(&quot;proxy_skirmishAI_init %u&quot;, 2);
+-		ret = java_initSkirmishAIClass(className) ? 0 : 1;
++		ret = java_initSkirmishAIClass(infoSize, infoKeys, infoValues) ? 0 : 1;
+ //simpleLog_fine(&quot;proxy_skirmishAI_init %u&quot;, 3);
+ 	}
+ //simpleLog_fine(&quot;proxy_skirmishAI_init %u&quot;, 4);
+
+Modified: branches/caiinterface/AI/Interfaces/Java/JavaBridge.c
+===================================================================
+--- branches/caiinterface/AI/Interfaces/Java/JavaBridge.c	2009-01-03 12:03:18 UTC (rev 7223)
++++ branches/caiinterface/AI/Interfaces/Java/JavaBridge.c	2009-01-04 09:17:00 UTC (rev 7224)
+@@ -44,12 +44,15 @@
+ static unsigned int maxGroups = 0;
+ static unsigned int maxSkirmishImpls = 0;
+ static unsigned int sizeImpls = 0;
++
++static const struct SAICallback** teamId_cCallback;
++static jobject* teamId_jCallback;
++static unsigned int* teamId_aiImplId;
++
+ static const char** aiImplId_className;
+ static jobject* aiImplId_instance;
+ static jmethodID** aiImplId_methods;
+-static unsigned int* teamId_aiImplId;
+-static const struct SAICallback** teamId_cCallback;
+-static jobject* teamId_jCallback;
++static jobject* aiImplId_classLoader;
+ 
+ 
+ 
+@@ -57,6 +60,13 @@
+ static JNIEnv* g_jniEnv = NULL;
+ static JavaVM* g_jvm = NULL;
+ 
++static jclass g_cls_url = NULL;
++static jmethodID g_m_url_ctor = NULL;
++
++static jclass g_cls_urlClassLoader = NULL;
++static jmethodID g_m_urlClassLoader_ctor = NULL;
++static jmethodID g_m_urlClassLoader_findClass = NULL;
++
+ static jclass g_cls_jnaPointer = NULL;
+ static jmethodID g_m_jnaPointer_ctor_long = NULL;
+ 
+@@ -65,6 +75,234 @@
+ static jmethodID g_m_props_setProperty = NULL;
+ 
+ 
++
++static bool checkException(JNIEnv* env, const char* errorMsg) {
++
++	if ((*env)-&gt;ExceptionCheck(env)) {
++		simpleLog_log(errorMsg);
++		(*env)-&gt;ExceptionDescribe(env);
++		return true;
++	}
++
++	return false;
++}
++
++
++///**
++// * Creates the Java classpath.
++// * It will consist of the following:
++// * {spring-data-dir}/{AI_INTERFACES_DATA_DIR}/Java/{version}/interface.jar
++// * {spring-data-dir}/{AI_INTERFACES_DATA_DIR}/Java/{version}/jlib/
++// * {spring-data-dir}/{AI_INTERFACES_DATA_DIR}/Java/{version}/jlib/[*].jar
++// * {spring-data-dir}/{AI_INTERFACES_DATA_DIR}/Java/interface.jar
++// * {spring-data-dir}/{AI_INTERFACES_DATA_DIR}/Java/jlib/
++// * {spring-data-dir}/{AI_INTERFACES_DATA_DIR}/Java/jlib/[*].jar
++// * {spring-data-dir}/{SKIRMISH_AI_DATA_DIR}/{ai-name}/{ai-version}/ai.jar
++// * {spring-data-dir}/{SKIRMISH_AI_DATA_DIR}/{ai-name}/{ai-version}/jlib/
++// * {spring-data-dir}/{SKIRMISH_AI_DATA_DIR}/{ai-name}/{ai-version}/jlib/[*].jar
++// * {spring-data-dir}/{SKIRMISH_AI_DATA_DIR}/{ai-name}/ai.jar
++// * {spring-data-dir}/{SKIRMISH_AI_DATA_DIR}/{ai-name}/jlib/
++// * {spring-data-dir}/{SKIRMISH_AI_DATA_DIR}/{ai-name}/jlib/[*].jar
++// */
++//static bool java_createClassPath(char* classPath) {
++//
++//	classPath[0] = '\0';
++//
++//	// Check which of the skirmish AIs to be used in the current game will
++//	// possibly be using this interface
++//	unsigned int i;
++//	unsigned int j;
++//	unsigned int applSkirmishAIs[staticGlobalData-&gt;maxTeams];
++//	unsigned int sizeApplSkimrishAIs = 0;
++//	const char* myShortName = util_getMyInfo(AI_INTERFACE_PROPERTY_SHORT_NAME);
++//	for (i = 0; i &lt; staticGlobalData-&gt;numSkirmishAIs; ++i) {
++//		// find the interface shortName
++//		const char* ai_intShortName = util_map_getValueByKey(
++//				staticGlobalData-&gt;skirmishAIInfosSizes[i],
++//				staticGlobalData-&gt;skirmishAIInfosKeys[i],
++//				staticGlobalData-&gt;skirmishAIInfosValues[i],
++//				SKIRMISH_AI_PROPERTY_INTERFACE_SHORT_NAME);
++///*
++//		const char* shortName_ai = util_map_getValueByKey(
++//				staticGlobalData-&gt;skirmishAIInfosSizes[i],
++//				staticGlobalData-&gt;skirmishAIInfosKeys[i],
++//				staticGlobalData-&gt;skirmishAIInfosValues[i],
++//				SKIRMISH_AI_PROPERTY_SHORT_NAME);
++//*/
++////simpleLog_log(&quot;shortName_ai: %s&quot;, shortName_ai);
++////simpleLog_log(&quot;intShortName_ai: %s&quot;, intShortName);
++//
++//		// if the interface shortName was found, check for appliance
++//		if (ai_intShortName != NULL &amp;&amp; strcmp(ai_intShortName, myShortName) == 0) {
++////simpleLog_log(&quot;applSkirmishAIs: %i&quot;, i);
++//			applSkirmishAIs[sizeApplSkimrishAIs++] = i;
++//		}
++//	}
++//
++//
++//	// the .jar files in the following list will be added to the classpath
++//	static const unsigned int MAX_ENTRIES = 128;
++//	static const unsigned int MAX_TEXT_LEN = 256;
++//	char* jarFiles[MAX_ENTRIES];
++//	int unsigned sizeJarFiles = 0;
++//	// the Java AI Interfaces file name
++//	{
++//		//jarFiles[sizeJarFiles++] = AI_INTERFACES_DATA_DIR&quot;&quot;sPS&quot;&quot;MY_SHORT_NAME&quot;&quot;sPS&quot;&quot;MY_VERSION&quot;&quot;sPS&quot;interface.jar&quot;;
++//		//jarFiles[sizeJarFiles++] = AI_INTERFACES_DATA_DIR&quot;&quot;sPS&quot;&quot;MY_SHORT_NAME&quot;&quot;sPS&quot;interface.jar&quot;;
++//
++//		jarFiles[sizeJarFiles] =
++//				util_allocStr(strlen(util_getDataDirVersioned()) + strlen(sPS)
++//						+ strlen(JAVA_AI_INTERFACE_LIBRARY_FILE_NAME));
++//		STRCPY(jarFiles[sizeJarFiles], util_getDataDirVersioned());
++//		STRCAT(jarFiles[sizeJarFiles], sPS);
++//		STRCAT(jarFiles[sizeJarFiles], JAVA_AI_INTERFACE_LIBRARY_FILE_NAME);
++////simpleLog_log(&quot;jarFiles[%i]: %s&quot;, sizeJarFiles, jarFiles[sizeJarFiles]);
++//		sizeJarFiles++;
++//
++//		jarFiles[sizeJarFiles] =
++//				util_allocStr(strlen(util_getDataDirUnversioned()) + strlen(sPS)
++//						+ strlen(JAVA_AI_INTERFACE_LIBRARY_FILE_NAME));
++//		STRCPY(jarFiles[sizeJarFiles], util_getDataDirUnversioned());
++//		STRCAT(jarFiles[sizeJarFiles], sPS);
++//		STRCAT(jarFiles[sizeJarFiles], JAVA_AI_INTERFACE_LIBRARY_FILE_NAME);
++////simpleLog_log(&quot;jarFiles[%i]: %s&quot;, sizeJarFiles, jarFiles[sizeJarFiles]);
++//		sizeJarFiles++;
++//	}
++//	// the file names of the Java AIs used during the current game
++////simpleLog_log(&quot;sizeApplSkimrishAIs: %u&quot;, sizeApplSkimrishAIs);
++//	for (i = 0; i &lt; sizeApplSkimrishAIs; ++i) {
++//		const char* shortName_ai = util_map_getValueByKey(
++//				staticGlobalData-&gt;skirmishAIInfosSizes[applSkirmishAIs[i]],
++//				staticGlobalData-&gt;skirmishAIInfosKeys[applSkirmishAIs[i]],
++//				staticGlobalData-&gt;skirmishAIInfosValues[applSkirmishAIs[i]],
++//				SKIRMISH_AI_PROPERTY_SHORT_NAME);
++//		const char* version_ai = util_map_getValueByKey(
++//				staticGlobalData-&gt;skirmishAIInfosSizes[applSkirmishAIs[i]],
++//				staticGlobalData-&gt;skirmishAIInfosKeys[applSkirmishAIs[i]],
++//				staticGlobalData-&gt;skirmishAIInfosValues[applSkirmishAIs[i]],
++//				SKIRMISH_AI_PROPERTY_VERSION);
++//
++//		if (shortName_ai != NULL) {
++////simpleLog_log(&quot;shortName_ai: %s&quot;, shortName_ai);
++//			char* jarPath = util_allocStr(MAX_TEXT_LEN);
++//			SNPRINTF(jarPath, MAX_TEXT_LEN, &quot;%s&quot;sPS&quot;%s&quot;sPS&quot;ai.jar&quot;,
++//					SKIRMISH_AI_DATA_DIR, shortName_ai);
++//			jarFiles[sizeJarFiles++] = jarPath;
++//
++//			if (version_ai != NULL) {
++////simpleLog_log(&quot;version_ai: %s&quot;, version_ai);
++//				jarPath = util_allocStr(MAX_TEXT_LEN);
++//				SNPRINTF(jarPath, MAX_TEXT_LEN, &quot;%s&quot;sPS&quot;%s&quot;sPS&quot;%s&quot;sPS&quot;ai.jar&quot;,
++//						SKIRMISH_AI_DATA_DIR, shortName_ai, version_ai);
++//				jarFiles[sizeJarFiles++] = jarPath;
++//			}
++//		}
++//	}
++//
++//
++//	// the directories in the following list will be searched for .jar files
++//	// which then will be added to the classpath, plus they will be added
++//	// to the classpath directly, so you can keep .class files in there
++//	char* jarDirs[MAX_ENTRIES];
++//	int unsigned sizeJarDirs = 0;
++//	jarDirs[sizeJarDirs++] = util_allocStrCpyCat(util_getDataDirVersioned(),
++//			sPS&quot;jlib&quot;);
++//	jarDirs[sizeJarDirs++] = util_allocStrCpyCat(util_getDataDirUnversioned(),
++//			sPS&quot;jlib&quot;);
++//	// the jlib dirs of the Java AIs used during the current game
++//	for (i = 0; i &lt; sizeApplSkimrishAIs; ++i) {
++//		const char* shortName_ai = util_map_getValueByKey(
++//				staticGlobalData-&gt;skirmishAIInfosSizes[applSkirmishAIs[i]],
++//				staticGlobalData-&gt;skirmishAIInfosKeys[applSkirmishAIs[i]],
++//				staticGlobalData-&gt;skirmishAIInfosValues[applSkirmishAIs[i]],
++//				SKIRMISH_AI_PROPERTY_SHORT_NAME);
++//		const char* version_ai = util_map_getValueByKey(
++//				staticGlobalData-&gt;skirmishAIInfosSizes[applSkirmishAIs[i]],
++//				staticGlobalData-&gt;skirmishAIInfosKeys[applSkirmishAIs[i]],
++//				staticGlobalData-&gt;skirmishAIInfosValues[applSkirmishAIs[i]],
++//				SKIRMISH_AI_PROPERTY_VERSION);
++//
++//		if (shortName_ai != NULL) {
++//			char* jarDir = util_allocStr(MAX_TEXT_LEN);
++//			SNPRINTF(jarDir, MAX_TEXT_LEN, &quot;%s&quot;sPS&quot;%s&quot;sPS&quot;jlib&quot;,
++//					SKIRMISH_AI_DATA_DIR, shortName_ai);
++//			jarDirs[sizeJarDirs++] = jarDir;
++//
++//			if (version_ai != NULL) {
++//				jarDir = util_allocStr(MAX_TEXT_LEN);
++//				SNPRINTF(jarDir, MAX_TEXT_LEN, &quot;%s&quot;sPS&quot;%s&quot;sPS&quot;%s&quot;sPS&quot;jlib&quot;,
++//						SKIRMISH_AI_DATA_DIR, shortName_ai, version_ai);
++//				jarDirs[sizeJarDirs++] = jarDir;
++//			}
++//		}
++//	}
++//
++//
++//	// searching the individual jar files and adding everything to the classpath
++//	STRCAT(classPath, &quot;-Djava.class.path=&quot;);
++///*
++//	// add the first jar file
++//	if (sizeJarFiles &gt; 0) {
++//		if (util_fileExists(jarFiles[0])) {
++//			char* absoluteFilePath = util_allocStr(MAX_TEXT_LEN);
++//			bool found = util_findFile(
++//					staticGlobalData-&gt;dataDirs, staticGlobalData-&gt;numDataDirs,
++//					jarFiles[0], absoluteFilePath);
++//			if (found) {
++//				STRCAT(classPath, absoluteFilePath);
++//			}
++//		}
++//	}
++//*/
++//	// add the rest of the jar files
++//	for (i = 0; i &lt; sizeJarFiles; ++i) {
++////simpleLog_log(&quot;jarFiles[%i]: %s&quot;, i, jarFiles[i]);
++//		//if (util_fileExists(jarFiles[i])) {
++//			char* absoluteFilePath = util_allocStr(MAX_TEXT_LEN);
++//			bool found = util_findFile(
++//					staticGlobalData-&gt;dataDirs, staticGlobalData-&gt;numDataDirs,
++//					jarFiles[i], absoluteFilePath);
++////simpleLog_log(&quot;jarFiles[%i]: %i&quot;, i, found);
++//			if (found) {
++//				if (i &gt; 0) {
++//					STRCAT(classPath, ENTRY_DELIM);
++//				}
++//				STRCAT(classPath, absoluteFilePath);
++//			}
++//		//}
++//	}
++//	// add the jar dirs (for .class files)
++//	for (i = 0; i &lt; sizeJarDirs; ++i) {
++//		char* absoluteDirPath = util_allocStr(MAX_TEXT_LEN);
++//		bool found = util_findDir(
++//				staticGlobalData-&gt;dataDirs, staticGlobalData-&gt;numDataDirs,
++//				jarDirs[i], absoluteDirPath, false, false);
++//		free(jarDirs[i]);
++//		if (found) {
++//			STRCAT(classPath, ENTRY_DELIM);
++//			STRCAT(classPath, absoluteDirPath);
++//			jarDirs[i] = absoluteDirPath;
++//		} else {
++//			jarDirs[i] = NULL;
++//		}
++//	}
++//	// add the jars in the dirs
++//	for (i = 0; i &lt; sizeJarDirs; ++i) {
++//		if (jarDirs[i] != NULL) {
++//			char* jarFileNames[MAX_ENTRIES];
++//			unsigned int sizeJarFileNames = util_listFiles(jarDirs[i], &quot;.jar&quot;,
++//					jarFileNames, true, MAX_ENTRIES);
++//			for (j = 0; j &lt; sizeJarFileNames; ++j) {
++//				STRCAT(classPath, ENTRY_DELIM);
++//				STRCAT(classPath, jarDirs[i]);
++//				STRCAT(classPath, sPS);
++//				STRCAT(classPath, jarFileNames[j]);
++//			}
++//		}
++//	}
++//
++//	return true;
++//}
+ /**
+  * Creates the Java classpath.
+  * It will consist of the following:
+@@ -89,6 +327,7 @@
+ 	// possibly be using this interface
+ 	unsigned int i;
+ 	unsigned int j;
++/*
+ 	unsigned int applSkirmishAIs[staticGlobalData-&gt;maxTeams];
+ 	unsigned int sizeApplSkimrishAIs = 0;
+ 	const char* myShortName = util_getMyInfo(AI_INTERFACE_PROPERTY_SHORT_NAME);
+@@ -99,13 +338,6 @@
+ 				staticGlobalData-&gt;skirmishAIInfosKeys[i],
+ 				staticGlobalData-&gt;skirmishAIInfosValues[i],
+ 				SKIRMISH_AI_PROPERTY_INTERFACE_SHORT_NAME);
+-/*
+-		const char* shortName_ai = util_map_getValueByKey(
+-				staticGlobalData-&gt;skirmishAIInfosSizes[i],
+-				staticGlobalData-&gt;skirmishAIInfosKeys[i],
+-				staticGlobalData-&gt;skirmishAIInfosValues[i],
+-				SKIRMISH_AI_PROPERTY_SHORT_NAME);
+-*/
+ //simpleLog_log(&quot;shortName_ai: %s&quot;, shortName_ai);
+ //simpleLog_log(&quot;intShortName_ai: %s&quot;, intShortName);
+ 
+@@ -115,6 +347,7 @@
+ 			applSkirmishAIs[sizeApplSkimrishAIs++] = i;
+ 		}
+ 	}
++*/
+ 
+ 
+ 	// the .jar files in the following list will be added to the classpath
+@@ -147,6 +380,7 @@
+ 	}
+ 	// the file names of the Java AIs used during the current game
+ //simpleLog_log(&quot;sizeApplSkimrishAIs: %u&quot;, sizeApplSkimrishAIs);
++/*
+ 	for (i = 0; i &lt; sizeApplSkimrishAIs; ++i) {
+ 		const char* shortName_ai = util_map_getValueByKey(
+ 				staticGlobalData-&gt;skirmishAIInfosSizes[applSkirmishAIs[i]],
+@@ -175,6 +409,7 @@
+ 			}
+ 		}
+ 	}
++*/
+ 
+ 
+ 	// the directories in the following list will be searched for .jar files
+@@ -187,6 +422,7 @@
+ 	jarDirs[sizeJarDirs++] = util_allocStrCpyCat(util_getDataDirUnversioned(),
+ 			sPS&quot;jlib&quot;);
+ 	// the jlib dirs of the Java AIs used during the current game
++/*
+ 	for (i = 0; i &lt; sizeApplSkimrishAIs; ++i) {
+ 		const char* shortName_ai = util_map_getValueByKey(
+ 				staticGlobalData-&gt;skirmishAIInfosSizes[applSkirmishAIs[i]],
+@@ -213,6 +449,7 @@
+ 			}
+ 		}
+ 	}
++*/
+ 
+ 
+ 	// searching the individual jar files and adding everything to the classpath
+@@ -280,7 +517,148 @@
+ 
+ 	return true;
+ }
++/**
++ * Creates the private Java classpath for a single AI.
++ * It will consist of the following:
++ * {spring-data-dir}/{SKIRMISH_AI_DATA_DIR}/{ai-name}/{ai-version}/ai.jar
++ * {spring-data-dir}/{SKIRMISH_AI_DATA_DIR}/{ai-name}/{ai-version}/jlib/
++ * {spring-data-dir}/{SKIRMISH_AI_DATA_DIR}/{ai-name}/{ai-version}/jlib/[*].jar
++ * {spring-data-dir}/{SKIRMISH_AI_DATA_DIR}/{ai-name}/ai.jar
++ * {spring-data-dir}/{SKIRMISH_AI_DATA_DIR}/{ai-name}/jlib/
++ * {spring-data-dir}/{SKIRMISH_AI_DATA_DIR}/{ai-name}/jlib/[*].jar
++ */
++static bool java_createAIClassPath(const char* shortName, const char* version,
++		char** classPathParts, int classPathParts_max) {
+ 
++	static const unsigned int MAX_TEXT_LEN = 256;
++
++	int classPathParts_num = 0;
++
++	// the .jar files in the following list will be added to the classpath
++	char* jarFiles[classPathParts_max];
++	int unsigned sizeJarFiles = 0;
++
++	char* jarPath;
++	if (version != NULL) {
++		jarPath = util_allocStr(MAX_TEXT_LEN);
++		SNPRINTF(jarPath, MAX_TEXT_LEN, &quot;%s&quot;sPS&quot;%s&quot;sPS&quot;%s&quot;sPS&quot;ai.jar&quot;,
++				SKIRMISH_AI_DATA_DIR, shortName, version);
++		jarFiles[sizeJarFiles++] = jarPath;
++	}
++
++	jarPath = util_allocStr(MAX_TEXT_LEN);
++	SNPRINTF(jarPath, MAX_TEXT_LEN, &quot;%s&quot;sPS&quot;%s&quot;sPS&quot;ai.jar&quot;,
++			SKIRMISH_AI_DATA_DIR, shortName);
++	jarFiles[sizeJarFiles++] = jarPath;
++
++
++	// the directories in the following list will be searched for .jar files
++	// which then will be added to the classpath, plus they will be added
++	// to the classpath directly, so you can keep .class files in there
++	char* jarDirs[classPathParts_max];
++	int unsigned sizeJarDirs = 0;
++
++	char* jarDir;
++	if (version != NULL) {
++		jarDir = util_allocStr(MAX_TEXT_LEN);
++		SNPRINTF(jarDir, MAX_TEXT_LEN, &quot;%s&quot;sPS&quot;%s&quot;sPS&quot;%s&quot;sPS&quot;jlib&quot;,
++				SKIRMISH_AI_DATA_DIR, shortName, version);
++		jarDirs[sizeJarDirs++] = jarDir;
++	}
++
++	jarDir = util_allocStr(MAX_TEXT_LEN);
++	SNPRINTF(jarDir, MAX_TEXT_LEN, &quot;%s&quot;sPS&quot;%s&quot;sPS&quot;jlib&quot;,
++			SKIRMISH_AI_DATA_DIR, shortName);
++	jarDirs[sizeJarDirs++] = jarDir;
++
++
++	// get the absolute paths of the jar files
++	int i;
++	for (i = 0; i &lt; sizeJarFiles &amp;&amp; classPathParts_num &lt; classPathParts_max;
++			++i) {
++		char* absoluteFilePath = util_allocStr(MAX_TEXT_LEN);
++		bool found = util_findFile(
++				staticGlobalData-&gt;dataDirs, staticGlobalData-&gt;numDataDirs,
++				jarFiles[i], absoluteFilePath);
++//simpleLog_log(&quot;jarFiles[%i]: %i&quot;, i, found);
++		if (found) {
++			classPathParts[classPathParts_num++] = absoluteFilePath;
++		}
++	}
++	// add the jar dirs (for .class files)
++	for (i = 0; i &lt; sizeJarDirs &amp;&amp; classPathParts_num &lt; classPathParts_max; ++i)
++	{
++		char* absoluteDirPath = util_allocStr(MAX_TEXT_LEN);
++		bool found = util_findDir(
++				staticGlobalData-&gt;dataDirs, staticGlobalData-&gt;numDataDirs,
++				jarDirs[i], absoluteDirPath, false, false);
++		if (found) {
++			classPathParts[classPathParts_num++] = absoluteDirPath;
++		} else {
++			free(jarDirs[i]);
++			jarDirs[i] = NULL;
++		}
++	}
++	// add the jars in the dirs
++	int j;
++	for (i = 0; i &lt; sizeJarDirs &amp;&amp; classPathParts_num &lt; classPathParts_max; ++i)
++	{
++		if (jarDirs[i] != NULL) {
++			char* jarFileNames[classPathParts_max-classPathParts_num];
++			unsigned int sizeJarFileNames = util_listFiles(jarDirs[i], &quot;.jar&quot;,
++					jarFileNames, true, classPathParts_max-classPathParts_num);
++			for (j = 0; j &lt; sizeJarFileNames; ++j) {
++				classPathParts[classPathParts_num] = util_allocStr(
++						strlen(jarDirs[i]) + 1 + strlen(jarFileNames[j]));
++				STRCAT(classPathParts[classPathParts_num], jarDirs[i]);
++				STRCAT(classPathParts[classPathParts_num], sPS);
++				STRCAT(classPathParts[classPathParts_num], jarFileNames[j]);
++			}
++		}
++		free(jarDirs[i]);
++		jarDirs[i] = NULL;
++	}
++
++	return true;
++}
++
++static jobject java_createAIClassLoader(JNIEnv* env,
++		const char* shortName, const char* version) {
++
++	static const char* FILE_URL_PREFIX = &quot;<A HREF="file://">file://</A>&quot;;
++
++	jobject o_jClsLoader = NULL;
++
++	int cpp_max = 512;
++	char* classPathParts[cpp_max];
++	int cpp_num =
++			java_createAIClassPath(shortName, version, classPathParts, cpp_max);
++
++	jobjectArray o_cppURLs = (*env)-&gt;NewObjectArray(env, cpp_num, g_cls_url,
++			NULL);
++	if (checkException(env, &quot;!Failed creating URL[].&quot;)) { return NULL; }
++	int u;
++	for (u = 0; u &lt; cpp_num; ++u) {
++		char* str_fileUrl = util_allocStr(strlen(FILE_URL_PREFIX)
++				+ strlen(classPathParts[u]));
++		STRCPY(str_fileUrl, FILE_URL_PREFIX);
++		STRCAT(str_fileUrl, classPathParts[u]);
++		jstring jstr_fileUrl = (*env)-&gt;NewStringUTF(env, str_fileUrl);
++		if (checkException(env, &quot;!Failed creating Java String.&quot;)) { return NULL; }
++		jobject jurl_fileUrl = (*env)-&gt;NewObject(env, g_cls_url, g_m_url_ctor, jstr_fileUrl);
++		if (checkException(env, &quot;!Failed creating Java URL.&quot;)) { return NULL; }
++		(*env)-&gt;SetObjectArrayElement(env, o_cppURLs, u, jurl_fileUrl);
++		if (checkException(env, &quot;!Failed setting Java URL in array.&quot;)) { return NULL; }
++	}
++
++	o_jClsLoader = (*env)-&gt;NewObject(env, g_cls_urlClassLoader, g_m_urlClassLoader_ctor, o_cppURLs);
++	if (checkException(env, &quot;!Failed creating class-loader.&quot;)) { return NULL; }
++	o_jClsLoader = (*env)-&gt;NewGlobalRef(env, o_jClsLoader);
++	if (checkException(env, &quot;!Failed to make class-loader a global reference.&quot;)) { return NULL; }
++
++	return o_jClsLoader;
++}
++
+ static bool java_createJavaVMInitArgs(struct JavaVMInitArgs* vm_args) {
+ 
+ 	char classPath[16 * 1024];
+@@ -533,29 +911,30 @@
+ 	maxSkirmishImpls = maxTeams;
+ 	sizeImpls = 0;
+ 
+-	aiImplId_className = (const char**) calloc(maxSkirmishImpls, sizeof(char*));
+-	aiImplId_instance = (jobject*) calloc(maxSkirmishImpls, sizeof(jobject));
+-	aiImplId_methods = (jmethodID**)
+-			calloc(maxSkirmishImpls, sizeof(jmethodID*));
+ 	teamId_aiImplId = (unsigned int*) calloc(maxTeams, sizeof(unsigned int));
+ 	teamId_cCallback =(const struct SAICallback**)
+ 			calloc(maxTeams, sizeof(struct SAICallback*));
+ 	teamId_jCallback = (jobject*) calloc(maxTeams, sizeof(jobject));
++	unsigned int t;
++	for (t = 0; t &lt; maxTeams; ++t) {
++		teamId_aiImplId[t] = 0;
++		teamId_cCallback[t] = NULL;
++		teamId_jCallback[t] = NULL;
++	}
+ 
++	aiImplId_className = (const char**) calloc(maxSkirmishImpls, sizeof(char*));
++	aiImplId_instance = (jobject*) calloc(maxSkirmishImpls, sizeof(jobject));
++	aiImplId_methods = (jmethodID**)
++			calloc(maxSkirmishImpls, sizeof(jmethodID*));
++	aiImplId_classLoader = (jobject*) calloc(maxSkirmishImpls, sizeof(jobject));
+ 	unsigned int impl;
+ 	for (impl = 0; impl &lt; maxSkirmishImpls; ++impl) {
+ 		aiImplId_className[impl] = NULL;
+ 		aiImplId_instance[impl] = NULL;
+ 		aiImplId_methods[impl] = NULL;
++		aiImplId_classLoader[impl] = NULL;
+ 	}
+ 
+-	unsigned int t;
+-	for (t = 0; t &lt; maxTeams; ++t) {
+-		teamId_aiImplId[t] = 0;
+-		teamId_cCallback[t] = NULL;
+-		teamId_jCallback[t] = NULL;
+-	}
+-
+ /*
+ 	ESTABLISH_JAVA_ENV;
+ 	JNIEnv* env = java_getJNIEnv();
+@@ -568,6 +947,94 @@
+ }
+ 
+ 
++static bool java_initURLClass(JNIEnv* env) {
++
++	// get the URL class
++	char fcCls[] = &quot;java/net/URL&quot;;
++	g_cls_url = (*env)-&gt;FindClass(env, fcCls);
++	if (g_cls_url == NULL || (*env)-&gt;ExceptionCheck(env)) {
++		simpleLog_log(&quot;!Class not found \&quot;%s\&quot;&quot;, fcCls);
++		if ((*env)-&gt;ExceptionCheck(env)) {
++			(*env)-&gt;ExceptionDescribe(env);
++		}
++		return false;
++	}
++
++	// make the URL class a global reference,
++	// so it will not be garbage collected,
++	// even after this method returned
++	g_cls_url = (*env)-&gt;NewGlobalRef(env, g_cls_url);
++	if ((*env)-&gt;ExceptionCheck(env)) {
++		simpleLog_log(&quot;!Failed to make \&quot;%s\&quot; a global reference.&quot;, fcCls);
++		(*env)-&gt;ExceptionDescribe(env);
++		return false;
++	}
++
++	// get (String)	constructor
++	g_m_url_ctor = (*env)-&gt;GetMethodID(env, g_cls_url, &quot;&lt;init&gt;&quot;, &quot;(Ljava/lang/String;)V&quot;);
++	if (g_m_url_ctor == NULL || (*env)-&gt;ExceptionCheck(env)) {
++		simpleLog_log(&quot;!(String) constructor not found for class: %s&quot;, fcCls);
++		if ((*env)-&gt;ExceptionCheck(env)) {
++			(*env)-&gt;ExceptionDescribe(env);
++		}
++		return false;
++	}
++
++	return true;
++}
++
++static bool java_initURLClassLoaderClass(JNIEnv* env) {
++
++	// get the URLClassLoader class
++	char fcCls[] = &quot;java/net/URLClassLoader&quot;;
++	g_cls_urlClassLoader = (*env)-&gt;FindClass(env, fcCls);
++	if (g_cls_urlClassLoader == NULL || (*env)-&gt;ExceptionCheck(env)) {
++		simpleLog_log(&quot;!Class not found \&quot;%s\&quot;&quot;, fcCls);
++		if ((*env)-&gt;ExceptionCheck(env)) {
++			(*env)-&gt;ExceptionDescribe(env);
++		}
++		return false;
++	}
++
++	// make the URLClassLoader class a global reference,
++	// so it will not be garbage collected,
++	// even after this method returned
++	g_cls_urlClassLoader = (*env)-&gt;NewGlobalRef(env, g_cls_urlClassLoader);
++	if ((*env)-&gt;ExceptionCheck(env)) {
++		simpleLog_log(&quot;!Failed to make \&quot;%s\&quot; a global reference.&quot;, fcCls);
++		(*env)-&gt;ExceptionDescribe(env);
++		return false;
++	}
++
++	// get (URL[])	constructor
++	g_m_urlClassLoader_ctor = (*env)-&gt;GetMethodID(env, g_cls_urlClassLoader, &quot;&lt;init&gt;&quot;,
++			&quot;([Ljava/net/URL;)V&quot;);
++	if (g_m_urlClassLoader_ctor == NULL || (*env)-&gt;ExceptionCheck(env)) {
++		simpleLog_log(&quot;!(URL[]) constructor not found for class: %s&quot;, fcCls);
++		if ((*env)-&gt;ExceptionCheck(env)) {
++			(*env)-&gt;ExceptionDescribe(env);
++		}
++		return false;
++	}
++
++	// get the findClass(String) method
++	g_m_urlClassLoader_findClass = (*env)-&gt;GetMethodID(env,
++			g_cls_urlClassLoader, &quot;findClass&quot;,
++			&quot;(Ljava/lang/String;)Ljava/lang/Class;&quot;);
++	if (g_m_urlClassLoader_findClass == NULL || (*env)-&gt;ExceptionCheck(env)) {
++		g_m_urlClassLoader_findClass = NULL;
++		simpleLog_log(&quot;!Method not found: %s.%s%s&quot;, fcCls,
++				&quot;findClass&quot;,
++				&quot;(Ljava/lang/String;)Ljava/lang/Class;&quot;);
++		if ((*env)-&gt;ExceptionCheck(env)) {
++			(*env)-&gt;ExceptionDescribe(env);
++		}
++		return false;
++	}
++
++	return true;
++}
++
+ static bool java_initPropertiesClass(JNIEnv* env) {
+ 
+ 	// get the Properties class
+@@ -720,10 +1187,12 @@
+ 		}
+ 	}
+ 
++	free(teamId_aiImplId);
++
+ 	free(aiImplId_className);
+ 	free(aiImplId_instance);
+ 	free(aiImplId_methods);
+-	free(teamId_aiImplId);
++	free(aiImplId_classLoader);
+ 
+ 	return true;
+ }
+@@ -751,16 +1220,27 @@
+  * @param	aiInstance	where the AI instance will be stored
+  * @param	methods		where the method IDs of the AI will be stored
+  */
+-static bool java_loadSkirmishAI(JNIEnv* env, const char* className,
+-		jobject* o_ai, jmethodID methods[MTHS_SIZE_SKIRMISH_AI]) {
++static bool java_loadSkirmishAI(JNIEnv* env,
++		const char* shortName, const char* version, const char* className,
++		jobject* o_ai, jmethodID methods[MTHS_SIZE_SKIRMISH_AI],
++		jobject* o_aiClassLoader) {
+ 
+ 	// convert className from &quot;com.myai.AI&quot; to &quot;com/myai/AI&quot;
+ 	char classNameP[strlen(className)+1];
+ 	STRCPY(classNameP, className);
+ 	util_strReplace(classNameP, '.', '/');
+ 
++	// get the AIs private class-loader
++	jobject o_global_aiClassLoader =
++			java_createAIClassLoader(env, shortName, version);
++	if (o_global_aiClassLoader == NULL) { return false; }
++	*o_aiClassLoader = o_global_aiClassLoader;
++
+ 	// get the AI class
+-	jclass cls_ai = (*env)-&gt;FindClass(env, classNameP);
++	//jclass cls_ai = (*env)-&gt;FindClass(env, classNameP);
++	jstring jstr_className = (*env)-&gt;NewStringUTF(env, className);
++	jclass cls_ai = (*env)-&gt;CallObjectMethod(env, o_global_aiClassLoader,
++			g_m_urlClassLoader_findClass, jstr_className);
+ 	if (cls_ai == NULL || (*env)-&gt;ExceptionCheck(env)) {
+ 		simpleLog_log(&quot;!Class not found \&quot;%s\&quot;&quot;, className);
+ 		if ((*env)-&gt;ExceptionCheck(env)) {
+@@ -794,10 +1274,11 @@
+ 	// so it will not be garbage collected,
+ 	// even after this method returned
+ 	jobject o_global_ai = (*env)-&gt;NewGlobalRef(env, o_local_ai);
+-	*o_ai = o_global_ai;
+ 	if ((*env)-&gt;ExceptionCheck(env)) {
+ 		simpleLog_log(&quot;!Failed to make AI a global reference.&quot;);
+ 		(*env)-&gt;ExceptionDescribe(env);
++	} else {
++		*o_ai = o_global_ai;
+ 	}
+ 
+ 
+@@ -843,10 +1324,21 @@
+  * @param	aiInstance	where the AI instance will be stored
+  * @param	methods		where the method IDs of the AI will be stored
+  */
+-bool java_initSkirmishAIClass(const char* className) {
++bool java_initSkirmishAIClass(unsigned int infoSize,
++		const char** infoKeys, const char** infoValues) {
+ 
+ 	bool success = false;
+ 
++	const char* shortName =
++			util_map_getValueByKey(infoSize, infoKeys, infoValues,
++			SKIRMISH_AI_PROPERTY_SHORT_NAME);
++	const char* version =
++			util_map_getValueByKey(infoSize, infoKeys, infoValues,
++			SKIRMISH_AI_PROPERTY_VERSION);
++	const char* className =
++			util_map_getValueByKey(infoSize, infoKeys, infoValues,
++			JAVA_SKIRMISH_AI_PROPERTY_CLASS_NAME);
++
+ 	// see if an AI for className is instantiated already
+ 	unsigned int implId;
+ 	for (implId = 0; implId &lt; sizeImpls; ++implId) {
+@@ -860,14 +1352,21 @@
+ 		ESTABLISH_JAVA_ENV;
+ 		JNIEnv* env = java_getJNIEnv();
+ 
++		if (g_cls_url == NULL) {
++			java_initURLClass(env);
++		}
++		if (g_cls_urlClassLoader == NULL) {
++			java_initURLClassLoaderClass(env);
++		}
+ 		if (g_cls_jnaPointer == NULL) {
+ 			java_initPointerClass(env);
+ 		}
+ 
+ 		aiImplId_methods[implId] = (jmethodID*) calloc(MTHS_SIZE_SKIRMISH_AI,
+ 				sizeof(jmethodID));
+-		success = java_loadSkirmishAI(env, className,
+-				&amp;(aiImplId_instance[implId]), aiImplId_methods[implId]);
++		success = java_loadSkirmishAI(env, shortName, version, className,
++				&amp;(aiImplId_instance[implId]), aiImplId_methods[implId],
++				&amp;(aiImplId_classLoader[implId]));
+ 		ESTABLISH_SPRING_ENV;
+ 		if (success) {
+ 			aiImplId_className[implId] = util_allocStrCpy(className);
+@@ -905,6 +1404,16 @@
+ 		ESTABLISH_JAVA_ENV;
+ 		JNIEnv* env = java_getJNIEnv();
+ 
++		// delete the AI class-loader global reference,
++		// so it will be garbage collected
++		(*env)-&gt;DeleteGlobalRef(env, aiImplId_classLoader[implId]);
++		success = !((*env)-&gt;ExceptionCheck(env));
++		if (!success) {
++			simpleLog_log(
++					&quot;!Failed to delete AI class-loader global reference.&quot;);
++			(*env)-&gt;ExceptionDescribe(env);
++		}
++
+ 		// delete the AI global reference,
+ 		// so it will be garbage collected
+ 		(*env)-&gt;DeleteGlobalRef(env, aiImplId_instance[implId]);
+@@ -916,8 +1425,15 @@
+ 		ESTABLISH_SPRING_ENV;
+ 
+ 		if (success) {
++			free(aiImplId_classLoader[implId]);
++			aiImplId_classLoader[implId] = NULL;
++
++			free(aiImplId_instance[implId]);
++			aiImplId_instance[implId] = NULL;
++
+ 			free(aiImplId_methods[implId]);
+ 			aiImplId_methods[implId] = NULL;
++
+ 			free(aiImplId_className[implId]);
+ 			aiImplId_className[implId] = NULL;
+ 		}
+
+Modified: branches/caiinterface/AI/Interfaces/Java/JavaBridge.h
+===================================================================
+--- branches/caiinterface/AI/Interfaces/Java/JavaBridge.h	2009-01-03 12:03:18 UTC (rev 7223)
++++ branches/caiinterface/AI/Interfaces/Java/JavaBridge.h	2009-01-04 09:17:00 UTC (rev 7224)
+@@ -85,7 +85,8 @@
+ bool java_unloadJNIEnv();
+ bool java_initStatic(const struct SStaticGlobalData* staticGlobalData);
+ bool java_releaseStatic();
+-bool java_initSkirmishAIClass(const char* className);
++bool java_initSkirmishAIClass(unsigned int infoSize,
++		const char** infoKeys, const char** infoValues);
+ bool java_releaseSkirmishAIClass(const char* className);
+ bool java_releaseAllSkirmishAIClasses();
+ int java_skirmishAI_init(int teamId,
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001992.html">[Taspring-linux-commit] r7223 - in	branches/caiinterface/AI/Interfaces/Java: bin	java/src/com/clan_sy/spring/ai
+</A></li>
+	<LI>Next message: <A HREF="001994.html">[Taspring-linux-commit] r7225 - in branches/caiinterface:	AI/Interfaces/Java/bin rts/ExternalAI/Interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1993">[ date ]</a>
+              <a href="thread.html#1993">[ thread ]</a>
+              <a href="subject.html#1993">[ subject ]</a>
+              <a href="author.html#1993">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

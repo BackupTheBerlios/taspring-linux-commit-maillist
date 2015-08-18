@@ -1,0 +1,204 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7544 - Lobby/TASClient
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2010-December/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7544%20-%20Lobby/TASClient&In-Reply-To=%3C20101204155643.C45E6232AE%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002313.html">
+   <LINK REL="Next"  HREF="002315.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7544 - Lobby/TASClient</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7544%20-%20Lobby/TASClient&In-Reply-To=%3C20101204155643.C45E6232AE%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7544 - Lobby/TASClient">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Dec  4 16:56:43 CET 2010</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002313.html">[Taspring-linux-commit] r7543 - in Lobby/TASClient: . Python/scripts
+</A></li>
+        <LI>Next message: <A HREF="002315.html">[Taspring-linux-commit] r7545 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2314">[ date ]</a>
+              <a href="thread.html#2314">[ thread ]</a>
+              <a href="subject.html#2314">[ subject ]</a>
+              <a href="author.html#2314">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2010-12-04 16:56:43 +0100 (Sat, 04 Dec 2010)
+New Revision: 7544
+
+Modified:
+   Lobby/TASClient/BattleFormUnit.pas
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* fixed player password not added to the start script when hosting
+* fixed midgame join when using a relay host 
+
+Modified: Lobby/TASClient/BattleFormUnit.pas
+===================================================================
+--- Lobby/TASClient/BattleFormUnit.pas	2010-12-03 18:04:38 UTC (rev 7543)
++++ Lobby/TASClient/BattleFormUnit.pas	2010-12-04 15:56:43 UTC (rev 7544)
+@@ -1578,7 +1578,7 @@
+ begin
+   if not IsBattleActive then Exit; // this should not happen
+ 
+-  if BattleState.HostSupportsJoinPassword and (BattleState.Status = Joined) then
++  if (BattleState.HostSupportsJoinPassword and (BattleState.Status = Joined)) or (HostBattleForm.relayHoster &lt;&gt; nil) then
+   begin
+     JoinButton.Visible := True;
+     StartButton.Visible := False;
+@@ -2474,6 +2474,8 @@
+       Script.AddOrChangeKeyValue('GAME/PLAYER'+IntToStr(j)+'/Name',TClient(BattleState.Battle.Clients[i]).Name);
+       Script.AddOrChangeKeyValue('GAME/PLAYER'+IntToStr(j)+'/countryCode',TClient(BattleState.Battle.Clients[i]).Country);
+       Script.AddOrChangeKeyValue('GAME/PLAYER'+IntToStr(j)+'/Rank',IntToStr(TClient(BattleState.Battle.Clients[i]).GetRank));
++      if TClient(BattleState.Battle.Clients[i]).BattleJoinPassword &lt;&gt; '' then
++        Script.AddOrChangeKeyValue('GAME/PLAYER'+IntToStr(j)+'/Password',TClient(BattleState.Battle.Clients[i]).BattleJoinPassword);
+       if TClient(BattleState.Battle.Clients[i]).GetMode = 0 then
+       begin
+         Script.AddOrChangeKeyValue('GAME/PLAYER'+IntToStr(j)+'/Spectator','1');
+@@ -3002,6 +3004,7 @@
+     end;
+     StartButton.Visible := True;
+     StartProgressBar.Visible := False;
++    MainForm.TryToSendCommand('SAYPRIVATE',HostBattleForm.relayHoster.Name+' !redirectspring 1');
+     MainForm.TryToSendCommand('SAYPRIVATE',HostBattleForm.relayHoster.Name+' !startgame');
+     sl.Free;
+   end
+@@ -3784,7 +3787,7 @@
+     begin
+       AddTextToChat('Back from the game', Colors.Info, 1);
+       MainForm.SpringSocket.Close;
+-      if BattleState.Status = Hosting then
++      if (BattleState.Status = Hosting) and (HostBattleForm.relayHoster = nil) then
+       begin
+         JoinButton.Visible := False;
+         StartButton.Visible := True;
+@@ -3804,7 +3807,7 @@
+   begin
+     AddTextToChat('Back from the game', Colors.Info, 1);
+     MainForm.SpringSocket.Close;
+-    if BattleState.Status = Hosting then
++    if (BattleState.Status = Hosting) and (HostBattleForm.relayHoster = nil) then
+     begin
+       JoinButton.Visible := False;
+       StartButton.Visible := True;
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2010-12-03 18:04:38 UTC (rev 7543)
++++ Lobby/TASClient/MainUnit.pas	2010-12-04 15:56:43 UTC (rev 7544)
+@@ -6688,12 +6688,16 @@
+       if (Client = HostBattleForm.relayHoster) and (sl[2] = 'JOINEDBATTLE') then
+       begin
+         Client2 := GetClient(sl[4]);
+-        if Client2 &lt;&gt; nil then
++        if (Client2 &lt;&gt; nil) then
+         begin
+-          Client2.BattleJoinPassword := sl[5];
+-          if Status.Me.InBattle and BattleState.SpringComAddrAcquired then
++          Client2.BattleJoinPassword := '';
++          if (sl.Count &gt;= 6) then
+           begin
+-            TryToSendCommand('SAYPRIVATE',HostBattleForm.relayHoster.Name+' #/adduser '+Client.Name+' '+Client.BattleJoinPassword);
++            Client2.BattleJoinPassword := sl[5];
++             if HostBattleForm.relayHoster.GetInGameStatus  then
++            begin
++              TryToSendCommand('SAYPRIVATE',HostBattleForm.relayHoster.Name+' #/adduser '+Client2.Name+' '+Client2.BattleJoinPassword);
++            end;
+           end;
+           Exit;
+         end;
+@@ -6963,10 +6967,9 @@
+       if Battle.BattleType = 0 then
+         if (HostBattleForm.relayHoster &lt;&gt; nil) and (TClient(Battle.Clients[0]) = HostBattleForm.relayHoster) then
+         begin
+-          TryToSendCommand('SAYPRIVATE',HostBattleForm.relayHoster.Name+' !redirectspring 1');
+           BattleState.JoiningComplete := False;
+-          tmpBool := BattleForm.HostBattle(i)
+-        end
++          tmpBool := BattleForm.HostBattle(i);
++        end                                   
+         else
+           tmpBool := BattleForm.JoinBattle(i)
+       else
+@@ -7493,11 +7496,11 @@
+       begin
+         if Client.Battle.Clients[0] = Client then
+         begin
+-          if changed and not Client.GetInGameStatus and (BattleState.Battle &lt;&gt; nil) and (BattleState.Battle.ID = Client.Battle.ID) and (client &lt;&gt; Status.me) then
++          if changed and (BattleState.Battle &lt;&gt; nil) and (BattleState.Battle.ID = Client.Battle.ID) and (client &lt;&gt; Status.me) then
+           begin
+             BattleForm.JoinButton.Enabled := MapList.IndexOf(BattleState.Battle.Map) &gt; -1;
+-            BattleForm.JoinButton.Visible := True;
+-            BattleForm.StartButton.Visible := False;
++            BattleForm.JoinButton.Visible := Client.GetInGameStatus;
++            BattleForm.StartButton.Visible := not BattleForm.JoinButton.Visible;
+           end;
+           if not Status.ReceivingLoginInfo then
+           begin
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2010-12-03 18:04:38 UTC (rev 7543)
++++ Lobby/TASClient/TASClient.dof	2010-12-04 15:56:43 UTC (rev 7544)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=81
+ Release=0
+-Build=1125
++Build=1127
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.81.0.1125
++FileVersion=0.81.0.1127
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002313.html">[Taspring-linux-commit] r7543 - in Lobby/TASClient: . Python/scripts
+</A></li>
+	<LI>Next message: <A HREF="002315.html">[Taspring-linux-commit] r7545 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2314">[ date ]</a>
+              <a href="thread.html#2314">[ thread ]</a>
+              <a href="subject.html#2314">[ subject ]</a>
+              <a href="author.html#2314">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

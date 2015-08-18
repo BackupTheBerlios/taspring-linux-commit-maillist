@@ -1,0 +1,522 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6271 - trunk/rts/Sim/Units/UnitTypes
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-August/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6271%20-%20trunk/rts/Sim/Units/UnitTypes&In-Reply-To=%3C20080817171745.BF5AD4990%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001040.html">
+   <LINK REL="Next"  HREF="001042.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6271 - trunk/rts/Sim/Units/UnitTypes</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6271%20-%20trunk/rts/Sim/Units/UnitTypes&In-Reply-To=%3C20080817171745.BF5AD4990%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6271 - trunk/rts/Sim/Units/UnitTypes">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Aug 17 19:17:45 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001040.html">[Taspring-linux-commit] r6270 - in trunk/rts: Sim/Features Sim/Misc	Sim/MoveTypes Sim/MoveTypes/MoveMath Sim/Objects	Sim/Projectiles Sim/Units System/Script
+</A></li>
+        <LI>Next message: <A HREF="001042.html">[Taspring-linux-commit] r6272 - in trunk/rts: Sim/Features Sim/Misc	Sim/MoveTypes Sim/MoveTypes/MoveMath Sim/Objects	Sim/Projectiles Sim/Units System/Script
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1041">[ date ]</a>
+              <a href="thread.html#1041">[ thread ]</a>
+              <a href="subject.html#1041">[ subject ]</a>
+              <a href="author.html#1041">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-08-17 19:17:44 +0200 (Sun, 17 Aug 2008)
+New Revision: 6271
+
+Modified:
+   trunk/rts/Sim/Units/UnitTypes/Builder.cpp
+Log:
+fix the fix for #1001 (preventing #1003)
+
+Modified: trunk/rts/Sim/Units/UnitTypes/Builder.cpp
+===================================================================
+--- trunk/rts/Sim/Units/UnitTypes/Builder.cpp	2008-08-17 16:02:18 UTC (rev 6270)
++++ trunk/rts/Sim/Units/UnitTypes/Builder.cpp	2008-08-17 17:17:44 UTC (rev 6271)
+@@ -126,255 +126,258 @@
+ 	captureSpeed   = scale * def-&gt;captureSpeed;
+ 	terraformSpeed = scale * def-&gt;terraformSpeed;
+ 
+-	CUnit::UnitInit (def, team, position);
++	CUnit::UnitInit(def, team, position);
+ }
+ 
+ 
+ void CBuilder::Update()
+ {
+-	if (beingBuilt || stunned) {
++	if (beingBuilt) {
+ 		return;
+ 	}
+ 
+-	if (terraforming &amp;&amp; inBuildStance) {
+-		const float* heightmap = readmap-&gt;GetHeightmap();
+-		assert(!mapDamage-&gt;disabled); // The map should not be deformed in the first place.
+-		float terraformScale = 0.1;
++	if (!stunned) {
++		if (terraforming &amp;&amp; inBuildStance) {
++			const float* heightmap = readmap-&gt;GetHeightmap();
++			assert(!mapDamage-&gt;disabled); // The map should not be deformed in the first place.
++			float terraformScale = 0.1;
+ 
+-		switch (terraformType) {
+-		    case Terraform_Building:
+-				if (curBuild) {
+-					terraformScale = (terraformSpeed + terraformHelp) / curBuild-&gt;terraformLeft;
+-					curBuild-&gt;terraformLeft -= (terraformSpeed + terraformHelp);
++			switch (terraformType) {
++				case Terraform_Building:
++					if (curBuild) {
++						terraformScale = (terraformSpeed + terraformHelp) / curBuild-&gt;terraformLeft;
++						curBuild-&gt;terraformLeft -= (terraformSpeed + terraformHelp);
++						terraformHelp = 0;
++
++						if (terraformScale &gt; 1.0f) {
++							terraformScale = 1.0f;
++						}
++
++						// prevent building from timing out while terraforming for it
++						curBuild-&gt;AddBuildPower(0.0f, this);
++						for (int z = tz1; z &lt;= tz2; z++) {
++							for (int x = tx1; x &lt;= tx2; x++) {
++								int idx = z * (gs-&gt;mapx + 1) + x;
++								float ch = heightmap[idx];
++
++								readmap-&gt;AddHeight(idx, (curBuild-&gt;pos.y - ch) * terraformScale);
++							}
++						}
++
++						if(curBuild-&gt;terraformLeft&lt;=0){
++							terraforming=false;
++							mapDamage-&gt;RecalcArea(tx1,tx2,tz1,tz2);
++							curBuild-&gt;groundLevelled = true;
++							if (luaRules &amp;&amp; luaRules-&gt;TerraformComplete(this, curBuild)) {
++								StopBuild();
++							}
++						}
++					}
++					break;
++				case Terraform_Restore:
++					terraformScale = (terraformSpeed + terraformHelp) / myTerraformLeft;
++					myTerraformLeft -= (terraformSpeed + terraformHelp);
+ 					terraformHelp = 0;
+ 
+ 					if (terraformScale &gt; 1.0f) {
+ 						terraformScale = 1.0f;
+ 					}
+ 
+-					// prevent building from timing out while terraforming for it
+-					curBuild-&gt;AddBuildPower(0.0f, this);
+ 					for (int z = tz1; z &lt;= tz2; z++) {
+ 						for (int x = tx1; x &lt;= tx2; x++) {
+ 							int idx = z * (gs-&gt;mapx + 1) + x;
+ 							float ch = heightmap[idx];
++							float oh = readmap-&gt;orgheightmap[idx];
+ 
+-							readmap-&gt;AddHeight(idx, (curBuild-&gt;pos.y - ch) * terraformScale);
++							readmap-&gt;AddHeight(idx, (oh - ch) * terraformScale);
+ 						}
+ 					}
+ 
+-					if(curBuild-&gt;terraformLeft&lt;=0){
++					if (myTerraformLeft &lt;= 0) {
+ 						terraforming=false;
+ 						mapDamage-&gt;RecalcArea(tx1,tx2,tz1,tz2);
+-						curBuild-&gt;groundLevelled = true;
+-						if (luaRules &amp;&amp; luaRules-&gt;TerraformComplete(this, curBuild)) {
+-							StopBuild();
+-						}
++						StopBuild();
+ 					}
+-				}
+-				break;
+-			case Terraform_Restore:
+-				terraformScale = (terraformSpeed + terraformHelp) / myTerraformLeft;
+-				myTerraformLeft -= (terraformSpeed + terraformHelp);
+-				terraformHelp = 0;
++					break;
++			}
+ 
+-				if (terraformScale &gt; 1.0f) {
+-					terraformScale = 1.0f;
+-				}
++			CreateNanoParticle(terraformCenter,terraformRadius*0.5f,false);
+ 
+-				for (int z = tz1; z &lt;= tz2; z++) {
+-					for (int x = tx1; x &lt;= tx2; x++) {
+-						int idx = z * (gs-&gt;mapx + 1) + x;
+-						float ch = heightmap[idx];
+-						float oh = readmap-&gt;orgheightmap[idx];
++			for (int z = tz1; z &lt;= tz2; z++) {
++				// smooth the borders x
++				for (int x = 1; x &lt;= 3; x++) {
++					if (tx1 - 3 &gt;= 0) {
++						float ch3 = heightmap[z * (gs-&gt;mapx + 1) + tx1    ];
++						float ch  = heightmap[z * (gs-&gt;mapx + 1) + tx1 - x];
++						float ch2 = heightmap[z * (gs-&gt;mapx + 1) + tx1 - 3];
++						float amount = ((ch3 * (3 - x) + ch2 * x) / 3 - ch) * terraformScale;
+ 
+-						readmap-&gt;AddHeight(idx, (oh - ch) * terraformScale);
++						readmap-&gt;AddHeight(z * (gs-&gt;mapx + 1) + tx1 - x, amount);
+ 					}
+-				}
++					if (tx2 + 3 &lt; gs-&gt;mapx) {
++						float ch3 = heightmap[z * (gs-&gt;mapx + 1) + tx2    ];
++						float ch  = heightmap[z * (gs-&gt;mapx + 1) + tx2 + x];
++						float ch2 = heightmap[z * (gs-&gt;mapx + 1) + tx2 + 3];
++						float amount = ((ch3 * (3 - x) + ch2 * x) / 3 - ch) * terraformScale;
+ 
+-				if (myTerraformLeft &lt;= 0) {
+-					terraforming=false;
+-					mapDamage-&gt;RecalcArea(tx1,tx2,tz1,tz2);
+-					StopBuild();
++						readmap-&gt;AddHeight(z * (gs-&gt;mapx + 1) + tx2 + x, amount);
++					}
+ 				}
+-				break;
+-		}
++			}
++			for (int z = 1; z &lt;= 3; z++) {
++				// smooth the borders z
++				for (int x = tx1; x &lt;= tx2; x++) {
++					if (tz1 - 3 &gt;= 0) {
++						float ch3 = heightmap[(tz1    ) * (gs-&gt;mapx + 1) + x];
++						float ch  = heightmap[(tz1 - z) * (gs-&gt;mapx + 1) + x];
++						float ch2 = heightmap[(tz1 - 3) * (gs-&gt;mapx + 1) + x];
++						float adjust = ((ch3 * (3 - z) + ch2 * z) / 3 - ch) * terraformScale;
+ 
+-		CreateNanoParticle(terraformCenter,terraformRadius*0.5f,false);
+-
+-		for (int z = tz1; z &lt;= tz2; z++) {
+-			// smooth the borders x
+-			for (int x = 1; x &lt;= 3; x++) {
+-				if (tx1 - 3 &gt;= 0) {
+-					float ch3 = heightmap[z * (gs-&gt;mapx + 1) + tx1    ];
+-					float ch  = heightmap[z * (gs-&gt;mapx + 1) + tx1 - x];
+-					float ch2 = heightmap[z * (gs-&gt;mapx + 1) + tx1 - 3];
+-					float amount = ((ch3 * (3 - x) + ch2 * x) / 3 - ch) * terraformScale;
+-
+-					readmap-&gt;AddHeight(z * (gs-&gt;mapx + 1) + tx1 - x, amount);
++						readmap-&gt;AddHeight((tz1 - z) * (gs-&gt;mapx + 1) + x, adjust);
++					}
++					if (tz2 + 3 &lt; gs-&gt;mapy) {
++						float ch3 = heightmap[(tz2    ) * (gs-&gt;mapx + 1) + x];
++						float ch  = heightmap[(tz2 + z) * (gs-&gt;mapx + 1) + x];
++						float ch2 = heightmap[(tz2 + 3) * (gs-&gt;mapx + 1) + x];
++						float adjust = ((ch3 * (3 - z) + ch2 * z) / 3 - ch) * terraformScale;
++	
++						readmap-&gt;AddHeight((tz2 + z) * (gs-&gt;mapx + 1) + x, adjust);
++					}
+ 				}
+-				if (tx2 + 3 &lt; gs-&gt;mapx) {
+-					float ch3 = heightmap[z * (gs-&gt;mapx + 1) + tx2    ];
+-					float ch  = heightmap[z * (gs-&gt;mapx + 1) + tx2 + x];
+-					float ch2 = heightmap[z * (gs-&gt;mapx + 1) + tx2 + 3];
+-					float amount = ((ch3 * (3 - x) + ch2 * x) / 3 - ch) * terraformScale;
+-
+-					readmap-&gt;AddHeight(z * (gs-&gt;mapx + 1) + tx2 + x, amount);
+-				}
+ 			}
+ 		}
+-		for (int z = 1; z &lt;= 3; z++) {
+-			// smooth the borders z
+-			for (int x = tx1; x &lt;= tx2; x++) {
+-				if (tz1 - 3 &gt;= 0) {
+-					float ch3 = heightmap[(tz1    ) * (gs-&gt;mapx + 1) + x];
+-					float ch  = heightmap[(tz1 - z) * (gs-&gt;mapx + 1) + x];
+-					float ch2 = heightmap[(tz1 - 3) * (gs-&gt;mapx + 1) + x];
+-					float adjust = ((ch3 * (3 - z) + ch2 * z) / 3 - ch) * terraformScale;
+-
+-					readmap-&gt;AddHeight((tz1 - z) * (gs-&gt;mapx + 1) + x, adjust);
+-				}
+-				if (tz2 + 3 &lt; gs-&gt;mapy) {
+-					float ch3 = heightmap[(tz2    ) * (gs-&gt;mapx + 1) + x];
+-					float ch  = heightmap[(tz2 + z) * (gs-&gt;mapx + 1) + x];
+-					float ch2 = heightmap[(tz2 + 3) * (gs-&gt;mapx + 1) + x];
+-					float adjust = ((ch3 * (3 - z) + ch2 * z) / 3 - ch) * terraformScale;
+-
+-					readmap-&gt;AddHeight((tz2 + z) * (gs-&gt;mapx + 1) + x, adjust);
+-				}
++		else if (helpTerraform &amp;&amp; inBuildStance) {
++			if (helpTerraform-&gt;terraforming) {
++				helpTerraform-&gt;terraformHelp += terraformSpeed;
++				CreateNanoParticle(helpTerraform-&gt;terraformCenter,helpTerraform-&gt;terraformRadius*0.5f,false);
++			} else {
++				DeleteDeathDependence(helpTerraform);
++				helpTerraform=0;
++				StopBuild(true);
+ 			}
+ 		}
+-	}
+-	else if (helpTerraform &amp;&amp; inBuildStance) {
+-		if (helpTerraform-&gt;terraforming) {
+-			helpTerraform-&gt;terraformHelp += terraformSpeed;
+-			CreateNanoParticle(helpTerraform-&gt;terraformCenter,helpTerraform-&gt;terraformRadius*0.5f,false);
+-		} else {
+-			DeleteDeathDependence(helpTerraform);
+-			helpTerraform=0;
+-			StopBuild(true);
+-		}
+-	}
+-	else if (curBuild &amp;&amp; f3Dist(curBuild-&gt;pos, pos) &lt; buildDistance + curBuild-&gt;radius) {
+-		if (curBuild-&gt;soloBuilder &amp;&amp; (curBuild-&gt;soloBuilder != this)) {
+-			StopBuild();
+-		} else {
+-			if (!inBuildStance) {
+-				curBuild-&gt;AddBuildPower(0.0f, this); //prevent building timing out
++		else if (curBuild &amp;&amp; f3Dist(curBuild-&gt;pos, pos) &lt; buildDistance + curBuild-&gt;radius) {
++			if (curBuild-&gt;soloBuilder &amp;&amp; (curBuild-&gt;soloBuilder != this)) {
++				StopBuild();
+ 			} else {
+-				if (scriptCloak &lt;= 2) {
+-					if (isCloaked) {
+-						isCloaked = false;
+-						eventHandler.UnitDecloaked(this);
++				if (!inBuildStance) {
++					curBuild-&gt;AddBuildPower(0.0f, this); //prevent building timing out
++				} else {
++					if (scriptCloak &lt;= 2) {
++						if (isCloaked) {
++							isCloaked = false;
++							eventHandler.UnitDecloaked(this);
++						}
++						curCloakTimeout = gs-&gt;frameNum + cloakTimeout;
+ 					}
+-					curCloakTimeout = gs-&gt;frameNum + cloakTimeout;
+-				}
+ 
+-	  			float adjBuildSpeed; // adjusted build speed
+-	  			if (curBuild-&gt;buildProgress &lt; 1.0f) {
+-	  				adjBuildSpeed = buildSpeed;  // new build
+-	  			} else {
+-  					adjBuildSpeed = min(unitDef-&gt;maxRepairSpeed / 2.0f - curBuild-&gt;repairAmount, repairSpeed); // repair
+-				}
++					float adjBuildSpeed; // adjusted build speed
++					if (curBuild-&gt;buildProgress &lt; 1.0f) {
++						adjBuildSpeed = buildSpeed;  // new build
++					} else {
++						adjBuildSpeed = min(unitDef-&gt;maxRepairSpeed / 2.0f - curBuild-&gt;repairAmount, repairSpeed); // repair
++					}
+ 
+-	  			if(adjBuildSpeed &gt; 0 &amp;&amp; !commandAI-&gt;commandQue.empty()
+-	  					&amp;&amp; commandAI-&gt;commandQue.front().id == CMD_WAIT) {
+-	  				curBuild-&gt;AddBuildPower(0, this);
+-	  			} else if (adjBuildSpeed &gt; 0 &amp;&amp; curBuild-&gt;AddBuildPower(adjBuildSpeed, this)) {
+-					CreateNanoParticle(curBuild-&gt;midPos, curBuild-&gt;radius * 0.5f, false);
+-				} else {
+-					if(!curBuild-&gt;beingBuilt &amp;&amp; curBuild-&gt;health &gt;= curBuild-&gt;maxHealth) {
+-						StopBuild();
++					if(adjBuildSpeed &gt; 0 &amp;&amp; !commandAI-&gt;commandQue.empty()
++							&amp;&amp; commandAI-&gt;commandQue.front().id == CMD_WAIT) {
++						curBuild-&gt;AddBuildPower(0, this);
++					} else if (adjBuildSpeed &gt; 0 &amp;&amp; curBuild-&gt;AddBuildPower(adjBuildSpeed, this)) {
++						CreateNanoParticle(curBuild-&gt;midPos, curBuild-&gt;radius * 0.5f, false);
++					} else {
++						if(!curBuild-&gt;beingBuilt &amp;&amp; curBuild-&gt;health &gt;= curBuild-&gt;maxHealth) {
++							StopBuild();
++						}
+ 					}
+ 				}
+ 			}
+ 		}
+-	}
+-	else if(curReclaim &amp;&amp; f3Dist(curReclaim-&gt;pos, pos)&lt;buildDistance+curReclaim-&gt;radius &amp;&amp; inBuildStance){
+-		if (scriptCloak &lt;= 2) {
+-			if (isCloaked) {
+-				isCloaked = false;
+-				eventHandler.UnitDecloaked(this);
++		else if(curReclaim &amp;&amp; f3Dist(curReclaim-&gt;pos, pos)&lt;buildDistance+curReclaim-&gt;radius &amp;&amp; inBuildStance){
++			if (scriptCloak &lt;= 2) {
++				if (isCloaked) {
++					isCloaked = false;
++					eventHandler.UnitDecloaked(this);
++				}
++				curCloakTimeout = gs-&gt;frameNum + cloakTimeout;
+ 			}
+-			curCloakTimeout = gs-&gt;frameNum + cloakTimeout;
++			if (curReclaim-&gt;AddBuildPower(-reclaimSpeed, this)) {
++				CreateNanoParticle(curReclaim-&gt;midPos, curReclaim-&gt;radius * 0.7f, true);
++			}
+ 		}
+-		if (curReclaim-&gt;AddBuildPower(-reclaimSpeed, this)) {
+-			CreateNanoParticle(curReclaim-&gt;midPos, curReclaim-&gt;radius * 0.7f, true);
+-		}
+-	}
+-	else if(curResurrect &amp;&amp; f3Dist(curResurrect-&gt;pos, pos)&lt;buildDistance+curResurrect-&gt;radius &amp;&amp; inBuildStance){
+-		const UnitDef* ud=unitDefHandler-&gt;GetUnitByName(curResurrect-&gt;createdFromUnit);
+-		if(ud){
+-			if ((modInfo.reclaimMethod != 1) &amp;&amp; (curResurrect-&gt;reclaimLeft &lt; 1)) {
+-				// This corpse has been reclaimed a little, need to restore the resources
+-				// before we can let the player resurrect it.
+-				curResurrect-&gt;AddBuildPower(repairSpeed, this);
+-			}
+-			else {
+-				// Corpse has been restored, begin resurrection
+-				if (UseEnergy(ud-&gt;energyCost * resurrectSpeed / ud-&gt;buildTime * modInfo.resurrectEnergyCostFactor)) {
+-					curResurrect-&gt;resurrectProgress+=resurrectSpeed/ud-&gt;buildTime;
+-					CreateNanoParticle(curResurrect-&gt;midPos,curResurrect-&gt;radius*0.7f,gs-&gt;randInt()&amp;1);
++		else if(curResurrect &amp;&amp; f3Dist(curResurrect-&gt;pos, pos)&lt;buildDistance+curResurrect-&gt;radius &amp;&amp; inBuildStance){
++			const UnitDef* ud=unitDefHandler-&gt;GetUnitByName(curResurrect-&gt;createdFromUnit);
++			if(ud){
++				if ((modInfo.reclaimMethod != 1) &amp;&amp; (curResurrect-&gt;reclaimLeft &lt; 1)) {
++					// This corpse has been reclaimed a little, need to restore the resources
++					// before we can let the player resurrect it.
++					curResurrect-&gt;AddBuildPower(repairSpeed, this);
+ 				}
+-				if(curResurrect-&gt;resurrectProgress&gt;1){		//resurrect finished
+-					curResurrect-&gt;UnBlock();
+-					CUnit* u = unitLoader.LoadUnit(curResurrect-&gt;createdFromUnit, curResurrect-&gt;pos,
+-					                               team, false, curResurrect-&gt;buildFacing, this);
+-					if (!this-&gt;unitDef-&gt;canBeAssisted) {
+-						u-&gt;soloBuilder = this;
+-						u-&gt;AddDeathDependence(this);
++				else {
++					// Corpse has been restored, begin resurrection
++					if (UseEnergy(ud-&gt;energyCost * resurrectSpeed / ud-&gt;buildTime * modInfo.resurrectEnergyCostFactor)) {
++						curResurrect-&gt;resurrectProgress+=resurrectSpeed/ud-&gt;buildTime;
++						CreateNanoParticle(curResurrect-&gt;midPos,curResurrect-&gt;radius*0.7f,gs-&gt;randInt()&amp;1);
+ 					}
+-					u-&gt;health*=0.05f;
+-					u-&gt;lineage = this-&gt;lineage;
+-					lastResurrected=u-&gt;id;
+-					curResurrect-&gt;resurrectProgress=0;
+-					featureHandler-&gt;DeleteFeature(curResurrect);
+-					StopBuild(true);
++					if(curResurrect-&gt;resurrectProgress&gt;1){		//resurrect finished
++						curResurrect-&gt;UnBlock();
++						CUnit* u = unitLoader.LoadUnit(curResurrect-&gt;createdFromUnit, curResurrect-&gt;pos,
++													team, false, curResurrect-&gt;buildFacing, this);
++						if (!this-&gt;unitDef-&gt;canBeAssisted) {
++							u-&gt;soloBuilder = this;
++							u-&gt;AddDeathDependence(this);
++						}
++						u-&gt;health*=0.05f;
++						u-&gt;lineage = this-&gt;lineage;
++						lastResurrected=u-&gt;id;
++						curResurrect-&gt;resurrectProgress=0;
++						featureHandler-&gt;DeleteFeature(curResurrect);
++						StopBuild(true);
++					}
+ 				}
++			} else {
++				StopBuild(true);
+ 			}
+-		} else {
+-			StopBuild(true);
+ 		}
+-	}
+-	else if(curCapture &amp;&amp; f3Dist(curCapture-&gt;pos, pos)&lt;buildDistance+curCapture-&gt;radius &amp;&amp; inBuildStance){
+-		if(curCapture-&gt;team!=team){
++		else if(curCapture &amp;&amp; f3Dist(curCapture-&gt;pos, pos)&lt;buildDistance+curCapture-&gt;radius &amp;&amp; inBuildStance){
++			if(curCapture-&gt;team!=team){
+ 
+-			float captureProgressTemp = curCapture-&gt;captureProgress + 1.0f/(150+curCapture-&gt;buildTime/captureSpeed*(curCapture-&gt;health+curCapture-&gt;maxHealth)/curCapture-&gt;maxHealth*0.4f);
+-			if (captureProgressTemp &gt;= 1.0f) {
+-				captureProgressTemp = 1.0f;
+-			}
+-	
+-			const float captureFraction = captureProgressTemp - curCapture-&gt;captureProgress;
+-			const float energyUseScaled = curCapture-&gt;energyCost * captureFraction * modInfo.captureEnergyCostFactor;
++				float captureProgressTemp = curCapture-&gt;captureProgress + 1.0f/(150+curCapture-&gt;buildTime/captureSpeed*(curCapture-&gt;health+curCapture-&gt;maxHealth)/curCapture-&gt;maxHealth*0.4f);
++				if (captureProgressTemp &gt;= 1.0f) {
++					captureProgressTemp = 1.0f;
++				}
+ 
+-			if (!UseEnergy(energyUseScaled)) {
+-				gs-&gt;Team(team)-&gt;energyPull += energyUseScaled;
+-			} else {
+-				curCapture-&gt;captureProgress = captureProgressTemp;
+-				CreateNanoParticle(curCapture-&gt;midPos,curCapture-&gt;radius*0.7f,false);
+-				if(curCapture-&gt;captureProgress &gt;= 1.0f){
+-					if (!curCapture-&gt;ChangeTeam(team, CUnit::ChangeCaptured)) {
+-						// capture failed
+-						ENTER_MIXED;
+-						if (team == gu-&gt;myTeam) {
+-							logOutput.Print(&quot;%s: Capture failed, unit type limit reached&quot;, unitDef-&gt;humanName.c_str());
+-							logOutput.SetLastMsgPos(pos);
++				const float captureFraction = captureProgressTemp - curCapture-&gt;captureProgress;
++				const float energyUseScaled = curCapture-&gt;energyCost * captureFraction * modInfo.captureEnergyCostFactor;
++
++				if (!UseEnergy(energyUseScaled)) {
++					gs-&gt;Team(team)-&gt;energyPull += energyUseScaled;
++				} else {
++					curCapture-&gt;captureProgress = captureProgressTemp;
++					CreateNanoParticle(curCapture-&gt;midPos,curCapture-&gt;radius*0.7f,false);
++					if(curCapture-&gt;captureProgress &gt;= 1.0f){
++						if (!curCapture-&gt;ChangeTeam(team, CUnit::ChangeCaptured)) {
++							// capture failed
++							ENTER_MIXED;
++							if (team == gu-&gt;myTeam) {
++								logOutput.Print(&quot;%s: Capture failed, unit type limit reached&quot;, unitDef-&gt;humanName.c_str());
++								logOutput.SetLastMsgPos(pos);
++							}
++							ENTER_SYNCED;
++						} else {
++							// capture succesful
++							int oldLineage = curCapture-&gt;lineage;
++							curCapture-&gt;lineage = this-&gt;lineage;
++							gs-&gt;Team(oldLineage)-&gt;LeftLineage(curCapture);
+ 						}
+-						ENTER_SYNCED;
+-					} else {
+-						// capture succesful
+-						int oldLineage = curCapture-&gt;lineage;
+-						curCapture-&gt;lineage = this-&gt;lineage;
+-						gs-&gt;Team(oldLineage)-&gt;LeftLineage(curCapture);
++						curCapture-&gt;captureProgress=0.0f;
++						StopBuild(true);
+ 					}
+-					curCapture-&gt;captureProgress=0.0f;
+-					StopBuild(true);
+ 				}
++			} else {
++				StopBuild(true);
+ 			}
+-		} else {
+-			StopBuild(true);
+ 		}
+ 	}
++
+ 	CUnit::Update();
+ }
+ 
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001040.html">[Taspring-linux-commit] r6270 - in trunk/rts: Sim/Features Sim/Misc	Sim/MoveTypes Sim/MoveTypes/MoveMath Sim/Objects	Sim/Projectiles Sim/Units System/Script
+</A></li>
+	<LI>Next message: <A HREF="001042.html">[Taspring-linux-commit] r6272 - in trunk/rts: Sim/Features Sim/Misc	Sim/MoveTypes Sim/MoveTypes/MoveMath Sim/Objects	Sim/Projectiles Sim/Units System/Script
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1041">[ date ]</a>
+              <a href="thread.html#1041">[ thread ]</a>
+              <a href="subject.html#1041">[ subject ]</a>
+              <a href="author.html#1041">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

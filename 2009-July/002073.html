@@ -1,0 +1,219 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7303 - in Lobby/TASClient: . Python/engine
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2009-July/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7303%20-%20in%20Lobby/TASClient%3A%20.%20Python/engine&In-Reply-To=%3C20090724011029.D63033B6F7%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002072.html">
+   <LINK REL="Next"  HREF="002074.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7303 - in Lobby/TASClient: . Python/engine</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7303%20-%20in%20Lobby/TASClient%3A%20.%20Python/engine&In-Reply-To=%3C20090724011029.D63033B6F7%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7303 - in Lobby/TASClient: . Python/engine">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Fri Jul 24 03:10:29 CEST 2009</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002072.html">[Taspring-linux-commit] r7302 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002074.html">[Taspring-linux-commit] r7304 - in Lobby/TASClient: . Interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2073">[ date ]</a>
+              <a href="thread.html#2073">[ thread ]</a>
+              <a href="subject.html#2073">[ subject ]</a>
+              <a href="author.html#2073">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2009-07-24 03:10:29 +0200 (Fri, 24 Jul 2009)
+New Revision: 7303
+
+Modified:
+   Lobby/TASClient/MainUnit.dfm
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/Python/engine/handlers.py
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+Log:
+* PYTHON : handlers not broadcasting handles to every script bug fixed
+* quick join button hidden bug fixed
+
+Modified: Lobby/TASClient/MainUnit.dfm
+===================================================================
+--- Lobby/TASClient/MainUnit.dfm	2009-07-22 01:07:37 UTC (rev 7302)
++++ Lobby/TASClient/MainUnit.dfm	2009-07-24 01:10:29 UTC (rev 7303)
+@@ -1,6 +1,6 @@
+ object MainForm: TMainForm
+-  Left = 297
+-  Top = 160
++  Left = 94
++  Top = 289
+   Width = 855
+   Height = 546
+   Caption = '.'
+@@ -400,9 +400,6 @@
+             Align = alTop
+             TabOrder = 1
+             Borders = False
+-            DesignSize = (
+-              831
+-              25)
+             object BattleListLabel: TSpTBXLabel
+               Left = 0
+               Top = 0
+@@ -425,15 +422,15 @@
+               LinkFont.Style = [fsUnderline]
+             end
+             object btSpecatateNow: TSpTBXButton
+-              Left = 909
+-              Top = 0
++              Left = 697
++              Top = 2
+               Width = 132
+-              Height = 22
++              Height = 21
+               Hint = 
+                 'Allow you to automaticaly join battles according to your prefere' +
+                 'nces'
+               Caption = 'Quick join'
+-              Anchors = [akTop, akRight]
++              Align = alRight
+               Font.Charset = DEFAULT_CHARSET
+               Font.Color = clWindowText
+               Font.Height = -11
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2009-07-22 01:07:37 UTC (rev 7302)
++++ Lobby/TASClient/MainUnit.pas	2009-07-24 01:10:29 UTC (rev 7303)
+@@ -1611,6 +1611,8 @@
+   CurrentFilters : TPresetFilters;
+   PresetList: TList;
+ 
++  LockIncMsgProcessing : TCriticalSection;
++
+   RefreshingBattleList:Boolean = false;
+ 
+   FlagBitmaps: TList; // of TBitmap objects
+@@ -1789,7 +1791,6 @@
+   within ProcessRemoteCommand method, that is why I removed it. We can ignore it since we can process
+   multiple commands without any problem anyway.
+ }
+-
+   s := Dequeue;
+   if s = '' then Exit;
+ 
+@@ -3607,6 +3608,7 @@
+   Application.Title := 'TASClient';
+   Application.HintHidePause := 10000;
+   Application.ShowHint := True;
++  LockIncMsgProcessing := TCriticalSection.Create;
+ 
+   Debug.FilterPingPong := False;
+ 
+@@ -4486,7 +4488,6 @@
+   sl[0] := UpperCase(sl[0]);
+ 
+   try
+-
+     handleCommandReturn := false;
+     AcquireMainThread;
+     try if not Preferences.ScriptsDisabled then handleCommandReturn := handlers.handleCommand(s); except end;
+
+Modified: Lobby/TASClient/Python/engine/handlers.py
+===================================================================
+--- Lobby/TASClient/Python/engine/handlers.py	2009-07-22 01:07:37 UTC (rev 7302)
++++ Lobby/TASClient/Python/engine/handlers.py	2009-07-24 01:10:29 UTC (rev 7303)
+@@ -167,10 +167,10 @@
+ 
+ 		if funcname in dir(script):
+ 			exec &quot;function = script.%s&quot; % funcname
+-			return _call_function(function, spaces, data, cmd, args)
++			data = _call_function(function, spaces, data, cmd, args)
+ 		elif 'all_%s' % direction in dir(script):
+ 			exec 'function = script.all_%s' % direction
+-			return _call_function(function, spaces+1, data, None, data)
++			data = _call_function(function, spaces+1, data, None, data)
+ 	return data
+ 	
+ def handleIn2(data, recursing=0):
+@@ -197,14 +197,14 @@
+ 				total_args = len(function_info[0])
+ 
+ 				if total_args == 0:
+-					return function()
++					args = function()
+ 				else:
+ 					if total_args &gt; spaces+1:
+ 						print 'Too many arguments in function %s of %s' % (funcname, s)
+ 						return False
+ 					else:
+ 						args = args.split(' ',total_args-1)
+-						return function(*args)
++						args = function(*args)
+ 					
+ 			else:
+ 				print ' %s has an attribute %s but it is not a function' % (s, funcname)
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2009-07-22 01:07:37 UTC (rev 7302)
++++ Lobby/TASClient/TASClient.dof	2009-07-24 01:10:29 UTC (rev 7303)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=50
+ Release=0
+-Build=662
++Build=663
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.50.0.662
++FileVersion=0.50.0.663
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002072.html">[Taspring-linux-commit] r7302 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002074.html">[Taspring-linux-commit] r7304 - in Lobby/TASClient: . Interface
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2073">[ date ]</a>
+              <a href="thread.html#2073">[ thread ]</a>
+              <a href="subject.html#2073">[ subject ]</a>
+              <a href="author.html#2073">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

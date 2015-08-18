@@ -1,0 +1,173 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6662 - in trunk/rts/Sim/Projectiles: .	WeaponProjectiles
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-October/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6662%20-%20in%20trunk/rts/Sim/Projectiles%3A%20.%0A%09WeaponProjectiles&In-Reply-To=%3C20081010233030.4604646EC%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001430.html">
+   <LINK REL="Next"  HREF="001432.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6662 - in trunk/rts/Sim/Projectiles: .	WeaponProjectiles</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6662%20-%20in%20trunk/rts/Sim/Projectiles%3A%20.%0A%09WeaponProjectiles&In-Reply-To=%3C20081010233030.4604646EC%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6662 - in trunk/rts/Sim/Projectiles: .	WeaponProjectiles">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Oct 11 01:30:30 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001430.html">[Taspring-linux-commit] r6661 - in trunk/tools/springie/Springie:	autohost spring
+</A></li>
+        <LI>Next message: <A HREF="001432.html">[Taspring-linux-commit] r6663 - trunk/rts/Sim/Projectiles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1431">[ date ]</a>
+              <a href="thread.html#1431">[ thread ]</a>
+              <a href="subject.html#1431">[ subject ]</a>
+              <a href="author.html#1431">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-10-11 01:30:29 +0200 (Sat, 11 Oct 2008)
+New Revision: 6662
+
+Modified:
+   trunk/rts/Sim/Projectiles/ProjectileHandler.cpp
+   trunk/rts/Sim/Projectiles/WeaponProjectiles/WeaponProjectile.cpp
+Log:
+fix the collision detection for dgun (and other noExplode) projectiles
+
+Modified: trunk/rts/Sim/Projectiles/ProjectileHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Projectiles/ProjectileHandler.cpp	2008-10-10 23:30:26 UTC (rev 6661)
++++ trunk/rts/Sim/Projectiles/ProjectileHandler.cpp	2008-10-10 23:30:29 UTC (rev 6662)
+@@ -795,6 +795,8 @@
+ 					}
+ 				}
+ 
++				printf(&quot;[CProjectileHandler::CheckUnitCol()] frame: %d, pro: %p, unit: %p\n&quot;, gs-&gt;frameNum, p, unit);
++
+ 				if (CCollisionHandler::DetectHit(unit, p-&gt;pos, p-&gt;pos + p-&gt;speed, &amp;q)) {
+ 					// this projectile won't reach the raytraced surface impact pos
+ 					// until Update() is called (right after we return, same frame)
+@@ -803,7 +805,9 @@
+ 					// volume, so smuggle a bit (&quot;rolling back&quot; its pos in Update()
+ 					// and waiting for the next-frame CheckUnitCol() is problematic
+ 					// for noExplode projectiles)
+-					p-&gt;pos = (raytraced)? q.p0: p-&gt;pos;
++					const float3&amp; pimp = (q.b0)? q.p0: q.p1;
++
++					p-&gt;pos = (raytraced)? pimp: p-&gt;pos;
+ 					p-&gt;Collision(unit);
+ 					p-&gt;pos = (raytraced)? ppos: p-&gt;pos;
+ 					break;
+
+Modified: trunk/rts/Sim/Projectiles/WeaponProjectiles/WeaponProjectile.cpp
+===================================================================
+--- trunk/rts/Sim/Projectiles/WeaponProjectiles/WeaponProjectile.cpp	2008-10-10 23:30:26 UTC (rev 6661)
++++ trunk/rts/Sim/Projectiles/WeaponProjectiles/WeaponProjectile.cpp	2008-10-10 23:30:29 UTC (rev 6662)
+@@ -120,8 +120,9 @@
+ 
+ void CWeaponProjectile::Collision()
+ {
+-	if(!weaponDef-&gt;noExplode || gs-&gt;frameNum&amp;1)
+-	{
++	if (/* !weaponDef-&gt;noExplode || gs-&gt;frameNum &amp; 1 */ true) {
++		// don't do damage only on odd-numbered frames
++		// for noExplode projectiles (it breaks coldet)
+ 		float3 impactDir = speed;
+ 		impactDir.Normalize();
+ 
+@@ -138,10 +139,11 @@
+ 		if (weaponDef-&gt;impactOnly) {
+ 			weaponDef-&gt;explosionGenerator-&gt;Explosion(pos,((weaponDef-&gt;dynDamageExp&gt;0)
+ 					? dynDamages : weaponDef-&gt;damages)[0],weaponDef-&gt;areaOfEffect,owner,0,NULL,impactDir);
+-		}
+-		else {
+-			helper-&gt;Explosion(pos, (weaponDef-&gt;dynDamageExp&gt;0)
+-					? dynDamages : weaponDef-&gt;damages,
++		} else {
++			helper-&gt;Explosion(pos,
++				(weaponDef-&gt;dynDamageExp &gt; 0)?
++					dynDamages:
++					weaponDef-&gt;damages,
+ 				weaponDef-&gt;areaOfEffect, weaponDef-&gt;edgeEffectiveness,
+ 				weaponDef-&gt;explosionSpeed, owner, true,
+ 				weaponDef-&gt;noExplode ? 0.3f : 1,
+@@ -152,14 +154,13 @@
+ 
+ 	if (weaponDef-&gt;soundhit.getID(0) &gt; 0) {
+ 		sound-&gt;PlaySample(weaponDef-&gt;soundhit.getID(0), this,
+-				weaponDef-&gt;soundhit.getVolume(0));
++			weaponDef-&gt;soundhit.getVolume(0));
+ 	}
+ 
+ 	if (!weaponDef-&gt;noExplode){
+ 		CProjectile::Collision();
+ 	} else {
+-		if (TraveledRange())
+-		{
++		if (TraveledRange()) {
+ 			CProjectile::Collision();
+ 		}
+ 	}
+@@ -176,19 +177,20 @@
+ 
+ void CWeaponProjectile::Collision(CUnit* unit)
+ {
+-	if (!weaponDef-&gt;noExplode || gs-&gt;frameNum &amp; 1) {
++	if (/* !weaponDef-&gt;noExplode || gs-&gt;frameNum &amp; 1 */ true) {
++		// don't do damage only on odd-numbered frames
++		// for noExplode projectiles (it breaks coldet)
+ 		float3 impactDir = speed;
+ 		impactDir.Normalize();
+ 
+ 		// Dynamic Damage
+ 		DamageArray damages;
+-		if (weaponDef-&gt;dynDamageExp &gt; 0)
+-		{
++		if (weaponDef-&gt;dynDamageExp &gt; 0) {
+ 			damages = weaponDefHandler-&gt;DynamicDamages(weaponDef-&gt;damages,
+ 					startpos, pos,
+-					weaponDef-&gt;dynDamageRange&gt;0 ?
+-							weaponDef-&gt;dynDamageRange :
+-							weaponDef-&gt;range,
++					weaponDef-&gt;dynDamageRange &gt; 0?
++						weaponDef-&gt;dynDamageRange:
++						weaponDef-&gt;range,
+ 					weaponDef-&gt;dynDamageExp, weaponDef-&gt;dynDamageMin,
+ 					weaponDef-&gt;dynDamageInverted);
+ 		} else {
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001430.html">[Taspring-linux-commit] r6661 - in trunk/tools/springie/Springie:	autohost spring
+</A></li>
+	<LI>Next message: <A HREF="001432.html">[Taspring-linux-commit] r6663 - trunk/rts/Sim/Projectiles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1431">[ date ]</a>
+              <a href="thread.html#1431">[ thread ]</a>
+              <a href="subject.html#1431">[ subject ]</a>
+              <a href="author.html#1431">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

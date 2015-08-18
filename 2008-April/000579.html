@@ -1,0 +1,754 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5799 - in trunk/rts: Game	System/FileSystem build/vstudio8
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-April/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5799%20-%20in%20trunk/rts%3A%20Game%0A%09System/FileSystem%20build/vstudio8&In-Reply-To=%3C20080428185050.8705846DE%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000578.html">
+   <LINK REL="Next"  HREF="000580.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5799 - in trunk/rts: Game	System/FileSystem build/vstudio8</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5799%20-%20in%20trunk/rts%3A%20Game%0A%09System/FileSystem%20build/vstudio8&In-Reply-To=%3C20080428185050.8705846DE%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5799 - in trunk/rts: Game	System/FileSystem build/vstudio8">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Mon Apr 28 20:50:50 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000578.html">[Taspring-linux-commit] r5798 - in trunk:	rts/ExternalAI/GlobalAICInterface rts/System/Platform/Win	tools/DemoAnalyser tools/unitsync
+</A></li>
+        <LI>Next message: <A HREF="000580.html">[Taspring-linux-commit] r5800 - trunk/rts/System/FileSystem
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#579">[ date ]</a>
+              <a href="thread.html#579">[ thread ]</a>
+              <a href="subject.html#579">[ subject ]</a>
+              <a href="author.html#579">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: tvo
+Date: 2008-04-28 20:50:49 +0200 (Mon, 28 Apr 2008)
+New Revision: 5799
+
+Added:
+   trunk/rts/System/FileSystem/FileFilter.cpp
+   trunk/rts/System/FileSystem/FileFilter.h
+Modified:
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/System/FileSystem/Archive7Zip.cpp
+   trunk/rts/System/FileSystem/ArchiveBase.cpp
+   trunk/rts/System/FileSystem/ArchiveScanner.cpp
+   trunk/rts/System/FileSystem/ArchiveScanner.h
+   trunk/rts/System/FileSystem/ArchiveZip.cpp
+   trunk/rts/System/FileSystem/CRC.cpp
+   trunk/rts/System/FileSystem/CRC.h
+   trunk/rts/build/vstudio8/rts.vcproj
+Log:
+* Added possibility to specify files that should be excluded from Spring's
+  archive checksumming routines.  The files are specified in a file called
+  'springignore.txt' in the archive's root, and uses a format similar to
+  git ignore files and SVN ignore properties.  See FileFilter.cpp for details.
+  No files are excluded by default, not even springignore.txt.
+* Removed our CRC implementation and made CRC class use 7zip CRC routines.
+* Changed code which used 7zip CRC directly to use our CRC class.
+* Added note about bug causing zero-size files in .sdz and .sd7 to be ignored.
+  (Symptom of this is .sdd not syncing with .sdz/.sd7 if zero-size files are
+  present in the archive; Not worth bumping ArchiveScanner INTERNAL_VER just
+  for this though.)
+
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-04-28 15:57:00 UTC (rev 5798)
++++ trunk/rts/Game/GameServer.cpp	2008-04-28 18:50:49 UTC (rev 5799)
+@@ -938,13 +938,13 @@
+ 	// or pseudo random bytes (if there is no setup)
+ 	if (setup != NULL) {
+ 		CRC crc;
+-		crc.UpdateData((const unsigned char*)setup-&gt;gameSetupText, setup-&gt;gameSetupTextLength);
+-		gameID.intArray[2] = crc.GetCRC();
++		crc.Update(setup-&gt;gameSetupText, setup-&gt;gameSetupTextLength);
++		gameID.intArray[2] = crc.GetDigest();
+ 	}
+ 
+ 	CRC entropy;
+-	entropy.UpdateData((const unsigned char*)&amp;lastTick, sizeof(lastTick));
+-	gameID.intArray[3] = entropy.GetCRC();
++	entropy.Update(lastTick);
++	gameID.intArray[3] = entropy.GetDigest();
+ 
+ 	serverNet-&gt;SendGameID(gameID.charArray);
+ }
+
+Modified: trunk/rts/System/FileSystem/Archive7Zip.cpp
+===================================================================
+--- trunk/rts/System/FileSystem/Archive7Zip.cpp	2008-04-28 15:57:00 UTC (rev 5798)
++++ trunk/rts/System/FileSystem/Archive7Zip.cpp	2008-04-28 18:50:49 UTC (rev 5799)
+@@ -55,6 +55,8 @@
+ 	// Get contents of archive and store name-&gt;int mapping
+ 	for (unsigned i = 0; i &lt; db.Database.NumFiles; ++i) {
+ 		CFileItem* fi = db.Database.Files + i;
++		// NOTE: fix this on next CArchiveScanner INTERNAL_VER bump.
++		// It should be `if (fi-&gt;Size &gt;= 0) {' because now zero-size files are ignored.
+ 		if (fi-&gt;Size &gt; 0) {
+ 			std::string name = fi-&gt;Name;
+ 			//SetSlashesForwardToBack(name);
+
+Modified: trunk/rts/System/FileSystem/ArchiveBase.cpp
+===================================================================
+--- trunk/rts/System/FileSystem/ArchiveBase.cpp	2008-04-28 15:57:00 UTC (rev 5798)
++++ trunk/rts/System/FileSystem/ArchiveBase.cpp	2008-04-28 18:50:49 UTC (rev 5799)
+@@ -1,24 +1,23 @@
+ #include &quot;ArchiveBase.h&quot;
++#include &quot;CRC.h&quot;
+ 
+-extern &quot;C&quot; {
+-#include &quot;lib/7zip/7zCrc.h&quot;
+-};
+-
+ unsigned int CArchiveBase::GetCrc32(const std::string&amp; fileName)
+ {
+-	UInt32 crc;
++	CRC crc;
+ 	unsigned char buffer [65536];
+ 	int handle;
++	int maxRead;
++	int total = 0;
+ 
+-	CrcInit(&amp;crc);
+ 	handle = this-&gt;OpenFile(fileName);
+-	if (handle == 0) return CrcGetDigest(&amp;crc);
++	if (handle == 0) return crc.GetDigest();
+ 
+-	while (!this-&gt;Eof(handle)) {
+-		int maxRead = this-&gt;ReadFile(handle, &amp;buffer, sizeof(buffer));
+-		CrcUpdate(&amp;crc, buffer, maxRead);
+-	}
++	do {
++		maxRead = this-&gt;ReadFile(handle, &amp;buffer, sizeof(buffer));
++		crc.Update(buffer, maxRead);
++		total += maxRead;
++	} while (maxRead == sizeof(buffer));
+ 
+ 	this-&gt;CloseFile(handle);
+-	return CrcGetDigest(&amp;crc);
++	return crc.GetDigest();
+ };
+
+Modified: trunk/rts/System/FileSystem/ArchiveScanner.cpp
+===================================================================
+--- trunk/rts/System/FileSystem/ArchiveScanner.cpp	2008-04-28 15:57:00 UTC (rev 5798)
++++ trunk/rts/System/FileSystem/ArchiveScanner.cpp	2008-04-28 18:50:49 UTC (rev 5799)
+@@ -2,21 +2,19 @@
+ 
+ #include &lt;list&gt;
+ #include &lt;algorithm&gt;
++#include &lt;stdio.h&gt;
+ #include &lt;sys/types.h&gt;
+ #include &lt;sys/stat.h&gt;
+ 
+ #include &quot;ArchiveFactory.h&quot;
+ #include &quot;ArchiveBuffered.h&quot;
+ #include &quot;CRC.h&quot;
++#include &quot;FileFilter.h&quot;
+ #include &quot;FileHandler.h&quot;
+ #include &quot;Platform/FileSystem.h&quot;
+ #include &quot;TdfParser.h&quot;
+ #include &quot;mmgr.h&quot;
+ 
+-extern &quot;C&quot; {
+-#include &quot;lib/7zip/7zCrc.h&quot;
+-};
+-
+ // fix for windows
+ #ifndef S_ISDIR
+ #define S_ISDIR(x) (((x) &amp; 0170000) == 0040000) /* directory */
+@@ -31,6 +29,8 @@
+  * is not slow, but mapping them all every time to make the list is)
+  */
+ 
++// NOTE: on the next version bump, be sure to fix the zero-file-size bug in
++// Archive7zip.cpp and ArchiveZip.cpp  (search for NOTE)
+ #define INTERNAL_VER	6
+ 
+ CArchiveScanner* archiveScanner = NULL;
+@@ -104,7 +104,6 @@
+ 
+ void CArchiveScanner::Scan(const std::string&amp; curPath, bool checksum)
+ {
+-	InitCrcTable();
+ 	isDirty = true;
+ 
+ 	const int flags = (FileSystem::INCLUDE_DIRS | FileSystem::RECURSE);
+@@ -301,12 +300,34 @@
+ 	}
+ }
+ 
+-/** Get CRC of the data in the specified file. Returns 0 if file could not be opened. */
+ 
++IFileFilter* CArchiveScanner::CreateIgnoreFilter(CArchiveBase* ar)
++{
++	IFileFilter* ignore = IFileFilter::Create();
++	int fh = ar-&gt;OpenFile(&quot;springignore.txt&quot;);
++
++	if (fh) {
++		int fsize = ar-&gt;FileSize(fh);
++		char* buf = SAFE_NEW char[fsize];
++
++		ar-&gt;ReadFile(fh, buf, fsize);
++		ar-&gt;CloseFile(fh);
++
++		// this automatically splits lines
++		ignore-&gt;AddRule(std::string(buf, fsize));
++
++		delete[] buf;
++	}
++	return ignore;
++}
++
++
++/** Get CRC of the data in the specified archive. Returns 0 if file could not be opened. */
++
+ unsigned int CArchiveScanner::GetCRC(const std::string&amp; filename)
+ {
+-	UInt32 crc;
+-	UInt32 digest = 0;
++	CRC crc;
++	unsigned int digest;
+ 	CArchiveBase* ar;
+ 	std::list&lt;std::string&gt; files;
+ 	std::string innerName;
+@@ -314,17 +335,19 @@
+ 	int innerSize;
+ 	int cur = 0;
+ 
+-	CrcInit(&amp;crc);
+-
+ 	// Try to open an archive
+ 	ar = CArchiveFactory::OpenArchive(filename);
+ 	if (!ar)
+ 		return 0; // It wasn't an archive
+ 
++	// Load ignore list.
++	IFileFilter* ignore = CreateIgnoreFilter(ar);
++
+ 	// Sort all file paths for deterministic behaviour
+ 	while (true) {
+ 		cur = ar-&gt;FindFiles(cur, &amp;innerName, &amp;innerSize);
+ 		if (cur == 0) break;
++		if (ignore-&gt;Match(innerName)) continue;
+ 		lowerName = StringToLower(innerName); // case insensitive hash
+ 		files.push_back(lowerName);
+ 	}
+@@ -332,13 +355,14 @@
+ 
+ 	// Add all files in sorted order
+ 	for (std::list&lt;std::string&gt;::iterator i = files.begin(); i != files.end(); i++ ) {
+-		digest = CrcCalculateDigest(i-&gt;data(), i-&gt;size());
+-		CrcUpdateUInt32(&amp;crc, digest);
+-		CrcUpdateUInt32(&amp;crc, ar-&gt;GetCrc32(*i));
++		digest = CRC().Update(i-&gt;data(), i-&gt;size()).GetDigest();
++		crc.Update(digest);
++		crc.Update(ar-&gt;GetCrc32(*i));
+ 	}
++	delete ignore;
+ 	delete ar;
+ 
+-	digest = CrcGetDigest(&amp;crc);
++	digest = crc.GetDigest();
+ 
+ 	// A value of 0 is used to indicate no crc.. so never return that
+ 	// Shouldn't happen all that often
+
+Modified: trunk/rts/System/FileSystem/ArchiveScanner.h
+===================================================================
+--- trunk/rts/System/FileSystem/ArchiveScanner.h	2008-04-28 15:57:00 UTC (rev 5798)
++++ trunk/rts/System/FileSystem/ArchiveScanner.h	2008-04-28 18:50:49 UTC (rev 5799)
+@@ -5,7 +5,9 @@
+ #include &lt;vector&gt;
+ #include &lt;map&gt;
+ 
+-#include &lt;stdio.h&gt;
++class CArchiveBase;
++class IFileFilter;
++class TdfParser;
+ 
+ /*
+  * This class searches through a given directory and its subdirectories looking for archive files.
+@@ -17,8 +19,6 @@
+  * than one folder.
+  */
+ 
+-class TdfParser;
+-
+ class CArchiveScanner
+ {
+ public:
+@@ -73,10 +73,9 @@
+ 	};
+ 	std::map&lt;std::string, ArchiveInfo&gt; archiveInfo;
+ 	ModData GetModData(TdfParser* p, const std::string&amp; section);
++	IFileFilter* CreateIgnoreFilter(CArchiveBase* ar);
+ 	unsigned int GetCRC(const std::string&amp; filename);
+-	unsigned int GetDirectoryCRC(const std::string&amp; curPath);
+ 	bool isDirty;
+-	//void WriteModData(FILE* out, const ModData&amp; data);	// Helper to write out dependencies
+ };
+ 
+ extern CArchiveScanner* archiveScanner;
+
+Modified: trunk/rts/System/FileSystem/ArchiveZip.cpp
+===================================================================
+--- trunk/rts/System/FileSystem/ArchiveZip.cpp	2008-04-28 15:57:00 UTC (rev 5798)
++++ trunk/rts/System/FileSystem/ArchiveZip.cpp	2008-04-28 18:50:49 UTC (rev 5799)
+@@ -25,6 +25,9 @@
+ 
+ 		unzGetCurrentFileInfo(zip, &amp;info, fname, 512, NULL, 0, NULL, 0);
+ 
++		// NOTE: fix this on next CArchiveScanner INTERNAL_VER bump.
++		// It should be `if (info.uncompressed_size &gt;= 0) {' because now
++		// zero-size files are ignored.
+ 		if (info.uncompressed_size &gt; 0) {
+ 			name = StringToLower(fname);
+ //			SetSlashesForwardToBack(name);
+
+Modified: trunk/rts/System/FileSystem/CRC.cpp
+===================================================================
+--- trunk/rts/System/FileSystem/CRC.cpp	2008-04-28 15:57:00 UTC (rev 5798)
++++ trunk/rts/System/FileSystem/CRC.cpp	2008-04-28 18:50:49 UTC (rev 5799)
+@@ -1,73 +1,37 @@
+ #include &quot;CRC.h&quot;
+ 
+-#include &lt;stdio.h&gt;
++extern &quot;C&quot; {
++#include &quot;lib/7zip/7zCrc.h&quot;
++};
+ 
+ 
+-unsigned int CRC::crcTable[256];
+-
+-
+-/** @brief Generate the lookup table used for CRC calculation.
+-    Code taken from <A HREF="http://paul.rutgers.edu/~rhoads/Code/crc-32b.c">http://paul.rutgers.edu/~rhoads/Code/crc-32b.c</A> */
+-void CRC::GenerateCRCTable()
++/** @brief Construct a new CRC object. */
++CRC::CRC()
+ {
+-	unsigned int crc, poly;
+-	int	i, j;
+-
+-	poly = 0xEDB88320L;
+-	for (i = 0; i &lt; 256; i++) {
+-		crc = i;
+-		for (j = 8; j &gt; 0; j--) {
+-			if (crc &amp; 1)
+-				crc = (crc &gt;&gt; 1) ^ poly;
+-			else
+-				crc &gt;&gt;= 1;
+-		}
+-		crcTable[i] = crc;
+-	}
++	CrcInit(&amp;crc);
+ }
+ 
+ 
+-/** @brief Construct a new CRC object.
+-    This generates the CRC table if it is the first CRC object being
+-	constructed. */
+-CRC::CRC() : crc(0xFFFFFFFF)
++/** @brief Get the final CRC digest. */
++unsigned int CRC::GetDigest() const
+ {
+-	if (crcTable[1] == 0)
+-		GenerateCRCTable();
++	// make a temporary copy to get away with the const
++	unsigned int temp = crc;
++	return CrcGetDigest(&amp;temp);
+ }
+ 
+ 
+-/** @brief Update CRC over the data in buf. */
+-void CRC::UpdateData(const unsigned char* buf, unsigned bytes)
++/** @brief Update CRC over the data. */
++CRC&amp; CRC::Update(const void* data, unsigned int size)
+ {
+-	for (size_t i = 0; i &lt; bytes; ++i)
+-		crc = (crc&gt;&gt;8) ^ crcTable[ (crc^(buf[i])) &amp; 0xFF ];
++	CrcUpdate(&amp;crc, data, size);
++	return *this;
+ }
+ 
+ 
+-/** @brief Update CRC over the data in buf. */
+-void CRC::UpdateData(const std::string&amp; buf)
++/** @brief Update CRC over the 4 bytes of data. */
++CRC&amp; CRC::Update(unsigned int data)
+ {
+-	UpdateData((const unsigned char*) buf.c_str(), buf.size());
++	CrcUpdateUInt32(&amp;crc, data);
++	return *this;
+ }
+-
+-
+-/** @brief Update CRC over the data in the specified file.
+-    @return true on success, false if file could not be opened. */
+-bool CRC::UpdateFile(const std::string&amp; filename)
+-{
+-	FILE* fp = fopen(filename.c_str(), &quot;rb&quot;);
+-	if (!fp)
+-		return false;
+-
+-	unsigned char buf[100000];
+-	size_t bytes;
+-	do {
+-		bytes = fread((void*)buf, 1, 100000, fp);
+-		UpdateData(buf, bytes);
+-	} while (bytes == 100000);
+-
+-	fclose(fp);
+-
+-	return true;
+-}
+
+Modified: trunk/rts/System/FileSystem/CRC.h
+===================================================================
+--- trunk/rts/System/FileSystem/CRC.h	2008-04-28 15:57:00 UTC (rev 5798)
++++ trunk/rts/System/FileSystem/CRC.h	2008-04-28 18:50:49 UTC (rev 5799)
+@@ -9,16 +9,12 @@
+ public:
+ 	CRC();
+ 
+-	void UpdateData(const unsigned char* buf, unsigned bytes);
+-	void UpdateData(const std::string&amp; buf);
+-	bool UpdateFile(const std::string&amp; filename);
++	unsigned int GetDigest() const;
+ 
+-	unsigned int GetCRC() const { return crc ^ 0xFFFFFFFF; }
++	CRC&amp; Update(const void* data, unsigned int size);
++	CRC&amp; Update(unsigned int data);
+ 
+ private:
+-	static unsigned int crcTable[256];
+-	static void GenerateCRCTable();
+-
+ 	unsigned int crc;
+ };
+ 
+
+Added: trunk/rts/System/FileSystem/FileFilter.cpp
+===================================================================
+--- trunk/rts/System/FileSystem/FileFilter.cpp	                        (rev 0)
++++ trunk/rts/System/FileSystem/FileFilter.cpp	2008-04-28 18:50:49 UTC (rev 5799)
+@@ -0,0 +1,173 @@
++#include &quot;FileFilter.h&quot;
++
++#include &lt;boost/regex.hpp&gt;
++#include &lt;ctype.h&gt;
++#include &lt;sstream&gt;
++#include &lt;vector&gt;
++
++
++using std::string;
++using std::vector;
++
++
++class CFileFilter : public IFileFilter
++{
++public:
++	void AddRule(const string&amp; rule);
++	bool Match(const string&amp; filename) const;
++
++private:
++	string CFileFilter::glob_to_regex(const string&amp; glob);
++
++	struct Rule {
++		Rule() : negate(false) {}
++		string glob;
++		boost::regex regex;
++		bool negate;
++	};
++
++	vector&lt;Rule&gt; rules;
++};
++
++
++IFileFilter* IFileFilter::Create()
++{
++	return new CFileFilter();
++}
++
++
++/** @brief Add a filtering rule.
++
++A rule can be:
++ - An empty line, this is ignored,
++ - A line starting with a '#', this serves as a comment and is ignored,
++ - A path starting with a path separator ('/' or '\'): this is an absolute
++   path and matches only against the entire leading part of the filename
++   passed to Match(): '/foo' matches 'foo' and 'foo/bar', but not 'bar/foo'.
++ - Any other path is a relative path and is matched less strict: as long as
++   there is a consecutive set of path elements matching the rule, there is a
++   match: 'b/c/d' matches 'b/c/d', but also 'a/b/c/d/e'.
++
++Note that:
++ - Leading and trailing whitespace is ignored.
++ - Globbing characters '*' and '?' can be used, both do NOT match path
++   separators (like in shell, but unlike fnmatch(), or so I've been told.)
++   e.g. 'foo\*\baz' matches 'foo/bar/baz' but not 'foo/ba/r/baz'.
++ - Any path separator matches any other path separator, so there is no need to
++   worry about converting them: 'foo/bar' matches 'foo\bar' and 'foo:bar' too.
++ - A path can be prefixed with an exclamation mark '!', this negates the
++   pattern. Because the rules are matched in-order, one can use this to exclude
++   a file from a more generic pattern.
++ - By default, no file matches. This can be changed using AddRule(&quot;*&quot;) ofc.
++*/
++void CFileFilter::AddRule(const string&amp; rule)
++{
++	if (rule.empty())
++		return;
++
++	// Split lines if line endings are present.
++	if (rule.find('\n') != string::npos) {
++		int beg = 0, end = 0;
++		while ((end = rule.find('\n', beg)) != string::npos) {
++			//printf(&quot;line: %s\n&quot;, rule.substr(beg, end - beg).c_str());
++			AddRule(rule.substr(beg, end - beg));
++			beg = end + 1;
++		}
++		AddRule(rule.substr(beg));
++		return;
++	}
++
++	// Eat leading whitespace, return if we reach end of string.
++	int p = 0;
++	while (isspace(rule[p]))
++		if (++p &gt;= rule.length())
++			return;
++
++	// Nothing to do if the rule is a comment.
++	if (rule[p] == '#')
++		return;
++
++	// Eat trailing whitespace, return if we meet p.
++	int q = rule.length() - 1;
++	while (isspace(rule[q]))
++		if (--q &lt; p)
++			return;
++
++	// Build the rule.
++	Rule r;
++	if (rule[p] == '!') {
++		r.negate = true;
++		if (++p &gt; q)
++			return;
++	}
++	r.glob = rule.substr(p, 1 + q - p);
++	r.regex = boost::regex(glob_to_regex(r.glob)
++		, boost::regex::icase | boost::regex::no_escape_in_lists);
++	rules.push_back(r);
++	//printf(&quot;added %s%s: %s\n&quot;, r.negate ? &quot;!&quot; : &quot;&quot;, r.glob.c_str(), r.regex.expression());
++}
++
++
++/** @brief Checks whether filename matches this filter. */
++bool CFileFilter::Match(const string&amp; filename) const
++{
++	bool match = false;
++	for (vector&lt;Rule&gt;::const_iterator it = rules.begin(); it != rules.end(); ++it) {
++		if (boost::regex_search(filename, it-&gt;regex))
++			match = !it-&gt;negate;
++	}
++	return match;
++}
++
++
++string CFileFilter::glob_to_regex(const string&amp; glob)
++{
++#define PATH_SEPARATORS &quot;/\\:&quot;
++
++	std::stringstream regex;
++	string::const_iterator i = glob.begin();
++
++	// If the path starts with a path separator, we take it as an absolute path
++	// (relative to whatever is passed to Match() later on), so we insert the
++	// begin anchor.
++
++	// Otherwise we 'just' need to make sure the glob matches only full path
++	// elements, so we require either start of line OR path separator.
++
++	if (i != glob.end() &amp;&amp; *i == '/' || *i == '\\') {
++		regex &lt;&lt; '^';
++		++i;
++	}
++	else
++		regex &lt;&lt; &quot;(^|[&quot; PATH_SEPARATORS &quot;])&quot;;
++
++	for (; i != glob.end(); ++i) {
++		char c = *i;
++		switch (c) {
++			case '*':
++				// In (shell) globbing the wildcards match anything except path separators.
++				regex &lt;&lt; &quot;[^&quot; PATH_SEPARATORS &quot;]*&quot;;
++				break;
++			case '?':
++				regex &lt;&lt; &quot;[^&quot; PATH_SEPARATORS &quot;]&quot;;
++				break;
++			case '/':
++			case '\\':
++			case ':':
++				// Any path separator matches any other path separator.
++				// (So we don't have to manually convert slashes before search.)
++				regex &lt;&lt; &quot;[&quot; PATH_SEPARATORS &quot;]&quot;;
++				break;
++			default:
++				if (!(isalnum(c) || c == '_'))
++					regex &lt;&lt; '\\';
++				regex &lt;&lt; c;
++				break;
++		}
++	}
++
++	// Make sure we only match full path elements. (see above)
++	regex &lt;&lt; &quot;([&quot; PATH_SEPARATORS &quot;]|$)&quot;;
++
++	return regex.str();
++}
+
+Added: trunk/rts/System/FileSystem/FileFilter.h
+===================================================================
+--- trunk/rts/System/FileSystem/FileFilter.h	                        (rev 0)
++++ trunk/rts/System/FileSystem/FileFilter.h	2008-04-28 18:50:49 UTC (rev 5799)
+@@ -0,0 +1,17 @@
++#ifndef FILEFILTER_H
++#define FILEFILTER_H
++
++#include &lt;string&gt;
++
++/** @brief Provides a way to filter files using globbing. */
++class IFileFilter
++{
++public:
++	static IFileFilter* Create();
++
++	virtual ~IFileFilter() {}
++	virtual void AddRule(const std::string&amp; rule) = 0;
++	virtual bool Match(const std::string&amp; filename) const = 0;
++};
++
++#endif // !FILEFILTER_H
+
+Modified: trunk/rts/build/vstudio8/rts.vcproj
+===================================================================
+--- trunk/rts/build/vstudio8/rts.vcproj	2008-04-28 15:57:00 UTC (rev 5798)
++++ trunk/rts/build/vstudio8/rts.vcproj	2008-04-28 18:50:49 UTC (rev 5799)
+@@ -3725,12 +3725,76 @@
+ 							UsePrecompiledHeader=&quot;0&quot;
+ 						/&gt;
+ 					&lt;/FileConfiguration&gt;
++					&lt;FileConfiguration
++						Name=&quot;No debug|Win32&quot;
++						&gt;
++						&lt;Tool
++							Name=&quot;VCCLCompilerTool&quot;
++							UsePrecompiledHeader=&quot;0&quot;
++						/&gt;
++					&lt;/FileConfiguration&gt;
++					&lt;FileConfiguration
++						Name=&quot;Release with error catching|Win32&quot;
++						&gt;
++						&lt;Tool
++							Name=&quot;VCCLCompilerTool&quot;
++							UsePrecompiledHeader=&quot;0&quot;
++						/&gt;
++					&lt;/FileConfiguration&gt;
++					&lt;FileConfiguration
++						Name=&quot;Syncdebug|Win32&quot;
++						&gt;
++						&lt;Tool
++							Name=&quot;VCCLCompilerTool&quot;
++							UsePrecompiledHeader=&quot;0&quot;
++						/&gt;
++					&lt;/FileConfiguration&gt;
+ 				&lt;/File&gt;
+ 				&lt;File
+ 					RelativePath=&quot;..\..\System\FileSystem\CRC.h&quot;
+ 					&gt;
+ 				&lt;/File&gt;
+ 				&lt;File
++					RelativePath=&quot;..\..\System\FileSystem\FileFilter.cpp&quot;
++					&gt;
++					&lt;FileConfiguration
++						Name=&quot;Debug|Win32&quot;
++						&gt;
++						&lt;Tool
++							Name=&quot;VCCLCompilerTool&quot;
++							UsePrecompiledHeader=&quot;0&quot;
++						/&gt;
++					&lt;/FileConfiguration&gt;
++					&lt;FileConfiguration
++						Name=&quot;No debug|Win32&quot;
++						&gt;
++						&lt;Tool
++							Name=&quot;VCCLCompilerTool&quot;
++							UsePrecompiledHeader=&quot;0&quot;
++						/&gt;
++					&lt;/FileConfiguration&gt;
++					&lt;FileConfiguration
++						Name=&quot;Release with error catching|Win32&quot;
++						&gt;
++						&lt;Tool
++							Name=&quot;VCCLCompilerTool&quot;
++							UsePrecompiledHeader=&quot;0&quot;
++						/&gt;
++					&lt;/FileConfiguration&gt;
++					&lt;FileConfiguration
++						Name=&quot;Syncdebug|Win32&quot;
++						&gt;
++						&lt;Tool
++							Name=&quot;VCCLCompilerTool&quot;
++							UsePrecompiledHeader=&quot;0&quot;
++						/&gt;
++					&lt;/FileConfiguration&gt;
++				&lt;/File&gt;
++				&lt;File
++					RelativePath=&quot;..\..\System\FileSystem\FileFilter.h&quot;
++					&gt;
++				&lt;/File&gt;
++				&lt;File
+ 					RelativePath=&quot;..\..\System\FileSystem\FileHandler.cpp&quot;
+ 					&gt;
+ 				&lt;/File&gt;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000578.html">[Taspring-linux-commit] r5798 - in trunk:	rts/ExternalAI/GlobalAICInterface rts/System/Platform/Win	tools/DemoAnalyser tools/unitsync
+</A></li>
+	<LI>Next message: <A HREF="000580.html">[Taspring-linux-commit] r5800 - trunk/rts/System/FileSystem
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#579">[ date ]</a>
+              <a href="thread.html#579">[ thread ]</a>
+              <a href="subject.html#579">[ subject ]</a>
+              <a href="author.html#579">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

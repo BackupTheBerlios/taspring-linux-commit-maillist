@@ -1,0 +1,189 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5219 - in trunk/tools: . DemoAnalyser
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5219%20-%20in%20trunk/tools%3A%20.%20DemoAnalyser&In-Reply-To=%3CE1JA89C-0007qI-Gg%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000026.html">
+   <LINK REL="Next"  HREF="000028.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5219 - in trunk/tools: . DemoAnalyser</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5219%20-%20in%20trunk/tools%3A%20.%20DemoAnalyser&In-Reply-To=%3CE1JA89C-0007qI-Gg%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5219 - in trunk/tools: . DemoAnalyser">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Wed Jan  2 19:16:58 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000026.html">[Taspring-linux-commit] r5218 - in	trunk/Lobby/TASServer/WebInterface: . inc
+</A></li>
+        <LI>Next message: <A HREF="000028.html">[Taspring-linux-commit] r5220 - tags
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#27">[ date ]</a>
+              <a href="thread.html#27">[ thread ]</a>
+              <a href="subject.html#27">[ subject ]</a>
+              <a href="author.html#27">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-01-02 19:16:53 +0100 (Wed, 02 Jan 2008)
+New Revision: 5219
+
+Added:
+   trunk/tools/DemoAnalyser/
+   trunk/tools/DemoAnalyser/CMakeLists.txt
+   trunk/tools/DemoAnalyser/main.cpp
+Log:
+Added nice debugging tool:
+It reads a demofile and prints out the networc traffic in human readable form.
+
+
+Added: trunk/tools/DemoAnalyser/CMakeLists.txt
+===================================================================
+--- trunk/tools/DemoAnalyser/CMakeLists.txt	                        (rev 0)
++++ trunk/tools/DemoAnalyser/CMakeLists.txt	2008-01-02 18:16:53 UTC (rev 5219)
+@@ -0,0 +1,34 @@
++PROJECT(DemoAnalyser)
++SET(CMAKE_CXX_FLAGS &quot;-O1 -Wall -g&quot;)
++
++ADD_DEFINITIONS(-DDEBUG -D_SZ_ONE_DIRECTORY -DNO_AVI -DDEDICATED -DSYNCCHECK )
++
++INCLUDE_DIRECTORIES(/usr/include/SDL/)
++INCLUDE_DIRECTORIES(../../rts/ ../../rts/Game ../../rts/lib/7zip ../../rts/System)
++
++AUX_SOURCE_DIRECTORY(../../rts/lib/7zip 7zipfiles)
++ADD_LIBRARY(7zip SHARED  ${7zipfiles})
++
++IF (UNIX)
++	ADD_LIBRARY(minizip SHARED  ../../rts/lib/minizip/unzip ../../rts/lib/minizip/zip ../../rts/lib/minizip/ioapi)
++	TARGET_LINK_LIBRARIES(minizip z)
++ELSE (UNIX)
++	ADD_LIBRARY(minizip SHARED  ../../rts/lib/minizip/unzip ../../rts/lib/minizip/zip ../../rts/lib/minizip/iowin32)
++ENDIF (UNIX)
++
++AUX_SOURCE_DIRECTORY(../../rts/lib/hpiutil2 hpiutil2)
++ADD_LIBRARY(hpiutil2 SHARED  ${hpiutil2})
++
++IF (UNIX)
++SET(platformfiles ../../rts/System/Platform/Linux/UnixFileSystemHandler ../../rts/System/Platform/Linux/DotfileHandler)
++ELSE (UNIX)
++SET(platformfiles ../../rts/System/Platform/Windows/WinFileSystemHandler ../../rts/System/Platform/Windows/RegHandler)
++ENDIF (UNIX)
++
++AUX_SOURCE_DIRECTORY(../../rts/System/FileSystem/ fsfiles)
++ADD_LIBRARY(fileops SHARED  ${fsfiles} ${platformfiles} ../../rts/System/TdfParser ../../rts/System/Platform/FileSystem ../../rts/System/Platform/ConfigHandler ../../rts/System/LogOutput ../../rts/System/DemoReader ../../rts/System/Demo ../../rts/Game/GameVersion)
++TARGET_LINK_LIBRARIES(fileops hpiutil2 7zip minizip boost_regex boost_thread)
++
++
++ADD_EXECUTABLE(analyser main)
++TARGET_LINK_LIBRARIES(analyser fileops)
+\ No newline at end of file
+
+Added: trunk/tools/DemoAnalyser/main.cpp
+===================================================================
+--- trunk/tools/DemoAnalyser/main.cpp	                        (rev 0)
++++ trunk/tools/DemoAnalyser/main.cpp	2008-01-02 18:16:53 UTC (rev 5219)
+@@ -0,0 +1,68 @@
++#include &lt;string&gt;
++#include &lt;iostream&gt;
++#include &lt;limits&gt;
++
++#include &quot;../../rts/System/DemoReader.h&quot;
++#include &quot;System/Platform/FileSystem.h&quot;
++#include &quot;Game/GameSetupData.h&quot;
++#include &quot;BaseNetProtocol.h&quot;
++
++CGameSetupData* gameSetup = 0;
++using namespace std;
++
++/*
++Usage:
++Start with the full! path to the demofile as the only argument
++
++Please note that not all NETMSG's are implemented, expand if needed.
++*/
++
++int main (int argc, char* argv[])
++{
++	FileSystemHandler::Cleanup();
++	FileSystemHandler::Initialize(false);
++
++	CDemoReader reader(string(argv[1]), 0.0f);
++	DemoFileHeader header = reader.GetFileHeader();
++	
++	unsigned unknownMessages = 0;
++	while (!reader.ReachedEnd())
++	{
++		const unsigned length= 40000;
++		unsigned char buffer[40000];
++		unsigned ret = 0;
++		ret = reader.GetData(buffer, length, 3.40282347e+38f);
++		if (ret == 0)
++			continue;
++		
++		switch ((unsigned char)buffer[0])
++		{
++			case NETMSG_ATTEMPTCONNECT:
++				cout &lt;&lt; &quot;ATTEMPTCONNECT: Playernum: &quot; &lt;&lt; (unsigned)buffer[1] &lt;&lt; &quot; Version: &quot; &lt;&lt; (unsigned)buffer[2] &lt;&lt; endl;
++				break;
++			case NETMSG_PLAYERNAME:
++				cout &lt;&lt; &quot;PLAYERNAME: Playernum: &quot; &lt;&lt; (unsigned)buffer[2] &lt;&lt; &quot; Name: &quot; &lt;&lt; buffer+3 &lt;&lt; endl;
++				break;
++			case NETMSG_SETPLAYERNUM:
++				cout &lt;&lt; &quot;SETPLAYERNUM: Playernum: &quot; &lt;&lt; (unsigned)buffer[1] &lt;&lt; endl;
++				break;
++			case NETMSG_QUIT:
++				cout &lt;&lt; &quot;QUIT&quot; &lt;&lt; endl;
++				break;
++			case NETMSG_STARTPLAYING:
++				cout &lt;&lt; &quot;STARTPLAYING&quot; &lt;&lt; endl;
++				break;
++			case NETMSG_STARTPOS:
++				cout &lt;&lt; &quot;STARTPOS: Playernum: &quot; &lt;&lt; (unsigned)buffer[1] &lt;&lt; &quot; Team: &quot; &lt;&lt; (unsigned)buffer[2] &lt;&lt; &quot; Readyness: &quot; &lt;&lt; (unsigned)buffer[3] &lt;&lt; endl;
++				break;
++			case NETMSG_SYSTEMMSG:
++				cout &lt;&lt; &quot;SYSTEMMSG: Player: &quot; &lt;&lt; (unsigned)buffer[2] &lt;&lt; &quot; Msg: &quot; &lt;&lt; (char*)(buffer+3) &lt;&lt; endl;
++				break;
++			default:
++				unknownMessages++;
++		}
++	}
++	cout &lt;&lt; endl &lt;&lt; &quot;There had been &quot; &lt;&lt; unknownMessages &lt;&lt; &quot; unknown NETMSGs&quot; &lt;&lt; endl;
++	FileSystemHandler::Cleanup();
++	return 0;
++}
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000026.html">[Taspring-linux-commit] r5218 - in	trunk/Lobby/TASServer/WebInterface: . inc
+</A></li>
+	<LI>Next message: <A HREF="000028.html">[Taspring-linux-commit] r5220 - tags
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#27">[ date ]</a>
+              <a href="thread.html#27">[ thread ]</a>
+              <a href="subject.html#27">[ subject ]</a>
+              <a href="author.html#27">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

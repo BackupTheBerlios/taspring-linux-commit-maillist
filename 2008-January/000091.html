@@ -1,0 +1,315 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5283 - in trunk: rts/Game	tools/DedicatedServer
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5283%20-%20in%20trunk%3A%20rts/Game%0A%09tools/DedicatedServer&In-Reply-To=%3CE1JBYco-00015Z-9h%40proserver.fnord.lan%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000090.html">
+   <LINK REL="Next"  HREF="000092.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5283 - in trunk: rts/Game	tools/DedicatedServer</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5283%20-%20in%20trunk%3A%20rts/Game%0A%09tools/DedicatedServer&In-Reply-To=%3CE1JBYco-00015Z-9h%40proserver.fnord.lan%3E"
+       TITLE="[Taspring-linux-commit] r5283 - in trunk: rts/Game	tools/DedicatedServer">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun Jan  6 17:45:26 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000090.html">[Taspring-linux-commit] r5282 - trunk/rts/Sim/Units/UnitTypes
+</A></li>
+        <LI>Next message: <A HREF="000092.html">[Taspring-linux-commit] r5284 - in trunk: rts/Game rts/System/Net	tools/DedicatedServer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#91">[ date ]</a>
+              <a href="thread.html#91">[ thread ]</a>
+              <a href="subject.html#91">[ subject ]</a>
+              <a href="author.html#91">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-01-06 17:45:26 +0100 (Sun, 06 Jan 2008)
+New Revision: 5283
+
+Modified:
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameServer.h
+   trunk/rts/Game/PreGame.cpp
+   trunk/tools/DedicatedServer/GameServer.cpp
+   trunk/tools/DedicatedServer/GameServer.h
+Log:
+* increased default maxspeed to 5 (when there is no gameSetup)
+* fix bug where a NETMSG_GAMEOVER is sent when hosting a demo
+
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-01-06 16:20:15 UTC (rev 5282)
++++ trunk/rts/Game/GameServer.cpp	2008-01-06 16:45:26 UTC (rev 5283)
+@@ -50,6 +50,7 @@
+ 	gameClientUpdated=false;
+ #endif
+ 	demoReader = 0;
++	hostif = 0;
+ 	IsPaused = false;
+ 	userSpeedFactor = 1.0f;
+ 	internalSpeed = 1.0f;
+@@ -72,18 +73,6 @@
+ 
+ 	lastTick = SDL_GetTicks();
+ 
+-	int autohostport = configHandler.GetInt(&quot;Autohost&quot;, 0);
+-	if (autohostport &gt; 0)
+-	{
+-		SendSystemMsg(&quot;Connecting to autohost on port %i&quot;, autohostport);
+-		hostif = new AutohostInterface(port+10, autohostport);
+-		hostif-&gt;SendStart();
+-	}
+-	else
+-	{
+-		hostif = 0;
+-	}
+-
+ 	if (gameSetup) {
+ 		maxUserSpeed = gameSetup-&gt;maxSpeed;
+ 		minUserSpeed = gameSetup-&gt;minSpeed;
+@@ -91,7 +80,7 @@
+ 	}
+ 	else
+ 	{
+-		maxUserSpeed=3;
++		maxUserSpeed=5;
+ 		minUserSpeed=0.3f;
+ 	}
+ 
+@@ -135,6 +124,17 @@
+ 	BindConnection(wantedNumber, true);
+ }
+ 
++void CGameServer::AddAutohostInterface(const int usePort, const int remotePort)
++{
++	if (hostif == 0)
++	{
++		boost::mutex::scoped_lock scoped_lock(gameServerMutex);
++		SendSystemMsg(&quot;Connecting to autohost on port %i&quot;, remotePort);
++		hostif = new AutohostInterface(usePort, remotePort);
++		hostif-&gt;SendStart();
++	}
++}
++
+ void CGameServer::PostLoad(unsigned newlastTick, int newserverframenum)
+ {
+ 	boost::mutex::scoped_lock scoped_lock(gameServerMutex);
+@@ -313,6 +313,7 @@
+ 			delete demoReader;
+ 			demoReader = 0;
+ 			SendSystemMsg(&quot;End of demo reached&quot;);
++			gameEndTime = SDL_GetTicks();
+ 		}
+ 	}
+ 
+@@ -331,7 +332,8 @@
+ 		if (!msg.empty())
+ 			GotChatMessage(msg, SERVER_PLAYER);
+ 	}
+-	CheckForGameEnd();
++	if (!demoReader &amp;&amp; !sentGameOverMsg)
++		CheckForGameEnd();
+ }
+ 
+ void CGameServer::ServerReadNet()
+@@ -772,18 +774,11 @@
+ 		if (numActiveTeams[a] != 0)
+ 			++numActiveAllyTeams;
+ 
+-	if (numActiveAllyTeams == 0)
++	if (numActiveAllyTeams &lt;= 1)
+ 	{
+-		// no ally left, end game
+ 		gameEndTime=SDL_GetTicks();
+ 		serverNet-&gt;SendSendPlayerStat();
+ 	}
+-	else if (numActiveAllyTeams == 1 &amp;&amp; !demoReader)
+-	{
+-		// 1 ally left, end game only if we are not watching a demo
+-		gameEndTime=SDL_GetTicks();
+-		serverNet-&gt;SendSendPlayerStat();
+-	}
+ }
+ 
+ void CGameServer::CreateNewFrame(bool fromServerThread)
+
+Modified: trunk/rts/Game/GameServer.h
+===================================================================
+--- trunk/rts/Game/GameServer.h	2008-01-06 16:20:15 UTC (rev 5282)
++++ trunk/rts/Game/GameServer.h	2008-01-06 16:45:26 UTC (rev 5283)
+@@ -46,6 +46,8 @@
+ 
+ 	void AddLocalClient(unsigned wantedNumber);
+ 
++	void AddAutohostInterface(const int usePort, const int remotePort);
++
+ 	/**
+ 	@brief Set frame after loading
+ 	WARNING! No checks are done, so be carefull
+
+Modified: trunk/rts/Game/PreGame.cpp
+===================================================================
+--- trunk/rts/Game/PreGame.cpp	2008-01-06 16:20:15 UTC (rev 5282)
++++ trunk/rts/Game/PreGame.cpp	2008-01-06 16:45:26 UTC (rev 5283)
+@@ -348,7 +348,11 @@
+ 		case WAIT_CONNECTING:
+ 			if ((server || hasDemo) &amp;&amp; !gameServer) {
+ 				good_fpu_control_registers(&quot;before CGameServer creation&quot;);
+-				gameServer = new CGameServer(gameSetup? gameSetup-&gt;hostport : 8452, mapName, modArchive, scriptName, demoFile);
++				int myPort = gameSetup? gameSetup-&gt;hostport : 8452;
++				gameServer = new CGameServer(myPort, mapName, modArchive, scriptName, demoFile);
++				int autohostport = configHandler.GetInt(&quot;Autohost&quot;, 0);
++				if (autohostport &gt; 0)
++					gameServer-&gt;AddAutohostInterface(myPort+1, autohostport);
+ 				gameServer-&gt;AddLocalClient(gameSetup? gameSetup-&gt;myPlayerNum : 0);
+ 				good_fpu_control_registers(&quot;after CGameServer creation&quot;);
+ 			}
+
+Modified: trunk/tools/DedicatedServer/GameServer.cpp
+===================================================================
+--- trunk/tools/DedicatedServer/GameServer.cpp	2008-01-06 16:20:15 UTC (rev 5282)
++++ trunk/tools/DedicatedServer/GameServer.cpp	2008-01-06 16:45:26 UTC (rev 5283)
+@@ -55,6 +55,7 @@
+ 	gameClientUpdated=false;
+ #endif
+ 	demoReader = 0;
++	hostif = 0;
+ 	IsPaused = false;
+ 	userSpeedFactor = 1.0f;
+ 	internalSpeed = 1.0f;
+@@ -77,18 +78,6 @@
+ 
+ 	lastTick = SDL_GetTicks();
+ 
+-	/*int autohostport = configHandler.GetInt(&quot;Autohost&quot;, 0);
+-	if (autohostport &gt; 0)
+-	{
+-		SendSystemMsg(&quot;Connecting to autohost on port %i&quot;, autohostport);
+-		hostif = new AutohostInterface(port+10, autohostport);
+-		hostif-&gt;SendStart();
+-	}
+-	else*/
+-	{
+-		hostif = 0;
+-	}
+-
+ 	if (gameSetup) {
+ 		maxUserSpeed = gameSetup-&gt;maxSpeed;
+ 		minUserSpeed = gameSetup-&gt;minSpeed;
+@@ -96,7 +85,7 @@
+ 	}
+ 	else
+ 	{
+-		maxUserSpeed=3;
++		maxUserSpeed=5;
+ 		minUserSpeed=0.3f;
+ 	}
+ 
+@@ -140,6 +129,17 @@
+ 	BindConnection(wantedNumber, true);
+ }
+ 
++void CGameServer::AddAutohostInterface(const int usePort, const int remotePort)
++{
++	if (hostif == 0)
++	{
++		boost::mutex::scoped_lock scoped_lock(gameServerMutex);
++		SendSystemMsg(&quot;Connecting to autohost on port %i&quot;, remotePort);
++		hostif = new AutohostInterface(usePort, remotePort);
++		hostif-&gt;SendStart();
++	}
++}
++
+ void CGameServer::PostLoad(unsigned newlastTick, int newserverframenum)
+ {
+ 	boost::mutex::scoped_lock scoped_lock(gameServerMutex);
+@@ -318,6 +318,7 @@
+ 			delete demoReader;
+ 			demoReader = 0;
+ 			SendSystemMsg(&quot;End of demo reached&quot;);
++			gameEndTime = SDL_GetTicks();
+ 		}
+ 	}
+ 
+@@ -336,7 +337,8 @@
+ 		if (!msg.empty())
+ 			GotChatMessage(msg, SERVER_PLAYER);
+ 	}
+-	CheckForGameEnd();
++	if (!demoReader &amp;&amp; !sentGameOverMsg)
++		CheckForGameEnd();
+ }
+ 
+ void CGameServer::ServerReadNet()
+@@ -777,17 +779,10 @@
+ 		if (numActiveTeams[a] != 0)
+ 			++numActiveAllyTeams;
+ 
+-	if (numActiveAllyTeams == 0)
++	if (numActiveAllyTeams =&lt; 1)
+ 	{
+-		// no ally left, end game
+ 		gameEndTime=SDL_GetTicks();
+ 		serverNet-&gt;SendSendPlayerStat();
+-	}
+-	else if (numActiveAllyTeams == 1 &amp;&amp; !demoReader)
+-	{
+-		// 1 ally left, end game only if we are not watching a demo
+-		gameEndTime=SDL_GetTicks();
+-		serverNet-&gt;SendSendPlayerStat();
+ 	}*/
+ }
+ 
+
+Modified: trunk/tools/DedicatedServer/GameServer.h
+===================================================================
+--- trunk/tools/DedicatedServer/GameServer.h	2008-01-06 16:20:15 UTC (rev 5282)
++++ trunk/tools/DedicatedServer/GameServer.h	2008-01-06 16:45:26 UTC (rev 5283)
+@@ -46,6 +46,8 @@
+ 
+ 	void AddLocalClient(unsigned wantedNumber);
+ 
++	void AddAutohostInterface(const int usePort, const int remotePort);
++
+ 	/**
+ 	@brief Set frame after loading
+ 	WARNING! No checks are done, so be carefull
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000090.html">[Taspring-linux-commit] r5282 - trunk/rts/Sim/Units/UnitTypes
+</A></li>
+	<LI>Next message: <A HREF="000092.html">[Taspring-linux-commit] r5284 - in trunk: rts/Game rts/System/Net	tools/DedicatedServer
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#91">[ date ]</a>
+              <a href="thread.html#91">[ thread ]</a>
+              <a href="subject.html#91">[ subject ]</a>
+              <a href="author.html#91">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

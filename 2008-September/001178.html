@@ -1,0 +1,301 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r6408 - in trunk/rts: . Game System/Net	System/Sync
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-September/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6408%20-%20in%20trunk/rts%3A%20.%20Game%20System/Net%0A%09System/Sync&In-Reply-To=%3C20080911212617.3E44D49BD%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="001177.html">
+   <LINK REL="Next"  HREF="001179.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r6408 - in trunk/rts: . Game System/Net	System/Sync</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r6408%20-%20in%20trunk/rts%3A%20.%20Game%20System/Net%0A%09System/Sync&In-Reply-To=%3C20080911212617.3E44D49BD%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r6408 - in trunk/rts: . Game System/Net	System/Sync">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Thu Sep 11 23:26:17 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="001177.html">[Taspring-linux-commit] r6407 - trunk/rts/System/Sync
+</A></li>
+        <LI>Next message: <A HREF="001179.html">[Taspring-linux-commit] r6409 - trunk/rts/build/scons
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1178">[ date ]</a>
+              <a href="thread.html#1178">[ thread ]</a>
+              <a href="subject.html#1178">[ subject ]</a>
+              <a href="author.html#1178">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-09-11 23:26:16 +0200 (Thu, 11 Sep 2008)
+New Revision: 6408
+
+Added:
+   trunk/rts/System/Sync/SyncedPrimitiveBase.h
+Modified:
+   trunk/rts/CMakeLists.txt
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/System/Net/UDPConnection.h
+   trunk/rts/System/Sync/Logger.h
+   trunk/rts/System/Sync/SyncChecker.h
+   trunk/rts/System/Sync/SyncDebugger.cpp
+   trunk/rts/System/Sync/SyncDebugger.h
+   trunk/rts/System/Sync/SyncedPrimitive.h
+Log:
+* allow compilation with both SYNCDEBUG and SYNCTRACE
+* another bunch of SYNCDEBUG-fixes
+
+
+Modified: trunk/rts/CMakeLists.txt
+===================================================================
+--- trunk/rts/CMakeLists.txt	2008-09-11 19:32:34 UTC (rev 6407)
++++ trunk/rts/CMakeLists.txt	2008-09-11 21:26:16 UTC (rev 6408)
+@@ -14,7 +14,7 @@
+ 	ADD_DEFINITIONS(-DTRACE_SYNC)
+ endif (TRACE_SYNC)
+ 
+-SET(SYNCDEBUG FALSE CACHE BOOL &quot;Enable sync debugger (needs SYNCCHECK=false)&quot;)
++SET(SYNCDEBUG FALSE CACHE BOOL &quot;Enable sync debugger (needs SYNCCHECK=true)&quot;)
+ if (SYNCDEBUG)
+ 	ADD_DEFINITIONS(-DSYNCDEBUG)
+ endif (SYNCDEBUG)
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-09-11 19:32:34 UTC (rev 6407)
++++ trunk/rts/Game/GameServer.cpp	2008-09-11 21:26:16 UTC (rev 6408)
+@@ -360,7 +360,9 @@
+ 
+ 				// TODO enable this when we have resync
+ 				//serverNet-&gt;SendPause(SERVER_PLAYER, true);
+-
++#ifdef SYNCDEBUG
++				CSyncDebugger::GetInstance()-&gt;ServerTriggerSyncErrorHandling(serverframenum);
++#endif
+ 				//For each group, output a message with list of playernames in it.
+ 				// TODO this should be linked to the resync system so it can roundrobin
+ 				// the resync checksum request packets to multiple clients in the same group.
+@@ -871,8 +873,13 @@
+ #ifdef SYNCDEBUG
+ 		case NETMSG_SD_CHKRESPONSE:
+ 		case NETMSG_SD_BLKRESPONSE:
+-			if (!CSyncDebugger::GetInstance()-&gt;ClientReceived(inbuf))
++			CSyncDebugger::GetInstance()-&gt;ServerReceived(inbuf);
+ 			break;
++		case NETMSG_SD_CHKREQUEST:
++		case NETMSG_SD_BLKREQUEST:
++		case NETMSG_SD_RESET:
++			Broadcast(packet);
++			break;
+ #endif
+ 		default:
+ 		{
+
+Modified: trunk/rts/System/Net/UDPConnection.h
+===================================================================
+--- trunk/rts/System/Net/UDPConnection.h	2008-09-11 19:32:34 UTC (rev 6407)
++++ trunk/rts/System/Net/UDPConnection.h	2008-09-11 21:26:16 UTC (rev 6408)
+@@ -10,7 +10,11 @@
+ #include &quot;UDPSocket.h&quot;
+ 
+ namespace netcode {
++#ifndef SYNCDEBUG
+ const unsigned UDPBufferSize = 8192;
++#else
++const unsigned UDPBufferSize = 40000;
++#endif
+ 
+ /**
+ How Spring protocolheader looks like (size in bytes):
+
+Modified: trunk/rts/System/Sync/Logger.h
+===================================================================
+--- trunk/rts/System/Sync/Logger.h	2008-09-11 19:32:34 UTC (rev 6407)
++++ trunk/rts/System/Sync/Logger.h	2008-09-11 21:26:16 UTC (rev 6408)
+@@ -32,6 +32,7 @@
+ 		void CloseSession();
+ 
+ 		void SetFilename(const char* fn) { filename = fn; }
++		void FlushBuffer();
+ 
+ 	private:
+ 
+@@ -39,7 +40,6 @@
+ 		CLogger(const CLogger&amp;);
+ 		CLogger&amp; operator=(const CLogger&amp;);
+ 
+-		void FlushBuffer();
+ 		void CppFilt(char* sym, int size);
+ 
+ 		boost::mutex logmutex;
+
+Modified: trunk/rts/System/Sync/SyncChecker.h
+===================================================================
+--- trunk/rts/System/Sync/SyncChecker.h	2008-09-11 19:32:34 UTC (rev 6407)
++++ trunk/rts/System/Sync/SyncChecker.h	2008-09-11 21:26:16 UTC (rev 6408)
+@@ -140,25 +140,6 @@
+ 		friend class CSyncedPrimitiveBase;
+ };
+ 
+-
+-/**
+- * @brief base class to use for synced classes
+- */
+-class CSyncedPrimitiveBase {
+-
+-	protected:
+-
+-		/**
+-		 * @brief wrapper to call the private CSyncChecker::Sync()
+-		 */
+-		inline void Sync(void* p, unsigned size, const char* s) {
+-			CSyncChecker::Sync(p, size);
+-#ifdef TRACE_SYNC_HEAVY
+-            tracefile &lt;&lt; &quot;Sync &quot; &lt;&lt; s &lt;&lt; &quot; &quot; &lt;&lt; CSyncChecker::GetChecksum() &lt;&lt; &quot;\n&quot;;
+-#endif
+-		}
+-};
+-
+ #endif // SYNCDEBUG
+ 
+ #endif // SYNCDEBUGGER_H
+
+Modified: trunk/rts/System/Sync/SyncDebugger.cpp
+===================================================================
+--- trunk/rts/System/Sync/SyncDebugger.cpp	2008-09-11 19:32:34 UTC (rev 6407)
++++ trunk/rts/System/Sync/SyncDebugger.cpp	2008-09-11 21:26:16 UTC (rev 6408)
+@@ -122,6 +122,8 @@
+ 
+ 	// init logger
+ 	logger.SetFilename(useBacktrace ? LOGFILE_SERVER : LOGFILE_CLIENT);
++	logger.AddLine(&quot;Syncdebugger initialised&quot;);
++	logger.FlushBuffer();
+ }
+ 
+ 
+@@ -254,6 +256,7 @@
+ 			syncDebugPacket = true;
+ 			break;
+ 	}
++	logger.FlushBuffer();
+ 	return syncDebugPacket;
+ }
+ 
+@@ -302,6 +305,7 @@
+ 			syncDebugPacket = true;
+ 			break;
+ 	}
++	logger.FlushBuffer();
+ 	return syncDebugPacket;
+ }
+ 
+
+Modified: trunk/rts/System/Sync/SyncDebugger.h
+===================================================================
+--- trunk/rts/System/Sync/SyncDebugger.h	2008-09-11 19:32:34 UTC (rev 6407)
++++ trunk/rts/System/Sync/SyncDebugger.h	2008-09-11 21:26:16 UTC (rev 6408)
+@@ -135,22 +135,6 @@
+ 		friend class CSyncedPrimitiveBase;
+ };
+ 
+-
+-/**
+- * @brief base class to use for synced classes
+- */
+-class CSyncedPrimitiveBase {
+-
+-	protected:
+-
+-		/**
+-		 * @brief wrapper to call the private CSyncDebugger::Sync()
+-		 */
+-		void Sync(void* p, unsigned size, const char* op) {
+-			CSyncDebugger::GetInstance()-&gt;Sync(p, size, op);
+-		}
+-};
+-
+ #endif // SYNCDEBUG
+ 
+ #endif // SYNCDEBUGGER_H
+
+Modified: trunk/rts/System/Sync/SyncedPrimitive.h
+===================================================================
+--- trunk/rts/System/Sync/SyncedPrimitive.h	2008-09-11 19:32:34 UTC (rev 6407)
++++ trunk/rts/System/Sync/SyncedPrimitive.h	2008-09-11 21:26:16 UTC (rev 6408)
+@@ -7,6 +7,7 @@
+ 
+ #include &quot;SyncChecker.h&quot;  // for CSyncedPrimitiveBase (if SYNCCHECK is defined)
+ #include &quot;SyncDebugger.h&quot; // for CSyncedPrimitiveBase (if SYNCDEBUG is defined)
++#include &quot;SyncedPrimitiveBase.h&quot;
+ #include &quot;Upcast.h&quot;       // for UPCAST macro
+ 
+ /*
+
+Added: trunk/rts/System/Sync/SyncedPrimitiveBase.h
+===================================================================
+--- trunk/rts/System/Sync/SyncedPrimitiveBase.h	                        (rev 0)
++++ trunk/rts/System/Sync/SyncedPrimitiveBase.h	2008-09-11 21:26:16 UTC (rev 6408)
+@@ -0,0 +1,28 @@
++#ifndef SYNCED_PRIMITIVE_BASSE_H
++#define SYNCED_PRIMITIVE_BASSE_H
++
++
++/**
++ * @brief base class to use for synced classes
++ */
++class CSyncedPrimitiveBase {
++
++	protected:
++
++		/**
++	 * @brief wrapper to call the private CSyncDebugger::Sync()
++		 */
++		void Sync(void* p, unsigned size, const char* op) {
++#ifdef SYNCDEBUG
++			CSyncDebugger::GetInstance()-&gt;Sync(p, size, op);
++#endif
++#ifdef SYNCCHECK
++			CSyncChecker::Sync(p, size);
++	#ifdef TRACE_SYNC_HEAVY
++			tracefile &lt;&lt; &quot;Sync &quot; &lt;&lt; s &lt;&lt; &quot; &quot; &lt;&lt; CSyncChecker::GetChecksum() &lt;&lt; &quot;\n&quot;;
++	#endif
++#endif
++		}
++};
++
++#endif
+\ No newline at end of file
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="001177.html">[Taspring-linux-commit] r6407 - trunk/rts/System/Sync
+</A></li>
+	<LI>Next message: <A HREF="001179.html">[Taspring-linux-commit] r6409 - trunk/rts/build/scons
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#1178">[ date ]</a>
+              <a href="thread.html#1178">[ thread ]</a>
+              <a href="subject.html#1178">[ subject ]</a>
+              <a href="author.html#1178">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

@@ -1,0 +1,253 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5600 - in trunk/rts/Sim/Projectiles: .	Unsynced
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-March/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5600%20-%20in%20trunk/rts/Sim/Projectiles%3A%20.%0A%09Unsynced&In-Reply-To=%3C20080322190742.C23FF45DA%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000380.html">
+   <LINK REL="Next"  HREF="000382.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5600 - in trunk/rts/Sim/Projectiles: .	Unsynced</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5600%20-%20in%20trunk/rts/Sim/Projectiles%3A%20.%0A%09Unsynced&In-Reply-To=%3C20080322190742.C23FF45DA%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5600 - in trunk/rts/Sim/Projectiles: .	Unsynced">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Mar 22 20:07:42 CET 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000380.html">[Taspring-linux-commit] r5599 - trunk/rts/Game
+</A></li>
+        <LI>Next message: <A HREF="000382.html">[Taspring-linux-commit] r5601 - trunk/rts/Sim/Projectiles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#381">[ date ]</a>
+              <a href="thread.html#381">[ thread ]</a>
+              <a href="subject.html#381">[ subject ]</a>
+              <a href="author.html#381">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: kloot
+Date: 2008-03-22 20:07:42 +0100 (Sat, 22 Mar 2008)
+New Revision: 5600
+
+Modified:
+   trunk/rts/Sim/Projectiles/ProjectileHandler.cpp
+   trunk/rts/Sim/Projectiles/Unsynced/ShieldPartProjectile.cpp
+Log:
+fix Mantis #851
+
+Modified: trunk/rts/Sim/Projectiles/ProjectileHandler.cpp
+===================================================================
+--- trunk/rts/Sim/Projectiles/ProjectileHandler.cpp	2008-03-22 15:38:41 UTC (rev 5599)
++++ trunk/rts/Sim/Projectiles/ProjectileHandler.cpp	2008-03-22 19:07:42 UTC (rev 5600)
+@@ -21,6 +21,7 @@
+ #include &quot;Sim/Features/Feature.h&quot;
+ #include &quot;Sim/Features/FeatureDef.h&quot;
+ #include &quot;Sim/Misc/CollisionVolume.h&quot;
++#include &quot;Sim/Projectiles/Unsynced/ShieldPartProjectile.h&quot;
+ #include &quot;Platform/ConfigHandler.h&quot;
+ #include &quot;Rendering/ShadowHandler.h&quot;
+ #include &quot;Rendering/UnitModels/UnitDrawer.h&quot;
+@@ -474,28 +475,52 @@
+ 	unitDrawer-&gt;SetupForUnitDrawing();
+ 	Projectile_List::iterator psi;
+ 	distlist.clear();
+-	for(psi=ps.begin();psi != ps.end();++psi){
+-		if(camera-&gt;InView((*psi)-&gt;pos,(*psi)-&gt;drawRadius) &amp;&amp; (gu-&gt;spectatingFullView || loshandler-&gt;InLos(*psi,gu-&gt;myAllyTeam) || ((*psi)-&gt;owner &amp;&amp; gs-&gt;Ally((*psi)-&gt;owner-&gt;allyteam,gu-&gt;myAllyTeam)))){
+-			if(drawReflection){
+-				if((*psi)-&gt;pos.y &lt; -(*psi)-&gt;drawRadius)
++
++	for (psi = ps.begin(); psi != ps.end(); ++psi) {
++		CProjectile* pro = *psi;
++
++		if (camera-&gt;InView(pro-&gt;pos, pro-&gt;drawRadius) &amp;&amp; (gu-&gt;spectatingFullView || loshandler-&gt;InLos(*psi, gu-&gt;myAllyTeam) ||
++			(pro-&gt;owner &amp;&amp; gs-&gt;Ally(pro-&gt;owner-&gt;allyteam, gu-&gt;myAllyTeam)))) {
++
++			CUnit* owner = pro-&gt;owner;
++			CUnit* trans = owner? (CUnit*) owner-&gt;transporter: 0;
++			bool stunned = owner? owner-&gt;stunned: false;
++
++			if (owner &amp;&amp; trans &amp;&amp; stunned &amp;&amp; dynamic_cast&lt;CShieldPartProjectile*&gt;(pro)) {
++				// if the unit that fired this projectile is inside a non-firebase
++				// transport (so stunned) and the projectile forms part of a shield
++				// (ie., the unit has a CPlasmaRepulser weapon but cannot fire it),
++				// prevent the projectile (shield segment) from being drawn at the
++				// unit's pre-pickup position (since CPlasmaRepulser::Update() is
++				// responsible for updating CShieldPartProjectile::centerPos)
++				continue;
++			}
++
++
++			if (drawReflection) {
++				if (pro-&gt;pos.y &lt; -pro-&gt;drawRadius)
+ 					continue;
+-				float dif=(*psi)-&gt;pos.y-camera-&gt;pos.y;
+-				float3 zeroPos=camera-&gt;pos*((*psi)-&gt;pos.y/dif) + (*psi)-&gt;pos*(-camera-&gt;pos.y/dif);
+-				if(ground-&gt;GetApproximateHeight(zeroPos.x,zeroPos.z)&gt;3+0.5f*(*psi)-&gt;drawRadius)
++
++				float dif = pro-&gt;pos.y - camera-&gt;pos.y;
++				float3 zeroPos = camera-&gt;pos*(pro-&gt;pos.y / dif) + pro-&gt;pos * (-camera-&gt;pos.y / dif);
++
++				if (ground-&gt;GetApproximateHeight(zeroPos.x, zeroPos.z) &gt; 3 + 0.5f * pro-&gt;drawRadius)
+ 					continue;
+ 			}
+-			if(drawRefraction &amp;&amp; (*psi)-&gt;pos.y&gt;(*psi)-&gt;drawRadius)
++			if (drawRefraction &amp;&amp; pro-&gt;pos.y &gt; pro-&gt;drawRadius)
+ 				continue;
+-			if((*psi)-&gt;s3domodel){
+-				if((*psi)-&gt;s3domodel-&gt;textureType){
+-					unitDrawer-&gt;QueS3ODraw(*psi,(*psi)-&gt;s3domodel-&gt;textureType);
++
++			if (pro-&gt;s3domodel) {
++				if (pro-&gt;s3domodel-&gt;textureType) {
++					unitDrawer-&gt;QueS3ODraw(*psi, pro-&gt;s3domodel-&gt;textureType);
+ 				} else {
+-					(*psi)-&gt;DrawUnitPart();
++					pro-&gt;DrawUnitPart();
+ 				}
+ 			}
++
+ 			struct projdist tmp;
+-			tmp.proj=*psi;
+-			tmp.dist=(*psi)-&gt;pos.dot(camera-&gt;forward);
++			tmp.proj = *psi;
++			tmp.dist = pro-&gt;pos.dot(camera-&gt;forward);
+ 			distlist.push_back(tmp);
+ 		}
+ 	}
+
+Modified: trunk/rts/Sim/Projectiles/Unsynced/ShieldPartProjectile.cpp
+===================================================================
+--- trunk/rts/Sim/Projectiles/Unsynced/ShieldPartProjectile.cpp	2008-03-22 15:38:41 UTC (rev 5599)
++++ trunk/rts/Sim/Projectiles/Unsynced/ShieldPartProjectile.cpp	2008-03-22 19:07:42 UTC (rev 5600)
+@@ -20,33 +20,37 @@
+ 	CR_RESERVED(16)
+ 	));
+ 
+-CShieldPartProjectile::CShieldPartProjectile(const float3&amp; centerPos,int xpart,int ypart,float sphereSize,float3 color,float alpha,AtlasedTexture *texture,CUnit* owner)
+-: CProjectile(centerPos,ZeroVector,owner, false),
++CShieldPartProjectile::CShieldPartProjectile(
++	const float3&amp; centerPos, int xpart, int ypart, float sphereSize,
++	float3 color, float alpha, AtlasedTexture* texture, CUnit* owner):
++	CProjectile(centerPos, ZeroVector, owner, false),
+ 	centerPos(centerPos),
+ 	sphereSize(sphereSize),
+ 	baseAlpha(alpha),
+ 	color(color)
+ {
+-	checkCol=false;
++	checkCol = false;
+ 
+ 	if (texture) {
+-		AtlasedTexture* tex= texture;
++		AtlasedTexture* tex = texture;
+ 
+-		for(int y=0;y&lt;5;++y){
+-			float yp=(y+ypart)/16.0f*PI-PI/2;
+-			for(int x=0;x&lt;5;++x){
+-				float xp=(x+xpart)/32.0f*2*PI;
+-				vectors[y*5+x]=float3(sin(xp)*cos(yp),sin(yp),cos(xp)*cos(yp));
+-				texCoords[y*5+x].x=(vectors[y*5+x].x*(2-fabs(vectors[y*5+x].y)))*((tex-&gt;xend-tex-&gt;xstart)*0.25f)+((tex-&gt;xstart+tex-&gt;xend)*0.5f);
+-				texCoords[y*5+x].y=(vectors[y*5+x].z*(2-fabs(vectors[y*5+x].y)))*((tex-&gt;yend-tex-&gt;ystart)*0.25f)+((tex-&gt;ystart+tex-&gt;yend)*0.5f);
++		for (int y = 0; y &lt; 5; ++y) {
++			float yp = (y + ypart) / 16.0f * PI - PI / 2;
++
++			for (int x = 0; x &lt; 5; ++x) {
++				float xp = (x + xpart) / 32.0f * 2 * PI;
++
++				vectors[y * 5 + x] = float3(sin(xp) * cos(yp), sin(yp), cos(xp) * cos(yp));
++				texCoords[y * 5 + x].x = (vectors[y * 5 + x].x * (2 - fabs(vectors[y * 5 + x].y))) * ((tex-&gt;xend - tex-&gt;xstart) * 0.25f) + ((tex-&gt;xstart + tex-&gt;xend) * 0.5f);
++				texCoords[y * 5 + x].y = (vectors[y * 5 + x].z * (2 - fabs(vectors[y * 5 + x].y))) * ((tex-&gt;yend - tex-&gt;ystart) * 0.25f) + ((tex-&gt;ystart + tex-&gt;yend) * 0.5f);
+ 			}
+ 		}
+ 	}
+-	pos=centerPos+vectors[12]*sphereSize;
++	pos = centerPos + vectors[12] * sphereSize;
+ 
+-	alwaysVisible=false;
+-	useAirLos=true;
+-	drawRadius=sphereSize*0.4f;
++	alwaysVisible = false;
++	useAirLos = true;
++	drawRadius = sphereSize * 0.4f;
+ 
+ 	ph-&gt;numPerlinProjectiles++;
+ }
+@@ -58,7 +62,7 @@
+ 
+ void CShieldPartProjectile::Update(void)
+ {
+-	pos=centerPos+vectors[12]*sphereSize;
++	pos = centerPos + vectors[12] * sphereSize;
+ }
+ 
+ void CShieldPartProjectile::Draw(void)
+@@ -67,22 +71,21 @@
+ 		return;
+ 	}
+ 
+-	inArray=true;
++	inArray = true;
+ 	unsigned char col[4];
+ 
+-	float interSize=sphereSize;
+-	for(int y=0;y&lt;4;++y){
+-		for(int x=0;x&lt;4;++x){
+-			float alpha=baseAlpha*255;
++	for (int y = 0; y &lt; 4; ++y) {
++		for (int x = 0; x &lt; 4; ++x) {
++			float alpha = baseAlpha * 255;
+ 
+-			col[0]=(unsigned char) (color.x*alpha);
+-			col[1]=(unsigned char) (color.y*alpha);
+-			col[2]=(unsigned char) (color.z*alpha);
+-			col[3]=(unsigned char) (alpha);
+-			va-&gt;AddVertexTC(centerPos+vectors[y*5+x]      *interSize,texCoords[y*5+x].x      ,texCoords[y*5+x].y      ,col);
+-			va-&gt;AddVertexTC(centerPos+vectors[y*5+x+1]    *interSize,texCoords[y*5+x+1].x    ,texCoords[y*5+x+1].y    ,col);
+-			va-&gt;AddVertexTC(centerPos+vectors[(y+1)*5+x+1]*interSize,texCoords[(y+1)*5+x+1].x,texCoords[(y+1)*5+x+1].y,col);
+-			va-&gt;AddVertexTC(centerPos+vectors[(y+1)*5+x]  *interSize,texCoords[(y+1)*5+x].x  ,texCoords[(y+1)*5+x].y  ,col);
++			col[0] = (unsigned char) (color.x * alpha);
++			col[1] = (unsigned char) (color.y * alpha);
++			col[2] = (unsigned char) (color.z * alpha);
++			col[3] = (unsigned char) (alpha);
++			va-&gt;AddVertexTC(centerPos + vectors[(y    ) * 5 + x    ] * sphereSize, texCoords[(y    ) * 5 + x    ].x, texCoords[(y    ) * 5 + x    ].y, col);
++			va-&gt;AddVertexTC(centerPos + vectors[(y    ) * 5 + x + 1] * sphereSize, texCoords[(y    ) * 5 + x + 1].x, texCoords[(y    ) * 5 + x + 1].y, col);
++			va-&gt;AddVertexTC(centerPos + vectors[(y + 1) * 5 + x + 1] * sphereSize, texCoords[(y + 1) * 5 + x + 1].x, texCoords[(y + 1) * 5 + x + 1].y, col);
++			va-&gt;AddVertexTC(centerPos + vectors[(y + 1) * 5 + x    ] * sphereSize, texCoords[(y + 1) * 5 + x    ].x, texCoords[(y + 1) * 5 + x    ].y, col);
+ 		}
+ 	}
+ }
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000380.html">[Taspring-linux-commit] r5599 - trunk/rts/Game
+</A></li>
+	<LI>Next message: <A HREF="000382.html">[Taspring-linux-commit] r5601 - trunk/rts/Sim/Projectiles
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#381">[ date ]</a>
+              <a href="thread.html#381">[ thread ]</a>
+              <a href="subject.html#381">[ subject ]</a>
+              <a href="author.html#381">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

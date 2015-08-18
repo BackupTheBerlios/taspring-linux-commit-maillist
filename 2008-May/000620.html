@@ -1,0 +1,824 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r5840 - in trunk: rts/Game rts/Game/Server	rts/System rts/System/Net tools/DedicatedServer
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2008-May/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5840%20-%20in%20trunk%3A%20rts/Game%20rts/Game/Server%0A%09rts/System%20rts/System/Net%20tools/DedicatedServer&In-Reply-To=%3C20080503224344.8F16247BF%40progate.clan-sy.com%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="000619.html">
+   <LINK REL="Next"  HREF="000621.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r5840 - in trunk: rts/Game rts/Game/Server	rts/System rts/System/Net tools/DedicatedServer</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r5840%20-%20in%20trunk%3A%20rts/Game%20rts/Game/Server%0A%09rts/System%20rts/System/Net%20tools/DedicatedServer&In-Reply-To=%3C20080503224344.8F16247BF%40progate.clan-sy.com%3E"
+       TITLE="[Taspring-linux-commit] r5840 - in trunk: rts/Game rts/Game/Server	rts/System rts/System/Net tools/DedicatedServer">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sun May  4 00:43:44 CEST 2008</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="000619.html">[Taspring-linux-commit] r5839 - in site/trunk: . Documentation	www-root/forums www-root/forums/cache	www-root/forums/styles/spring/template www-root/tpl	www-root/wiki/conf www-root/wiki/data/pages www-root/wiki/inc	www-root/wiki/lib/tpl/default
+</A></li>
+        <LI>Next message: <A HREF="000621.html">[Taspring-linux-commit] r5841 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#620">[ date ]</a>
+              <a href="thread.html#620">[ thread ]</a>
+              <a href="subject.html#620">[ subject ]</a>
+              <a href="author.html#620">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: Auswaschbar
+Date: 2008-05-04 00:43:43 +0200 (Sun, 04 May 2008)
+New Revision: 5840
+
+Removed:
+   trunk/rts/Game/Server/ServerLog.cpp
+   trunk/rts/Game/Server/ServerLog.h
+   trunk/rts/Game/Server/ServerLogHandler.cpp
+   trunk/rts/Game/Server/ServerLogHandler.h
+   trunk/tools/DedicatedServer/EventPrinter.cpp
+   trunk/tools/DedicatedServer/EventPrinter.h
+Modified:
+   trunk/rts/Game/GameServer.cpp
+   trunk/rts/Game/GameServer.h
+   trunk/rts/Game/GameVersion.cpp
+   trunk/rts/System/AutohostInterface.h
+   trunk/rts/System/Net/Net.cpp
+   trunk/rts/System/Net/Net.h
+   trunk/tools/DedicatedServer/main.cpp
+Log:
+* after a new client connects, only his network buffer will be flushed
+* removed way to generic ServerLog
+
+
+Modified: trunk/rts/Game/GameServer.cpp
+===================================================================
+--- trunk/rts/Game/GameServer.cpp	2008-05-03 20:53:17 UTC (rev 5839)
++++ trunk/rts/Game/GameServer.cpp	2008-05-03 22:43:43 UTC (rev 5840)
+@@ -7,7 +7,9 @@
+ #include &lt;boost/version.hpp&gt;
+ #include &lt;SDL_timer.h&gt;
+ #include &lt;cmath&gt;
+-
++#ifdef DEDICATED
++#include &lt;iostream&gt;
++#endif
+ #ifndef NO_AVI
+ #include &quot;Game.h&quot;
+ #endif
+@@ -112,8 +114,7 @@
+ 	serverNet = new CBaseNetProtocol();
+ 	serverNet-&gt;InitServer(port);
+ 	rng.Seed(SDL_GetTicks());
+-	log.Subscribe(this);
+-	log.Message(format(ServerStart) %port);
++	Message(str( format(ServerStart) %port) );
+ 
+ 	lastTick = SDL_GetTicks();
+ 
+@@ -131,7 +132,7 @@
+ 	gameData.reset(newGameData);
+ 	if (!demoName.empty())
+ 	{
+-		log.Message(format(PlayingDemo) %demoName);
++		Message(str( format(PlayingDemo) %demoName ));
+ 		demoReader = new CDemoReader(demoName, modGameTime+0.1f);
+ 	}
+ 
+@@ -176,7 +177,6 @@
+ 	if (hostif)
+ 	{
+ 		hostif-&gt;SendQuit();
+-		log.Unsubscribe(hostif);
+ 		delete hostif;
+ 	}
+ }
+@@ -194,8 +194,7 @@
+ 		boost::recursive_mutex::scoped_lock scoped_lock(gameServerMutex);
+ 		hostif = new AutohostInterface(remotePort);
+ 		hostif-&gt;SendStart();
+-		log.Subscribe(hostif);
+-		log.Message(format(ConnectAutohost) %remotePort);
++		Message(str(format(ConnectAutohost) %remotePort));
+ 	}
+ }
+ 
+@@ -274,19 +273,24 @@
+ 	if (demoReader-&gt;ReachedEnd()) {
+ 		delete demoReader;
+ 		demoReader = 0;
+-		log.Message(DemoEnd);
++		Message(DemoEnd);
+ 		gameEndTime = SDL_GetTicks();
+ 	}
+ }
+ 
+ void CGameServer::Message(const std::string&amp; message)
+ {
+-	serverNet-&gt;SendSystemMessage(SERVER_PLAYER, message);
++	Warning(message);
+ }
+ 
+ void CGameServer::Warning(const std::string&amp; message)
+ {
+ 	serverNet-&gt;SendSystemMessage(SERVER_PLAYER, message);
++	if (hostif)
++		hostif-&gt;Message(message);
++#ifdef DEDICATED
++	std::cout &lt;&lt; message &lt;&lt; std::endl;
++#endif
+ }
+ 
+ void CGameServer::CheckSync()
+@@ -325,7 +329,7 @@
+ 				syncWarningFrame = *f;
+ 
+ 				std::string players = GetPlayerNames(noSyncResponse);
+-				log.Warning(format(NoSyncResponse) %players %(*f));
++				Warning(str(format(NoSyncResponse) %players %(*f)));
+ 			}
+ 		}
+ 
+@@ -345,7 +349,7 @@
+ 				std::map&lt;unsigned, std::vector&lt;int&gt; &gt;::const_iterator g = desyncGroups.begin();
+ 				for (; g != desyncGroups.end(); ++g) {
+ 					std::string players = GetPlayerNames(g-&gt;second);
+-					log.Warning(format(SyncError) %players %(*f) %(g-&gt;first ^ correctChecksum));
++					Warning(str(format(SyncError) %players %(*f) %(g-&gt;first ^ correctChecksum)));
+ 				}
+ 			}
+ 		}
+@@ -366,7 +370,7 @@
+ 	// Make it clear this build isn't suitable for release.
+ 	if (!syncErrorFrame || (serverframenum - syncErrorFrame &gt; SYNCCHECK_MSG_TIMEOUT)) {
+ 		syncErrorFrame = serverframenum;
+-		log.Warning(NoSyncCheck);
++		Warning(NoSyncCheck);
+ 	}
+ #endif
+ }
+@@ -455,7 +459,7 @@
+ 	
+ 	if ((SDL_GetTicks() - serverStartTime) &gt; serverTimeout &amp;&amp; serverNet-&gt;MaxConnectionID() == -1)
+ 	{
+-		log.Message(NoClientsExit);
++		Message(NoClientsExit);
+ 		quitServer = true;
+ 	}
+ }
+@@ -476,10 +480,10 @@
+ 		else
+ 		{
+ 			if (packet-&gt;length &gt;= 3) {
+-				log.Warning(format(ConnectionReject) %inbuf[0] %inbuf[2] %packet-&gt;length);
++				Warning(str(format(ConnectionReject) %inbuf[0] %inbuf[2] %packet-&gt;length));
+ 			}
+ 			else {
+-				log.Warning(&quot;Connection attempt rejected: Packet too short&quot;);
++				Warning(&quot;Connection attempt rejected: Packet too short&quot;);
+ 			}
+ 			serverNet-&gt;RejectIncomingConnection();
+ 		}
+@@ -502,7 +506,7 @@
+ 
+ 					case NETMSG_PAUSE:
+ 						if(inbuf[1]!=a){
+-							log.Warning(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[1]);
++							Warning(str(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[1]));
+ 						} else {
+ 							if (!inbuf[2])  // reset sync checker
+ 								syncErrorFrame = 0;
+@@ -544,7 +548,7 @@
+ 						break;
+ 
+ 					case NETMSG_QUIT: {
+-						log.Message(format(PlayerLeft) %players[a]-&gt;name %&quot; normal quit&quot;);
++						Message(str(format(PlayerLeft) %players[a]-&gt;name %&quot; normal quit&quot;));
+ 						serverNet-&gt;SendPlayerLeft(a, 1);
+ 						serverNet-&gt;Kill(a);
+ 						quit = true;
+@@ -559,11 +563,11 @@
+ 					case NETMSG_PLAYERNAME: {
+ 						unsigned playerNum = inbuf[2];
+ 						if(playerNum!=a){
+-							log.Warning(format(WrongPlayer) %(unsigned)inbuf[0] %a %playerNum);
++							Warning(str(format(WrongPlayer) %(unsigned)inbuf[0] %a %playerNum));
+ 						} else {
+ 							players[playerNum]-&gt;name = (std::string)((char*)inbuf+3);
+ 							players[playerNum]-&gt;readyToStart = true;
+-							log.Message(format(PlayerJoined) %players[playerNum]-&gt;name %playerNum);
++							Message(str(format(PlayerJoined) %players[playerNum]-&gt;name %playerNum));
+ 							serverNet-&gt;SendPlayerName(playerNum, players[playerNum]-&gt;name);
+ 							if (hostif)
+ 							{
+@@ -576,7 +580,7 @@
+ 					case NETMSG_CHAT: {
+ 						ChatMessage msg(*packet);
+ 						if (static_cast&lt;unsigned&gt;(msg.fromPlayer) != a ) {
+-							log.Warning(format(WrongPlayer) %(unsigned)NETMSG_CHAT %a %(unsigned)msg.fromPlayer);
++							Warning(str(format(WrongPlayer) %(unsigned)NETMSG_CHAT %a %(unsigned)msg.fromPlayer));
+ 						} else {
+ 							GotChatMessage(msg);
+ 						}
+@@ -584,7 +588,7 @@
+ 					}
+ 					case NETMSG_SYSTEMMSG:
+ 						if(inbuf[2]!=a){
+-							log.Warning(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[2]);
++							Warning(str(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[2]));
+ 						} else {
+ 							serverNet-&gt;SendSystemMessage(inbuf[2], (char*)(&amp;inbuf[3]));
+ 						}
+@@ -592,7 +596,7 @@
+ 
+ 					case NETMSG_STARTPOS:
+ 						if(inbuf[1] != a){
+-							log.Warning(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[1]);
++							Warning(str(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[1]));
+ 						}
+ 						else if (setup &amp;&amp; setup-&gt;startPosType == CGameSetupData::StartPos_ChooseInGame)
+ 						{
+@@ -610,13 +614,13 @@
+ 						}
+ 						else
+ 						{
+-							log.Warning(format(NoStartposChange) %a);
++							Warning(str(format(NoStartposChange) %a));
+ 						}
+ 						break;
+ 
+ 					case NETMSG_COMMAND:
+ 						if(inbuf[3]!=a){
+-							log.Warning(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[3]);
++							Warning(str(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[3]));
+ 						} else {
+ 							if (!demoReader)
+ 								serverNet-&gt;RawSend(inbuf,*((short int*)&amp;inbuf[1])); //forward data
+@@ -625,7 +629,7 @@
+ 
+ 					case NETMSG_SELECT:
+ 						if(inbuf[3]!=a){
+-							log.Warning(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[3]);
++							Warning(str(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[3]));
+ 						} else {
+ 							if (!demoReader)
+ 								// forward data
+@@ -636,10 +640,10 @@
+ 
+ 					case NETMSG_AICOMMAND: {
+ 						if (inbuf[3] != a) {
+-							log.Warning(format(WrongPlayer) %(unsigned) inbuf[0]  %a  %(unsigned) inbuf[3]);
++							Warning(str(format(WrongPlayer) %(unsigned) inbuf[0]  %a  %(unsigned) inbuf[3]));
+ 						}
+ 						else if (noHelperAIs) {
+-							log.Warning(format(NoHelperAI) %players[a]-&gt;name %a);
++							Warning(str(format(NoHelperAI) %players[a]-&gt;name %a));
+ 						}
+ 						else if (!demoReader) {
+ 							// forward data
+@@ -649,10 +653,10 @@
+ 
+ 					case NETMSG_AICOMMANDS: {
+ 						if (inbuf[3] != a) {
+-							log.Warning(format(WrongPlayer) %(unsigned) inbuf[0]  %a  %(unsigned) inbuf[3]);
++							Warning(str(format(WrongPlayer) %(unsigned) inbuf[0]  %a  %(unsigned) inbuf[3]));
+ 						}
+ 						else if (noHelperAIs) {
+-							log.Warning(format(NoHelperAI) %players[a]-&gt;name %a);
++							Warning(str(format(NoHelperAI) %players[a]-&gt;name %a));
+ 						}
+ 						else if (!demoReader) {
+ 							// forward data
+@@ -662,9 +666,9 @@
+ 
+ 					case NETMSG_AISHARE: {
+ 						if (inbuf[3] != a) {
+-							log.Warning(format(WrongPlayer) %(unsigned) inbuf[0]  %a  %(unsigned) inbuf[3]);
++							Warning(str(format(WrongPlayer) %(unsigned) inbuf[0]  %a  %(unsigned) inbuf[3]));
+ 						} else if (noHelperAIs) {
+-							log.Warning(format(NoHelperAI) %players[a]-&gt;name %a);
++							Warning(str(format(NoHelperAI) %players[a]-&gt;name %a));
+ 						} else if (!demoReader) {
+ 							// forward data
+ 							serverNet-&gt;RawSend(inbuf, *((short int*) &amp;inbuf[1]));
+@@ -674,7 +678,7 @@
+ 
+ 					case NETMSG_LUAMSG:
+ 						if(inbuf[3]!=a){
+-							log.Warning(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[3]);
++							Warning(str(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[3]));
+ 						}
+ 						else if (!demoReader) {
+ 							serverNet-&gt;RawSend(inbuf,*((short int*)&amp;inbuf[1])); //forward data
+@@ -684,14 +688,14 @@
+ 					case NETMSG_SYNCRESPONSE:
+ #ifdef SYNCCHECK
+ 						if(inbuf[1]!=a){
+-							log.Warning(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[1]);
++							Warning(str(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[1]));
+ 						} else {
+ 							int frameNum = *(int*)&amp;inbuf[2];
+ 							if (outstandingSyncFrames.empty() || frameNum &gt;= outstandingSyncFrames.front())
+ 								players[a]-&gt;syncResponse[frameNum] = *(unsigned*)&amp;inbuf[6];
+ 							else if (serverframenum - delayedSyncResponseFrame &gt; SYNCCHECK_MSG_TIMEOUT) {
+ 								delayedSyncResponseFrame = serverframenum;
+-								log.Warning(format(DelayedSyncResponse) %players[a]-&gt;name %frameNum %serverframenum);
++								Warning(str(format(DelayedSyncResponse) %players[a]-&gt;name %frameNum %serverframenum));
+ 							}
+ 							// update players' ping (if !defined(SYNCCHECK) this is done in NETMSG_KEYFRAME)
+ 							players[a]-&gt;ping = serverframenum - frameNum;
+@@ -701,7 +705,7 @@
+ 
+ 					case NETMSG_SHARE:
+ 						if(inbuf[1]!=a){
+-							log.Warning(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[1]);
++							Warning(str(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[1]));
+ 						} else {
+ 							if (!demoReader)
+ 								serverNet-&gt;SendShare(inbuf[1], inbuf[2], inbuf[3], *((float*)&amp;inbuf[4]), *((float*)&amp;inbuf[8]));
+@@ -710,7 +714,7 @@
+ 
+ 					case NETMSG_SETSHARE:
+ 						if(inbuf[1]!= a){
+-							log.Warning(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[1]);
++							Warning(str(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[1]));
+ 						} else {
+ 							if (!demoReader)
+ 								serverNet-&gt;SendSetShare(inbuf[1], inbuf[2], *((float*)&amp;inbuf[3]), *((float*)&amp;inbuf[7]));
+@@ -719,7 +723,7 @@
+ 
+ 					case NETMSG_PLAYERSTAT:
+ 						if(inbuf[1]!=a){
+-							log.Warning(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[1]);
++							Warning(str(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[1]));
+ 						} else {
+ 							serverNet-&gt;RawSend(inbuf,sizeof(CPlayer::Statistics)+2); //forward data
+ 						}
+@@ -732,7 +736,7 @@
+ #ifdef DIRECT_CONTROL_ALLOWED
+ 					case NETMSG_DIRECT_CONTROL:
+ 						if(inbuf[1]!=a){
+-							log.Warning(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[1]);
++							Warning(str(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[1]));
+ 						} else {
+ 							if (!demoReader)
+ 								serverNet-&gt;SendDirectControl(inbuf[1]);
+@@ -741,7 +745,7 @@
+ 
+ 					case NETMSG_DC_UPDATE:
+ 						if(inbuf[1]!=a){
+-							log.Warning(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[1]);
++							Warning(str(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)inbuf[1]));
+ 						} else {
+ 							if (!demoReader)
+ 								serverNet-&gt;SendDirectControlUpdate(inbuf[1], inbuf[2], *((short*)&amp;inbuf[3]), *((short*)&amp;inbuf[5]));
+@@ -761,7 +765,7 @@
+ 						const unsigned player = (unsigned)inbuf[1];
+ 						if (player != a)
+ 						{
+-							log.Warning(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)player);
++							Warning(str(format(WrongPlayer) %(unsigned)inbuf[0] %a %(unsigned)player));
+ 						}
+ 						else
+ 						{
+@@ -809,7 +813,7 @@
+ 									}
+ 									else
+ 									{
+-										log.Warning(format(NoTeamChange) %players[player]-&gt;name %player);
++										Warning(str(format(NoTeamChange) %players[player]-&gt;name %player));
+ 									}
+ 									break;
+ 								}
+@@ -830,7 +834,7 @@
+ 									break;
+ 								}
+ 								default: {
+-									log.Warning(format(UnknownTeammsg) %action %player);
++									Warning(str(format(UnknownTeammsg) %action %player));
+ 								}
+ 							}
+ 							break;
+@@ -866,7 +870,7 @@
+ 							else
+ 							{
+ 								// hack!
+-								log.Warning(boost::format(CommandNotAllowed) %msg.player %msg.action.command.c_str());
++								Warning(str(boost::format(CommandNotAllowed) %msg.player %msg.action.command.c_str()));
+ 							}
+ 						}
+ 						break;
+@@ -881,7 +885,7 @@
+ 						break;
+ 					default:
+ 						{
+-							log.Warning(format(UnknownNetmsg) %(unsigned)inbuf[0] %a);
++							Warning(str(format(UnknownNetmsg) %(unsigned)inbuf[0] %a));
+ 						}
+ 						break;
+ 				}
+@@ -890,7 +894,7 @@
+ 		}
+ 		else if (players[a])
+ 		{
+-			log.Message(format(PlayerLeft) %players[a]-&gt;name %&quot; timeout&quot;); //this must happen BEFORE the reset!
++			Message(str(format(PlayerLeft) %players[a]-&gt;name %&quot; timeout&quot;)); //this must happen BEFORE the reset!
+ 			players[a].reset();
+ 			serverNet-&gt;SendPlayerLeft(a, 0);
+ 			if (hostif)
+@@ -905,7 +909,7 @@
+ 		//HACK check if we lost connection to the last player(s)
+ 		if (players[a])
+ 		{
+-			log.Message(format(PlayerLeft) %players[a]-&gt;name %&quot; timeout&quot;); //this must happen BEFORE the reset!
++			Message(str(format(PlayerLeft) %players[a]-&gt;name %&quot; timeout&quot;)); //this must happen BEFORE the reset!
+ 			players[a].reset();
+ 			serverNet-&gt;SendPlayerLeft(a, 0);
+ 			if (hostif)
+@@ -1029,7 +1033,7 @@
+ 	if (demoReader) {
+ 		// the client told us to start a demo
+ 		// no need to send startpos and startplaying since its in the demo
+-		log.Message(DemoStart);
++		Message(DemoStart);
+ 		return;
+ 	}
+ 
+@@ -1176,7 +1180,7 @@
+ {
+ 	if (gameEndTime &gt; 0) {
+ 		if (gameEndTime &lt; SDL_GetTicks() - 2000) {
+-			log.Message(GameEnd);
++			Message(GameEnd);
+ 			serverNet-&gt;SendGameOver();
+ 			if (hostif) {
+ 				hostif-&gt;SendGameOver();
+@@ -1298,7 +1302,7 @@
+ void CGameServer::KickPlayer(const int playerNum)
+ {
+ 	if (players[playerNum]) {
+-		log.Message(format(PlayerLeft) %playerNum %&quot;kicked&quot;);
++		Message(str(format(PlayerLeft) %playerNum %&quot;kicked&quot;));
+ 		serverNet-&gt;SendPlayerLeft(playerNum, 2);
+ 		serverNet-&gt;SendQuit(playerNum);
+ 		serverNet-&gt;Kill(playerNum);
+@@ -1358,9 +1362,9 @@
+ 				serverNet-&gt;SendJoinTeam(a, players[a]-&gt;team);
+ 		}
+ 	}
+-	log.Message(format(NewConnection) %hisNewNumber %wantedNumber);
++	Message(str(format(NewConnection) %hisNewNumber %wantedNumber));
+ 
+-	serverNet-&gt;FlushNet();
++	serverNet-&gt;FlushNet(hisNewNumber);
+ }
+ 
+ void CGameServer::GotChatMessage(const ChatMessage&amp; msg)
+
+Modified: trunk/rts/Game/GameServer.h
+===================================================================
+--- trunk/rts/Game/GameServer.h	2008-05-03 20:53:17 UTC (rev 5839)
++++ trunk/rts/Game/GameServer.h	2008-05-03 22:43:43 UTC (rev 5840)
+@@ -14,8 +14,6 @@
+ #include &quot;System/GlobalStuff.h&quot;
+ #include &quot;System/UnsyncedRNG.h&quot;
+ #include &quot;SFloat3.h&quot;
+-#include &quot;Server/ServerLogHandler.h&quot;
+-#include &quot;Server/ServerLog.h&quot;
+ 
+ class CBaseNetProtocol;
+ class CDemoReader;
+@@ -55,7 +53,7 @@
+ @brief Server class for game handling
+ This class represents a gameserver. It is responsible for recieving, checking and forwarding gamedata to the clients. It keeps track of the sync, cpu and other stats and informs all clients about events.
+ */
+-class CGameServer : private ServerLog, public CommandReciever
++class CGameServer : public CommandReciever
+ {
+ 	friend class CLoadSaveHandler;     //For initialize server state after load
+ public:
+@@ -88,8 +86,6 @@
+ 	bool gameClientUpdated;			//used to prevent the server part to update to fast when the client is mega slow (running some sort of debug mode)
+ #endif
+ 	
+-	ServerLogHandler log; //TODO make private and add public interface
+-
+ private:
+ 	/**
+ 	@brief catch commands from chat messages and handle them
+
+Modified: trunk/rts/Game/GameVersion.cpp
+===================================================================
+--- trunk/rts/Game/GameVersion.cpp	2008-05-03 20:53:17 UTC (rev 5839)
++++ trunk/rts/Game/GameVersion.cpp	2008-05-03 22:43:43 UTC (rev 5840)
+@@ -7,4 +7,4 @@
+ #include &quot;GameVersion.h&quot;
+ 
+ /** The game version. */
+-const char* const VERSION_STRING = &quot;0.76b1+&quot;;
++const char* const VERSION_STRING = &quot;0.76b1&quot;;
+
+Deleted: trunk/rts/Game/Server/ServerLog.cpp
+===================================================================
+--- trunk/rts/Game/Server/ServerLog.cpp	2008-05-03 20:53:17 UTC (rev 5839)
++++ trunk/rts/Game/Server/ServerLog.cpp	2008-05-03 22:43:43 UTC (rev 5840)
+@@ -1,2 +0,0 @@
+-#include &quot;ServerLog.h&quot;
+-
+
+Deleted: trunk/rts/Game/Server/ServerLog.h
+===================================================================
+--- trunk/rts/Game/Server/ServerLog.h	2008-05-03 20:53:17 UTC (rev 5839)
++++ trunk/rts/Game/Server/ServerLog.h	2008-05-03 22:43:43 UTC (rev 5840)
+@@ -1,17 +0,0 @@
+-#ifndef SERVERLOG_H_
+-#define SERVERLOG_H_
+-
+-#include &lt;string&gt;
+-
+-/** @brief Interface for recieving server log messages
+- * 
+- * Subscibe with this class to ServerLogHandler
+- * */
+-class ServerLog
+-{
+-public:	
+-	virtual void Message(const std::string&amp; message) {};
+-	virtual void Warning(const std::string&amp; message) {};
+-};
+-
+-#endif /*SERVERLOG_H_*/
+
+Deleted: trunk/rts/Game/Server/ServerLogHandler.cpp
+===================================================================
+--- trunk/rts/Game/Server/ServerLogHandler.cpp	2008-05-03 20:53:17 UTC (rev 5839)
++++ trunk/rts/Game/Server/ServerLogHandler.cpp	2008-05-03 22:43:43 UTC (rev 5840)
+@@ -1,56 +0,0 @@
+-#include &quot;ServerLogHandler.h&quot;
+-
+-#include &quot;ServerLog.h&quot;
+-
+-ServerLogHandler::ServerLogHandler()
+-{
+-}
+-
+-ServerLogHandler::~ServerLogHandler()
+-{
+-}
+-
+-void ServerLogHandler::Subscribe(ServerLog* subscriber)
+-{
+-	subscribers.push_back(subscriber);
+-}
+-
+-void ServerLogHandler::Unsubscribe(ServerLog* subscriber)
+-{
+-	for (logList::iterator it = subscribers.begin(); it != subscribers.end(); ++it)
+-	{
+-		if ((*it) == subscriber)
+-		{
+-			subscribers.erase(it);
+-			return;
+-		}
+-	}
+-	// silently ignore when not found
+-}
+-
+-void ServerLogHandler::Message(const std::string&amp; text)
+-{
+-	for (logList::iterator it = subscribers.begin(); it != subscribers.end(); ++it)
+-	{
+-		(*it)-&gt;Message(text);
+-	}
+-}
+-
+-void ServerLogHandler::Message(const boost::format&amp; form)
+-{
+-	Message(str(form));
+-}
+-
+-void ServerLogHandler::Warning(const std::string&amp; text)
+-{
+-	for (logList::iterator it = subscribers.begin(); it != subscribers.end(); ++it)
+-	{
+-		(*it)-&gt;Warning(text);
+-	}
+-}
+-
+-void ServerLogHandler::Warning(const boost::format&amp; form)
+-{
+-	Warning(str(form));
+-}
+-
+
+Deleted: trunk/rts/Game/Server/ServerLogHandler.h
+===================================================================
+--- trunk/rts/Game/Server/ServerLogHandler.h	2008-05-03 20:53:17 UTC (rev 5839)
++++ trunk/rts/Game/Server/ServerLogHandler.h	2008-05-03 22:43:43 UTC (rev 5840)
+@@ -1,33 +0,0 @@
+-#ifndef SERVERLOGHANDLER_H_
+-#define SERVERLOGHANDLER_H_
+-
+-#include &lt;string&gt;
+-#include &lt;list&gt;
+-
+-#include &lt;boost/format.hpp&gt;
+-
+-class ServerLog;
+-
+-/** @brief Class for multicasting server messages
+- * 
+- * */
+-class ServerLogHandler
+-{
+-public:
+-	ServerLogHandler();
+-	~ServerLogHandler();
+-	
+-	void Subscribe(ServerLog* subscriber);
+-	void Unsubscribe(ServerLog* subscriber);
+-	
+-	void Message(const std::string&amp; text);
+-	void Message(const boost::format&amp; form);
+-	void Warning(const std::string&amp; text);
+-	void Warning(const boost::format&amp; form);
+-	
+-private:
+-	typedef std::list&lt;ServerLog*&gt; logList;
+-	logList subscribers;
+-};
+-
+-#endif /*SERVERLOGHANDLER_H_*/
+
+Modified: trunk/rts/System/AutohostInterface.h
+===================================================================
+--- trunk/rts/System/AutohostInterface.h	2008-05-03 20:53:17 UTC (rev 5839)
++++ trunk/rts/System/AutohostInterface.h	2008-05-03 22:43:43 UTC (rev 5840)
+@@ -3,8 +3,6 @@
+ 
+ #include &lt;string&gt;
+ 
+-#include &quot;Game/Server/ServerLog.h&quot;
+-
+ namespace netcode {
+ 	class UDPConnectedSocket;
+ }
+@@ -13,7 +11,7 @@
+ @brief Class to communicate with an autohost (or similar) using UDP over loopback
+ @author Karl-Robert Ernst
+ */
+-class AutohostInterface : public ServerLog
++class AutohostInterface
+ {
+ public:
+ 	typedef unsigned char uchar;
+@@ -37,8 +35,8 @@
+ 	void SendPlayerChat(uchar playerNum, const std::string&amp; msg) const;
+ 	void SendPlayerDefeated(uchar playerNum) const;
+ 	
+-	virtual void Message(const std::string&amp; message);
+-	virtual void Warning(const std::string&amp; message);
++	void Message(const std::string&amp; message);
++	void Warning(const std::string&amp; message);
+ 	
+ 	/**
+ 	@brief Recieve a chat message from the autohost
+
+Modified: trunk/rts/System/Net/Net.cpp
+===================================================================
+--- trunk/rts/System/Net/Net.cpp	2008-05-03 20:53:17 UTC (rev 5839)
++++ trunk/rts/System/Net/Net.cpp	2008-05-03 22:43:43 UTC (rev 5840)
+@@ -234,6 +234,11 @@
+ 	}
+ }
+ 
++void CNet::FlushNet(const unsigned connection)
++{
++	connections[connection]-&gt;Flush(true);
++}
++
+ void CNet::Update()
+ {
+ 	if (udplistener)
+
+Modified: trunk/rts/System/Net/Net.h
+===================================================================
+--- trunk/rts/System/Net/Net.h	2008-05-03 20:53:17 UTC (rev 5839)
++++ trunk/rts/System/Net/Net.h	2008-05-03 22:43:43 UTC (rev 5840)
+@@ -176,6 +176,7 @@
+ 	@brief send all waiting data
+ 	*/
+ 	void FlushNet();
++	void FlushNet(const unsigned connection);
+ 	
+ 	/** 
+ 	@brief Do this from time to time
+
+Deleted: trunk/tools/DedicatedServer/EventPrinter.cpp
+===================================================================
+--- trunk/tools/DedicatedServer/EventPrinter.cpp	2008-05-03 20:53:17 UTC (rev 5839)
++++ trunk/tools/DedicatedServer/EventPrinter.cpp	2008-05-03 22:43:43 UTC (rev 5840)
+@@ -1,19 +0,0 @@
+-#include &quot;EventPrinter.h&quot;
+-
+-#include &lt;iostream&gt;
+-
+-using namespace std;
+-
+-EventPrinter::~EventPrinter()
+-{
+-}
+-
+-void EventPrinter::Message(const std::string&amp; message)
+-{
+-	cout &lt;&lt; message &lt;&lt; endl;
+-}
+-
+-void EventPrinter::Warning(const std::string&amp; message)
+-{
+-	cout &lt;&lt; message &lt;&lt; endl;
+-}
+
+Deleted: trunk/tools/DedicatedServer/EventPrinter.h
+===================================================================
+--- trunk/tools/DedicatedServer/EventPrinter.h	2008-05-03 20:53:17 UTC (rev 5839)
++++ trunk/tools/DedicatedServer/EventPrinter.h	2008-05-03 22:43:43 UTC (rev 5840)
+@@ -1,16 +0,0 @@
+-#ifndef EVENTPRINTER_H_
+-#define EVENTPRINTER_H_
+-
+-#include &quot;Game/Server/ServerLog.h&quot;
+-
+-class EventPrinter : ServerLog
+-{
+-public:
+-	virtual ~EventPrinter();
+-	
+-	virtual void Message(const std::string&amp; message);
+-	virtual void Warning(const std::string&amp; message);
+-};
+-
+-
+-#endif /*EVENTPRINTER_H_*/
+
+Modified: trunk/tools/DedicatedServer/main.cpp
+===================================================================
+--- trunk/tools/DedicatedServer/main.cpp	2008-05-03 20:53:17 UTC (rev 5839)
++++ trunk/tools/DedicatedServer/main.cpp	2008-05-03 22:43:43 UTC (rev 5840)
+@@ -3,7 +3,6 @@
+ #include &quot;GameData.h&quot;
+ #include &quot;System/Platform/FileSystem.h&quot;
+ #include &quot;System/FileSystem/ArchiveScanner.h&quot;
+-#include &quot;EventPrinter.h&quot;
+ 
+ #include &lt;string&gt;
+ #include &lt;iostream&gt;
+@@ -21,7 +20,6 @@
+ 	FileSystemHandler::Initialize(false);
+ 	CGameServer* server = 0;
+ 	CGameSetup* gameSetup = 0;
+-	EventPrinter ep;
+ 
+ 	if (argc &gt; 1)
+ 	{
+@@ -43,7 +41,6 @@
+ 		data-&gt;SetScript(gameSetup-&gt;scriptName);
+ 		
+ 		server = new CGameServer(gameSetup-&gt;hostport, data, gameSetup);
+-		server-&gt;log.Subscribe((ServerLog*)&amp;ep);
+ 		
+ 		if (gameSetup-&gt;autohostport &gt; 0)
+ 			server-&gt;AddAutohostInterface(gameSetup-&gt;autohostport);
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="000619.html">[Taspring-linux-commit] r5839 - in site/trunk: . Documentation	www-root/forums www-root/forums/cache	www-root/forums/styles/spring/template www-root/tpl	www-root/wiki/conf www-root/wiki/data/pages www-root/wiki/inc	www-root/wiki/lib/tpl/default
+</A></li>
+	<LI>Next message: <A HREF="000621.html">[Taspring-linux-commit] r5841 - trunk/rts/Game
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#620">[ date ]</a>
+              <a href="thread.html#620">[ thread ]</a>
+              <a href="subject.html#620">[ subject ]</a>
+              <a href="author.html#620">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>

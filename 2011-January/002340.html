@@ -1,0 +1,195 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<HTML>
+ <HEAD>
+   <TITLE> [Taspring-linux-commit] r7570 - in Lobby/TASClient: . Python/scripts
+   </TITLE>
+   <LINK REL="Index" HREF="http://lists.berlios.de/pipermail/taspring-linux-commit/2011-January/index.html" >
+   <LINK REL="made" HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7570%20-%20in%20Lobby/TASClient%3A%20.%20Python/scripts&In-Reply-To=%3C20110108015325.C7F4A2FD50%40it-l.eu%3E">
+   <META NAME="robots" CONTENT="index,nofollow">
+   <style type="text/css">
+       pre {
+           white-space: pre-wrap;       /* css-2.1, curent FF, Opera, Safari */
+           }
+   </style>
+   <META http-equiv="Content-Type" content="text/html; charset=us-ascii">
+   <LINK REL="Previous"  HREF="002339.html">
+   <LINK REL="Next"  HREF="002341.html">
+ </HEAD>
+ <BODY BGCOLOR="#ffffff">
+   <H1>[Taspring-linux-commit] r7570 - in Lobby/TASClient: . Python/scripts</H1>
+    <B>taspring-linux-commit at lists.berlios.de</B> 
+    <A HREF="mailto:taspring-linux-commit%40lists.berlios.de?Subject=Re%3A%20%5BTaspring-linux-commit%5D%20r7570%20-%20in%20Lobby/TASClient%3A%20.%20Python/scripts&In-Reply-To=%3C20110108015325.C7F4A2FD50%40it-l.eu%3E"
+       TITLE="[Taspring-linux-commit] r7570 - in Lobby/TASClient: . Python/scripts">taspring-linux-commit at lists.berlios.de
+       </A><BR>
+    <I>Sat Jan  8 02:53:25 CET 2011</I>
+    <P><UL>
+        <LI>Previous message: <A HREF="002339.html">[Taspring-linux-commit] r7569 - Lobby/TASClient
+</A></li>
+        <LI>Next message: <A HREF="002341.html">[Taspring-linux-commit] r7571 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2340">[ date ]</a>
+              <a href="thread.html#2340">[ thread ]</a>
+              <a href="subject.html#2340">[ subject ]</a>
+              <a href="author.html#2340">[ author ]</a>
+         </LI>
+       </UL>
+    <HR>  
+<!--beginarticle-->
+<PRE>Author: satirik
+Date: 2011-01-08 02:53:25 +0100 (Sat, 08 Jan 2011)
+New Revision: 7570
+
+Added:
+   Lobby/TASClient/Python/scripts/renamers.py
+Modified:
+   Lobby/TASClient/MainUnit.pas
+   Lobby/TASClient/TASClient.dof
+   Lobby/TASClient/TASClient.res
+   Lobby/TASClient/Utility.pas
+Log:
+* pagecontrolchanged called with no page active bug fixed
+* empty name in user name history bug fixed
+* PYTHON : renamers script added (type /renamers to get the list of every players with non empty name history)
+
+Modified: Lobby/TASClient/MainUnit.pas
+===================================================================
+--- Lobby/TASClient/MainUnit.pas	2011-01-06 18:49:07 UTC (rev 7569)
++++ Lobby/TASClient/MainUnit.pas	2011-01-08 01:53:25 UTC (rev 7570)
+@@ -2798,7 +2798,7 @@
+   Self.FIsRenamed := GetIsRenamed(id);
+   latestName := GetLatestName(id);
+   FNameHistory := GetNameHistory(id);
+-  if LowerCase(Name) &lt;&gt; LowerCase(latestName) then
++  if (latestName &lt;&gt; '') and (LowerCase(Name) &lt;&gt; LowerCase(latestName)) then
+   begin
+     if FNameHistory.IndexOf(latestName) = -1 then
+     begin
+@@ -8454,6 +8454,9 @@
+         s := '';
+         if ContextMenuSelectedClient.GetGroup &lt;&gt; nil then s := ' - ' + ContextMenuSelectedClient.GetGroup.Name;
+         Hint :=  IFF(ContextMenuSelectedClient.GetBotMode,_('{BOT} '),'') + ContextMenuSelectedClient.Name + ' - ' + GetCountryName(ContextMenuSelectedClient.Country) + ' - ' + Ranks[ContextMenuSelectedClient.GetRank] + s + IFF(ContextMenuSelectedClient.GetInGameStatus,_(' - INGAME'),'');
++        // name history
++        if ContextMenuSelectedClient.NameHistory.Count &gt; 0 then
++          Hint := Hint + ' - ('+_('A.K.A.')+' : ' + ContextMenuSelectedClient.NameHistory.CommaText + ')';
+         ClientsListBox.ItemIndex := lastActiveTab.Clients.IndexOf(ContextMenuSelectedClient);
+       end;
+       ContextMenuSelectedClient := nil;
+@@ -9450,7 +9453,8 @@
+   i,j:integer;
+ begin
+   PreferencesForm.ApplyAfterTranslate;
+-  MainPCH.PageControl.OnChange(MainPCH.PageControl);
++  if MainPCH.PageControl.PageCount &gt; 0 then
++    MainPCH.PageControl.OnChange(MainPCH.PageControl);
+   // set focus to TEdit control (we need to do this only once for 1 page only, and TEdit control will always receive focus with any new page):
+   //(PageControl1.ActivePage.Controls[0] as TTntMemo).SetFocus;
+ 
+
+Added: Lobby/TASClient/Python/scripts/renamers.py
+===================================================================
+--- Lobby/TASClient/Python/scripts/renamers.py	                        (rev 0)
++++ Lobby/TASClient/Python/scripts/renamers.py	2011-01-08 01:53:25 UTC (rev 7570)
+@@ -0,0 +1,27 @@
++import lobbyscript
++
++api = lobbyscript.Callback()
++gui = lobbyscript.GUI()
++
++colors = gui.GetColors()
++
++def cmd_renamers():
++	users = api.GetUsers()
++	
++	gui.AddToRichEdit('$local', '', colors['Info'])
++	gui.AddToRichEdit('$local', '----------------------------------------', colors['Info'])
++	gui.AddToRichEdit('$local', 'Renamers (sorted by name history size) :', colors['Info'])
++	gui.AddToRichEdit('$local', '----------------------------------------', colors['Info'])
++	
++	renamers = list()
++	
++	for userName,userData in users.items():
++		if len(userData['NameHistory'])&gt;0:
++			renamers.append(userData)
++	
++	renamersSorted = sorted(renamers, key=lambda renamer: len(renamer['NameHistory']), reverse=True)
++	
++	for renamer in renamersSorted:
++		gui.AddToRichEdit('$local', '['+str(len(renamer['NameHistory']))+'] '+renamer['Name']+' (A.K.A. : '+', '.join(renamer['NameHistory'])+')', colors['Info'])
++	
++	return True
+\ No newline at end of file
+
+Modified: Lobby/TASClient/TASClient.dof
+===================================================================
+--- Lobby/TASClient/TASClient.dof	2011-01-06 18:49:07 UTC (rev 7569)
++++ Lobby/TASClient/TASClient.dof	2011-01-08 01:53:25 UTC (rev 7570)
+@@ -115,7 +115,7 @@
+ MajorVer=0
+ MinorVer=84
+ Release=0
+-Build=1214
++Build=1218
+ Debug=0
+ PreRelease=0
+ Special=0
+@@ -126,7 +126,7 @@
+ [Version Info Keys]
+ CompanyName=
+ FileDescription=Spring RTS Engine lobby client
+-FileVersion=0.84.0.1214
++FileVersion=0.84.0.1218
+ InternalName=
+ LegalCopyright=
+ LegalTrademarks=
+
+Modified: Lobby/TASClient/TASClient.res
+===================================================================
+(Binary files differ)
+
+Modified: Lobby/TASClient/Utility.pas
+===================================================================
+--- Lobby/TASClient/Utility.pas	2011-01-06 18:49:07 UTC (rev 7569)
++++ Lobby/TASClient/Utility.pas	2011-01-08 01:53:25 UTC (rev 7570)
+@@ -420,11 +420,16 @@
+ function InitLib: Boolean;
+ var
+   springVersion: string;
++  hDll: Cardinal;
++  pGetSpringVersionPatchset: Pointer;
+ begin
+   ChDir(ExtractFilePath(Application.ExeName));
+   Result := True;
+   springVersion := GetSpringVersion;
+-  if springVersion = '0.82.7' then
++  hDll := LoadLibrary('unitsync.dll');
++  pGetSpringVersionPatchset := GetProcAddress(hDll,'GetSpringVersionPatchset');
++  FreeLibrary(hDll);
++  if (springVersion = '0.82.7') and (pGetSpringVersionPatchset = nil) then
+     Result := InitEx(False,0,True) = 1
+   else
+     Result := Init(False,0) = 1;
+
+
+</PRE>
+
+<!--endarticle-->
+    <HR>
+    <P><UL>
+        <!--threads-->
+	<LI>Previous message: <A HREF="002339.html">[Taspring-linux-commit] r7569 - Lobby/TASClient
+</A></li>
+	<LI>Next message: <A HREF="002341.html">[Taspring-linux-commit] r7571 - Lobby/TASClient
+</A></li>
+         <LI> <B>Messages sorted by:</B> 
+              <a href="date.html#2340">[ date ]</a>
+              <a href="thread.html#2340">[ thread ]</a>
+              <a href="subject.html#2340">[ subject ]</a>
+              <a href="author.html#2340">[ author ]</a>
+         </LI>
+       </UL>
+
+<hr>
+<a href="https://lists.berlios.de/mailman/listinfo/taspring-linux-commit">More information about the Taspring-linux-commit
+mailing list</a><br>
+</body></html>
